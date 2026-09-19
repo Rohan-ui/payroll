@@ -7,8 +7,10 @@ export type AppView =
   | 'payroll'
   | 'people'
   | 'employee-detail'
+  | 'add-employee'
   | 'attendance'
   | 'payslips'
+  | 'bookkeeping'
   | 'reports'
   | 'settings'
   | 'help';
@@ -19,6 +21,7 @@ export interface BankDetails {
   bankName: string;
   branchName?: string;
   accountNumberMasked: string;
+  accountNumber?: string;
   ifsc: string;
   isValidIfsc: boolean;
 }

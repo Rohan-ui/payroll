@@ -16,7 +16,16 @@ export interface CreateEmployeeInput {
   joiningDate: string;
   branchId?: string;
   departmentId?: string;
+  departmentName?: string;
   designationId?: string;
+  designationName?: string;
+  bankDetails?: {
+    bankName: string;
+    branchName?: string;
+    accountNumber: string;
+    ifsc: string;
+    accountHolderName?: string;
+  };
 }
 
 export interface AddBankAccountInput {
@@ -185,19 +194,93 @@ export class EmployeesService {
         },
       });
 
+      // Dynamic Department resolution or auto-creation
+      let departmentId = input.departmentId || null;
+      if (!departmentId && input.departmentName?.trim()) {
+        const deptName = input.departmentName.trim();
+        let dept = await tx.rndtechnosoft_departments.findFirst({
+          where: {
+            tenant_id: tenantId,
+            department_name: { equals: deptName, mode: 'insensitive' },
+          },
+        });
+        if (!dept) {
+          const deptCode = deptName.toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 32) || `DEPT_${Date.now()}`;
+          dept = await tx.rndtechnosoft_departments.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              department_name: deptName,
+              department_code: deptCode,
+              department_status: 'ACTIVE',
+            },
+          });
+        }
+        departmentId = dept.id;
+      }
+
+      // Dynamic Designation resolution or auto-creation
+      let designationId = input.designationId || null;
+      if (!designationId && input.designationName?.trim()) {
+        const desigName = input.designationName.trim();
+        let desig = await tx.rndtechnosoft_designations.findFirst({
+          where: {
+            tenant_id: tenantId,
+            designation_name: { equals: desigName, mode: 'insensitive' },
+          },
+        });
+        if (!desig) {
+          const desigCode = desigName.toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 32) || `DESIG_${Date.now()}`;
+          desig = await tx.rndtechnosoft_designations.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              designation_name: desigName,
+              designation_code: desigCode,
+              designation_status: 'ACTIVE',
+            },
+          });
+        }
+        designationId = desig.id;
+      }
+
       await tx.rndtechnosoft_employee_employments.create({
         data: {
           id: employmentId,
           tenant_id: tenantId,
           employee_id: employeeId,
           branch_id: input.branchId || null,
-          department_id: input.departmentId || null,
-          designation_id: input.designationId || null,
+          department_id: departmentId,
+          designation_id: designationId,
           joining_date: joiningDate,
           effective_from: joiningDate,
           employment_status: 'CONFIRMED',
         },
       });
+
+      // Automatically create bank account if details provided
+      if (input.bankDetails && input.bankDetails.accountNumber && input.bankDetails.ifsc) {
+        const last4 = input.bankDetails.accountNumber.slice(-4);
+        await tx.rndtechnosoft_employee_bank_accounts.create({
+          data: {
+            id: randomUUID(),
+            tenant_id: tenantId,
+            employee_id: employeeId,
+            account_holder_name:
+              input.bankDetails.accountHolderName ||
+              `${input.firstName} ${input.lastName || ''}`.trim(),
+            bank_name: input.bankDetails.bankName,
+            branch_name: input.bankDetails.branchName || null,
+            account_number_encrypted: `ENC[${input.bankDetails.accountNumber}]`,
+            account_number_last4: last4,
+            bank_code_type: 'IFSC',
+            bank_code: input.bankDetails.ifsc.toUpperCase(),
+            account_type: 'SAVINGS',
+            effective_from: joiningDate,
+            bank_account_status: 'ACTIVE',
+          },
+        });
+      }
 
       return employee;
     });
@@ -241,5 +324,44 @@ export class EmployeesService {
         },
       });
     });
+  }
+
+  async getDepartments(tenantId: string) {
+    return this.prisma.rndtechnosoft_departments.findMany({
+      where: { tenant_id: tenantId, department_status: 'ACTIVE' },
+      select: { id: true, department_code: true, department_name: true },
+      orderBy: { department_name: 'asc' },
+    });
+  }
+
+  async getDesignations(tenantId: string) {
+    return this.prisma.rndtechnosoft_designations.findMany({
+      where: { tenant_id: tenantId, designation_status: 'ACTIVE' },
+      select: { id: true, designation_code: true, designation_name: true },
+      orderBy: { designation_name: 'asc' },
+    });
+  }
+
+  async verifyIfsc(code: string) {
+    try {
+      const ifscClean = code.trim().toUpperCase();
+      const res = await fetch(`https://ifsc.razorpay.com/${ifscClean}`);
+      if (!res.ok) {
+        return { valid: false, message: 'Invalid IFSC code' };
+      }
+      const data = await res.json();
+      return {
+        valid: true,
+        bank: data.BANK,
+        branch: data.BRANCH,
+        address: data.ADDRESS,
+        city: data.CITY,
+        state: data.STATE,
+        ifsc: data.IFSC,
+        micr: data.MICR,
+      };
+    } catch {
+      return { valid: false, message: 'IFSC verification service unreachable' };
+    }
   }
 }

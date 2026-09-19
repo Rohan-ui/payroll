@@ -10,6 +10,7 @@ import {
   LogOut,
   Banknote,
   Building2,
+  BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePayroll } from '../../context/PayrollContext';
@@ -30,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'payroll',    label: 'Payroll',      icon: Banknote,        roles: ['ADMIN', 'HR_ACCOUNTANT'] },
   { id: 'attendance', label: 'Attendance',   icon: CalendarDays,    roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER'] },
   { id: 'payslips',   label: 'Payslips',     icon: FileText,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },
+  { id: 'bookkeeping',label: 'Bookkeeping',  icon: BookOpen,        roles: ['ADMIN', 'HR_ACCOUNTANT'] },
   { id: 'reports',    label: 'Reports',      icon: BarChart2,       roles: ['ADMIN', 'HR_ACCOUNTANT'] },
   { id: 'settings',   label: 'Compliance',   icon: Settings,        roles: ['ADMIN', 'HR_ACCOUNTANT'] },
   { id: 'help',       label: 'Help',         icon: HelpCircle,      roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },

@@ -3,6 +3,8 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { DecimalMath } from '@/common/utils/decimal-math.util';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { BookkeepingService } from '../bookkeeping/bookkeeping.service';
+import { FinancialYearsService } from '../bookkeeping/financial-years.service';
 
 export interface CreatePayrollPeriodInput {
   periodCode: string;
@@ -31,7 +33,11 @@ interface CalculatedLine {
 
 @Injectable()
 export class PayrollService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bookkeepingService: BookkeepingService,
+    private readonly financialYearsService: FinancialYearsService,
+  ) {}
 
   async createPeriod(tenantId: string, input: CreatePayrollPeriodInput) {
     const existing = await this.prisma.rndtechnosoft_payroll_periods.findFirst({
@@ -49,10 +55,14 @@ export class PayrollService {
       throw new BadRequestException('periodEnd cannot be earlier than periodStart');
     }
 
+    // Auto-resolve Financial Year
+    const fy = await this.financialYearsService.ensureFinancialYear(tenantId, endDate);
+
     return this.prisma.rndtechnosoft_payroll_periods.create({
       data: {
         id: randomUUID(),
         tenant_id: tenantId,
+        financial_year_id: fy.id,
         period_code: input.periodCode,
         pay_frequency: input.payFrequency || 'MONTHLY',
         period_start: startDate,
@@ -469,7 +479,7 @@ export class PayrollService {
       }
 
       // Mark run as FINALIZED
-      return tx.rndtechnosoft_payroll_runs.update({
+      const finalizedRun = await tx.rndtechnosoft_payroll_runs.update({
         where: { id: runId },
         data: {
           run_status: 'FINALIZED',
@@ -477,6 +487,15 @@ export class PayrollService {
           finalized_by_tenant_member_id: finalizerTenantMemberId || null,
         },
       });
+
+      // Automatically post double-entry payroll accrual voucher into general ledger
+      try {
+        await this.bookkeepingService.postPayrollRunAccrual(tenantId, runId, tx);
+      } catch (err) {
+        console.error('Failed to post bookkeeping accrual voucher:', err);
+      }
+
+      return finalizedRun;
     });
   }
 

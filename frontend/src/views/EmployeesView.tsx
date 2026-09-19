@@ -22,19 +22,9 @@ const STATUS_LABEL: Record<Employee['status'], string> = {
 const DEPARTMENTS = ['All', 'Engineering', 'Sales', 'HR', 'Operations'];
 
 export const EmployeesView: React.FC = () => {
-  const { employees, setCurrentView, setSelectedEmployeeId, addEmployee, isLoading } = usePayroll();
+  const { employees, setCurrentView, setSelectedEmployeeId, isLoading } = usePayroll();
   const [search, setSearch] = useState('');
   const [dept, setDept] = useState('All');
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  // Add employee form state
-  const [form, setForm] = useState({
-    code: '', name: '', department: 'Engineering', designation: '',
-    workEmail: '', mobileNumber: '', joiningDate: '',
-    grossSalary: '', bankName: '', accountNumber: '', ifsc: '',
-  });
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const filtered = employees.filter((e) => {
     const matchSearch =
@@ -51,37 +41,6 @@ export const EmployeesView: React.FC = () => {
     setCurrentView('employee-detail');
   };
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.name || !form.workEmail) {
-      setFormError('Name and work email are required.');
-      return;
-    }
-    setSaving(true);
-    setFormError('');
-    try {
-      await addEmployee({
-        code: form.code,
-        name: form.name,
-        department: form.department,
-        designation: form.designation,
-        workEmail: form.workEmail,
-        mobileNumber: form.mobileNumber,
-        joiningDate: form.joiningDate || new Date().toISOString().split('T')[0],
-        bank: { bankName: form.bankName, ifsc: form.ifsc, accountNumberMasked: form.accountNumber, accountHolder: form.name, isValidIfsc: !!form.ifsc },
-      });
-      setShowAddModal(false);
-      setForm({ code: '', name: '', department: 'Engineering', designation: '', workEmail: '', mobileNumber: '', joiningDate: '', grossSalary: '', bankName: '', accountNumber: '', ifsc: '' });
-    } catch {
-      setFormError('Failed to add employee. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const inputClass =
-    'w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent';
-
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -90,7 +49,11 @@ export const EmployeesView: React.FC = () => {
           <h1 className="text-xl font-bold text-slate-800">People</h1>
           <p className="text-sm text-slate-500 mt-0.5">{filtered.length} of {employees.length} employees</p>
         </div>
-        <Button variant="primary" onClick={() => setShowAddModal(true)} className="gap-2 self-start sm:self-auto">
+        <Button
+          variant="primary"
+          onClick={() => setCurrentView('add-employee')}
+          className="gap-2 self-start sm:self-auto shadow-sm"
+        >
           <UserPlus className="w-4 h-4" /> Add Employee
         </Button>
       </div>
@@ -130,7 +93,20 @@ export const EmployeesView: React.FC = () => {
         <Card className="text-center py-16">
           <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-500">No employees found</p>
-          <p className="text-xs text-slate-400 mt-1">Try adjusting your search or filter</p>
+          <p className="text-xs text-slate-400 mt-1 mb-4">
+            {employees.length === 0
+              ? 'Get started by creating your first employee profile.'
+              : 'Try adjusting your search or filter'}
+          </p>
+          {employees.length === 0 && (
+            <Button
+              variant="primary"
+              onClick={() => setCurrentView('add-employee')}
+              className="gap-2 mx-auto"
+            >
+              <UserPlus className="w-4 h-4" /> Add Employee
+            </Button>
+          )}
         </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -139,7 +115,7 @@ export const EmployeesView: React.FC = () => {
               key={emp.id}
               padded={false}
               onClick={() => handleRowClick(emp)}
-              className="p-4 flex items-center gap-3 hover:border-teal-200 transition-colors"
+              className="p-4 flex items-center gap-3 hover:border-teal-200 transition-colors cursor-pointer"
             >
               <Avatar
                 name={emp.name}
@@ -160,91 +136,6 @@ export const EmployeesView: React.FC = () => {
               <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
             </Card>
           ))}
-        </div>
-      )}
-
-      {/* ── Add Employee Modal ── */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-bold text-slate-800">Add New Employee</h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded-lg"
-                aria-label="Close"
-              >
-                <Plus className="w-5 h-5 rotate-45" />
-              </button>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleAdd} className="px-6 py-5 space-y-4 overflow-y-auto max-h-[70vh]">
-              {formError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2 text-xs">
-                  {formError}
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Employee Code</label>
-                  <input className={inputClass} placeholder="RND009" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Full Name *</label>
-                  <input className={inputClass} placeholder="Priya Sharma" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Department</label>
-                  <select className={inputClass} value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}>
-                    {['Engineering', 'Sales', 'HR', 'Operations', 'Finance', 'Marketing'].map((d) => <option key={d}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Designation</label>
-                  <input className={inputClass} placeholder="Senior Engineer" value={form.designation} onChange={(e) => setForm({ ...form, designation: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Work Email *</label>
-                <input className={inputClass} type="email" placeholder="priya@company.in" required value={form.workEmail} onChange={(e) => setForm({ ...form, workEmail: e.target.value })} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Mobile</label>
-                  <input className={inputClass} placeholder="9876543210" value={form.mobileNumber} onChange={(e) => setForm({ ...form, mobileNumber: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Joining Date</label>
-                  <input className={inputClass} type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} />
-                </div>
-              </div>
-              <div className="border-t border-slate-100 pt-3">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Bank Details</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Bank Name</label>
-                    <input className={inputClass} placeholder="HDFC Bank" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">IFSC Code</label>
-                    <input className={`${inputClass} font-mono`} placeholder="HDFC0001234" value={form.ifsc} onChange={(e) => setForm({ ...form, ifsc: e.target.value.toUpperCase() })} />
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Account Number</label>
-                  <input className={`${inputClass} font-mono`} placeholder="50100123456789" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-2 sticky bottom-0 bg-white pb-1">
-                <Button type="button" variant="outline" onClick={() => setShowAddModal(false)} className="flex-1">Cancel</Button>
-                <Button type="submit" variant="primary" loading={saving} className="flex-1">Add Employee</Button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
     </div>

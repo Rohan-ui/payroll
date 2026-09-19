@@ -28,6 +28,21 @@ export class EmployeesController {
     return this.employeesService.listEmployees(tenantId, page, limit, search);
   }
 
+  @Get('meta/departments')
+  async getDepartments(@CurrentTenant() tenantId: string) {
+    return this.employeesService.getDepartments(tenantId);
+  }
+
+  @Get('meta/designations')
+  async getDesignations(@CurrentTenant() tenantId: string) {
+    return this.employeesService.getDesignations(tenantId);
+  }
+
+  @Get('meta/ifsc/:code')
+  async verifyIfsc(@Param('code') code: string) {
+    return this.employeesService.verifyIfsc(code);
+  }
+
   @Get(':id')
   async getOne(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.employeesService.getEmployeeById(tenantId, id);

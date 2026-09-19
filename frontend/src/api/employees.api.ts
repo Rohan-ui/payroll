@@ -53,13 +53,24 @@ export const employeesApi = {
   create: async (data: {
     employeeCode: string;
     firstName: string;
+    middleName?: string;
     lastName?: string;
     workEmail?: string;
+    personalEmail?: string;
     workMobile?: string;
     joiningDate: string;
     departmentId?: string;
+    departmentName?: string;
     branchId?: string;
     designationId?: string;
+    designationName?: string;
+    bankDetails?: {
+      bankName: string;
+      branchName?: string;
+      accountNumber: string;
+      ifsc: string;
+      accountHolderName?: string;
+    };
   }): Promise<BackendEmployee> => {
     return apiClient.post<BackendEmployee>('/employees', data);
   },
@@ -78,5 +89,27 @@ export const employeesApi = {
       ...data,
       bankCodeType: 'IFSC',
     });
+  },
+
+  getDepartments: async (): Promise<{ id: string; department_code: string; department_name: string }[]> => {
+    return apiClient.get('/employees/meta/departments');
+  },
+
+  getDesignations: async (): Promise<{ id: string; designation_code: string; designation_name: string }[]> => {
+    return apiClient.get('/employees/meta/designations');
+  },
+
+  verifyIfsc: async (code: string): Promise<{
+    valid: boolean;
+    bank?: string;
+    branch?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    ifsc?: string;
+    micr?: string;
+    message?: string;
+  }> => {
+    return apiClient.get(`/employees/meta/ifsc/${encodeURIComponent(code.trim().toUpperCase())}`);
   },
 };

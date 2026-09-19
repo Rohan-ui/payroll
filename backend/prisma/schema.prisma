@@ -920,21 +920,24 @@ model rndtechnosoft_payroll_payments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model rndtechnosoft_payroll_periods {
-  id                              String                            @id @db.Uuid
-  tenant_id                       String                            @db.Uuid
-  period_code                     String                            @db.VarChar(64)
-  pay_frequency                   String                            @db.VarChar(32)
-  period_start                    DateTime                          @db.Date
-  period_end                      DateTime                          @db.Date
-  payment_date                    DateTime?                         @db.Date
-  period_status                   String                            @default("OPEN") @db.VarChar(32)
-  created_at                      DateTime                          @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                      DateTime                          @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_loan_installments rndtechnosoft_loan_installments[]
-  rndtechnosoft_payroll_inputs    rndtechnosoft_payroll_inputs[]
-  rndtechnosoft_tenants           rndtechnosoft_tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_periods_1")
-  rndtechnosoft_payroll_runs      rndtechnosoft_payroll_runs[]
-  rndtechnosoft_payslips          rndtechnosoft_payslips[]
+  id                                String                              @id @db.Uuid
+  tenant_id                         String                              @db.Uuid
+  financial_year_id                 String?                             @db.Uuid
+  period_code                       String                              @db.VarChar(64)
+  pay_frequency                     String                              @db.VarChar(32)
+  period_start                      DateTime                            @db.Date
+  period_end                        DateTime                            @db.Date
+  payment_date                      DateTime?                           @db.Date
+  period_status                     String                              @default("OPEN") @db.VarChar(32)
+  created_at                        DateTime                            @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                        DateTime                            @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_loan_installments   rndtechnosoft_loan_installments[]
+  rndtechnosoft_payroll_inputs      rndtechnosoft_payroll_inputs[]
+  rndtechnosoft_tenants             rndtechnosoft_tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_periods_1")
+  rndtechnosoft_financial_years     rndtechnosoft_financial_years?      @relation(fields: [tenant_id, financial_year_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_periods_fy")
+  rndtechnosoft_payroll_runs        rndtechnosoft_payroll_runs[]
+  rndtechnosoft_payslips            rndtechnosoft_payslips[]
+  rndtechnosoft_bookkeeping_entries rndtechnosoft_bookkeeping_entries[]
 
   @@unique([tenant_id, period_code], map: "uq_payroll_periods_1")
   @@unique([tenant_id, id], map: "uq_payroll_periods_tenant_id")
@@ -993,6 +996,7 @@ model rndtechnosoft_payroll_runs {
   rndtechnosoft_tenant_members_rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members  rndtechnosoft_tenant_members?           @relation("rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members", fields: [tenant_id, approved_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_runs_3")
   rndtechnosoft_tenant_members_rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members rndtechnosoft_tenant_members?           @relation("rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members", fields: [tenant_id, finalized_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_runs_4")
   rndtechnosoft_payslips                                                                                                        rndtechnosoft_payslips[]
+  rndtechnosoft_bookkeeping_entries                                                                                             rndtechnosoft_bookkeeping_entries[]
 
   @@unique([tenant_id, run_number], map: "uq_payroll_runs_1")
   @@unique([tenant_id, id], map: "uq_payroll_runs_tenant_id")
@@ -1489,6 +1493,10 @@ model rndtechnosoft_tenants {
   rndtechnosoft_tenant_settings                rndtechnosoft_tenant_settings?
   rndtechnosoft_tenant_statutory_registrations rndtechnosoft_tenant_statutory_registrations[]
   rndtechnosoft_tenant_subscriptions           rndtechnosoft_tenant_subscriptions[]
+  rndtechnosoft_financial_years                rndtechnosoft_financial_years[]
+  rndtechnosoft_accounting_ledgers             rndtechnosoft_accounting_ledgers[]
+  rndtechnosoft_bookkeeping_entries            rndtechnosoft_bookkeeping_entries[]
+  rndtechnosoft_financial_year_ledger_balances rndtechnosoft_financial_year_ledger_balances[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1506,4 +1514,117 @@ model rndtechnosoft_users {
   rndtechnosoft_audit_logs     rndtechnosoft_audit_logs[]
   rndtechnosoft_employees      rndtechnosoft_employees[]
   rndtechnosoft_tenant_members rndtechnosoft_tenant_members[]
+}
+
+model rndtechnosoft_financial_years {
+  id                                           String                                          @id @db.Uuid
+  tenant_id                                    String                                          @db.Uuid
+  financial_year_code                          String                                          @db.VarChar(32)
+  financial_year_name                          String                                          @db.VarChar(120)
+  start_date                                   DateTime                                        @db.Date
+  end_date                                     DateTime                                        @db.Date
+  assessment_year                              String?                                         @db.VarChar(32)
+  is_current                                   Boolean                                         @default(false)
+  is_closed                                    Boolean                                         @default(false)
+  closed_at                                    DateTime?                                       @db.Timestamptz(6)
+  closed_by_tenant_member_id                   String?                                         @db.Uuid
+  notes                                        String?                                         @db.VarChar(500)
+  created_at                                   DateTime                                        @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                                   DateTime                                        @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants                        rndtechnosoft_tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_financial_years_tenant")
+  rndtechnosoft_payroll_periods                rndtechnosoft_payroll_periods[]
+  rndtechnosoft_bookkeeping_entries            rndtechnosoft_bookkeeping_entries[]
+  rndtechnosoft_financial_year_ledger_balances rndtechnosoft_financial_year_ledger_balances[]
+
+  @@unique([tenant_id, financial_year_code], map: "uq_financial_years_1")
+  @@unique([tenant_id, id], map: "uq_financial_years_tenant_id")
+  @@index([tenant_id, start_date, end_date], map: "ix_financial_years_1")
+}
+
+model rndtechnosoft_accounting_ledgers {
+  id                                           String                                          @id @db.Uuid
+  tenant_id                                    String                                          @db.Uuid
+  ledger_code                                  String                                          @db.VarChar(64)
+  ledger_name                                  String                                          @db.VarChar(160)
+  account_category                             String                                          @db.VarChar(32)
+  normal_balance                               String                                          @default("DEBIT") @db.VarChar(16)
+  currency_code                                String                                          @default("INR") @db.Char(3)
+  is_system                                    Boolean                                         @default(true)
+  is_active                                    Boolean                                         @default(true)
+  description                                  String?                                         @db.VarChar(500)
+  created_at                                   DateTime                                        @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                                   DateTime                                        @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants                        rndtechnosoft_tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_accounting_ledgers_tenant")
+  rndtechnosoft_bookkeeping_entry_lines        rndtechnosoft_bookkeeping_entry_lines[]
+  rndtechnosoft_financial_year_ledger_balances rndtechnosoft_financial_year_ledger_balances[]
+
+  @@unique([tenant_id, ledger_code], map: "uq_accounting_ledgers_1")
+  @@unique([tenant_id, id], map: "uq_accounting_ledgers_tenant_id")
+  @@index([tenant_id, account_category], map: "ix_accounting_ledgers_1")
+}
+
+model rndtechnosoft_bookkeeping_entries {
+  id                                    String                                  @id @db.Uuid
+  tenant_id                             String                                  @db.Uuid
+  financial_year_id                     String                                  @db.Uuid
+  payroll_run_id                        String?                                 @db.Uuid
+  payroll_period_id                     String?                                 @db.Uuid
+  voucher_number                        String                                  @db.VarChar(64)
+  voucher_date                          DateTime                                @db.Date
+  voucher_type                          String                                  @default("PAYROLL_ACCRUAL") @db.VarChar(32)
+  total_debit                           Decimal                                 @default(0) @db.Decimal(18, 2)
+  total_credit                          Decimal                                 @default(0) @db.Decimal(18, 2)
+  narration                             String                                  @db.VarChar(500)
+  entry_status                          String                                  @default("POSTED") @db.VarChar(32)
+  posted_at                             DateTime?                               @db.Timestamptz(6)
+  created_at                            DateTime                                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                            DateTime                                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants                 rndtechnosoft_tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookkeeping_entries_tenant")
+  rndtechnosoft_financial_years         rndtechnosoft_financial_years           @relation(fields: [tenant_id, financial_year_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookkeeping_entries_fy")
+  rndtechnosoft_payroll_runs            rndtechnosoft_payroll_runs?             @relation(fields: [tenant_id, payroll_run_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookkeeping_entries_run")
+  rndtechnosoft_payroll_periods         rndtechnosoft_payroll_periods?          @relation(fields: [tenant_id, payroll_period_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookkeeping_entries_period")
+  rndtechnosoft_bookkeeping_entry_lines rndtechnosoft_bookkeeping_entry_lines[]
+
+  @@unique([tenant_id, voucher_number], map: "uq_bookkeeping_entries_1")
+  @@unique([tenant_id, id], map: "uq_bookkeeping_entries_tenant_id")
+  @@index([tenant_id, financial_year_id, voucher_date], map: "ix_bookkeeping_entries_1")
+  @@index([tenant_id, payroll_run_id], map: "ix_bookkeeping_entries_2")
+}
+
+model rndtechnosoft_bookkeeping_entry_lines {
+  id                                String                            @id @db.Uuid
+  tenant_id                         String                            @db.Uuid
+  bookkeeping_entry_id              String                            @db.Uuid
+  ledger_id                         String                            @db.Uuid
+  line_number                       Int
+  entry_side                        String                            @db.VarChar(16)
+  amount                            Decimal                           @db.Decimal(18, 2)
+  narration                         String?                           @db.VarChar(255)
+  created_at                        DateTime                          @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_bookkeeping_entries rndtechnosoft_bookkeeping_entries @relation(fields: [tenant_id, bookkeeping_entry_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bookkeeping_entry_lines_entry")
+  rndtechnosoft_accounting_ledgers  rndtechnosoft_accounting_ledgers  @relation(fields: [tenant_id, ledger_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookkeeping_entry_lines_ledger")
+
+  @@unique([tenant_id, id], map: "uq_bookkeeping_entry_lines_tenant_id")
+  @@index([tenant_id, bookkeeping_entry_id, line_number], map: "ix_bookkeeping_entry_lines_1")
+  @@index([tenant_id, ledger_id], map: "ix_bookkeeping_entry_lines_2")
+}
+
+model rndtechnosoft_financial_year_ledger_balances {
+  id                               String                           @id @db.Uuid
+  tenant_id                        String                           @db.Uuid
+  financial_year_id                String                           @db.Uuid
+  ledger_id                        String                           @db.Uuid
+  opening_balance                  Decimal                          @default(0) @db.Decimal(18, 2)
+  total_debits                     Decimal                          @default(0) @db.Decimal(18, 2)
+  total_credits                    Decimal                          @default(0) @db.Decimal(18, 2)
+  closing_balance                  Decimal                          @default(0) @db.Decimal(18, 2)
+  created_at                       DateTime                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                       DateTime                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants            rndtechnosoft_tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fy_balances_tenant")
+  rndtechnosoft_financial_years    rndtechnosoft_financial_years    @relation(fields: [tenant_id, financial_year_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fy_balances_fy")
+  rndtechnosoft_accounting_ledgers rndtechnosoft_accounting_ledgers @relation(fields: [tenant_id, ledger_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fy_balances_ledger")
+
+  @@unique([tenant_id, financial_year_id, ledger_id], map: "uq_fy_ledger_balances_1")
+  @@unique([tenant_id, id], map: "uq_fy_ledger_balances_tenant_id")
+  @@index([tenant_id, financial_year_id], map: "ix_fy_ledger_balances_1")
 }

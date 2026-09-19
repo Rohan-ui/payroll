@@ -331,35 +331,35 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const firstName = names[0] || 'Staff';
       const lastName = names.slice(1).join(' ') || '';
 
-      const created = await employeesApi.create({
+      const rawAccount =
+        empData.bankAccountNumber ||
+        empData.bank?.accountNumber ||
+        empData.bank?.accountNumberMasked?.replace(/[^0-9]/g, '') ||
+        '';
+      const ifsc = empData.bank?.ifsc || '';
+
+      const bankDetails =
+        rawAccount && ifsc
+          ? {
+              bankName: empData.bank?.bankName || 'Unknown Bank',
+              branchName: empData.bank?.branchName,
+              accountNumber: rawAccount,
+              ifsc: ifsc.toUpperCase(),
+              accountHolderName: empData.bank?.accountHolder || empData.name || `${firstName} ${lastName}`.trim(),
+            }
+          : undefined;
+
+      await employeesApi.create({
         employeeCode: empData.code || `EMP${Date.now().toString().slice(-4)}`,
         firstName,
         lastName,
         workEmail: empData.workEmail || `${firstName.toLowerCase()}@acme.com`,
         workMobile: empData.mobileNumber || '+91 98765 43210',
-        joiningDate: empData.joiningDate || '2026-10-01',
+        joiningDate: empData.joiningDate || new Date().toISOString().split('T')[0],
+        departmentName: empData.department,
+        designationName: empData.designation,
+        bankDetails,
       });
-
-      const rawAccount =
-        empData.bankAccountNumber ||
-        (empData.bank as any)?.accountNumber ||
-        empData.bank?.accountNumberMasked?.replace(/[^0-9]/g, '') ||
-        '50100456789123';
-      const ifsc = empData.bank?.ifsc || 'HDFC0000240';
-
-      if (created?.id) {
-        try {
-          await employeesApi.addBankAccount(created.id, {
-            accountHolderName: empData.name || `${firstName} ${lastName}`,
-            bankName: empData.bank?.bankName || 'HDFC Bank',
-            accountNumber: rawAccount.length >= 4 ? rawAccount : '50100456789123',
-            bankCode: ifsc,
-            effectiveFrom: empData.joiningDate || '2026-10-01',
-          });
-        } catch (bankErr) {
-          console.warn('Bank account could not be attached immediately:', bankErr);
-        }
-      }
 
       await refreshData();
     } catch (err: any) {

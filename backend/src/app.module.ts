@@ -10,6 +10,7 @@ import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { SalaryModule } from './modules/salary/salary.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
+import { BookkeepingModule } from './modules/bookkeeping/bookkeeping.module';
 import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 
 @Module({
@@ -27,6 +28,7 @@ import { TenantContextMiddleware } from './common/middleware/tenant-context.midd
     LeaveModule,
     SalaryModule,
     PayrollModule,
+    BookkeepingModule,
     HealthModule,
   ],
 })

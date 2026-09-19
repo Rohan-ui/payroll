@@ -18,6 +18,8 @@ import { PayslipsView } from './views/PayslipsView';
 import { ReportsView } from './views/ReportsView';
 import { ComplianceSettingsView } from './views/ComplianceSettingsView';
 import { HelpView } from './views/HelpView';
+import { AddEmployeeView } from './views/AddEmployeeView';
+import { BookkeepingView } from './views/BookkeepingView';
 
 const MainContent: React.FC = () => {
   const { currentView, role } = usePayroll();
@@ -34,9 +36,11 @@ const MainContent: React.FC = () => {
       case 'dashboard':       return <DashboardView />;
       case 'payroll':         return <RunPayrollWizardView />;
       case 'people':          return <EmployeesView />;
+      case 'add-employee':    return <AddEmployeeView />;
       case 'employee-detail': return <EmployeeDetailView />;
       case 'attendance':      return <AttendanceView />;
       case 'payslips':        return <PayslipsView />;
+      case 'bookkeeping':     return <BookkeepingView />;
       case 'reports':         return <ReportsView />;
       case 'settings':        return <ComplianceSettingsView />;
       case 'help':            return <HelpView />;
