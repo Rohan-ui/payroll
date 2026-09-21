@@ -19,6 +19,7 @@ interface PayrollContextType {
   setRole: (role: UserRole) => void;
   employees: Employee[];
   addEmployee: (emp: Partial<Employee>) => Promise<void>;
+  updateEmployee: (id: string, emp: Partial<Employee> & { bankAccountNumber?: string }) => Promise<void>;
   currentPeriod: string;
   payrollRun: PayrollRun;
   attendanceMap: Record<string, EmployeeAttendance>;
@@ -370,6 +371,99 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const updateEmployee = async (id: string, empData: Partial<Employee> & { bankAccountNumber?: string }) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const names = empData.name ? empData.name.trim().split(' ') : undefined;
+      const firstName = names ? names[0] : undefined;
+      const lastName = names ? names.slice(1).join(' ') : undefined;
+
+      const rawAccount =
+        empData.bankAccountNumber ||
+        empData.bank?.accountNumber ||
+        empData.bank?.accountNumberMasked?.replace(/[^0-9]/g, '') ||
+        '';
+      const ifsc = empData.bank?.ifsc || '';
+
+      const bankDetails =
+        ifsc || rawAccount
+          ? {
+              bankName: empData.bank?.bankName || 'HDFC Bank',
+              branchName: empData.bank?.branchName,
+              accountNumber: rawAccount || undefined,
+              ifsc: ifsc.toUpperCase(),
+              accountHolderName: empData.bank?.accountHolder || empData.name,
+            }
+          : undefined;
+
+      await employeesApi.update(id, {
+        firstName,
+        lastName,
+        workEmail: empData.workEmail,
+        workMobile: empData.mobileNumber,
+        employeeStatus: empData.status,
+        joiningDate: empData.joiningDate,
+        departmentName: empData.department,
+        designationName: empData.designation,
+        bankDetails,
+      });
+
+      // Optimistically update local state so UI updates immediately
+      setEmployees((prev) =>
+        prev.map((e) => {
+          if (e.id !== id) return e;
+          const updatedGross = empData.salary?.grossMonthly ?? e.salary.grossMonthly;
+          const basicMonthly = Math.round(updatedGross * 0.5);
+          const hraMonthly = Math.round(basicMonthly * 0.4);
+          const specialAllowanceMonthly = updatedGross - basicMonthly - hraMonthly;
+
+          return {
+            ...e,
+            ...empData,
+            name: empData.name || e.name,
+            department: empData.department || e.department,
+            designation: empData.designation || e.designation,
+            workEmail: empData.workEmail || e.workEmail,
+            mobileNumber: empData.mobileNumber || e.mobileNumber,
+            status: empData.status || e.status,
+            joiningDate: empData.joiningDate || e.joiningDate,
+            bank: {
+              ...e.bank,
+              ...(empData.bank || {}),
+              accountNumberMasked: rawAccount
+                ? `••••${rawAccount.slice(-4)}`
+                : e.bank.accountNumberMasked,
+              bankName: empData.bank?.bankName || e.bank.bankName,
+              ifsc: empData.bank?.ifsc || e.bank.ifsc,
+              isValidIfsc: !!(empData.bank?.ifsc && empData.bank.ifsc.length === 11),
+            },
+            salary: {
+              ...e.salary,
+              ...(empData.salary || {}),
+              grossMonthly: updatedGross,
+              basicMonthly,
+              hraMonthly,
+              specialAllowanceMonthly,
+              ctcAnnual: updatedGross * 12,
+            },
+            statutory: {
+              ...e.statutory,
+              ...(empData.statutory || {}),
+            },
+          };
+        }),
+      );
+
+      await refreshData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update employee in database');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <PayrollContext.Provider
       value={{
@@ -377,6 +471,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setRole,
         employees,
         addEmployee,
+        updateEmployee,
         currentPeriod: 'October 2026',
         payrollRun,
         attendanceMap,

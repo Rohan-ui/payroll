@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { TextSizeProvider } from './context/TextSizeContext';
 import { I18nProvider } from './i18n/I18nContext';
 import { PayrollProvider, usePayroll } from './context/PayrollContext';
+import { SidebarProvider } from './context/SidebarContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { MobileNav } from './components/layout/MobileNav';
@@ -20,6 +21,7 @@ import { ComplianceSettingsView } from './views/ComplianceSettingsView';
 import { HelpView } from './views/HelpView';
 import { AddEmployeeView } from './views/AddEmployeeView';
 import { BookkeepingView } from './views/BookkeepingView';
+import { ClockInView } from './views/ClockInView';
 
 const MainContent: React.FC = () => {
   const { currentView, role } = usePayroll();
@@ -27,6 +29,8 @@ const MainContent: React.FC = () => {
   const renderView = () => {
     // Employee role — restricted views
     if (role === 'EMPLOYEE') {
+      if (currentView === 'attendance') return <AttendanceView />;
+      if (currentView === 'clock-in') return <ClockInView />;
       if (currentView === 'payslips') return <PayslipsView />;
       if (currentView === 'help') return <HelpView />;
       return <DashboardView />;
@@ -37,8 +41,10 @@ const MainContent: React.FC = () => {
       case 'payroll':         return <RunPayrollWizardView />;
       case 'people':          return <EmployeesView />;
       case 'add-employee':    return <AddEmployeeView />;
+      case 'edit-employee':   return <AddEmployeeView />;
       case 'employee-detail': return <EmployeeDetailView />;
       case 'attendance':      return <AttendanceView />;
+      case 'clock-in':        return <ClockInView />;
       case 'payslips':        return <PayslipsView />;
       case 'bookkeeping':     return <BookkeepingView />;
       case 'reports':         return <ReportsView />;
@@ -49,12 +55,12 @@ const MainContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-surface flex font-sans">
-      {/* Desktop sidebar */}
+    <div className="min-h-screen bg-surface flex font-sans overflow-x-hidden relative">
+      {/* Desktop sidebar with smooth slide */}
       <Sidebar />
 
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
         {/* Mobile topbar */}
         <Header />
 
@@ -89,7 +95,9 @@ const AppRouter: React.FC = () => {
 
   return (
     <PayrollProvider>
-      <MainContent />
+      <SidebarProvider>
+        <MainContent />
+      </SidebarProvider>
     </PayrollProvider>
   );
 };

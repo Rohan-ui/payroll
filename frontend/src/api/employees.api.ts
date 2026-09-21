@@ -75,6 +75,31 @@ export const employeesApi = {
     return apiClient.post<BackendEmployee>('/employees', data);
   },
 
+  update: async (
+    id: string,
+    data: {
+      firstName?: string;
+      lastName?: string;
+      workEmail?: string;
+      workMobile?: string;
+      employeeStatus?: string;
+      joiningDate?: string;
+      departmentId?: string;
+      departmentName?: string;
+      designationId?: string;
+      designationName?: string;
+      bankDetails?: {
+        bankName: string;
+        branchName?: string;
+        accountNumber?: string;
+        ifsc: string;
+        accountHolderName?: string;
+      };
+    },
+  ): Promise<BackendEmployee> => {
+    return apiClient.put<BackendEmployee>(`/employees/${id}`, data);
+  },
+
   addBankAccount: async (
     employeeId: string,
     data: {

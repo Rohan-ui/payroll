@@ -1,0 +1,207 @@
+/**
+ * External API (COSEC Integration) — Frontend API client
+ */
+
+import { apiClient } from './client';
+
+export interface CosecConfig {
+  baseUrl: string;
+  username: string;
+  password: string;
+}
+
+export interface CosecConfigPublic {
+  baseUrl: string;
+  username: string;
+  passwordSet: boolean;
+}
+
+export interface TestConnectionResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface CosecUser {
+  cosecUserId: string;
+  name: string;
+  shortName: string | null;
+  referenceCode: string | null;
+  active: boolean;
+  department: string | null;
+  designation: string | null;
+  branch: string | null;
+  joinDate: string | null;
+  mobile: string | null;
+  email: string | null;
+  gender: string | null;
+}
+
+export interface CosecMonthlyAttendance {
+  cosecUserId: string;
+  employeeCode: string | null;
+  employeeName: string;
+  month: string;
+  presentDays: number;
+  absentDays: number;
+  weekOffDays: number;
+  publicHolidayDays: number;
+  paidLeaveDays: number;
+  unpaidLeaveDays: number;
+  totalDays: number;
+  payableDays: number;
+  lossOfPayDays: number;
+  workedMinutes: number;
+  overtimeMinutes: number;
+  lateMinutes: number;
+  earlyOutMinutes: number;
+}
+
+export interface CosecPunchDetail {
+  index: number;
+  time: string;
+  type: 'CHECK_IN' | 'CHECK_OUT';
+  label: string;
+}
+
+export interface CosecDailyAttendance {
+  cosecUserId: string;
+  employeeCode: string;
+  employeeName: string;
+  date: string;
+  firstCheckInTime: string | null;
+  lastCheckOutTime: string | null;
+  isCurrentlyInside: boolean;
+  currentPresence: 'INSIDE' | 'OUTSIDE' | 'NOT_REPORTED';
+  punches: CosecPunchDetail[];
+  rawOutPunchTime?: string | null;
+  outPunchMatchedIndex?: number | null;
+  punchInTime: string | null;
+  punchOutTime: string | null;
+  status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'WEEK_OFF' | 'HOLIDAY';
+  firstHalf: string;
+  secondHalf: string;
+  shiftStart: string | null;
+  workedMinutes: number;
+  workTimeHhmm: string;
+}
+
+export interface SyncAllResult {
+  users: { syncedCount: number; deletedMockCount: number };
+  daily: { syncedRecords: number; syncedPunches: number };
+  monthly: { syncedCount: number };
+}
+
+export const externalApiClient = {
+  /**
+   * Get the current COSEC config (password masked / passwordSet flag only).
+   */
+  async getCosecConfig(): Promise<CosecConfigPublic | null> {
+    return apiClient.get<CosecConfigPublic | null>('/external-api/cosec/config');
+  },
+
+  /**
+   * Save COSEC connection credentials.
+   */
+  async saveCosecConfig(config: CosecConfig): Promise<CosecConfigPublic> {
+    return apiClient.put<CosecConfigPublic>('/external-api/cosec/config', config);
+  },
+
+  /**
+   * Test connection. Sends the given config so the server can test before saving.
+   */
+  async testConnection(config: CosecConfig): Promise<TestConnectionResult> {
+    return apiClient.post<TestConnectionResult>('/external-api/cosec/test-connection', config);
+  },
+
+  /**
+   * Get all active COSEC users.
+   */
+  async getUsers(): Promise<{ total: number; data: CosecUser[] }> {
+    return apiClient.get<{ total: number; data: CosecUser[] }>('/external-api/cosec/users');
+  },
+
+  /**
+   * Get monthly attendance for the given month.
+   * @param month  YYYY-MM format
+   */
+  async getMonthlyAttendance(
+    month: string,
+    range = 'all',
+    rangeId?: string,
+  ): Promise<{ month: string; total: number; data: CosecMonthlyAttendance[] }> {
+    const query = new URLSearchParams();
+    query.append('month', month);
+    query.append('range', range);
+    if (rangeId) query.append('rangeId', rangeId);
+
+    const qs = query.toString();
+    return apiClient.get<{ month: string; total: number; data: CosecMonthlyAttendance[] }>(
+      `/external-api/cosec/attendance-monthly${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  /**
+   * Get daily attendance with punch in / out times for date range.
+   */
+  async getDailyAttendance(
+    startDate?: string,
+    endDate?: string,
+    range = 'all',
+    rangeId?: string,
+  ): Promise<{ total: number; data: CosecDailyAttendance[] }> {
+    const query = new URLSearchParams();
+    if (startDate) query.append('startDate', startDate);
+    if (endDate) query.append('endDate', endDate);
+    query.append('range', range);
+    if (rangeId) query.append('rangeId', rangeId);
+
+    const qs = query.toString();
+    return apiClient.get<{ total: number; data: CosecDailyAttendance[] }>(
+      `/external-api/cosec/attendance-daily${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  /**
+   * Sync all users from COSEC into the database, replacing mock data.
+   */
+  async syncUsers(): Promise<{
+    syncedCount: number;
+    deletedMockCount: number;
+    employees: Array<{ id: string; employeeCode: string; name: string }>;
+  }> {
+    return apiClient.post('/external-api/cosec/sync-users');
+  },
+
+  /**
+   * Sync daily attendance and punches into database.
+   */
+  async syncDailyAttendance(
+    startDate?: string,
+    endDate?: string,
+  ): Promise<{ syncedRecords: number; syncedPunches: number }> {
+    const query = new URLSearchParams();
+    if (startDate) query.append('startDate', startDate);
+    if (endDate) query.append('endDate', endDate);
+    const qs = query.toString();
+    return apiClient.post(`/external-api/cosec/sync-daily-attendance${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * Sync monthly attendance from COSEC into attendance records.
+   */
+  async syncAttendance(month?: string): Promise<{
+    syncedCount: number;
+    records: CosecMonthlyAttendance[];
+  }> {
+    const qs = month ? `?month=${month}` : '';
+    return apiClient.post(`/external-api/cosec/sync-attendance${qs}`);
+  },
+
+  /**
+   * Master sync: Syncs all users, daily attendance punches, and monthly summary.
+   */
+  async syncAll(month?: string): Promise<SyncAllResult> {
+    const qs = month ? `?month=${month}` : '';
+    return apiClient.post<SyncAllResult>(`/external-api/cosec/sync-all${qs}`);
+  },
+};

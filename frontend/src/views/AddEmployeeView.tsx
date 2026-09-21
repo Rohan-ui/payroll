@@ -14,6 +14,8 @@ import {
   Sparkles,
   Search,
   Plus,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { usePayroll } from '../context/PayrollContext';
 import { Card } from '../components/ui/Card';
@@ -33,11 +35,25 @@ interface IfscInfo {
 }
 
 export const AddEmployeeView: React.FC = () => {
-  const { setCurrentView, addEmployee, refreshData, employees } = usePayroll();
+  const {
+    currentView,
+    selectedEmployeeId,
+    setCurrentView,
+    addEmployee,
+    updateEmployee,
+    refreshData,
+    employees,
+  } = usePayroll();
+
+  const isEdit = currentView === 'edit-employee';
+  const employeeToEdit = isEdit
+    ? employees.find((e) => e.id === selectedEmployeeId) ?? employees[0]
+    : null;
 
   // Basic Information
   const [employeeCode, setEmployeeCode] = useState('');
   const [fullName, setFullName] = useState('');
+  const [employeeStatus, setEmployeeStatus] = useState<string>('ACTIVE');
   const [workEmail, setWorkEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [joiningDate, setJoiningDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -76,6 +92,8 @@ export const AddEmployeeView: React.FC = () => {
   const [branchName, setBranchName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [confirmAccountNumber, setConfirmAccountNumber] = useState('');
+  const [showAccountNumber, setShowAccountNumber] = useState(false);
+  const [showConfirmAccountNumber, setShowConfirmAccountNumber] = useState(false);
 
   // Razorpay IFSC Verification State
   const [isVerifyingIfsc, setIsVerifyingIfsc] = useState(false);
@@ -93,14 +111,55 @@ export const AddEmployeeView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Auto-generate next employee code suggestion
+  // Auto-generate next employee code in create mode or populate employee in edit mode
   useEffect(() => {
-    if (!employeeCode) {
-      const nextNum = employees.length + 1;
-      const suggested = `RND${String(nextNum).padStart(3, '0')}`;
-      setEmployeeCode(suggested);
+    if (isEdit && employeeToEdit) {
+      setEmployeeCode(employeeToEdit.code);
+      setFullName(employeeToEdit.name);
+      setEmployeeStatus(employeeToEdit.status);
+      setWorkEmail(employeeToEdit.workEmail);
+      setMobileNumber(employeeToEdit.mobileNumber || '');
+      setJoiningDate(employeeToEdit.joiningDate || new Date().toISOString().split('T')[0]);
+
+      if (employeeToEdit.department) {
+        setSelectedDept(employeeToEdit.department);
+      }
+      if (employeeToEdit.designation) {
+        setSelectedDesig(employeeToEdit.designation);
+      }
+
+      if (employeeToEdit.bank) {
+        setIfsc(employeeToEdit.bank.ifsc || '');
+        setBankName(employeeToEdit.bank.bankName || '');
+        const rawAcc = employeeToEdit.bank.accountNumber || '';
+        setAccountNumber(rawAcc);
+        setConfirmAccountNumber(rawAcc);
+        if (employeeToEdit.bank.isValidIfsc) {
+          setIfscInfo({
+            valid: true,
+            bank: employeeToEdit.bank.bankName,
+            branch: employeeToEdit.bank.branchName,
+            ifsc: employeeToEdit.bank.ifsc,
+          });
+        }
+      }
+
+      if (employeeToEdit.salary) {
+        setGrossSalary(String(employeeToEdit.salary.grossMonthly || 35000));
+      }
+      if (employeeToEdit.statutory) {
+        setPanNumber(employeeToEdit.statutory.pan || 'ABCDE1234F');
+        setPfEnrolled(employeeToEdit.statutory.pfEnrolled ?? true);
+        setEsiEnrolled(employeeToEdit.statutory.esiEnrolled ?? false);
+      }
+    } else if (!isEdit) {
+      if (!employeeCode) {
+        const nextNum = employees.length + 1;
+        const suggested = `RND${String(nextNum).padStart(3, '0')}`;
+        setEmployeeCode(suggested);
+      }
     }
-  }, [employees.length, employeeCode]);
+  }, [isEdit, employeeToEdit, employees.length]);
 
   // Load existing departments and designations from backend
   useEffect(() => {
@@ -237,55 +296,112 @@ export const AddEmployeeView: React.FC = () => {
     const finalDesignation = isCustomDesig ? customDesig.trim() : selectedDesig;
 
     setIsSubmitting(true);
+    setErrorMessage(null);
 
     try {
-      await addEmployee({
-        code: employeeCode.trim().toUpperCase(),
-        name: fullName.trim(),
-        department: finalDepartment,
-        designation: finalDesignation || 'Specialist',
-        workEmail: workEmail.trim().toLowerCase(),
-        mobileNumber: mobileNumber.trim(),
-        joiningDate: joiningDate || new Date().toISOString().split('T')[0],
-        bankAccountNumber: accountNumber.trim(),
-        bank: {
-          bankName: bankName.trim() || ifscInfo?.bank || 'HDFC Bank',
-          branchName: branchName.trim() || ifscInfo?.branch || '',
-          ifsc: ifsc.trim().toUpperCase(),
-          accountNumber: accountNumber.trim(),
-          accountNumberMasked: accountNumber.trim(),
-          accountHolder: fullName.trim(),
-          isValidIfsc: !!ifscInfo?.valid,
-        },
-        salary: {
-          grossMonthly: parseInt(grossSalary, 10) || 35000,
-          basicMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.5),
-          hraMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.2),
-          specialAllowanceMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.3),
-          conveyanceMonthly: 0,
-          medicalAllowanceMonthly: 0,
-          ctcAnnual: (parseInt(grossSalary, 10) || 35000) * 12,
-        },
-        statutory: {
-          pan: panNumber.trim().toUpperCase(),
-          aadhaarLast4: '0000',
-          pfEnrolled,
-          pfCapAtCeiling: true,
-          esiEnrolled,
-          ptApplicable: true,
-          taxRegime: 'NEW',
-        },
-      });
+      if (isEdit && employeeToEdit) {
+        if (accountNumber && confirmAccountNumber && accountNumber !== confirmAccountNumber) {
+          setErrorMessage('New bank account number and confirm account number do not match.');
+          setIsSubmitting(false);
+          return;
+        }
 
-      setSuccessMessage(`Employee ${fullName} (${employeeCode}) was successfully added!`);
-      await refreshData();
+        const gross = parseInt(grossSalary, 10) || 35000;
+        await updateEmployee(employeeToEdit.id, {
+          code: employeeCode.trim().toUpperCase(),
+          name: fullName.trim(),
+          status: employeeStatus as any,
+          department: finalDepartment,
+          designation: finalDesignation || 'Specialist',
+          workEmail: workEmail.trim().toLowerCase(),
+          mobileNumber: mobileNumber.trim(),
+          joiningDate: joiningDate || employeeToEdit.joiningDate,
+          bankAccountNumber: accountNumber.trim() || undefined,
+          bank: {
+            bankName: bankName.trim() || ifscInfo?.bank || employeeToEdit.bank.bankName,
+            branchName: branchName.trim() || ifscInfo?.branch || employeeToEdit.bank.branchName,
+            ifsc: ifsc.trim().toUpperCase() || employeeToEdit.bank.ifsc,
+            accountNumber: accountNumber.trim() || undefined,
+            accountNumberMasked: accountNumber.trim()
+              ? `••••${accountNumber.trim().slice(-4)}`
+              : employeeToEdit.bank.accountNumberMasked,
+            accountHolder: fullName.trim(),
+            isValidIfsc: !!ifscInfo?.valid || employeeToEdit.bank.isValidIfsc,
+          },
+          salary: {
+            grossMonthly: gross,
+            basicMonthly: Math.round(gross * 0.5),
+            hraMonthly: Math.round(gross * 0.2),
+            specialAllowanceMonthly: Math.round(gross * 0.3),
+            conveyanceMonthly: 0,
+            medicalAllowanceMonthly: 0,
+            ctcAnnual: gross * 12,
+          },
+          statutory: {
+            pan: panNumber.trim().toUpperCase(),
+            aadhaarLast4: employeeToEdit.statutory.aadhaarLast4 || '0000',
+            pfEnrolled,
+            pfCapAtCeiling: true,
+            esiEnrolled,
+            ptApplicable: true,
+            taxRegime: 'NEW',
+          },
+        });
 
-      setTimeout(() => {
-        setCurrentView('people');
-      }, 1200);
+        setSuccessMessage(`Employee ${fullName} (${employeeCode}) profile was successfully updated!`);
+        await refreshData();
+
+        setTimeout(() => {
+          setCurrentView('employee-detail');
+        }, 1200);
+      } else {
+        await addEmployee({
+          code: employeeCode.trim().toUpperCase(),
+          name: fullName.trim(),
+          department: finalDepartment,
+          designation: finalDesignation || 'Specialist',
+          workEmail: workEmail.trim().toLowerCase(),
+          mobileNumber: mobileNumber.trim(),
+          joiningDate: joiningDate || new Date().toISOString().split('T')[0],
+          bank: {
+            bankName: bankName.trim() || ifscInfo?.bank || 'HDFC Bank',
+            branchName: branchName.trim() || ifscInfo?.branch || '',
+            ifsc: ifsc.trim().toUpperCase(),
+            accountNumber: accountNumber.trim(),
+            accountNumberMasked: accountNumber.trim(),
+            accountHolder: fullName.trim(),
+            isValidIfsc: !!ifscInfo?.valid,
+          },
+          salary: {
+            grossMonthly: parseInt(grossSalary, 10) || 35000,
+            basicMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.5),
+            hraMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.2),
+            specialAllowanceMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.3),
+            conveyanceMonthly: 0,
+            medicalAllowanceMonthly: 0,
+            ctcAnnual: (parseInt(grossSalary, 10) || 35000) * 12,
+          },
+          statutory: {
+            pan: panNumber.trim().toUpperCase(),
+            aadhaarLast4: '0000',
+            pfEnrolled,
+            pfCapAtCeiling: true,
+            esiEnrolled,
+            ptApplicable: true,
+            taxRegime: 'NEW',
+          },
+        });
+
+        setSuccessMessage(`Employee ${fullName} (${employeeCode}) was successfully added!`);
+        await refreshData();
+
+        setTimeout(() => {
+          setCurrentView('people');
+        }, 1200);
+      }
     } catch (err: any) {
-      console.error('Failed to add employee:', err);
-      setErrorMessage(err?.message || 'Failed to add employee. Please verify details.');
+      console.error('Failed to save employee:', err);
+      setErrorMessage(err?.message || 'Failed to save employee. Please verify details.');
     } finally {
       setIsSubmitting(false);
     }
@@ -295,25 +411,36 @@ export const AddEmployeeView: React.FC = () => {
     'w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all';
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+    <div className="w-full space-y-6 pb-12">
       {/* Top Breadcrumb & Page Title */}
       <div>
         <button
           type="button"
-          onClick={() => setCurrentView('people')}
+          onClick={() => setCurrentView(isEdit ? 'employee-detail' : 'people')}
           className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0E5A47] transition-colors mb-2 cursor-pointer"
         >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to People Directory
+          <ArrowLeft className="w-3.5 h-3.5" /> {isEdit ? 'Back to Employee Profile' : 'Back to People Directory'}
         </button>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-slate-800">Add New Employee</h1>
-              <Badge variant="success" size="sm">Live PostgreSQL</Badge>
+              <h1 className="text-2xl font-bold text-slate-800">
+                {isEdit ? `Edit Employee Profile` : 'Add New Employee'}
+              </h1>
+              <Badge variant={isEdit ? 'info' : 'success'} size="sm">
+                {isEdit ? 'Live PostgreSQL Update' : 'Live PostgreSQL'}
+              </Badge>
+              {isEdit && employeeToEdit && (
+                <Badge variant="neutral" size="sm">
+                  {employeeToEdit.code}
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-slate-500 mt-1">
-              Create an official employee profile with dynamic department & Razorpay IFSC validation
+              {isEdit
+                ? `Edit official employee profile for ${employeeToEdit?.name || 'staff'}, designation, bank deposit & statutory settings`
+                : 'Create an official employee profile with dynamic department & Razorpay IFSC validation'}
             </p>
           </div>
         </div>
@@ -342,7 +469,8 @@ export const AddEmployeeView: React.FC = () => {
           subtitle="Official employment identifier, designation, and contact information"
         >
           <div className="space-y-4 pt-1">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Identity & Contact Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Employee Code */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -351,13 +479,14 @@ export const AddEmployeeView: React.FC = () => {
                 <input
                   type="text"
                   required
+                  disabled={isEdit}
                   value={employeeCode}
                   onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())}
                   placeholder="e.g. RND009"
-                  className={`${inputClass} font-mono font-medium`}
+                  className={`${inputClass} font-mono font-medium ${isEdit ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                 />
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Unique staff code for attendance punches and payslips
+                  {isEdit ? 'Permanent employee identifier (read-only)' : 'Unique staff code for punches and payslips'}
                 </p>
               </div>
 
@@ -374,11 +503,50 @@ export const AddEmployeeView: React.FC = () => {
                   placeholder="e.g. Priya Sharma"
                   className={inputClass}
                 />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Legal name as shown in official documents
+                </p>
+              </div>
+
+              {/* Work Email */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Work Email *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={workEmail}
+                  onChange={(e) => setWorkEmail(e.target.value)}
+                  placeholder="e.g. priya@company.in"
+                  className={inputClass}
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Official tenant email for system access
+                </p>
+              </div>
+
+              {/* Mobile Number */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Mobile Number
+                </label>
+                <input
+                  type="tel"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value)}
+                  placeholder="e.g. 9876543210"
+                  className={inputClass}
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Primary contact number for notifications
+                </p>
               </div>
             </div>
 
-            {/* Dynamic Department */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            {/* Department, Designation, Joining Date & Status */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isEdit ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4 pt-1 border-t border-slate-100`}>
+              {/* Dynamic Department */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-semibold text-slate-700">
@@ -481,37 +649,8 @@ export const AddEmployeeView: React.FC = () => {
                   </select>
                 )}
               </div>
-            </div>
 
-            {/* Email, Mobile & Joining Date */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Work Email *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={workEmail}
-                  onChange={(e) => setWorkEmail(e.target.value)}
-                  placeholder="e.g. priya@company.in"
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Mobile Number
-                </label>
-                <input
-                  type="tel"
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  placeholder="e.g. 9876543210"
-                  className={inputClass}
-                />
-              </div>
-
+              {/* Joining Date */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Joining Date *
@@ -523,205 +662,292 @@ export const AddEmployeeView: React.FC = () => {
                   onChange={(e) => setJoiningDate(e.target.value)}
                   className={inputClass}
                 />
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* 2. Bank Details with Razorpay IFSC Verification */}
-        <Card
-          title="2. Bank Details & Direct Deposit Advice"
-          subtitle="All IFSC codes are verified in real time using the official Razorpay Bank Directory"
-        >
-          <div className="space-y-4 pt-1">
-            {/* IFSC Code with Live Verification */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-slate-700">
-                    IFSC Code *
-                  </label>
-                  <span className="text-[10px] text-teal-700 font-bold uppercase tracking-wider">
-                    Razorpay Checked
-                  </span>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    maxLength={11}
-                    value={ifsc}
-                    onChange={handleIfscChange}
-                    placeholder="e.g. HDFC0001234"
-                    className={`${inputClass} font-mono uppercase tracking-wider pr-20`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => checkIfscWithRazorpay(ifsc)}
-                    disabled={ifsc.length !== 11 || isVerifyingIfsc}
-                    className="absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold rounded-lg transition-colors disabled:opacity-40 cursor-pointer"
-                  >
-                    {isVerifyingIfsc ? 'Checking…' : 'Verify'}
-                  </button>
-                </div>
-
-                {/* Live IFSC Status Banner */}
-                {isVerifyingIfsc && (
-                  <p className="text-xs text-teal-700 mt-1.5 flex items-center gap-1.5">
-                    <span className="w-3 h-3 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-                    Querying Razorpay Bank API…
-                  </p>
-                )}
-
-                {ifscInfo?.valid && (
-                  <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                    <div className="flex items-center gap-1.5 text-emerald-800 text-xs font-bold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Verified: {ifscInfo.bank}</span>
-                    </div>
-                    <p className="text-[11px] text-emerald-700 mt-0.5 ml-5.5">
-                      {ifscInfo.branch} Branch {ifscInfo.city ? `• ${ifscInfo.city}, ${ifscInfo.state}` : ''}
-                    </p>
-                  </div>
-                )}
-
-                {ifscError && (
-                  <p className="text-xs text-red-600 mt-1.5 flex items-center gap-1">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    {ifscError}
-                  </p>
-                )}
-              </div>
-
-              {/* Bank Name (Auto-populated by Razorpay) */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Bank Name
-                </label>
-                <input
-                  type="text"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  placeholder="Auto-filled from IFSC"
-                  className={inputClass}
-                />
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Populates automatically when a valid IFSC is entered
+                  Official date of commencement of employment
                 </p>
               </div>
-            </div>
 
-            {/* Account Number & Confirm Account Number */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Account Number *
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="e.g. 50100123456789"
-                  className={`${inputClass} font-mono`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Confirm Account Number *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={confirmAccountNumber}
-                  onChange={(e) => setConfirmAccountNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="Re-type account number"
-                  className={`${inputClass} font-mono`}
-                />
-                {confirmAccountNumber && accountNumber !== confirmAccountNumber && (
-                  <p className="text-xs text-red-600 mt-1">Numbers do not match</p>
-                )}
-                {confirmAccountNumber && accountNumber === confirmAccountNumber && (
-                  <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> Account number matched
+              {/* Status (Edit Mode) */}
+              {isEdit && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Employment Status *
+                  </label>
+                  <select
+                    value={employeeStatus}
+                    onChange={(e) => setEmployeeStatus(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="ON_NOTICE">On Notice</option>
+                    <option value="RESIGNED">Resigned</option>
+                  </select>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Current HR lifecycle status
                   </p>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </Card>
 
-        {/* 3. Salary & Statutory Configuration */}
-        <Card
-          title="3. Compensation & Statutory Enrollments"
-          subtitle="Configured according to standard Indian payroll and tax slabs"
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Gross Monthly Salary (₹)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="500"
-                  value={grossSalary}
-                  onChange={(e) => setGrossSalary(e.target.value)}
-                  className={`${inputClass} pl-8 font-mono font-bold text-slate-900`}
-                />
+        {/* 2 & 3: Bank Details & Compensation Side-by-Side on Desktop */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* 2. Bank Details with Razorpay IFSC Verification */}
+          <Card
+            title="2. Bank Details & Direct Deposit Advice"
+            subtitle="All IFSC codes are verified in real time using the official Razorpay Bank Directory"
+          >
+            <div className="space-y-4 pt-1">
+              {/* IFSC Code with Live Verification */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      IFSC Code *
+                    </label>
+                    <span className="text-[10px] text-teal-700 font-bold uppercase tracking-wider">
+                      Razorpay Checked
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      maxLength={11}
+                      value={ifsc}
+                      onChange={handleIfscChange}
+                      placeholder="e.g. HDFC0001234"
+                      className={`${inputClass} font-mono uppercase tracking-wider pr-20`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => checkIfscWithRazorpay(ifsc)}
+                      disabled={ifsc.length !== 11 || isVerifyingIfsc}
+                      className="absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold rounded-lg transition-colors disabled:opacity-40 cursor-pointer"
+                    >
+                      {isVerifyingIfsc ? 'Checking…' : 'Verify'}
+                    </button>
+                  </div>
+
+                  {/* Live IFSC Status Banner */}
+                  {isVerifyingIfsc && (
+                    <p className="text-xs text-teal-700 mt-1.5 flex items-center gap-1.5">
+                      <span className="w-3 h-3 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                      Querying Razorpay Bank API…
+                    </p>
+                  )}
+
+                  {ifscInfo?.valid && (
+                    <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                      <div className="flex items-center gap-1.5 text-emerald-800 text-xs font-bold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Verified: {ifscInfo.bank}</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700 mt-0.5 ml-5.5">
+                        {ifscInfo.branch} Branch {ifscInfo.city ? `• ${ifscInfo.city}, ${ifscInfo.state}` : ''}
+                      </p>
+                    </div>
+                  )}
+
+                  {ifscError && (
+                    <p className="text-xs text-red-600 mt-1.5 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      {ifscError}
+                    </p>
+                  )}
+                </div>
+
+                {/* Bank Name (Auto-populated by Razorpay) */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Bank Name
+                  </label>
+                  <input
+                    type="text"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder="Auto-filled from IFSC"
+                    className={inputClass}
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Populates automatically when a valid IFSC is entered
+                  </p>
+                </div>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Annual CTC: ₹{((parseInt(grossSalary, 10) || 0) * 12).toLocaleString('en-IN')}
-              </p>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                PAN Card Number
-              </label>
-              <input
-                type="text"
-                maxLength={10}
-                value={panNumber}
-                onChange={(e) => setPanNumber(e.target.value.toUpperCase())}
-                placeholder="e.g. ABCDE1234F"
-                className={`${inputClass} font-mono uppercase`}
-              />
-            </div>
+              {/* Account Number & Confirm Account Number */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Account Number {isEdit ? '' : '*'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showAccountNumber ? 'text' : 'password'}
+                      required={!isEdit}
+                      value={accountNumber}
+                      onChange={(e) => setAccountNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                      placeholder={isEdit ? (employeeToEdit?.bank?.accountNumberMasked || '••••••••') : 'e.g. 50100123456789'}
+                      className={`${inputClass} font-mono pr-10`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAccountNumber(!showAccountNumber)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors cursor-pointer p-0.5"
+                      title={showAccountNumber ? 'Hide account number' : 'Show account number'}
+                      aria-label={showAccountNumber ? 'Hide account number' : 'Show account number'}
+                    >
+                      {showAccountNumber ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                  {isEdit && (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Leave blank to keep current saved account
+                    </p>
+                  )}
+                </div>
 
-            <div className="sm:col-span-1 flex flex-col justify-center space-y-2.5 pt-4 sm:pt-0">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={pfEnrolled}
-                  onChange={(e) => setPfEnrolled(e.target.checked)}
-                  className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500"
-                />
-                <span className="text-xs font-semibold text-slate-700">Enroll in Provident Fund (EPF)</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={esiEnrolled}
-                  onChange={(e) => setEsiEnrolled(e.target.checked)}
-                  className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500"
-                />
-                <span className="text-xs font-semibold text-slate-700">Enroll in ESIC (if Gross ≤ ₹21k)</span>
-              </label>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Confirm Account Number {isEdit ? '' : '*'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmAccountNumber ? 'text' : 'password'}
+                      required={!isEdit && !!accountNumber}
+                      value={confirmAccountNumber}
+                      onChange={(e) => setConfirmAccountNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                      placeholder={isEdit && !accountNumber ? 'Unchanged' : 'Re-type account number'}
+                      className={`${inputClass} font-mono pr-10`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmAccountNumber(!showConfirmAccountNumber)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors cursor-pointer p-0.5"
+                      title={showConfirmAccountNumber ? 'Hide account number' : 'Show account number'}
+                      aria-label={showConfirmAccountNumber ? 'Hide account number' : 'Show account number'}
+                    >
+                      {showConfirmAccountNumber ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                  {confirmAccountNumber && accountNumber !== confirmAccountNumber && (
+                    <p className="text-xs text-red-600 mt-1">Numbers do not match</p>
+                  )}
+                  {confirmAccountNumber && accountNumber === confirmAccountNumber && (
+                    <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Account number matched
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+
+          {/* 3. Salary & Statutory Configuration */}
+          <Card
+            title="3. Compensation & Statutory Enrollments"
+            subtitle="Configured according to standard Indian payroll and tax slabs"
+          >
+            <div className="space-y-4 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Gross Monthly Salary (₹)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="500"
+                      value={grossSalary}
+                      onChange={(e) => setGrossSalary(e.target.value)}
+                      className={`${inputClass} pl-8 font-mono font-bold text-slate-900`}
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Annual CTC: ₹{((parseInt(grossSalary, 10) || 0) * 12).toLocaleString('en-IN')}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    PAN Card Number
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    value={panNumber}
+                    onChange={(e) => setPanNumber(e.target.value.toUpperCase())}
+                    placeholder="e.g. ABCDE1234F"
+                    className={`${inputClass} font-mono uppercase`}
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    For TDS withholding and IT compliance
+                  </p>
+                </div>
+              </div>
+
+              {/* Statutory Deductions & Benefits */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200/70 rounded-2xl space-y-2.5">
+                <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  Mandatory Social Security & Benefits
+                </p>
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none p-2 rounded-xl hover:bg-white transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={pfEnrolled}
+                      onChange={(e) => setPfEnrolled(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 rounded text-teal-600 focus:ring-teal-500"
+                    />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-800 block">
+                        Enroll in Provident Fund (EPF)
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        12% employee + 12% employer contribution (statutory ceiling: ₹15,000 basic)
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none p-2 rounded-xl hover:bg-white transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={esiEnrolled}
+                      onChange={(e) => setEsiEnrolled(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 rounded text-teal-600 focus:ring-teal-500"
+                    />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-800 block">
+                        Enroll in ESIC (Health Insurance)
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Applicable if gross monthly wage is ≤ ₹21,000
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
 
         {/* Action Bar */}
         <div className="flex items-center justify-between pt-2">
           <Button
             type="button"
             variant="outline"
-            onClick={() => setCurrentView('people')}
+            onClick={() => setCurrentView(isEdit ? 'employee-detail' : 'people')}
           >
             Cancel
           </Button>
@@ -732,8 +958,8 @@ export const AddEmployeeView: React.FC = () => {
             loading={isSubmitting}
             className="px-8 shadow-md"
           >
-            <UserPlus className="w-4 h-4 mr-1.5" />
-            Create & Save Employee
+            {isEdit ? <CheckCircle2 className="w-4 h-4 mr-1.5" /> : <UserPlus className="w-4 h-4 mr-1.5" />}
+            {isEdit ? 'Save Changes' : 'Create & Save Employee'}
           </Button>
         </div>
       </form>

@@ -97,6 +97,22 @@ export const DashboardView: React.FC = () => {
           </Card>
         )}
 
+        {/* Attendance card */}
+        <Card className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center">
+              <CalendarCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">My Attendance & Shifts</p>
+              <p className="text-xs text-slate-400">View daily clock-in records & calendar</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setCurrentView('attendance')}>
+            View Attendance
+          </Button>
+        </Card>
+
         {/* Download payslip */}
         <Button variant="ghost" onClick={() => setCurrentView('payslips')} className="gap-2">
           <IndianRupee className="w-4 h-4" /> View all payslips
@@ -224,7 +240,17 @@ export const DashboardView: React.FC = () => {
 
       {/* ── Today's attendance exceptions ── */}
       <Card>
-        <h2 className="text-sm font-bold text-slate-800 mb-4">Attendance Exceptions Today</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-slate-800">Attendance Exceptions Today</h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentView('attendance')}
+            className="text-xs text-teal-600 hover:text-teal-700 font-semibold"
+          >
+            Manage Attendance & Shifts →
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-3">
           {employees.filter((e) => e.status === 'ACTIVE').slice(0, 6).map((emp) => (
             <div key={emp.id} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Param,
   Query,
@@ -9,7 +10,12 @@ import {
   ParseIntPipe,
   DefaultValuePipe,
 } from '@nestjs/common';
-import { EmployeesService, CreateEmployeeInput, AddBankAccountInput } from './employees.service';
+import {
+  EmployeesService,
+  CreateEmployeeInput,
+  AddBankAccountInput,
+  UpdateEmployeeInput,
+} from './employees.service';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { TenantGuard } from '@/common/guards/tenant.guard';
 
@@ -51,6 +57,15 @@ export class EmployeesController {
   @Post()
   async create(@CurrentTenant() tenantId: string, @Body() body: CreateEmployeeInput) {
     return this.employeesService.createEmployee(tenantId, body);
+  }
+
+  @Put(':id')
+  async update(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: UpdateEmployeeInput,
+  ) {
+    return this.employeesService.updateEmployee(tenantId, id, body);
   }
 
   @Post(':id/bank-account')

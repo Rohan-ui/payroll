@@ -321,16 +321,16 @@ export const BookkeepingView: React.FC = () => {
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-bold text-slate-800">
-                  Annual Trial Balance — {selectedFy?.financial_year_name || selectedFy?.name}
+                  Annual Trial Balance — {(selectedFy as any)?.financial_year_name || (selectedFy as any)?.name}
                 </h2>
                 <p className="text-xs text-slate-500">
                   Period:{' '}
-                  {selectedFy?.start_date
-                    ? new Date(selectedFy.start_date).toLocaleDateString('en-IN')
+                  {(selectedFy as any)?.start_date || (selectedFy as any)?.startDate
+                    ? new Date((selectedFy as any).start_date || (selectedFy as any).startDate).toLocaleDateString('en-IN')
                     : ''}{' '}
                   to{' '}
-                  {selectedFy?.end_date
-                    ? new Date(selectedFy.end_date).toLocaleDateString('en-IN')
+                  {(selectedFy as any)?.end_date || (selectedFy as any)?.endDate
+                    ? new Date((selectedFy as any).end_date || (selectedFy as any).endDate).toLocaleDateString('en-IN')
                     : ''}
                 </p>
               </div>

@@ -79,6 +79,102 @@ export class AttendanceController {
   }
 
   /**
+   * READ: Department-level and overall attendance summary with 7-day trend
+   * GET /attendance/department-summary?date=2026-10-15
+   */
+  @Get('department-summary')
+  async getDepartmentSummary(
+    @CurrentTenant() tenantId: string,
+    @Query('date') date?: string,
+  ) {
+    const targetDate = date || new Date().toISOString().substring(0, 10);
+    return this.attendanceService.getDepartmentSummary(tenantId, targetDate);
+  }
+
+  /**
+   * READ: Paginated employee list for selected date with month strip & 14-day trends
+   * GET /attendance/employee-day-list?date=2026-10-15&departmentId=&search=&page=1&limit=50
+   */
+  @Get('employee-day-list')
+  async getEmployeeDayList(
+    @CurrentTenant() tenantId: string,
+    @Query('date') date?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const targetDate = date || new Date().toISOString().substring(0, 10);
+    return this.attendanceService.getEmployeeDayList(
+      tenantId,
+      targetDate,
+      departmentId,
+      search,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 50,
+    );
+  }
+
+  /**
+   * READ: Roster matrix of employees x days of month with status glyphs and department leaderboard
+   * GET /attendance/roster-matrix?month=2026-10&departmentId=&search=&selectedDate=2026-10-15
+   */
+  @Get('roster-matrix')
+  async getRosterMatrix(
+    @CurrentTenant() tenantId: string,
+    @Query('month') month?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+    @Query('selectedDate') selectedDate?: string,
+  ) {
+    const targetMonth = month || new Date().toISOString().substring(0, 7);
+    return this.attendanceService.getRosterMatrix(
+      tenantId,
+      targetMonth,
+      departmentId,
+      search,
+      selectedDate,
+    );
+  }
+
+  /**
+   * READ: Comprehensive monthly attendance records, punches, and stats for an employee
+   * GET /attendance/employee-month?employeeId=...&month=2026-10
+   */
+  @Get('employee-month')
+  async getEmployeeMonth(
+    @CurrentTenant() tenantId: string,
+    @Query('employeeId') employeeId: string,
+    @Query('month') month?: string,
+  ) {
+    const targetMonth = month || new Date().toISOString().substring(0, 7);
+    return this.attendanceService.getEmployeeMonth(tenantId, employeeId, targetMonth);
+  }
+
+  /**
+   * READ: 12 months array for Year at a Glance
+   * GET /attendance/employee-year?employeeId=...&year=2026
+   */
+  @Get('employee-year')
+  async getEmployeeYear(
+    @CurrentTenant() tenantId: string,
+    @Query('employeeId') employeeId: string,
+    @Query('year') year?: string,
+  ) {
+    const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    return this.attendanceService.getEmployeeYear(tenantId, employeeId, targetYear);
+  }
+
+  /**
+   * READ: Active shifts configured for tenant
+   * GET /attendance/shifts
+   */
+  @Get('shifts')
+  async getShifts(@CurrentTenant() tenantId: string) {
+    return this.attendanceService.getShifts(tenantId);
+  }
+
+  /**
    * READ: Single record by ID
    * GET /attendance/records/:id
    */

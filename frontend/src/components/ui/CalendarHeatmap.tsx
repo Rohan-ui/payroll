@@ -12,14 +12,14 @@ interface CalendarHeatmapProps {
 }
 
 const STATUS_STYLES: Record<AttendanceDayStatus, { bg: string; text: string; label: string }> = {
-  PRESENT:      { bg: 'bg-teal-100 text-teal-700',    text: 'text-teal-700',   label: 'Present' },
-  ABSENT:       { bg: 'bg-red-100 text-red-600',       text: 'text-red-600',    label: 'Absent' },
-  HALF_DAY:     { bg: 'bg-amber-100 text-amber-700',   text: 'text-amber-700',  label: 'Half Day' },
-  PAID_LEAVE:   { bg: 'bg-mint-100 text-[#0E5A47]',text: 'text-teal-700',   label: 'Paid Leave' },
-  UNPAID_LEAVE: { bg: 'bg-orange-100 text-orange-700', text: 'text-orange-700', label: 'Unpaid Leave' },
-  HOLIDAY:      { bg: 'bg-purple-100 text-purple-700', text: 'text-purple-700', label: 'Holiday' },
-  WEEKEND:      { bg: 'bg-slate-100 text-slate-400',   text: 'text-slate-400',  label: 'Weekend' },
-  FUTURE:       { bg: 'bg-white text-slate-200 border border-slate-100', text: 'text-slate-200', label: 'Future' },
+  PRESENT:      { bg: 'bg-teal-100 text-teal-700',      text: 'text-teal-700',   label: 'Present' },
+  ABSENT:       { bg: 'bg-red-100 text-red-600',         text: 'text-red-600',    label: 'Absent' },
+  HALF_DAY:     { bg: 'bg-amber-100 text-amber-700',     text: 'text-amber-700',  label: 'Half Day' },
+  PAID_LEAVE:   { bg: 'bg-emerald-100 text-emerald-800', text: 'text-emerald-800', label: 'Paid Leave' },
+  UNPAID_LEAVE: { bg: 'bg-orange-100 text-orange-700',   text: 'text-orange-700', label: 'Unpaid (LOP)' },
+  HOLIDAY:      { bg: 'bg-purple-100 text-purple-700',   text: 'text-purple-700', label: 'Holiday' },
+  WEEKEND:      { bg: 'bg-slate-100 text-slate-500',     text: 'text-slate-500',  label: 'Weekend' },
+  FUTURE:       { bg: 'bg-white text-slate-300 border border-slate-200', text: 'text-slate-300', label: 'Future' },
 };
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -27,7 +27,7 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({
   year,
   month,
-  days,
+  days = [],
   className,
   selectedDate,
   onDayClick,
@@ -35,10 +35,13 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({
   const firstDow = new Date(year, month - 1, 1).getDay(); // 0=Sun
   const daysInMonth = new Date(year, month, 0).getDate();
 
+  const safeDays = Array.isArray(days) ? days : [];
   // Build a lookup map from date string → status
   const statusMap: Record<string, AttendanceDayStatus> = {};
-  for (const d of days) {
-    statusMap[d.date] = d.status;
+  for (const d of safeDays) {
+    if (d && d.date) {
+      statusMap[d.date] = d.status;
+    }
   }
 
   // Build grid cells — leading empty cells + day cells
@@ -55,11 +58,11 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({
     <div className={cn('select-none', className)}>
       {/* Legend */}
       <div className="flex flex-wrap gap-3 mb-3">
-        {(['PRESENT', 'ABSENT', 'HALF_DAY', 'PAID_LEAVE', 'HOLIDAY'] as AttendanceDayStatus[]).map(
+        {(['PRESENT', 'HALF_DAY', 'ABSENT', 'PAID_LEAVE', 'UNPAID_LEAVE', 'HOLIDAY', 'WEEKEND'] as AttendanceDayStatus[]).map(
           (s) => (
-            <div key={s} className="flex items-center gap-1">
-              <span className={cn('w-2.5 h-2.5 rounded-sm', STATUS_STYLES[s].bg)} />
-              <span className="text-[10px] text-slate-500">{STATUS_STYLES[s].label}</span>
+            <div key={s} className="flex items-center gap-1.5">
+              <span className={cn('w-3 h-3 rounded-xs shadow-2xs', STATUS_STYLES[s].bg)} />
+              <span className="text-[11px] font-medium text-slate-600">{STATUS_STYLES[s].label}</span>
             </div>
           ),
         )}
@@ -81,7 +84,7 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({
             return <div key={`empty-${idx}`} />;
           }
           const status = statusMap[cell.dateStr] ?? 'FUTURE';
-          const style = STATUS_STYLES[status];
+          const style = STATUS_STYLES[status] || STATUS_STYLES.FUTURE;
           const isSelected = selectedDate === cell.dateStr;
 
           if (onDayClick) {
@@ -94,7 +97,7 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({
                 className={cn(
                   'aspect-square rounded-md flex items-center justify-center text-[11px] font-semibold transition-all duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 hover:scale-105 hover:shadow-sm',
                   style.bg,
-                  isSelected && 'ring-2 ring-[#0E5A47] scale-105 shadow-sm font-bold',
+                  isSelected && 'ring-2 ring-teal-600 scale-105 shadow-sm font-bold',
                 )}
               >
                 {cell.day}

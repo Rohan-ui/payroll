@@ -84,6 +84,32 @@ export interface AttendanceSummaryResponse {
   summaries: EmployeeAttendanceSummary[];
 }
 
+export interface BackendShiftBreak {
+  id: string;
+  break_name: string;
+  break_duration_minutes: number;
+  is_paid_break: boolean;
+}
+
+export interface BackendShift {
+  id: string;
+  tenant_id: string;
+  shift_code: string;
+  shift_name: string;
+  start_time: string;
+  end_time: string;
+  standard_work_minutes: number;
+  grace_in_minutes: number;
+  grace_out_minutes: number;
+  shift_status: string;
+  rndtechnosoft_shift_breaks?: BackendShiftBreak[];
+}
+
+export interface TimeSession {
+  clockIn: string;
+  clockOut?: string;
+}
+
 export interface SaveAttendanceRecordInput {
   employeeId: string;
   attendanceDate: string; // YYYY-MM-DD
@@ -94,7 +120,14 @@ export interface SaveAttendanceRecordInput {
   payableMinutes?: number;
   shiftId?: string;
   source?: string;
+  notes?: string;
+  breakMinutes?: number;
+  overtimeMinutes?: number;
+  remoteMinutes?: number;
+  sessions?: TimeSession[];
 }
+
+
 
 export interface UpdateAttendanceRecordInput {
   attendanceStatus?: AttendanceStatus;
@@ -219,4 +252,300 @@ export const attendanceApi = {
   seedAttendance: async (month?: string) => {
     return apiClient.post('/attendance/seed', { month: month || '2026-10' });
   },
+
+  /**
+   * Get active shifts for tenant
+   */
+  getShifts: async (): Promise<BackendShift[]> => {
+    return apiClient.get<BackendShift[]>('/attendance/shifts');
+  },
+
+  /**
+   * 1. Get department summary at a date
+   */
+  getDepartmentSummary: async (date?: string): Promise<DepartmentSummaryResponse> => {
+    const query = new URLSearchParams();
+    if (date) query.append('date', date);
+    const qs = query.toString();
+    return apiClient.get<DepartmentSummaryResponse>(`/attendance/department-summary${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * 2. Get employee list at a date with filters and month strip
+   */
+  getEmployeeDayList: async (params?: {
+    date?: string;
+    departmentId?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<EmployeeDayListResponse> => {
+    const query = new URLSearchParams();
+    if (params?.date) query.append('date', params.date);
+    if (params?.departmentId) query.append('departmentId', params.departmentId);
+    if (params?.search) query.append('search', params.search);
+    if (params?.page) query.append('page', String(params.page));
+    if (params?.limit) query.append('limit', String(params.limit));
+    const qs = query.toString();
+    return apiClient.get<EmployeeDayListResponse>(`/attendance/employee-day-list${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * 3. Get roster matrix of employees x days of month
+   */
+  getRosterMatrix: async (params?: {
+    month?: string;
+    departmentId?: string;
+    search?: string;
+    selectedDate?: string;
+  }): Promise<RosterMatrixResponse> => {
+    const query = new URLSearchParams();
+    if (params?.month) query.append('month', params.month);
+    if (params?.departmentId) query.append('departmentId', params.departmentId);
+    if (params?.search) query.append('search', params.search);
+    if (params?.selectedDate) query.append('selectedDate', params.selectedDate);
+    const qs = query.toString();
+    return apiClient.get<RosterMatrixResponse>(`/attendance/roster-matrix${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * 4. Get comprehensive monthly attendance for employee
+   */
+  getEmployeeMonth: async (employeeId: string, month?: string): Promise<EmployeeMonthResponse> => {
+    const query = new URLSearchParams();
+    query.append('employeeId', employeeId);
+    if (month) query.append('month', month);
+    const qs = query.toString();
+    return apiClient.get<EmployeeMonthResponse>(`/attendance/employee-month?${qs}`);
+  },
+
+  /**
+   * 5. Get 12-month array for Year at a Glance
+   */
+  getEmployeeYear: async (employeeId: string, year?: number): Promise<EmployeeYearResponse> => {
+    const query = new URLSearchParams();
+    query.append('employeeId', employeeId);
+    if (year) query.append('year', String(year));
+    const qs = query.toString();
+    return apiClient.get<EmployeeYearResponse>(`/attendance/employee-year?${qs}`);
+  },
 };
+
+export interface TrendDay {
+  date: string;
+  dayName: string;
+  attendancePct: number | null;
+  isOff: boolean;
+}
+
+export interface DepartmentCardData {
+  departmentId: string;
+  departmentName: string;
+  departmentCode: string;
+  headcount: number;
+  presentCount: number;
+  absentCount: number;
+  halfDayCount: number;
+  leaveCount: number;
+  lateCount: number;
+  attendancePct: number | null;
+  presentPct: number;
+  halfDayPct: number;
+  leavePct: number;
+  absentPct: number;
+  trend7Days: TrendDay[];
+}
+
+export interface DepartmentSummaryResponse {
+  date: string;
+  isHoliday: boolean;
+  holidayName: string | null;
+  isWeeklyOff: boolean;
+  overall: {
+    headcount: number;
+    presentCount: number;
+    absentCount: number;
+    halfDayCount: number;
+    leaveCount: number;
+    lateCount: number;
+    attendancePct: number | null;
+    trend7Days: TrendDay[];
+  };
+  departments: DepartmentCardData[];
+}
+
+export interface EmployeeDayItem {
+  employeeId: string;
+  employeeCode: string;
+  fullName: string;
+  roleName: string;
+  departmentId: string;
+  departmentName: string;
+  dayStatus: AttendanceStatus;
+  inTime: string | null;
+  outTime: string | null;
+  workedMinutes: number;
+  lateMinutes: number;
+  isLate: boolean;
+  monthAttendancePct: number;
+  monthDays: Array<{
+    day: number;
+    date: string;
+    status: AttendanceStatus;
+    workedMinutes: number;
+    isLate: boolean;
+  }>;
+  last14Days: Array<{
+    date: string;
+    day: number;
+    workedMinutes: number;
+    status: AttendanceStatus;
+  }>;
+}
+
+export interface EmployeeDayListResponse {
+  total: number;
+  page: number;
+  limit: number;
+  items: EmployeeDayItem[];
+}
+
+export interface MatrixDayCell {
+  day: number;
+  date: string;
+  status: AttendanceStatus;
+  glyph: string;
+  inTime: string | null;
+  outTime: string | null;
+  workedHours: number;
+  isLate: boolean;
+  source: string;
+}
+
+export interface MatrixEmployee {
+  employeeId: string;
+  employeeCode: string;
+  fullName: string;
+  designation: string;
+  monthAttendancePct: number;
+  days: MatrixDayCell[];
+}
+
+export interface MatrixGroup {
+  departmentId: string;
+  departmentName: string;
+  employees: MatrixEmployee[];
+}
+
+export interface RosterMatrixResponse {
+  month: string;
+  daysInMonth: number;
+  daysHeader: Array<{
+    day: number;
+    date: string;
+    weekday: string;
+    isWeekend: boolean;
+    isHoliday: boolean;
+    holidayName: string | null;
+  }>;
+  kpis: {
+    presentCount: number;
+    absentCount: number;
+    leaveCount: number;
+    lateCount: number;
+    headcount: number;
+  };
+  departmentLeaderboard: Array<{
+    departmentId: string;
+    departmentName: string;
+    headcount: number;
+    attendancePct: number;
+    presentPct: number;
+    halfDayPct: number;
+    leavePct: number;
+    absentPct: number;
+  }>;
+  groups: MatrixGroup[];
+}
+
+export interface EmployeeMonthDayRecord {
+  date: string;
+  day: number;
+  weekday: string;
+  status: AttendanceStatus;
+  glyph: string;
+  firstCheckInAt: string | null;
+  lastCheckOutAt: string | null;
+  workedMinutes: number;
+  workedHours: number;
+  lateMinutes: number;
+  overtimeMinutes: number;
+  isLate: boolean;
+  source: string;
+  leaveType?: string;
+  holidayName?: string;
+  shift: {
+    name: string;
+    startTime: string;
+    endTime: string;
+    graceMinutes: number;
+    standardMinutes: number;
+    breakMinutes: number;
+  };
+  punches: Array<{
+    id: string;
+    punchAt: string;
+    punchType: 'IN' | 'OUT';
+    source: string;
+  }>;
+}
+
+export interface EmployeeMonthResponse {
+  employee: {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    email?: string | null;
+    designation: string;
+    departmentId: string;
+    departmentName: string;
+  };
+  month: string;
+  workingDays: number;
+  attendancePct: number;
+  payableDays: number;
+  totalWorkedHours: number;
+  stats: {
+    presentDays: number;
+    absentDays: number;
+    lopCount: number;
+    halfDays: number;
+    leaveDays: number;
+    lateMarks: number;
+    avgCheckInTime: string;
+    overtimeHours: number;
+    bestStreakDays: number;
+  };
+  leaveBalances: {
+    casual: { total: number; used: number; remaining: number };
+    sick: { total: number; used: number; remaining: number };
+    earned: { total: number; used: number; remaining: number };
+  };
+  days: EmployeeMonthDayRecord[];
+}
+
+export interface EmployeeYearResponse {
+  year: number;
+  months: Array<{
+    month: string;
+    monthName: string;
+    attendancePct: number;
+    days: Array<{
+      date: string;
+      day: number;
+      status: AttendanceStatus;
+    }>;
+  }>;
+}
+
+

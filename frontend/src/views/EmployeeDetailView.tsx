@@ -72,7 +72,7 @@ const ChartTooltip: React.FC<any> = ({ active, payload, label }) => {
 
 /* ── Main view ────────────────────────────────────────────── */
 export const EmployeeDetailView: React.FC = () => {
-  const { employees, selectedEmployeeId, setCurrentView } = usePayroll();
+  const { employees, selectedEmployeeId, setSelectedEmployeeId, setCurrentView } = usePayroll();
 
   const emp = employees.find((e) => e.id === selectedEmployeeId) ?? employees[0];
 
@@ -122,7 +122,7 @@ export const EmployeeDetailView: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => setCurrentView('edit-employee')}>
             <Edit2 className="w-3.5 h-3.5" /> Edit
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setCurrentView('payslips')}>
@@ -273,10 +273,31 @@ export const EmployeeDetailView: React.FC = () => {
 
           {/* Attendance calendar */}
           <Card>
-            <h3 className="text-sm font-bold text-slate-800 mb-4">
-              Attendance — {now.toLocaleString('en-IN', { month: 'long' })} {year}
-            </h3>
-            <CalendarHeatmap year={year} month={month} days={emp.attendanceDays} />
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-800">
+                Attendance — {now.toLocaleString('en-IN', { month: 'long' })} {year}
+              </h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (emp?.id) setSelectedEmployeeId(emp.id);
+                  setCurrentView('attendance');
+                }}
+                className="text-xs font-semibold text-teal-700 hover:bg-mint-50"
+              >
+                Manage Attendance →
+              </Button>
+            </div>
+            <CalendarHeatmap
+              year={year}
+              month={month}
+              days={emp.attendanceDays}
+              onDayClick={() => {
+                if (emp?.id) setSelectedEmployeeId(emp.id);
+                setCurrentView('attendance');
+              }}
+            />
           </Card>
         </div>
 

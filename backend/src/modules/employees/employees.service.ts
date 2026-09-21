@@ -39,6 +39,26 @@ export interface AddBankAccountInput {
   effectiveFrom: string;
 }
 
+export interface UpdateEmployeeInput {
+  firstName?: string;
+  lastName?: string;
+  workEmail?: string;
+  workMobile?: string;
+  employeeStatus?: string;
+  joiningDate?: string;
+  departmentId?: string;
+  departmentName?: string;
+  designationId?: string;
+  designationName?: string;
+  bankDetails?: {
+    bankName: string;
+    branchName?: string;
+    accountNumber?: string;
+    ifsc: string;
+    accountHolderName?: string;
+  };
+}
+
 @Injectable()
 export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -74,6 +94,9 @@ export class EmployeesService {
               rndtechnosoft_departments: true,
               rndtechnosoft_designations: true,
             },
+          },
+          rndtechnosoft_employee_bank_accounts: {
+            where: { effective_to: null },
           },
         },
       }),
@@ -323,6 +346,160 @@ export class EmployeesService {
           bank_account_status: 'ACTIVE',
         },
       });
+    });
+  }
+
+  async updateEmployee(tenantId: string, id: string, input: UpdateEmployeeInput) {
+    const employee = await this.prisma.rndtechnosoft_employees.findFirst({
+      where: { id, tenant_id: tenantId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found in tenant');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update basic employee data
+      await tx.rndtechnosoft_employees.update({
+        where: { id },
+        data: {
+          first_name: input.firstName !== undefined ? input.firstName : undefined,
+          last_name: input.lastName !== undefined ? input.lastName : undefined,
+          work_email: input.workEmail !== undefined ? input.workEmail : undefined,
+          work_mobile: input.workMobile !== undefined ? input.workMobile : undefined,
+          employee_status: input.employeeStatus !== undefined ? input.employeeStatus : undefined,
+          updated_at: new Date(),
+        },
+      });
+
+      // 2. Dynamic Department resolution or auto-creation
+      let departmentId = input.departmentId;
+      if (!departmentId && input.departmentName?.trim()) {
+        const deptName = input.departmentName.trim();
+        let dept = await tx.rndtechnosoft_departments.findFirst({
+          where: {
+            tenant_id: tenantId,
+            department_name: { equals: deptName, mode: 'insensitive' },
+          },
+        });
+        if (!dept) {
+          const deptCode = deptName.toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 32) || `DEPT_${Date.now()}`;
+          dept = await tx.rndtechnosoft_departments.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              department_name: deptName,
+              department_code: deptCode,
+              department_status: 'ACTIVE',
+            },
+          });
+        }
+        departmentId = dept.id;
+      }
+
+      // 3. Dynamic Designation resolution or auto-creation
+      let designationId = input.designationId;
+      if (!designationId && input.designationName?.trim()) {
+        const desigName = input.designationName.trim();
+        let desig = await tx.rndtechnosoft_designations.findFirst({
+          where: {
+            tenant_id: tenantId,
+            designation_name: { equals: desigName, mode: 'insensitive' },
+          },
+        });
+        if (!desig) {
+          const desigCode = desigName.toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 32) || `DESIG_${Date.now()}`;
+          desig = await tx.rndtechnosoft_designations.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              designation_name: desigName,
+              designation_code: desigCode,
+              designation_status: 'ACTIVE',
+            },
+          });
+        }
+        designationId = desig.id;
+      }
+
+      // Update employment record
+      if (departmentId !== undefined || designationId !== undefined || input.joiningDate !== undefined) {
+        const activeEmployment = await tx.rndtechnosoft_employee_employments.findFirst({
+          where: { tenant_id: tenantId, employee_id: id, effective_to: null },
+        });
+
+        if (activeEmployment) {
+          await tx.rndtechnosoft_employee_employments.update({
+            where: { id: activeEmployment.id },
+            data: {
+              department_id: departmentId !== undefined ? departmentId : activeEmployment.department_id,
+              designation_id: designationId !== undefined ? designationId : activeEmployment.designation_id,
+              joining_date: input.joiningDate ? new Date(input.joiningDate) : activeEmployment.joining_date,
+              updated_at: new Date(),
+            },
+          });
+        } else {
+          await tx.rndtechnosoft_employee_employments.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              employee_id: id,
+              department_id: departmentId || null,
+              designation_id: designationId || null,
+              joining_date: input.joiningDate ? new Date(input.joiningDate) : new Date(),
+              effective_from: new Date(),
+              employment_status: 'CONFIRMED',
+            },
+          });
+        }
+      }
+
+      // 4. Update bank details if provided
+      if (input.bankDetails && input.bankDetails.bankName && input.bankDetails.ifsc) {
+        const activeBank = await tx.rndtechnosoft_employee_bank_accounts.findFirst({
+          where: { tenant_id: tenantId, employee_id: id, effective_to: null },
+        });
+
+        const rawAcc = input.bankDetails.accountNumber;
+        const last4 = rawAcc ? rawAcc.slice(-4) : (activeBank?.account_number_last4 || '0000');
+        const encrypted = rawAcc ? `ENC[${rawAcc}]` : (activeBank?.account_number_encrypted || 'ENC[0000]');
+
+        if (activeBank) {
+          await tx.rndtechnosoft_employee_bank_accounts.update({
+            where: { id: activeBank.id },
+            data: {
+              bank_name: input.bankDetails.bankName,
+              branch_name: input.bankDetails.branchName || activeBank.branch_name,
+              bank_code: input.bankDetails.ifsc.toUpperCase(),
+              account_number_encrypted: encrypted,
+              account_number_last4: last4,
+              updated_at: new Date(),
+            },
+          });
+        } else if (rawAcc) {
+          await tx.rndtechnosoft_employee_bank_accounts.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              employee_id: id,
+              account_holder_name:
+                input.bankDetails.accountHolderName ||
+                `${input.firstName || employee.first_name} ${input.lastName || employee.last_name || ''}`.trim(),
+              bank_name: input.bankDetails.bankName,
+              branch_name: input.bankDetails.branchName || null,
+              account_number_encrypted: encrypted,
+              account_number_last4: last4,
+              bank_code_type: 'IFSC',
+              bank_code: input.bankDetails.ifsc.toUpperCase(),
+              account_type: 'SAVINGS',
+              effective_from: new Date(),
+              bank_account_status: 'ACTIVE',
+            },
+          });
+        }
+      }
+
+      return this.getEmployeeById(tenantId, id);
     });
   }
 

@@ -11,6 +11,7 @@ import { LeaveModule } from './modules/leave/leave.module';
 import { SalaryModule } from './modules/salary/salary.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { BookkeepingModule } from './modules/bookkeeping/bookkeeping.module';
+import { ExternalApiModule } from './modules/external-api/external-api.module';
 import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 
 @Module({
@@ -29,6 +30,7 @@ import { TenantContextMiddleware } from './common/middleware/tenant-context.midd
     SalaryModule,
     PayrollModule,
     BookkeepingModule,
+    ExternalApiModule,
     HealthModule,
   ],
 })

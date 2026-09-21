@@ -8,12 +8,15 @@ export type AppView =
   | 'people'
   | 'employee-detail'
   | 'add-employee'
+  | 'edit-employee'
   | 'attendance'
+  | 'clock-in'
   | 'payslips'
   | 'bookkeeping'
   | 'reports'
   | 'settings'
   | 'help';
+
 
 /* ── Bank ──────────────────────────────────────────────────── */
 export interface BankDetails {
