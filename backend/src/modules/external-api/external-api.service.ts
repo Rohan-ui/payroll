@@ -497,14 +497,19 @@ export class ExternalApiService {
 
       const attDate = new Date(`${item.date}T00:00:00.000Z`);
 
-      let firstCheckInAt: Date | null = null;
-      let lastCheckOutAt: Date | null = null;
+      // Parse local time in tenant timezone (Asia/Kolkata +05:30)
+      const parseLocalTime = (dateStr: string, timeStr: string | null | undefined): Date | null => {
+        if (!timeStr) return null;
+        const clean = timeStr.trim();
+        if (!clean) return null;
+        const normalized = clean.length === 5 ? `${clean}:00` : clean;
+        return new Date(`${dateStr}T${normalized}+05:30`);
+      };
 
-      if (item.firstCheckInTime) {
-        firstCheckInAt = new Date(`${item.date}T${item.firstCheckInTime}.000Z`);
-      }
+      const firstCheckInAt: Date | null = parseLocalTime(item.date, item.firstCheckInTime);
+      let lastCheckOutAt: Date | null = null;
       if (item.lastCheckOutTime && !item.isCurrentlyInside) {
-        lastCheckOutAt = new Date(`${item.date}T${item.lastCheckOutTime}.000Z`);
+        lastCheckOutAt = parseLocalTime(item.date, item.lastCheckOutTime);
       }
 
       // Upsert daily attendance record
@@ -539,32 +544,32 @@ export class ExternalApiService {
       });
       syncedRecords++;
 
+      // Clean up old COSEC punches for this record before inserting fresh ones to prevent stale/shifted duplicates
+      await this.prisma.rndtechnosoft_attendance_punches.deleteMany({
+        where: {
+          attendance_record_id: record.id,
+          source: { in: ['COSEC_SYNC', 'COSEC_DEVICE'] },
+        },
+      });
+
       // Create/sync each individual punch in sequence (Punch 1 IN, Punch 2 OUT, Punch 3 IN, etc.)
       for (const p of item.punches) {
-        const punchAt = new Date(`${item.date}T${p.time}.000Z`);
-        const existingPunch = await this.prisma.rndtechnosoft_attendance_punches.findFirst({
-          where: {
+        const punchAt = parseLocalTime(item.date, p.time);
+        if (!punchAt) continue;
+
+        await this.prisma.rndtechnosoft_attendance_punches.create({
+          data: {
+            id: randomUUID(),
             tenant_id: tenantId,
             employee_id: employee.id,
+            attendance_record_id: record.id,
             punch_at: punchAt,
             punch_type: p.type,
+            source: 'COSEC_SYNC',
+            device_reference: `COSEC_PUNCH_${p.index}_${p.label}`,
           },
         });
-        if (!existingPunch) {
-          await this.prisma.rndtechnosoft_attendance_punches.create({
-            data: {
-              id: randomUUID(),
-              tenant_id: tenantId,
-              employee_id: employee.id,
-              attendance_record_id: record.id,
-              punch_at: punchAt,
-              punch_type: p.type,
-              source: 'COSEC_SYNC',
-              device_reference: `COSEC_PUNCH_${p.index}_${p.label}`,
-            },
-          });
-          syncedPunches++;
-        }
+        syncedPunches++;
       }
     }
 

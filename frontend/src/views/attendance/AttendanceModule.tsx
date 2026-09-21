@@ -40,6 +40,7 @@ import { StatusPill } from './shared/StatusPill';
 import { CommandCenterLayout } from './layouts/CommandCenterLayout';
 import { DepartmentBoardsLayout } from './layouts/DepartmentBoardsLayout';
 import { RosterMatrixLayout } from './layouts/RosterMatrixLayout';
+import { RegularizeModal } from './modals/RegularizeModal';
 
 export type AttendanceLayoutType = 'command' | 'boards' | 'matrix';
 
@@ -178,6 +179,21 @@ export const AttendanceModule: React.FC = () => {
   const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>('PRESENT');
   const [isBulking, setIsBulking] = useState(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+
+  // Regularize Modal State
+  const [isRegularizeModalOpen, setIsRegularizeModalOpen] = useState(false);
+  const [regularizeTargetDate, setRegularizeTargetDate] = useState<string>(selectedDate);
+
+  const handleOpenRegularize = (dateStr: string) => {
+    setRegularizeTargetDate(dateStr);
+    setIsRegularizeModalOpen(true);
+  };
+
+  const handleRegularizeSuccess = () => {
+    setBannerMessage(`Attendance for ${regularizeTargetDate} successfully regularized.`);
+    setRefreshTrigger((c) => c + 1);
+    setTimeout(() => setBannerMessage(null), 4000);
+  };
 
   const monthStr = selectedDate.slice(0, 7); // e.g. "2026-10"
 
@@ -629,9 +645,7 @@ export const AttendanceModule: React.FC = () => {
           isLoading={isLoading}
           isDetailView={Boolean(activeEmployeeId)}
           employeeMonthData={employeeMonthData}
-          onRegularize={(dateStr) => {
-            alert(`Opening regularization request for ${dateStr}`);
-          }}
+          onRegularize={handleOpenRegularize}
           onEditPunches={(dateStr) => {
             setCurrentView('clock-in');
           }}
@@ -658,9 +672,7 @@ export const AttendanceModule: React.FC = () => {
           onSelectMonth={(m) => {
             setSelectedDate(`${m}-15`);
           }}
-          onRegularize={(dateStr) => {
-            alert(`Opening regularization request for ${dateStr}`);
-          }}
+          onRegularize={handleOpenRegularize}
           onEditPunches={(dateStr) => {
             setCurrentView('clock-in');
           }}
@@ -682,9 +694,7 @@ export const AttendanceModule: React.FC = () => {
           isLoading={isLoading}
           isDetailView={Boolean(activeEmployeeId)}
           employeeMonthData={employeeMonthData}
-          onRegularize={(dateStr) => {
-            alert(`Opening regularization request for ${dateStr}`);
-          }}
+          onRegularize={handleOpenRegularize}
           onEditPunches={(dateStr) => {
             setCurrentView('clock-in');
           }}
@@ -748,6 +758,32 @@ export const AttendanceModule: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 7. REGULARIZE MODAL */}
+      {isRegularizeModalOpen && (
+        <RegularizeModal
+          isOpen={isRegularizeModalOpen}
+          onClose={() => setIsRegularizeModalOpen(false)}
+          onSuccess={handleRegularizeSuccess}
+          employeeId={activeEmployeeId || selectedEmployeeId || employeeDayList[0]?.employeeId || ''}
+          employeeName={
+            employeeMonthData?.employee?.fullName ||
+            employeeDayList.find((e) => e.employeeId === (activeEmployeeId || selectedEmployeeId))?.fullName
+          }
+          employeeCode={
+            employeeMonthData?.employee?.employeeCode ||
+            employeeDayList.find((e) => e.employeeId === (activeEmployeeId || selectedEmployeeId))?.employeeCode
+          }
+          departmentName={
+            employeeMonthData?.employee?.departmentName ||
+            employeeDayList.find((e) => e.employeeId === (activeEmployeeId || selectedEmployeeId))?.departmentName
+          }
+          dateStr={regularizeTargetDate}
+          dayRecord={
+            employeeMonthData?.days?.find((d) => d.date === regularizeTargetDate) || null
+          }
+        />
       )}
     </div>
   );

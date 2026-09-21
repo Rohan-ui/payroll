@@ -13,6 +13,8 @@ import {
   Building,
   Info,
   Layers,
+  LogIn,
+  LogOut,
 } from 'lucide-react';
 import { cn } from '../../../utils/cn';
 import { StatusPill } from './StatusPill';
@@ -98,19 +100,53 @@ export const DayDetail: React.FC<DayDetailProps> = ({
   const shiftLeftPct = (shiftStartHour / 24) * 100;
   const shiftWidthPct = ((shiftEndHour - shiftStartHour) / 24) * 100;
 
+  // Helper to get decimal hour in Asia/Kolkata timezone (e.g. 8.5 for 08:30 AM)
+  const getKolkataHour = (dateStr?: string | null): number | null => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    const totalMinutes = (d.getUTCHours() * 60 + d.getUTCMinutes() + 330) % 1440;
+    return totalMinutes / 60;
+  };
+
   // Actual worked segment calculation from first check-in to last check-out
   let workedLeftPct = 0;
   let workedWidthPct = 0;
-  if (dayRecord.firstCheckInAt) {
-    const cin = new Date(dayRecord.firstCheckInAt);
-    const inHour = cin.getUTCHours() + cin.getUTCMinutes() / 60;
+  const inHour = getKolkataHour(dayRecord.firstCheckInAt);
+  if (inHour !== null) {
     let outHour = inHour + workedMinutes / 60;
-    if (dayRecord.lastCheckOutAt) {
-      const cout = new Date(dayRecord.lastCheckOutAt);
-      outHour = cout.getUTCHours() + cout.getUTCMinutes() / 60;
+    const recordedOutHour = getKolkataHour(dayRecord.lastCheckOutAt);
+    if (recordedOutHour !== null && recordedOutHour >= inHour) {
+      outHour = recordedOutHour;
     }
     workedLeftPct = Math.max(0, (inHour / 24) * 100);
     workedWidthPct = Math.max(1, ((outHour - inHour) / 24) * 100);
+  }
+
+  // Format time in Asia/Kolkata
+  const formatTimeDisplay = (dateStr?: string | null): string => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  };
+
+  const formattedInTime = formatTimeDisplay(dayRecord.firstCheckInAt);
+  const formattedOutTime = formatTimeDisplay(dayRecord.lastCheckOutAt);
+
+  let grossElapsedText = '—';
+  if (dayRecord.firstCheckInAt && dayRecord.lastCheckOutAt) {
+    const diffMs = new Date(dayRecord.lastCheckOutAt).getTime() - new Date(dayRecord.firstCheckInAt).getTime();
+    if (diffMs > 0) {
+      const grossMins = Math.round(diffMs / 60000);
+      const gh = Math.floor(grossMins / 60);
+      const gm = grossMins % 60;
+      grossElapsedText = `${gh}h ${gm}m`;
+    }
   }
 
   // Inner Day Detail Content
@@ -215,6 +251,48 @@ export const DayDetail: React.FC<DayDetailProps> = ({
 
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
                   Source: {dayRecord.source || 'Biometric'}
+                </span>
+              </div>
+            </div>
+
+            {/* In-Time and Out-Time Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs">
+              <div className="space-y-1">
+                <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+                  <LogIn className="w-3.5 h-3.5 text-teal-600" />
+                  First Check-In
+                </span>
+                <p className="text-sm font-bold font-mono text-slate-800">
+                  {formattedInTime}
+                </p>
+                <span className="text-[10px] text-slate-500 block">
+                  Shift start: {dayRecord.shift?.startTime || '09:30 AM'}
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+                  <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                  Last Check-Out
+                </span>
+                <p className="text-sm font-bold font-mono text-slate-800">
+                  {formattedOutTime}
+                </p>
+                <span className="text-[10px] text-slate-500 block">
+                  Shift end: {dayRecord.shift?.endTime || '06:30 PM'}
+                </span>
+              </div>
+
+              <div className="space-y-1 col-span-2 sm:col-span-1 border-t sm:border-t-0 sm:border-l border-slate-200 pt-2 sm:pt-0 sm:pl-3">
+                <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-slate-500" />
+                  Gross Duration
+                </span>
+                <p className="text-sm font-bold font-mono text-slate-800">
+                  {grossElapsedText}
+                </p>
+                <span className="text-[10px] text-teal-700 font-medium block">
+                  Net worked: {dayRecord.workedHours} hrs
                 </span>
               </div>
             </div>

@@ -495,8 +495,9 @@ export interface EmployeeMonthDayRecord {
   punches: Array<{
     id: string;
     punchAt: string;
-    punchType: 'IN' | 'OUT';
+    punchType: 'IN' | 'OUT' | 'CHECK_IN' | 'CHECK_OUT';
     source: string;
+    deviceReference?: string;
   }>;
 }
 

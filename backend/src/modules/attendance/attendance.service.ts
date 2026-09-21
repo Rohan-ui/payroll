@@ -173,11 +173,11 @@ export class AttendanceService {
         parsedSessions = validSessions.map((s) => {
           const inDate = s.clockIn.includes('T')
             ? new Date(s.clockIn)
-            : new Date(`${dateOnlyStr}T${s.clockIn}:00.000Z`);
+            : new Date(`${dateOnlyStr}T${s.clockIn}:00+05:30`);
           const outDate = s.clockOut
             ? s.clockOut.includes('T')
               ? new Date(s.clockOut)
-              : new Date(`${dateOnlyStr}T${s.clockOut}:00.000Z`)
+              : new Date(`${dateOnlyStr}T${s.clockOut}:00+05:30`)
             : null;
           return { inDate, outDate };
         });
@@ -2124,12 +2124,31 @@ export class AttendanceService {
         firstCheckInAt = r.first_check_in_at ? r.first_check_in_at.toISOString() : null;
         lastCheckOutAt = r.last_check_out_at ? r.last_check_out_at.toISOString() : null;
 
-        punches = (r.rndtechnosoft_attendance_punches || []).map((p) => ({
+        const rawPunches = (r.rndtechnosoft_attendance_punches || []).map((p) => ({
           id: p.id,
           punchAt: p.punch_at.toISOString(),
           punchType: p.punch_type,
           source: p.source,
+          deviceReference: p.device_reference || undefined,
         }));
+
+        // Deduplicate punches that occur within 30 seconds with same general direction (IN vs OUT)
+        const dedupedPunches: typeof rawPunches = [];
+        for (const p of rawPunches) {
+          const isCheckIn = p.punchType.includes('IN');
+          const lastAdded = dedupedPunches[dedupedPunches.length - 1];
+          if (lastAdded) {
+            const timeDiffSec = Math.abs(
+              (new Date(p.punchAt).getTime() - new Date(lastAdded.punchAt).getTime()) / 1000
+            );
+            const lastIsCheckIn = lastAdded.punchType.includes('IN');
+            if (timeDiffSec < 30 && isCheckIn === lastIsCheckIn) {
+              continue; // Skip rapid redundant duplicate
+            }
+          }
+          dedupedPunches.push(p);
+        }
+        punches = dedupedPunches;
 
         totalWorkedMinutes += workedMinutes;
         totalOvertimeMinutes += overtimeMinutes;
@@ -2148,10 +2167,11 @@ export class AttendanceService {
         if (status === 'PAID_LEAVE') paidLeaveDays++;
         if (status === 'UNPAID_LEAVE') unpaidLeaveDays++;
 
-        // Average check-in accumulator
+        // Average check-in accumulator (in Asia/Kolkata +05:30)
         if (r.first_check_in_at) {
           const cin = new Date(r.first_check_in_at);
-          checkInMinutesSum += cin.getUTCHours() * 60 + cin.getUTCMinutes();
+          const kolkataMins = cin.getUTCHours() * 60 + cin.getUTCMinutes() + 330;
+          checkInMinutesSum += kolkataMins % 1440;
           checkInCount++;
         }
       } else {
