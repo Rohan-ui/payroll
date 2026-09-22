@@ -1,4 +1,5 @@
 import React from 'react';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TextSizeProvider } from './context/TextSizeContext';
 import { I18nProvider } from './i18n/I18nContext';
@@ -22,9 +23,14 @@ import { HelpView } from './views/HelpView';
 import { AddEmployeeView } from './views/AddEmployeeView';
 import { BookkeepingView } from './views/BookkeepingView';
 import { ClockInView } from './views/ClockInView';
+import { SuperAdminDashboardView } from './views/super-admin/SuperAdminDashboardView';
+import { CrmWorkspaceView } from './views/crm/CrmWorkspaceView';
+import { EmailMarketingView } from './views/emails/EmailMarketingView';
+import { cn } from './utils/cn';
 
 const MainContent: React.FC = () => {
   const { currentView, role } = usePayroll();
+  const { theme } = useTheme();
 
   const renderView = () => {
     // Employee role — restricted views
@@ -38,6 +44,9 @@ const MainContent: React.FC = () => {
 
     switch (currentView) {
       case 'dashboard':       return <DashboardView />;
+      case 'crm':             return <CrmWorkspaceView />;
+      case 'emails':          return <EmailMarketingView />;
+      case 'super-admin':     return <SuperAdminDashboardView />;
       case 'payroll':         return <RunPayrollWizardView />;
       case 'people':          return <EmployeesView />;
       case 'add-employee':    return <AddEmployeeView />;
@@ -55,16 +64,32 @@ const MainContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-surface flex font-sans overflow-x-hidden relative">
+    <div
+      className={cn(
+        'h-screen max-h-screen flex font-sans overflow-hidden relative transition-colors duration-200',
+        theme === 'dark' ? 'bg-[#0c0b14] text-slate-100' : 'bg-[#F8F9FC] text-slate-900',
+      )}
+      data-theme={theme}
+    >
       {/* Desktop sidebar with smooth slide */}
       <Sidebar />
 
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
+      <div
+        className={cn(
+          'flex-1 flex flex-col min-w-0 h-full max-h-screen overflow-hidden transition-all duration-300 ease-in-out',
+          theme === 'dark' ? 'bg-[#0c0b14]' : 'bg-[#F8F9FC]',
+        )}
+      >
         {/* Mobile topbar */}
         <Header />
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 pb-24 md:pb-8 overflow-y-auto">
+        <main
+          className={cn(
+            'flex-1 p-4 sm:p-6 lg:p-8 pb-24 md:pb-8 overflow-y-auto overflow-x-hidden min-h-0',
+            theme === 'dark' ? 'bg-[#0c0b14]' : 'bg-[#F8F9FC]',
+          )}
+        >
           {renderView()}
         </main>
       </div>
@@ -80,7 +105,7 @@ const AppRouter: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-surface flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-surface dark:bg-[#0F0E17] flex flex-col items-center justify-center">
         <div className="w-10 h-10 border-[3px] border-teal-100 border-t-teal-500 rounded-full animate-spin mb-4" />
         <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
           Loading Payroll…
@@ -104,13 +129,15 @@ const AppRouter: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <TextSizeProvider>
-        <I18nProvider>
-          <AppRouter />
-        </I18nProvider>
-      </TextSizeProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <TextSizeProvider>
+          <I18nProvider>
+            <AppRouter />
+          </I18nProvider>
+        </TextSizeProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 };
 

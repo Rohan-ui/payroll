@@ -1,9 +1,12 @@
 export type TaxRegime = 'NEW' | 'OLD';
 
-export type UserRole = 'ADMIN' | 'HR_ACCOUNTANT' | 'MANAGER' | 'EMPLOYEE';
+export type UserRole = 'ADMIN' | 'HR_ACCOUNTANT' | 'MANAGER' | 'EMPLOYEE' | 'SUPER_ADMIN';
 
 export type AppView =
   | 'dashboard'
+  | 'crm'
+  | 'emails'
+  | 'super-admin'
   | 'payroll'
   | 'people'
   | 'employee-detail'
@@ -16,6 +19,15 @@ export type AppView =
   | 'reports'
   | 'settings'
   | 'help';
+
+export type CrmTab =
+  | 'cold-funnel'
+  | 'pipeline'
+  | 'activities'
+  | 'proposals'
+  | 'reports'
+  | 'masters'
+  | 'audit-trail';
 
 
 /* ── Bank ──────────────────────────────────────────────────── */
@@ -97,7 +109,7 @@ export interface Employee {
   workState: 'Maharashtra' | 'Gujarat' | 'Karnataka' | 'Delhi' | 'Tamil Nadu';
   workEmail: string;
   mobileNumber: string;
-  status: 'ACTIVE' | 'RESIGNED' | 'ON_NOTICE';
+  status: 'ACTIVE' | 'RESIGNED' | 'ON_NOTICE' | 'INACTIVE' | 'PROBATION' | 'TERMINATED' | 'SUSPENDED' | (string & {});
   bank: BankDetails;
   statutory: StatutoryDetails;
   salary: SalaryBreakdown;

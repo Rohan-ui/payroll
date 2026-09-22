@@ -67,15 +67,15 @@ export const DashboardView: React.FC = () => {
     return (
       <div className="space-y-5 max-w-xl">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">My Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-0.5">September 2026</p>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-white">My Dashboard</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">September 2026</p>
         </div>
 
         {/* Net pay card */}
         <Card highlight className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs text-slate-500 font-medium mb-1">September Net Pay</p>
-            <p className="text-3xl font-bold text-[#0E5A47]">
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">September Net Pay</p>
+            <p className="text-3xl font-bold text-[#0E5A47] dark:text-teal-400">
               {me ? fmt(me.salary.grossMonthly * 0.84) : '₹—'}
             </p>
             <p className="text-xs text-slate-400 mt-1">Credited on 30 Sep</p>
@@ -88,7 +88,7 @@ export const DashboardView: React.FC = () => {
         {/* Leave rings */}
         {me && (
           <Card>
-            <h2 className="text-sm font-semibold text-slate-700 mb-4">Leave Balance</h2>
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4">Leave Balance</h2>
             <div className="flex justify-around">
               <StatRing label="Earned Leave" total={me.leaveBalance.earned} used={me.leaveBalance.usedEarned} color="teal" />
               <StatRing label="Sick Leave"   total={me.leaveBalance.sick}   used={me.leaveBalance.usedSick}   color="amber" />
@@ -100,11 +100,11 @@ export const DashboardView: React.FC = () => {
         {/* Attendance card */}
         <Card className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 flex items-center justify-center">
               <CalendarCheck className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-800">My Attendance & Shifts</p>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">My Attendance & Shifts</p>
               <p className="text-xs text-slate-400">View daily clock-in records & calendar</p>
             </div>
           </div>
@@ -114,7 +114,7 @@ export const DashboardView: React.FC = () => {
         </Card>
 
         {/* Download payslip */}
-        <Button variant="ghost" onClick={() => setCurrentView('payslips')} className="gap-2">
+        <Button variant="ghost" onClick={() => setCurrentView('payslips')} className="gap-2 dark:text-slate-300 dark:hover:bg-white/5">
           <IndianRupee className="w-4 h-4" /> View all payslips
         </Button>
       </div>
@@ -126,25 +126,25 @@ export const DashboardView: React.FC = () => {
     <div className="space-y-6">
       {/* Page title */}
       <div>
-        <h1 className="text-xl font-bold text-slate-800">Dashboard</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Financial Year 2026–27 · October 2026</p>
+        <h1 className="text-xl font-bold text-slate-800 dark:text-white">Dashboard</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Financial Year 2026–27 · October 2026</p>
       </div>
 
       {/* ── KPI strip ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Employees', value: String(activeEmps), icon: Users,        color: 'text-teal-600',      bg: 'bg-teal-50' },
-          { label: 'Monthly Payout',  value: fmt(totalNetPay),  icon: IndianRupee,   color: 'text-[#0E5A47]',     bg: 'bg-mint-100' },
-          { label: 'PF Liability',    value: fmt(pfLiability),  icon: ShieldCheck,   color: 'text-amber-600',     bg: 'bg-amber-50' },
-          { label: 'Pending Leaves',  value: String(pendingLeaves), icon: CalendarCheck, color: 'text-slate-600',  bg: 'bg-slate-100' },
+          { label: 'Total Employees', value: String(activeEmps), icon: Users,        color: 'text-teal-600 dark:text-teal-400',      bg: 'bg-teal-50 dark:bg-teal-950/40' },
+          { label: 'Monthly Payout',  value: fmt(totalNetPay),  icon: IndianRupee,   color: 'text-[#0E5A47] dark:text-teal-300',     bg: 'bg-mint-100 dark:bg-teal-950/30' },
+          { label: 'PF Liability',    value: fmt(pfLiability),  icon: ShieldCheck,   color: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-50 dark:bg-amber-950/40' },
+          { label: 'Pending Leaves',  value: String(pendingLeaves), icon: CalendarCheck, color: 'text-slate-600 dark:text-slate-300',  bg: 'bg-slate-100 dark:bg-[#252336]' },
         ].map(({ label, value, icon: Icon, color, bg }) => (
           <Card key={label} className="flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}>
               <Icon className={`w-5 h-5 ${color}`} />
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-slate-500 truncate">{label}</p>
-              <p className="text-lg font-bold text-slate-800 leading-tight">{value}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{label}</p>
+              <p className="text-lg font-bold text-slate-800 dark:text-white leading-tight">{value}</p>
             </div>
           </Card>
         ))}
@@ -152,7 +152,7 @@ export const DashboardView: React.FC = () => {
 
       {/* ── Run Payroll CTA ── */}
       <div
-        className="bg-[#0E5A47] rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 cursor-pointer hover:bg-[#0A4537] transition-colors"
+        className="bg-[#0E5A47] dark:bg-[#0E5A47]/90 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 cursor-pointer hover:bg-[#0A4537] transition-colors border border-teal-600/30 shadow-lg shadow-teal-950/20"
         onClick={() => setCurrentView('payroll')}
         role="button"
         tabIndex={0}
@@ -166,7 +166,7 @@ export const DashboardView: React.FC = () => {
             {activeEmps} employees · {fmt(totalNetPay)} estimated payout
           </p>
         </div>
-        <button className="shrink-0 flex items-center gap-2 bg-teal-500 hover:bg-teal-400 text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300">
+        <button className="shrink-0 flex items-center gap-2 bg-teal-500 hover:bg-teal-400 text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300 shadow-sm">
           Start Payroll <ArrowRight className="w-4 h-4" />
         </button>
       </div>
@@ -176,13 +176,13 @@ export const DashboardView: React.FC = () => {
         {/* Compliance calendar */}
         <Card>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-slate-800">Upcoming Compliance</h2>
-            <button onClick={() => setCurrentView('settings')} className="text-xs text-teal-600 hover:underline font-medium">
+            <h2 className="text-sm font-bold text-slate-800 dark:text-white">Upcoming Compliance</h2>
+            <button onClick={() => setCurrentView('settings')} className="text-xs text-teal-600 dark:text-teal-400 hover:underline font-medium">
               View all
             </button>
           </div>
           {overdueCompliance.length > 0 && (
-            <div className="mb-3 bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 text-xs text-red-700">
+            <div className="mb-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-xl p-3 flex items-center gap-2 text-xs text-red-700 dark:text-red-300">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               {overdueCompliance.length} overdue filing{overdueCompliance.length > 1 ? 's' : ''} — take action immediately.
             </div>
@@ -190,16 +190,16 @@ export const DashboardView: React.FC = () => {
           <ul className="space-y-2.5">
             {upcomingCompliance.map((item) => (
               <li key={item.id} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                  <Clock className="w-4 h-4 text-slate-500" />
+                <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-[#252336] flex items-center justify-center shrink-0">
+                  <Clock className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-700 truncate">{item.title}</p>
-                  <p className="text-[10px] text-slate-400">{item.dueDate} · {item.period}</p>
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{item.title}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-400">{item.dueDate} · {item.period}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <Badge variant={AUTHORITY_COLOR[item.authority] as any} size="sm">{item.authority}</Badge>
-                  {item.amount && <span className="text-[10px] text-slate-500">{fmt(item.amount)}</span>}
+                  {item.amount && <span className="text-[10px] text-slate-500 dark:text-slate-400">{fmt(item.amount)}</span>}
                 </div>
               </li>
             ))}
@@ -209,15 +209,15 @@ export const DashboardView: React.FC = () => {
         {/* Payroll run history */}
         <Card>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-slate-800">Recent Payroll Runs</h2>
-            <button onClick={() => setCurrentView('payroll')} className="text-xs text-teal-600 hover:underline font-medium">
+            <h2 className="text-sm font-bold text-slate-800 dark:text-white">Recent Payroll Runs</h2>
+            <button onClick={() => setCurrentView('payroll')} className="text-xs text-teal-600 dark:text-teal-400 hover:underline font-medium">
               Run payroll
             </button>
           </div>
           <ul className="space-y-3">
             {recentRuns.map((run) => (
-              <li key={run.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors">
-                <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
+              <li key={run.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-[#1E1D2D] hover:bg-slate-100 dark:hover:bg-[#252336] transition-colors border border-transparent dark:border-[#2B293E]/60">
+                <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#252336] border border-slate-200 dark:border-[#2B293E] flex items-center justify-center shrink-0">
                   {run.status === 'PAID' ? (
                     <CheckCircle2 className="w-4 h-4 text-teal-500" />
                   ) : (
@@ -225,11 +225,11 @@ export const DashboardView: React.FC = () => {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-700">{run.periodMonth}</p>
-                  <p className="text-[10px] text-slate-400">{run.totalEmployees} employees</p>
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{run.periodMonth}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-400">{run.totalEmployees} employees</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-xs font-bold text-slate-800">{run.totalNetPayout > 0 ? fmt(run.totalNetPayout) : '—'}</p>
+                  <p className="text-xs font-bold text-slate-800 dark:text-white">{run.totalNetPayout > 0 ? fmt(run.totalNetPayout) : '—'}</p>
                   <Badge variant={RUN_STATUS_BADGE[run.status]} size="sm">{run.status}</Badge>
                 </div>
               </li>
@@ -241,23 +241,23 @@ export const DashboardView: React.FC = () => {
       {/* ── Today's attendance exceptions ── */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-slate-800">Attendance Exceptions Today</h2>
+          <h2 className="text-sm font-bold text-slate-800 dark:text-white">Attendance Exceptions Today</h2>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setCurrentView('attendance')}
-            className="text-xs text-teal-600 hover:text-teal-700 font-semibold"
+            className="text-xs text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-semibold"
           >
             Manage Attendance & Shifts →
           </Button>
         </div>
         <div className="flex flex-wrap gap-3">
           {employees.filter((e) => e.status === 'ACTIVE').slice(0, 6).map((emp) => (
-            <div key={emp.id} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+            <div key={emp.id} className="flex items-center gap-2 bg-slate-50 dark:bg-[#1E1D2D] border border-slate-100 dark:border-[#2B293E] rounded-xl px-3 py-2">
               <Avatar name={emp.name} size="sm" status={emp.status === 'ACTIVE' ? 'active' : 'resigned'} />
               <div>
-                <p className="text-xs font-semibold text-slate-700">{emp.name.split(' ')[0]}</p>
-                <p className="text-[10px] text-slate-400">{emp.department}</p>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{emp.name.split(' ')[0]}</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-400">{emp.department}</p>
               </div>
             </div>
           ))}

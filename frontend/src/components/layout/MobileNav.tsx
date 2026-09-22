@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Users, Banknote, FileText, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, Users, Banknote, FileText, MoreHorizontal, Target, Mail } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
 import type { AppView } from '../../types/payroll.types';
 import { cn } from '../../utils/cn';
@@ -12,10 +12,10 @@ interface TabItem {
 
 const TABS: TabItem[] = [
   { id: 'dashboard', label: 'Home',     icon: LayoutDashboard },
-  { id: 'people',    label: 'People',   icon: Users },
+  { id: 'crm',       label: 'CRM',      icon: Target },
+  { id: 'emails',    label: 'Emails',   icon: Mail },
   { id: 'payroll',   label: 'Payroll',  icon: Banknote },
-  { id: 'payslips',  label: 'Payslips', icon: FileText },
-  { id: 'reports',   label: 'More',     icon: MoreHorizontal },
+  { id: 'people',    label: 'People',   icon: Users },
 ];
 
 export const MobileNav: React.FC = () => {
@@ -23,7 +23,7 @@ export const MobileNav: React.FC = () => {
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]"
+      className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-[#181724] border-t border-slate-200 dark:border-[#2B293E] shadow-[0_-2px_12px_rgba(0,0,0,0.08)]"
       aria-label="Bottom navigation"
     >
       <ul className="flex" role="list">

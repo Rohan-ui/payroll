@@ -96,12 +96,19 @@ export const AttendanceModule: React.FC = () => {
     return 'command';
   });
 
+  const getTodayStr = () => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
   // Target Date (YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const fromUrl = getInitialParam('date', '');
     if (/^\d{4}-\d{2}-\d{2}$/.test(fromUrl)) return fromUrl;
-    // Default to October 15, 2026 for rich test data in current seed, or today
-    return '2026-10-15';
+    return getTodayStr();
   });
 
   // Selected Department Filter
@@ -120,6 +127,19 @@ export const AttendanceModule: React.FC = () => {
     const fromUrl = getInitialParam('employeeId', '');
     return fromUrl || selectedEmployeeId || null;
   });
+
+  // Sync state when navigating from EmployeeDetailView or query parameters
+  useEffect(() => {
+    const fromUrlDate = getInitialParam('date', '');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromUrlDate) && fromUrlDate !== selectedDate) {
+      setSelectedDate(fromUrlDate);
+    }
+    const fromUrlEmp = getInitialParam('employeeId', '');
+    const targetEmp = fromUrlEmp || selectedEmployeeId || null;
+    if (targetEmp && targetEmp !== activeEmployeeId) {
+      setActiveEmployeeId(targetEmp);
+    }
+  }, [selectedEmployeeId]);
 
   // Update URL whenever layout, date, dept, search, or employee changes
   useEffect(() => {
@@ -321,39 +341,39 @@ export const AttendanceModule: React.FC = () => {
       {/* ------------------------------------------------------------- */}
       {/* 1. SHARED HEADER & ACTIONS                                     */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#2B293E] pb-4">
         <div>
           {/* Breadcrumbs */}
           {activeEmployeeId ? (
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-1.5">
               <button
                 type="button"
                 onClick={() => {
                   setActiveEmployeeId(null);
                   setSelectedEmployeeId(null);
                 }}
-                className="hover:text-teal-700 font-medium flex items-center gap-1 cursor-pointer"
+                className="hover:text-teal-700 dark:hover:text-teal-400 font-medium flex items-center gap-1 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" /> Back to Attendance
               </button>
               <span>›</span>
               <span>{employeeMonthData?.employee.departmentName || 'Department'}</span>
               <span>›</span>
-              <span className="font-bold text-slate-800">{employeeMonthData?.employee.fullName}</span>
+              <span className="font-bold text-slate-800 dark:text-white">{employeeMonthData?.employee.fullName}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                 Attendance & Shifts
               </h1>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-mint-100 text-[#0E5A47] border border-teal-200 shadow-2xs">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-mint-100 dark:bg-emerald-950/70 text-[#0E5A47] dark:text-emerald-300 border border-teal-200 dark:border-emerald-800/60 shadow-2xs">
                 <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
                 Live PostgreSQL
               </span>
             </div>
           )}
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Unified staff attendance, biometric punch reconciliation, loss-of-pay tracking, and monthly rosters
           </p>
         </div>
@@ -377,7 +397,7 @@ export const AttendanceModule: React.FC = () => {
             onClick={() => setIsBulkModalOpen(true)}
             className="flex items-center gap-1.5"
           >
-            <CalendarDays className="w-3.5 h-3.5 text-teal-600" />
+            <CalendarDays className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
             Bulk Mark Month
           </Button>
 
@@ -395,8 +415,8 @@ export const AttendanceModule: React.FC = () => {
 
       {/* Success banner if any */}
       {bannerMessage && (
-        <div className="p-3 bg-mint-100 border border-teal-200 rounded-lg text-xs font-semibold text-emerald-900 flex items-center gap-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-teal-600 flex-shrink-0" />
+        <div className="p-3 bg-mint-100 dark:bg-emerald-950/60 border border-teal-200 dark:border-emerald-800/60 rounded-lg text-xs font-semibold text-emerald-900 dark:text-emerald-300 flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-teal-600 dark:text-teal-400 flex-shrink-0" />
           <span>{bannerMessage}</span>
         </div>
       )}
@@ -404,7 +424,7 @@ export const AttendanceModule: React.FC = () => {
       {/* ------------------------------------------------------------- */}
       {/* 2. LAYOUT SWITCHER (Segmented Tablist with Descriptions)        */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-2xs">
+      <div className="bg-white dark:bg-[#181724] rounded-xl border border-slate-200 dark:border-[#2B293E] p-2 shadow-2xs">
         <div
           role="tablist"
           aria-label="Attendance Layout Styles"
@@ -423,28 +443,28 @@ export const AttendanceModule: React.FC = () => {
                 className={cn(
                   'p-3 rounded-lg border text-left transition-all flex items-start gap-3 cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500',
                   isActive
-                    ? 'bg-gradient-to-r from-teal-50 to-teal-50/40 border-teal-500 shadow-2xs'
-                    : 'bg-white border-transparent hover:bg-slate-50 hover:border-slate-200',
+                    ? 'bg-gradient-to-r from-teal-50 to-teal-50/40 dark:from-teal-950/50 dark:to-teal-950/30 border-teal-500 shadow-2xs'
+                    : 'bg-white dark:bg-[#181724] border-transparent hover:bg-slate-50 dark:hover:bg-[#1E1D2D] hover:border-slate-200 dark:hover:border-[#2B293E]',
                 )}
               >
                 <span
                   className={cn(
                     'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
-                    isActive ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-500',
+                    isActive ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-[#252336] text-slate-500 dark:text-slate-400',
                   )}
                 >
                   {opt.icon}
                 </span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={cn('text-xs font-bold', isActive ? 'text-teal-900' : 'text-slate-800')}>
+                    <span className={cn('text-xs font-bold', isActive ? 'text-teal-900 dark:text-teal-200' : 'text-slate-800 dark:text-slate-200')}>
                       {opt.title}
                     </span>
                     {isActive && (
                       <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-ping" />
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
                     {opt.shortDesc}
                   </p>
                 </div>
@@ -457,15 +477,15 @@ export const AttendanceModule: React.FC = () => {
       {/* ------------------------------------------------------------- */}
       {/* 3. DATE BAR & STATUS LEGEND                                    */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-[#181724] rounded-xl border border-slate-200 dark:border-[#2B293E] p-3.5 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Date Stepper & Picker */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <div className="flex items-center rounded-lg border border-slate-200 dark:border-[#2B293E] bg-slate-50 dark:bg-[#15141F] p-0.5">
             <button
               type="button"
               onClick={handlePrevDay}
               title="Previous Day"
-              className="p-1.5 rounded-md hover:bg-white text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+              className="p-1.5 rounded-md hover:bg-white dark:hover:bg-[#181724] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -473,28 +493,28 @@ export const AttendanceModule: React.FC = () => {
               type="date"
               value={selectedDate}
               onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className="bg-transparent border-0 text-xs font-mono font-semibold text-slate-800 px-2 py-1 focus:outline-none cursor-pointer"
+              className="bg-transparent border-0 text-xs font-mono font-semibold text-slate-800 dark:text-white px-2 py-1 focus:outline-none cursor-pointer"
             />
             <button
               type="button"
               onClick={handleNextDay}
               title="Next Day"
-              className="p-1.5 rounded-md hover:bg-white text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+              className="p-1.5 rounded-md hover:bg-white dark:hover:bg-[#181724] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
           {/* Formatted Date & Quick Today */}
-          <span className="text-xs font-bold text-slate-800 hidden sm:inline">
+          <span className="text-xs font-bold text-slate-800 dark:text-white hidden sm:inline">
             {formattedSelectedDate}
           </span>
           <button
             type="button"
-            onClick={() => setSelectedDate('2026-10-15')}
-            className="text-[11px] px-2 py-1 rounded bg-teal-50 text-teal-700 hover:bg-teal-100 font-medium transition-colors cursor-pointer"
+            onClick={() => setSelectedDate(getTodayStr())}
+            className="text-[11px] px-2.5 py-1 rounded bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/60 font-semibold transition-colors cursor-pointer"
           >
-            Reset (Oct 15)
+            Today (Live)
           </button>
         </div>
 

@@ -12,6 +12,8 @@ import { SalaryModule } from './modules/salary/salary.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { BookkeepingModule } from './modules/bookkeeping/bookkeeping.module';
 import { ExternalApiModule } from './modules/external-api/external-api.module';
+import { SuperAdminModule } from './modules/super-admin/super-admin.module';
+import { CrmModule } from './modules/crm/crm.module';
 import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 
 @Module({
@@ -31,6 +33,8 @@ import { TenantContextMiddleware } from './common/middleware/tenant-context.midd
     PayrollModule,
     BookkeepingModule,
     ExternalApiModule,
+    SuperAdminModule,
+    CrmModule,
     HealthModule,
   ],
 })

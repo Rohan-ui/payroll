@@ -18,10 +18,10 @@ const PayslipModal: React.FC<{
   period: string;
   onClose: () => void;
 }> = ({ item, period, onClose }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-    <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden">
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="w-full max-w-lg bg-white dark:bg-[#181724] border border-slate-100 dark:border-[#2B293E] rounded-3xl shadow-2xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-[#0E5A47] text-white">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#2B293E] bg-[#0E5A47] text-white">
         <div>
           <p className="text-xs text-teal-200">Payslip · {period}</p>
           <p className="font-bold">{item.employeeName}</p>
@@ -32,15 +32,15 @@ const PayslipModal: React.FC<{
       </div>
 
       <div className="px-6 py-5 overflow-y-auto max-h-[70vh]">
-        <div className="flex justify-between mb-5 text-xs text-slate-500">
+        <div className="flex justify-between mb-5 text-xs text-slate-500 dark:text-slate-400">
           <div>
-            <p>Employee Code: <strong className="text-slate-800">{item.employeeCode}</strong></p>
-            <p>Department: <strong className="text-slate-800">{item.department}</strong></p>
-            <p>Designation: <strong className="text-slate-800">{item.designation}</strong></p>
+            <p>Employee Code: <strong className="text-slate-800 dark:text-white">{item.employeeCode}</strong></p>
+            <p>Department: <strong className="text-slate-800 dark:text-white">{item.department}</strong></p>
+            <p>Designation: <strong className="text-slate-800 dark:text-white">{item.designation}</strong></p>
           </div>
           <div className="text-right">
-            <p>Payable Days: <strong className="text-slate-800">{item.payableDays}</strong></p>
-            <p>LOP Days: <strong className="text-slate-800">{item.lossOfPayDays}</strong></p>
+            <p>Payable Days: <strong className="text-slate-800 dark:text-white">{item.payableDays}</strong></p>
+            <p>LOP Days: <strong className="text-slate-800 dark:text-white">{item.lossOfPayDays}</strong></p>
           </div>
         </div>
 
@@ -57,7 +57,7 @@ const PayslipModal: React.FC<{
               { l: 'Overtime', v: item.overtimePay },
               { l: 'Reimbursement', v: item.reimbursement },
             ].filter(r => r.v > 0).map(({ l, v }) => (
-              <div key={l} className="flex justify-between py-1.5 border-b border-slate-50 text-xs">
+              <div key={l} className="flex justify-between py-1.5 border-b border-slate-50 dark:border-[#2B293E] text-xs">
                 <span className="text-slate-600">{l}</span>
                 <span className="font-mono text-slate-700">{fmt(v)}</span>
               </div>
@@ -136,8 +136,8 @@ export const PayslipsView: React.FC = () => {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-slate-800">Payslips</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Download and view payslips</p>
+        <h1 className="text-xl font-bold text-slate-800 dark:text-white">Payslips</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Download and view payslips</p>
       </div>
 
       {!isEmployee && (
@@ -145,22 +145,24 @@ export const PayslipsView: React.FC = () => {
           {/* Employee selector */}
           <div className="lg:w-64 shrink-0">
             <Card padded={false}>
-              <div className="px-4 py-3 border-b border-slate-100">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Select Employee</p>
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-[#2B293E]">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Select Employee</p>
               </div>
-              <ul className="divide-y divide-slate-50 max-h-96 overflow-y-auto">
+              <ul className="divide-y divide-slate-50 dark:divide-[#2B293E] max-h-96 overflow-y-auto">
                 {employees.map((emp) => (
                   <li key={emp.id}>
                     <button
                       onClick={() => setSelectedEmpId(emp.id)}
                       className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${
-                        selectedEmpId === emp.id ? 'bg-mint-50' : 'hover:bg-slate-50'
+                        selectedEmpId === emp.id
+                          ? 'bg-mint-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300'
+                          : 'hover:bg-slate-50 dark:hover:bg-[#1E1D2D]'
                       }`}
                     >
                       <Avatar name={emp.name} size="sm" status="active" />
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-slate-700 truncate">{emp.name}</p>
-                        <p className="text-[10px] text-slate-400">{emp.code}</p>
+                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{emp.name}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-400">{emp.code}</p>
                       </div>
                     </button>
                   </li>
@@ -175,15 +177,15 @@ export const PayslipsView: React.FC = () => {
               <div className="flex items-center gap-3 mb-5">
                 {selectedEmp && <Avatar name={selectedEmp.name} size="md" status="active" />}
                 <div>
-                  <p className="text-sm font-bold text-slate-800">{selectedEmp?.name}</p>
-                  <p className="text-xs text-slate-500">{selectedEmp?.designation} · {selectedEmp?.code}</p>
+                  <p className="text-sm font-bold text-slate-800 dark:text-white">{selectedEmp?.name}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{selectedEmp?.designation} · {selectedEmp?.code}</p>
                 </div>
               </div>
               {runs.length === 0 ? (
                 <div className="text-center py-10">
-                  <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <FileText className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
                   <p className="text-sm text-slate-400">No payslips available</p>
-                  <p className="text-xs text-slate-300">Run and approve payroll to generate payslips</p>
+                  <p className="text-xs text-slate-400">Run and approve payroll to generate payslips</p>
                 </div>
               ) : (
                 <ul className="space-y-2">
@@ -191,13 +193,13 @@ export const PayslipsView: React.FC = () => {
                     const item = run.items.find((i) => i.employeeId === selectedEmp?.id) ?? run.items[0];
                     if (!item) return null;
                     return (
-                      <li key={run.id} className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 hover:bg-slate-100 transition-colors">
-                        <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                      <li key={run.id} className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-[#1E1D2D] hover:bg-slate-100 dark:hover:bg-[#252336] transition-colors border border-transparent dark:border-[#2B293E]/60">
+                        <div className="w-9 h-9 rounded-xl bg-white dark:bg-[#252336] border border-slate-200 dark:border-[#2B293E] flex items-center justify-center shrink-0">
                           <FileText className="w-4 h-4 text-teal-500" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-slate-800">{run.periodMonth}</p>
-                          <p className="text-xs text-slate-400">Net Pay: <strong className="text-slate-700">{fmt(item.netPay)}</strong></p>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-white">{run.periodMonth}</p>
+                          <p className="text-xs text-slate-400">Net Pay: <strong className="text-slate-700 dark:text-slate-200">{fmt(item.netPay)}</strong></p>
                         </div>
                         <Badge variant={run.status === 'PAID' ? 'success' : 'warning'}>
                           {run.status}

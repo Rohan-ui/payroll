@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,60 +8,84 @@ export default {
   theme: {
     extend: {
       colors: {
-        // TeamHub primary teal
+        // Voogyo primary teal (from bottom arrow)
         teal: {
-          50:  '#E6F7F2',
-          100: '#CCEFE5',
-          200: '#99DFC9',
-          300: '#66CFAD',
-          400: '#33BF91',
-          500: '#2FB898',  // primary brand
-          600: '#25927A',
-          700: '#1A6D5B',
-          800: '#10493D',
-          900: '#07241E',
+          50:  '#E6F8F6',
+          100: '#C7F1ED',
+          200: '#96E5DD',
+          300: '#5CD4C8',
+          400: '#26C2B4',
+          500: '#00B8A8',  // Voogyo primary brand teal
+          600: '#009E90',
+          700: '#007E73',
+          800: '#005C55',
+          900: '#003B37',
         },
-        // Mint soft fills
+        // Voogyo modern indigo / periwinkle (from top arrow)
+        indigo: {
+          50:  '#EEF2FC',
+          100: '#DCE4F9',
+          200: '#BCCCF4',
+          300: '#97AFEC',
+          400: '#7896E5',
+          500: '#5D7CDE',  // Voogyo accent brand indigo
+          600: '#4663C4',
+          700: '#354CA0',
+          800: '#273778',
+          900: '#1C2754',
+        },
+        // Voogyo Dark Obsidian & Charcoal brand tokens
+        voogyo: {
+          dark:        '#181724',
+          'dark-nav':  '#1E1D2D',
+          'dark-card': '#252336',
+          border:      '#2B293E',
+          charcoal:    '#373643',
+          teal:        '#00B8A8',
+          indigo:      '#5D7CDE',
+          surface:     '#F8F9FC',
+        },
+        // Mint soft fills (teal tints)
         mint: {
-          50:  '#F2FAF4',
-          100: '#E6F4DC',  // card highlights, soft fills
-          200: '#C7E8B9',
-          300: '#A8DC96',
-          400: '#89D073',
-          500: '#6AC450',
+          50:  '#F0FAF8',
+          100: '#DCF5F1',
+          200: '#B9ECE3',
+          300: '#96E2D5',
+          400: '#73D8C7',
+          500: '#00B8A8',
         },
-        // Dark green — sidebar background, emphasis
+        // Dark Obsidian — sidebar background, header emphasis
         darkGreen: {
-          50:  '#E7F2EE',
-          100: '#B9D8CE',
-          200: '#8BBEAD',
-          300: '#5CA48C',
-          400: '#2E8A6B',
-          500: '#0E6E53',
-          600: '#0E5A47',  // sidebar bg
-          700: '#0A4537',
-          800: '#073027',
-          900: '#031B17',
+          50:  '#EBEBEE',
+          100: '#C7C6D0',
+          200: '#9E9CAF',
+          300: '#74718D',
+          400: '#4B476C',
+          500: '#26243A',
+          600: '#181724',  // Voogyo sidebar bg
+          700: '#13121D',
+          800: '#0E0D15',
+          900: '#09080E',
         },
         'dark-green': {
-          50:  '#E7F2EE',
-          100: '#B9D8CE',
-          200: '#8BBEAD',
-          300: '#5CA48C',
-          400: '#2E8A6B',
-          500: '#0E6E53',
-          600: '#0E5A47',  // sidebar bg
-          700: '#0A4537',
-          800: '#073027',
-          900: '#031B17',
+          50:  '#EBEBEE',
+          100: '#C7C6D0',
+          200: '#9E9CAF',
+          300: '#74718D',
+          400: '#4B476C',
+          500: '#26243A',
+          600: '#181724',  // Voogyo sidebar bg
+          700: '#13121D',
+          800: '#0E0D15',
+          900: '#09080E',
         },
         // App surface background
-        surface: '#F4F5F4',
+        surface: '#F8F9FC',
         // Rupee financial indicators
         rupee: {
-          green: '#15803D',
-          amber: '#B45309',
-          red:   '#B91C1C',
+          green: '#00B8A8',
+          amber: '#D97706',
+          red:   '#DC2626',
         },
       },
       fontFamily: {

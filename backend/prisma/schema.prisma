@@ -1403,6 +1403,9 @@ model rndtechnosoft_tenant_members {
   rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members                     rndtechnosoft_payroll_runs[]            @relation("rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members")
   rndtechnosoft_reimbursement_approvals                                                                                                           rndtechnosoft_reimbursement_approvals[]
   rndtechnosoft_tenant_member_roles                                                                                                               rndtechnosoft_tenant_member_roles[]
+  rndtechnosoft_crm_leads                                                                                                                         rndtechnosoft_crm_leads[]
+  rndtechnosoft_crm_lead_activities                                                                                                              rndtechnosoft_crm_lead_activities[]
+  rndtechnosoft_crm_lead_followups                                                                                                               rndtechnosoft_crm_lead_followups[]
   rndtechnosoft_tenants                                                                                                                           rndtechnosoft_tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_1")
   rndtechnosoft_users                                                                                                                             rndtechnosoft_users                     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_2")
 
@@ -1497,6 +1500,22 @@ model rndtechnosoft_tenants {
   rndtechnosoft_accounting_ledgers             rndtechnosoft_accounting_ledgers[]
   rndtechnosoft_bookkeeping_entries            rndtechnosoft_bookkeeping_entries[]
   rndtechnosoft_financial_year_ledger_balances rndtechnosoft_financial_year_ledger_balances[]
+  rndtechnosoft_tenant_quotas                  rndtechnosoft_tenant_quotas?
+  rndtechnosoft_platform_invoices              rndtechnosoft_platform_invoices[]
+  rndtechnosoft_platform_support_tickets       rndtechnosoft_platform_support_tickets[]
+  rndtechnosoft_crm_pipelines                  rndtechnosoft_crm_pipelines[]
+  rndtechnosoft_crm_stages                     rndtechnosoft_crm_stages[]
+  rndtechnosoft_crm_lead_sources               rndtechnosoft_crm_lead_sources[]
+  rndtechnosoft_crm_services_master            rndtechnosoft_crm_services_master[]
+  rndtechnosoft_crm_lost_reasons_master        rndtechnosoft_crm_lost_reasons_master[]
+  rndtechnosoft_crm_sop_steps_master           rndtechnosoft_crm_sop_steps_master[]
+  rndtechnosoft_crm_sop_reply_branches_master  rndtechnosoft_crm_sop_reply_branches_master[]
+  rndtechnosoft_crm_sop_industries_master      rndtechnosoft_crm_sop_industries_master[]
+  rndtechnosoft_crm_leads                      rndtechnosoft_crm_leads[]
+  rndtechnosoft_crm_quotations                 rndtechnosoft_crm_quotations[]
+  rndtechnosoft_crm_quotation_templates        rndtechnosoft_crm_quotation_templates[]
+  rndtechnosoft_crm_clients                    rndtechnosoft_crm_clients[]
+  rndtechnosoft_crm_audit_logs                 rndtechnosoft_crm_audit_logs[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1628,3 +1647,482 @@ model rndtechnosoft_financial_year_ledger_balances {
   @@unique([tenant_id, id], map: "uq_fy_ledger_balances_tenant_id")
   @@index([tenant_id, financial_year_id], map: "ix_fy_ledger_balances_1")
 }
+
+// ==========================================
+// VOOGYO ERP: MODULE 01 - SUPER ADMIN HQ
+// ==========================================
+
+model rndtechnosoft_super_admins {
+  id                                   String                                 @id @db.Uuid
+  email                                String                                 @unique(map: "uq_super_admins_1") @db.VarChar(320)
+  password_hash                        String                                 @db.VarChar(255)
+  display_name                         String                                 @db.VarChar(160)
+  role                                 String                                 @default("SUPER_ADMIN") @db.VarChar(64)
+  is_active                            Boolean                                @default(true)
+  last_login_at                        DateTime?                              @db.Timestamptz(6)
+  created_at                           DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                           DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_platform_activity_logs rndtechnosoft_platform_activity_logs[]
+}
+
+model rndtechnosoft_platform_settings {
+  id               String   @id @db.Uuid
+  setting_category String   @db.VarChar(64)
+  setting_key      String   @unique(map: "uq_platform_settings_1") @db.VarChar(128)
+  setting_value    Json
+  description      String?  @db.VarChar(500)
+  is_public        Boolean  @default(false)
+  created_at       DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at       DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+}
+
+model rndtechnosoft_platform_invoices {
+  id                   String                @id @db.Uuid
+  tenant_id            String                @db.Uuid
+  invoice_number       String                @unique(map: "uq_platform_invoices_1") @db.VarChar(64)
+  plan_id              String?               @db.Uuid
+  billing_period_start DateTime              @db.Date
+  billing_period_end   DateTime              @db.Date
+  subtotal             Decimal               @db.Decimal(14, 2)
+  tax_amount           Decimal               @default(0) @db.Decimal(14, 2)
+  discount_amount      Decimal               @default(0) @db.Decimal(14, 2)
+  total_amount         Decimal               @db.Decimal(14, 2)
+  currency_code        String                @default("INR") @db.Char(3)
+  invoice_status       String                @default("PENDING") @db.VarChar(32)
+  due_date             DateTime              @db.Date
+  paid_at              DateTime?             @db.Timestamptz(6)
+  payment_gateway      String?               @db.VarChar(64)
+  external_payment_id  String?               @db.VarChar(160)
+  created_at           DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at           DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_platform_invoices_tenant")
+
+  @@index([tenant_id, invoice_status], map: "ix_platform_invoices_status")
+}
+
+model rndtechnosoft_platform_activity_logs {
+  id                         String                      @id @db.Uuid
+  super_admin_id             String?                     @db.Uuid
+  category                   String                      @db.VarChar(64)
+  action                     String                      @db.VarChar(64)
+  target_tenant_id           String?                     @db.Uuid
+  description                String                      @db.VarChar(500)
+  metadata                   Json?
+  ip_address                 String?                     @db.VarChar(64)
+  user_agent                 String?                     @db.VarChar(255)
+  created_at                 DateTime                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_super_admins rndtechnosoft_super_admins? @relation(fields: [super_admin_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_platform_activity_admin")
+}
+
+model rndtechnosoft_platform_support_tickets {
+  id                 String                @id @db.Uuid
+  tenant_id          String                @db.Uuid
+  ticket_number      String                @unique(map: "uq_platform_support_tickets_1") @db.VarChar(64)
+  subject            String                @db.VarChar(255)
+  priority           String                @default("MEDIUM") @db.VarChar(32)
+  status             String                @default("OPEN") @db.VarChar(32)
+  category           String                @default("GENERAL") @db.VarChar(64)
+  description        String
+  assigned_admin_id  String?               @db.Uuid
+  created_by_user_id String?               @db.Uuid
+  resolved_at        DateTime?             @db.Timestamptz(6)
+  created_at         DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at         DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_platform_tickets_tenant")
+
+  @@index([tenant_id, status], map: "ix_platform_tickets_status")
+}
+
+model rndtechnosoft_platform_coupons {
+  id             String    @id @db.Uuid
+  coupon_code    String    @unique(map: "uq_platform_coupons_1") @db.VarChar(64)
+  discount_type  String    @default("PERCENTAGE") @db.VarChar(32)
+  discount_value Decimal   @db.Decimal(10, 2)
+  max_uses       Int?
+  used_count     Int       @default(0)
+  valid_from     DateTime  @db.Date
+  valid_until    DateTime? @db.Date
+  is_active      Boolean   @default(true)
+  created_at     DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+}
+
+model rndtechnosoft_tenant_quotas {
+  id                       String                @id @db.Uuid
+  tenant_id                String                @unique(map: "uq_tenant_quotas_tenant_id") @db.Uuid
+  user_seats_limit         Int                   @default(10)
+  branch_limit             Int                   @default(2)
+  storage_limit_mb         Int                   @default(5120)
+  monthly_ai_tokens        Int                   @default(100000)
+  monthly_whatsapp_credits Int                   @default(500)
+  created_at               DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at               DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants    rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tenant_quotas_tenant")
+}
+
+// ==========================================
+// VOOGYO ERP: MODULE 02 - CRM ENTERPRISE
+// ==========================================
+
+model rndtechnosoft_crm_pipelines {
+  id                       String                     @id @db.Uuid
+  tenant_id                String                     @db.Uuid
+  name                     String                     @db.VarChar(120)
+  code                     String                     @db.VarChar(64)
+  is_default               Boolean                    @default(false)
+  sort_order               Int                        @default(0)
+  is_active                Boolean                    @default(true)
+  created_at               DateTime                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants    rndtechnosoft_tenants      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_pipelines_tenant")
+  rndtechnosoft_crm_stages rndtechnosoft_crm_stages[]
+  rndtechnosoft_crm_leads  rndtechnosoft_crm_leads[]
+
+  @@unique([tenant_id, code], map: "uq_crm_pipelines_code")
+  @@unique([tenant_id, id], map: "uq_crm_pipelines_tenant_id")
+}
+
+model rndtechnosoft_crm_stages {
+  id                          String                      @id @db.Uuid
+  tenant_id                   String                      @db.Uuid
+  pipeline_id                 String                      @db.Uuid
+  name                        String                      @db.VarChar(100)
+  color                       String                      @default("#6366f1") @db.VarChar(32)
+  stage_probability           Int                         @default(50)
+  sla_duration_hours          Int                         @default(72)
+  is_won                      Boolean                     @default(false)
+  is_lost                     Boolean                     @default(false)
+  sort_order                  Int                         @default(0)
+  created_at                  DateTime                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants       rndtechnosoft_tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_stages_tenant")
+  rndtechnosoft_crm_pipelines rndtechnosoft_crm_pipelines @relation(fields: [tenant_id, pipeline_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_stages_pipeline")
+  rndtechnosoft_crm_leads     rndtechnosoft_crm_leads[]
+
+  @@unique([tenant_id, id], map: "uq_crm_stages_tenant_id")
+  @@index([tenant_id, pipeline_id], map: "ix_crm_stages_pipeline")
+}
+
+model rndtechnosoft_crm_lead_sources {
+  id                      String                    @id @db.Uuid
+  tenant_id               String                    @db.Uuid
+  name                    String                    @db.VarChar(100)
+  channel                 String                    @default("INBOUND_WEB") @db.VarChar(64)
+  sort_order              Int                       @default(0)
+  is_active               Boolean                   @default(true)
+  created_at              DateTime                  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants   rndtechnosoft_tenants     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_lead_sources_tenant")
+  rndtechnosoft_crm_leads rndtechnosoft_crm_leads[]
+
+  @@unique([tenant_id, id], map: "uq_crm_lead_sources_tenant_id")
+}
+
+model rndtechnosoft_crm_services_master {
+  id                                String                              @id @db.Uuid
+  tenant_id                         String                              @db.Uuid
+  name                              String                              @db.VarChar(160)
+  category                          String                              @db.VarChar(80)
+  sac_code                          String                              @default("998314") @db.VarChar(32)
+  default_rate                      Decimal                             @default(0) @db.Decimal(14, 2)
+  billing_unit                      String                              @default("MILESTONE") @db.VarChar(32)
+  sort_order                        Int                                 @default(0)
+  is_active                         Boolean                             @default(true)
+  created_at                        DateTime                            @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants             rndtechnosoft_tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_services_master_tenant")
+  rndtechnosoft_crm_leads           rndtechnosoft_crm_leads[]
+  rndtechnosoft_crm_quotation_items rndtechnosoft_crm_quotation_items[]
+
+  @@unique([tenant_id, id], map: "uq_crm_services_master_tenant_id")
+}
+
+model rndtechnosoft_crm_lost_reasons_master {
+  id                      String                    @id @db.Uuid
+  tenant_id               String                    @db.Uuid
+  reason_name             String                    @db.VarChar(160)
+  sort_order              Int                       @default(0)
+  is_active               Boolean                   @default(true)
+  created_at              DateTime                  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants   rndtechnosoft_tenants     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_lost_reasons_master_tenant")
+  rndtechnosoft_crm_leads rndtechnosoft_crm_leads[]
+
+  @@unique([tenant_id, id], map: "uq_crm_lost_reasons_master_tenant_id")
+}
+
+model rndtechnosoft_crm_sop_steps_master {
+  id                    String                @id @db.Uuid
+  tenant_id             String                @db.Uuid
+  step_index            Int
+  day_number            Int
+  title                 String                @db.VarChar(160)
+  channels              String[]              @default([])
+  primary_objective     String                @db.VarChar(500)
+  script_template       String?               @db.Text
+  sort_order            Int                   @default(0)
+  created_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_sop_steps_master_tenant")
+
+  @@unique([tenant_id, id], map: "uq_crm_sop_steps_master_tenant_id")
+}
+
+model rndtechnosoft_crm_sop_reply_branches_master {
+  id                          String                @id @db.Uuid
+  tenant_id                   String                @db.Uuid
+  branch_key                  String                @db.VarChar(64)
+  label                       String                @db.VarChar(120)
+  trigger_condition           String                @db.VarChar(255)
+  suggested_action            String                @db.VarChar(255)
+  recommended_response_script String                @db.Text
+  sort_order                  Int                   @default(0)
+  created_at                  DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants       rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_sop_reply_branches_master_tenant")
+
+  @@unique([tenant_id, id], map: "uq_crm_sop_reply_branches_master_tenant_id")
+}
+
+model rndtechnosoft_crm_sop_industries_master {
+  id                  String                @id @db.Uuid
+  tenant_id           String                @db.Uuid
+  industry_key        String                @db.VarChar(64)
+  name                String                @db.VarChar(100)
+  tagline             String                @db.VarChar(255)
+  portfolio_highlight String                @db.VarChar(500)
+  value_tip           String                @db.VarChar(500)
+  audit_hook          String                @db.VarChar(500)
+  sort_order          Int                   @default(0)
+  created_at          DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_sop_industries_master_tenant")
+
+  @@unique([tenant_id, id], map: "uq_crm_sop_industries_master_tenant_id")
+}
+
+model rndtechnosoft_crm_leads {
+  id                                    String                                 @id @db.Uuid
+  tenant_id                             String                                 @db.Uuid
+  lead_code                             String                                 @db.VarChar(64)
+  company_name                          String                                 @db.VarChar(200)
+  first_name                            String                                 @db.VarChar(100)
+  last_name                             String?                                @db.VarChar(100)
+  email                                 String                                 @db.VarChar(320)
+  phone                                 String                                 @db.VarChar(32)
+  whatsapp_number                       String?                                @db.VarChar(32)
+  website_url                           String?                                @db.VarChar(255)
+  linkedin_url                          String?                                @db.VarChar(255)
+  designation                           String?                                @db.VarChar(100)
+  city                                  String?                                @db.VarChar(100)
+  state                                 String?                                @db.VarChar(100)
+  country_code                          String?                                @default("IN") @db.Char(2)
+  address                               String?                                @db.Text
+  postal_code                           String?                                @db.VarChar(20)
+  industry                              String?                                @db.VarChar(80)
+  sub_industry                          String?                                @db.VarChar(100)
+  alternate_email                       String?                                @db.VarChar(320)
+  alternate_phone                       String?                                @db.VarChar(32)
+  linkedin_company_url                  String?                                @db.VarChar(255)
+  website_status                        String?                                @db.VarChar(32)
+  primary_service_id                    String?                                @db.Uuid
+  primary_service                       String?                                @db.VarChar(200)
+  requirement_brief                     String?                                @db.Text
+  internal_notes                        String?                                @db.Text
+  budget_amount                         Decimal                                @default(0) @db.Decimal(14, 2)
+  currency_code                         String                                 @default("INR") @db.Char(3)
+  pipeline_id                           String                                 @db.Uuid
+  stage_id                              String                                 @db.Uuid
+  source_id                             String?                                @db.Uuid
+  assigned_tenant_member_id             String?                                @db.Uuid
+  temperature                           String                                 @default("WARM") @db.VarChar(32)
+  ai_score                              Int                                    @default(50)
+  win_probability                       Decimal?                               @default(20) @db.Decimal(5, 2)
+  urgency                               String?                                @default("MEDIUM") @db.VarChar(32)
+  cadence_step                          Int                                    @default(1)
+  touchpoints_count                     Int                                    @default(0)
+  next_followup_at                      DateTime?                              @db.Timestamptz(6)
+  last_contacted_at                     DateTime?                              @db.Timestamptz(6)
+  sla_status                            String                                 @default("NORMAL") @db.VarChar(32)
+  gstin                                 String?                                @db.VarChar(32)
+  pan                                   String?                                @db.VarChar(32)
+  is_won                                Boolean                                @default(false)
+  is_lost                               Boolean                                @default(false)
+  lost_reason_id                        String?                                @db.Uuid
+  converted_client_id                   String?                                @db.Uuid
+  converted_project_id                  String?                                @db.VarChar(64)
+  closed_at                             DateTime?                              @db.Timestamptz(6)
+  client_id                             String?                                @db.Uuid
+  is_existing_client                    Boolean?                               @default(false)
+  custom_attributes                     Json?
+  stage_entered_at                      DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  created_at                            DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                            DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants                 rndtechnosoft_tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_tenant")
+  rndtechnosoft_crm_pipelines            rndtechnosoft_crm_pipelines            @relation(fields: [tenant_id, pipeline_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_pipeline")
+  rndtechnosoft_crm_stages               rndtechnosoft_crm_stages               @relation(fields: [tenant_id, stage_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_stage")
+  rndtechnosoft_crm_lead_sources         rndtechnosoft_crm_lead_sources?        @relation(fields: [tenant_id, source_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_source")
+  rndtechnosoft_crm_services_master      rndtechnosoft_crm_services_master?     @relation(fields: [tenant_id, primary_service_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_service")
+  rndtechnosoft_crm_lost_reasons_master rndtechnosoft_crm_lost_reasons_master? @relation(fields: [tenant_id, lost_reason_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_lost_reason")
+  rndtechnosoft_tenant_members          rndtechnosoft_tenant_members?          @relation(fields: [tenant_id, assigned_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_assigned_member")
+  rndtechnosoft_crm_lead_activities     rndtechnosoft_crm_lead_activities[]
+  rndtechnosoft_crm_lead_followups      rndtechnosoft_crm_lead_followups[]
+  rndtechnosoft_crm_meetings             rndtechnosoft_crm_meetings[]
+  rndtechnosoft_crm_quotations           rndtechnosoft_crm_quotations[]
+
+  @@unique([tenant_id, lead_code], map: "uq_crm_leads_code")
+  @@unique([tenant_id, id], map: "uq_crm_leads_tenant_id")
+  @@index([tenant_id, pipeline_id, stage_id], map: "ix_crm_leads_stage")
+  @@index([tenant_id, temperature], map: "ix_crm_leads_temperature")
+}
+
+model rndtechnosoft_crm_lead_activities {
+  id                            String                        @id @db.Uuid
+  tenant_id                     String                        @db.Uuid
+  lead_id                       String                        @db.Uuid
+  activity_type                 String                        @db.VarChar(32)
+  title                         String                        @db.VarChar(200)
+  description                   String?                       @db.Text
+  duration_seconds              Int?
+  call_disposition              String?                       @db.VarChar(64)
+  performed_by_tenant_member_id String?                       @db.Uuid
+  created_at                    DateTime                      @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_crm_leads       rndtechnosoft_crm_leads       @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_activities_lead")
+  rndtechnosoft_tenant_members  rndtechnosoft_tenant_members? @relation(fields: [tenant_id, performed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_activities_member")
+
+  @@unique([tenant_id, id], map: "uq_crm_activities_tenant_id")
+  @@index([tenant_id, lead_id], map: "ix_crm_activities_lead")
+}
+
+model rndtechnosoft_crm_lead_followups {
+  id                           String                        @id @db.Uuid
+  tenant_id                    String                        @db.Uuid
+  lead_id                      String                        @db.Uuid
+  scheduled_at                 DateTime                      @db.Timestamptz(6)
+  followup_type                String                        @default("CALL") @db.VarChar(32)
+  priority                     String                        @default("MEDIUM") @db.VarChar(32)
+  instructions                 String?                       @db.VarChar(500)
+  status                       String                        @default("PENDING") @db.VarChar(32)
+  assigned_to_tenant_member_id String?                       @db.Uuid
+  completed_at                 DateTime?                     @db.Timestamptz(6)
+  outcome_note                 String?                       @db.VarChar(500)
+  created_at                   DateTime                      @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                   DateTime                      @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_crm_leads      rndtechnosoft_crm_leads       @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_followups_lead")
+  rndtechnosoft_tenant_members rndtechnosoft_tenant_members? @relation(fields: [tenant_id, assigned_to_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_followups_member")
+
+  @@unique([tenant_id, id], map: "uq_crm_followups_tenant_id")
+  @@index([tenant_id, status, scheduled_at], map: "ix_crm_followups_status")
+}
+
+model rndtechnosoft_crm_meetings {
+  id                  String                  @id @db.Uuid
+  tenant_id           String                  @db.Uuid
+  lead_id             String                  @db.Uuid
+  title               String                  @db.VarChar(200)
+  meeting_type        String                  @default("GOOGLE_MEET") @db.VarChar(32)
+  scheduled_at        DateTime                @db.Timestamptz(6)
+  meeting_link        String?                 @db.VarChar(255)
+  minutes_of_meeting  String?                 @db.Text
+  ai_action_items     Json?
+  status              String                  @default("SCHEDULED") @db.VarChar(32)
+  created_at          DateTime                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at          DateTime                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_crm_leads rndtechnosoft_crm_leads @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_meetings_lead")
+
+  @@unique([tenant_id, id], map: "uq_crm_meetings_tenant_id")
+  @@index([tenant_id, scheduled_at], map: "ix_crm_meetings_scheduled")
+}
+
+model rndtechnosoft_crm_quotations {
+  id                                String                              @id @db.Uuid
+  tenant_id                         String                              @db.Uuid
+  lead_id                           String                              @db.Uuid
+  quotation_number                  String                              @db.VarChar(64)
+  tax_mode                          String                              @default("INTRA_STATE") @db.VarChar(32)
+  client_state                      String?                             @db.VarChar(100)
+  branch_state                      String?                             @db.VarChar(100)
+  subtotal                          Decimal                             @db.Decimal(14, 2)
+  cgst_amount                       Decimal                             @default(0) @db.Decimal(14, 2)
+  sgst_amount                       Decimal                             @default(0) @db.Decimal(14, 2)
+  igst_amount                       Decimal                             @default(0) @db.Decimal(14, 2)
+  total_tax                         Decimal                             @default(0) @db.Decimal(14, 2)
+  total_amount                      Decimal                             @db.Decimal(14, 2)
+  currency_code                     String                              @default("INR") @db.Char(3)
+  quotation_status                  String                              @default("DRAFT") @db.VarChar(32)
+  valid_until                       DateTime                            @db.Date
+  notes                             String?                             @db.Text
+  created_at                        DateTime                            @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                        DateTime                            @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants             rndtechnosoft_tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_quotations_tenant")
+  rndtechnosoft_crm_leads           rndtechnosoft_crm_leads             @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_quotations_lead")
+  rndtechnosoft_crm_quotation_items rndtechnosoft_crm_quotation_items[]
+
+  @@unique([tenant_id, quotation_number], map: "uq_crm_quotations_number")
+  @@unique([tenant_id, id], map: "uq_crm_quotations_tenant_id")
+}
+
+model rndtechnosoft_crm_quotation_items {
+  id                                 String                              @id @db.Uuid
+  tenant_id                          String                              @db.Uuid
+  quotation_id                       String                              @db.Uuid
+  service_id                         String?                             @db.Uuid
+  description                        String                              @db.VarChar(500)
+  sac_code                           String                              @default("998314") @db.VarChar(32)
+  quantity                           Decimal                             @default(1) @db.Decimal(10, 2)
+  unit_rate                          Decimal                             @db.Decimal(14, 2)
+  tax_rate                           Decimal                             @default(18.0) @db.Decimal(5, 2)
+  line_amount                        Decimal                             @db.Decimal(14, 2)
+  sort_order                         Int                                 @default(0)
+  created_at                         DateTime                            @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_crm_quotations       rndtechnosoft_crm_quotations        @relation(fields: [tenant_id, quotation_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_quotation_items_quote")
+  rndtechnosoft_crm_services_master rndtechnosoft_crm_services_master? @relation(fields: [tenant_id, service_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_quotation_items_service")
+
+  @@unique([tenant_id, id], map: "uq_crm_quotation_items_tenant_id")
+}
+
+model rndtechnosoft_crm_quotation_templates {
+  id                    String                @id @db.Uuid
+  tenant_id             String                @db.Uuid
+  template_name         String                @db.VarChar(160)
+  category              String?               @db.VarChar(80)
+  description           String?               @db.Text
+  items_json            Json
+  is_active             Boolean               @default(true)
+  created_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_quotation_templates_tenant")
+
+  @@unique([tenant_id, id], map: "uq_crm_quotation_templates_tenant_id")
+}
+
+model rndtechnosoft_crm_clients {
+  id                   String                @id @db.Uuid
+  tenant_id            String                @db.Uuid
+  client_code          String                @db.VarChar(64)
+  company_name         String                @db.VarChar(200)
+  contact_person       String                @db.VarChar(120)
+  email                String                @db.VarChar(320)
+  phone                String                @db.VarChar(32)
+  gstin                String?               @db.VarChar(32)
+  pan                  String?               @db.VarChar(32)
+  billing_address      String?               @db.VarChar(500)
+  client_status        String                @default("ACTIVE") @db.VarChar(32)
+  created_from_lead_id String?               @db.Uuid
+  created_at           DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at           DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_clients_tenant")
+
+  @@unique([tenant_id, client_code], map: "uq_crm_clients_code")
+  @@unique([tenant_id, id], map: "uq_crm_clients_tenant_id")
+}
+
+model rndtechnosoft_crm_audit_logs {
+  id                    String                @id @db.Uuid
+  tenant_id             String                @db.Uuid
+  action_type           String                @db.VarChar(32)
+  entity_type           String                @db.VarChar(64)
+  entity_id             String                @db.Uuid
+  actor_id              String?               @db.Uuid
+  actor_name            String?               @db.VarChar(120)
+  changes_diff          Json?
+  ip_address            String?               @db.VarChar(64)
+  created_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_audit_logs_tenant")
+
+  @@unique([tenant_id, id], map: "uq_crm_audit_logs_tenant_id")
+  @@index([tenant_id, entity_type, entity_id], map: "ix_crm_audit_logs_entity")
+}
+

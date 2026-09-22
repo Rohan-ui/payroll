@@ -7,12 +7,122 @@ import {
   EmployeePayrollItem,
   AnomalyItem,
   AppView,
+  CrmTab,
 } from '../types/payroll.types';
 import { useAuth } from './AuthContext';
 import { employeesApi } from '../api/employees.api';
 import { mapBackendEmployeeToUi } from '../utils/employee-mapper.util';
 import { calculateEmployeePayroll } from '../utils/payroll-calc.util';
 import { attendanceApi } from '../api/attendance.api';
+
+const VALID_CRM_TABS: CrmTab[] = [
+  'cold-funnel',
+  'pipeline',
+  'activities',
+  'proposals',
+  'reports',
+  'masters',
+  'audit-trail',
+];
+
+const VALID_VIEWS: AppView[] = [
+  'dashboard',
+  'crm',
+  'emails',
+  'super-admin',
+  'payroll',
+  'people',
+  'employee-detail',
+  'add-employee',
+  'edit-employee',
+  'attendance',
+  'clock-in',
+  'payslips',
+  'bookkeeping',
+  'reports',
+  'settings',
+  'help',
+];
+
+const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
+  try {
+    const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab') as CrmTab | null;
+    const viewParam = params.get('view') as AppView | null;
+
+    let crmTab: CrmTab = 'cold-funnel';
+    if (tabParam && VALID_CRM_TABS.includes(tabParam)) {
+      crmTab = tabParam;
+    }
+
+    // 1. If path is 'emails'
+    if (rawPath === 'emails') {
+      return { view: 'emails', crmTab };
+    }
+
+    // 2. If path is 'crm'
+    if (rawPath === 'crm') {
+      return { view: 'crm', crmTab };
+    }
+
+    // 3. If tabParam is a valid CRM tab (e.g. /?tab=masters)
+    if (tabParam && VALID_CRM_TABS.includes(tabParam)) {
+      return { view: 'crm', crmTab };
+    }
+
+    // 4. If path matches a known view
+    if (rawPath && VALID_VIEWS.includes(rawPath as AppView)) {
+      return { view: rawPath as AppView, crmTab };
+    }
+
+    // 5. If query param view matches
+    if (viewParam && VALID_VIEWS.includes(viewParam)) {
+      return { view: viewParam, crmTab };
+    }
+
+    return { view: 'dashboard', crmTab: 'cold-funnel' };
+  } catch {
+    return { view: 'dashboard', crmTab: 'cold-funnel' };
+  }
+};
+
+const syncUrlWithState = (view: AppView, tab?: CrmTab, replace: boolean = false) => {
+  try {
+    let targetPath = '';
+    const params = new URLSearchParams(window.location.search);
+
+    if (view === 'crm') {
+      targetPath = '/crm';
+      if (tab) {
+        params.set('tab', tab);
+      }
+    } else if (view === 'emails') {
+      targetPath = '/emails';
+      params.delete('tab');
+    } else if (view === 'dashboard') {
+      targetPath = '/';
+      params.delete('tab');
+      params.delete('view');
+    } else {
+      targetPath = `/${view}`;
+      params.delete('tab');
+    }
+
+    const queryStr = params.toString();
+    const fullUrl = queryStr ? `${targetPath}?${queryStr}` : targetPath || '/';
+
+    if (window.location.pathname + window.location.search !== fullUrl) {
+      if (replace) {
+        window.history.replaceState(null, '', fullUrl);
+      } else {
+        window.history.pushState(null, '', fullUrl);
+      }
+    }
+  } catch {
+    // ignore
+  }
+};
 
 interface PayrollContextType {
   role: UserRole;
@@ -31,7 +141,10 @@ interface PayrollContextType {
   wizardStep: number;
   setWizardStep: (step: number) => void;
   currentView: AppView;
-  setCurrentView: (view: AppView) => void;
+  setCurrentView: (view: AppView, tab?: CrmTab) => void;
+  crmTab: CrmTab;
+  setCrmTab: (tab: CrmTab) => void;
+  navigateTo: (view: AppView, tab?: CrmTab) => void;
   selectedPayslipEmployee: EmployeePayrollItem | null;
   setSelectedPayslipEmployee: (emp: EmployeePayrollItem | null) => void;
   selectedEmployeeId: string | null;
@@ -47,7 +160,10 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const { activeTenant, activeRole } = useAuth();
 
   const [role, setRole] = useState<UserRole>((activeRole as UserRole) || 'ADMIN');
-  const [currentView, setCurrentView] = useState<AppView>('dashboard');
+  
+  const initialUrlState = parseUrlState();
+  const [currentView, setCurrentViewInternal] = useState<AppView>(initialUrlState.view);
+  const [crmTab, setCrmTabInternal] = useState<CrmTab>(initialUrlState.crmTab);
   const [wizardStep, setWizardStep] = useState<number>(1);
   const [selectedPayslipEmployee, setSelectedPayslipEmployee] = useState<EmployeePayrollItem | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -179,11 +295,17 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. Fetch real attendance summary from backend API
       const newAttMap: Record<string, EmployeeAttendance> = {};
-      let totalMonthDays = 31;
+      const now = new Date();
+      const liveMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const daysInLiveMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      let totalMonthDays = daysInLiveMonth;
 
       try {
-        const attSummary = await attendanceApi.getSummary('2026-10');
-        totalMonthDays = attSummary.totalMonthDays || 31;
+        let attSummary = await attendanceApi.getSummary(liveMonth);
+        if (!attSummary?.summaries?.length) {
+          attSummary = await attendanceApi.getSummary('2026-10');
+        }
+        totalMonthDays = attSummary.totalMonthDays || daysInLiveMonth;
         const summaryLookup = new Map<string, any>();
         attSummary.summaries.forEach((s) => {
           summaryLookup.set(s.employeeId, s);
@@ -464,6 +586,37 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Listen for browser navigation (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseUrlState();
+      setCurrentViewInternal(parsed.view);
+      setCrmTabInternal(parsed.crmTab);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const setCurrentView = useCallback((view: AppView, newTab?: CrmTab) => {
+    setCurrentViewInternal(view);
+    const targetTab = newTab || (view === 'crm' ? crmTab : undefined);
+    if (targetTab) {
+      setCrmTabInternal(targetTab);
+    }
+    syncUrlWithState(view, targetTab);
+  }, [crmTab]);
+
+  const setCrmTab = useCallback((tab: CrmTab) => {
+    setCrmTabInternal(tab);
+    setCurrentViewInternal('crm');
+    syncUrlWithState('crm', tab);
+  }, []);
+
+  const navigateTo = useCallback((view: AppView, tab?: CrmTab) => {
+    setCurrentView(view, tab);
+  }, [setCurrentView]);
+
   return (
     <PayrollContext.Provider
       value={{
@@ -484,6 +637,9 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setWizardStep,
         currentView,
         setCurrentView,
+        crmTab,
+        setCrmTab,
+        navigateTo,
         selectedPayslipEmployee,
         setSelectedPayslipEmployee,
         selectedEmployeeId,

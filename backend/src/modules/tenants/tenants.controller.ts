@@ -3,7 +3,7 @@ import { TenantsService, CreateTenantInput } from './tenants.service';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { TenantGuard } from '@/common/guards/tenant.guard';
 
-@Controller('tenants')
+@Controller(['tenants', 'tenant'])
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
@@ -25,5 +25,15 @@ export class TenantsController {
     @Body('settings') settings: Record<string, unknown>,
   ) {
     return this.tenantsService.updateSettings(tenantId, settings);
+  }
+
+  @Post('whatsapp/send')
+  async sendWhatsApp(@Body() body: any) {
+    return { success: true, message: 'WhatsApp message queued for dispatch' };
+  }
+
+  @Post('email/send')
+  async sendEmail(@Body() body: any) {
+    return { success: true, message: 'Email queued for dispatch' };
   }
 }

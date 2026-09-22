@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -13,11 +13,23 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Target,
+  ShieldCheck,
+  Sparkles,
+  Kanban,
+  Mail,
+  Clock,
+  Settings2,
+  Plus,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePayroll } from '../../context/PayrollContext';
 import { useSidebar } from '../../context/SidebarContext';
-import type { AppView } from '../../types/payroll.types';
+import { useTheme } from '../../context/ThemeContext';
+import type { AppView, CrmTab } from '../../types/payroll.types';
 import { Avatar } from '../ui/Avatar';
 import { cn } from '../../utils/cn';
 
@@ -29,72 +41,131 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard',  label: 'Dashboard',   icon: LayoutDashboard, roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },
-  { id: 'people',     label: 'People',       icon: Users,           roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER'] },
-  { id: 'payroll',    label: 'Payroll',      icon: Banknote,        roles: ['ADMIN', 'HR_ACCOUNTANT'] },
-  { id: 'attendance', label: 'Attendance',   icon: CalendarDays,    roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },
-  { id: 'payslips',   label: 'Payslips',     icon: FileText,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },
-  { id: 'bookkeeping',label: 'Bookkeeping',  icon: BookOpen,        roles: ['ADMIN', 'HR_ACCOUNTANT'] },
-  { id: 'reports',    label: 'Reports',      icon: BarChart2,       roles: ['ADMIN', 'HR_ACCOUNTANT'] },
-  { id: 'settings',   label: 'Compliance',   icon: Settings,        roles: ['ADMIN', 'HR_ACCOUNTANT'] },
-  { id: 'help',       label: 'Help',         icon: HelpCircle,      roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },
+  { id: 'dashboard',  label: 'Dashboard',   icon: LayoutDashboard, roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
+  { id: 'crm',        label: 'CRM & Sales', icon: Target,          roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
+  { id: 'people',     label: 'People',       icon: Users,           roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
+  { id: 'payroll',    label: 'Payroll',      icon: Banknote,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
+  { id: 'attendance', label: 'Attendance',   icon: CalendarDays,    roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
+  { id: 'payslips',   label: 'Payslips',     icon: FileText,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
+  { id: 'bookkeeping',label: 'Bookkeeping',  icon: BookOpen,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
+  { id: 'reports',    label: 'Reports',      icon: BarChart2,       roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
+  { id: 'settings',   label: 'Compliance',   icon: Settings,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
+  { id: 'super-admin',label: 'Super Admin',  icon: ShieldCheck,     roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { id: 'help',       label: 'Help',         icon: HelpCircle,      roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
+];
+
+interface CrmSubItem {
+  id: string;
+  label: string;
+  href: string;
+  view: AppView;
+  tab?: CrmTab;
+  icon: React.ElementType;
+  badge?: string;
+  hasPlus?: boolean;
+}
+
+const CRM_SUB_ITEMS: CrmSubItem[] = [
+  { id: 'cold-funnel', label: 'Client Outreach',      href: '/crm?tab=cold-funnel', view: 'crm',    tab: 'cold-funnel', icon: Sparkles,  badge: '30D', hasPlus: true },
+  { id: 'pipeline',    label: 'Sales Pipelines',      href: '/crm?tab=pipeline',    view: 'crm',    tab: 'pipeline',    icon: Kanban,   hasPlus: true },
+  { id: 'emails',      label: 'Email & Marketing',    href: '/emails',              view: 'emails',                     icon: Mail,      badge: 'New', hasPlus: true },
+  { id: 'activities',  label: 'Follow-ups & Meetings', href: '/crm?tab=activities',  view: 'crm',    tab: 'activities',  icon: Clock,    hasPlus: true },
+  { id: 'proposals',   label: 'Quotations',           href: '/crm?tab=proposals',   view: 'crm',    tab: 'proposals',   icon: FileText, hasPlus: true },
+  { id: 'reports',     label: 'Reports & Analytics',  href: '/crm?tab=reports',     view: 'crm',    tab: 'reports',     icon: BarChart2 },
+  { id: 'masters',     label: 'Masters',              href: '/crm?tab=masters',     view: 'crm',    tab: 'masters',     icon: Settings2 },
+  { id: 'audit-trail', label: 'Audit Trail',          href: '/crm?tab=audit-trail', view: 'crm',    tab: 'audit-trail', icon: ShieldCheck },
 ];
 
 export const Sidebar: React.FC = () => {
   const { user, logout, activeTenant } = useAuth();
-  const { currentView, setCurrentView, role } = usePayroll();
+  const { currentView, setCurrentView, crmTab, navigateTo, role } = usePayroll();
   const { isFull, isSymbol, toggleMode } = useSidebar();
+  const { theme, setTheme, toggleTheme } = useTheme();
+
+  const isCrmActive = currentView === 'crm' || currentView === 'emails';
+  const [crmExpanded, setCrmExpanded] = useState<boolean>(() => isCrmActive);
+
+  // Keep CRM submenu open only when user is in CRM or emails view; collapse otherwise
+  useEffect(() => {
+    setCrmExpanded(isCrmActive);
+  }, [isCrmActive]);
 
   const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role ?? ''));
 
   return (
     <aside
       className={cn(
-        'hidden md:flex flex-col min-h-screen bg-[#0E5A47] text-white shrink-0 shadow-sidebar transition-all duration-300 ease-in-out select-none relative z-30 overflow-x-hidden',
-        isFull ? 'w-60' : 'w-[72px]',
+        'hidden md:flex flex-col h-screen max-h-screen sticky top-0 shrink-0 select-none relative z-30 overflow-hidden transition-all duration-300 ease-in-out',
+        theme === 'dark'
+          ? 'bg-[#181724] text-white border-r border-[#2B293E] shadow-sidebar'
+          : 'bg-white text-slate-800 border-r border-slate-200 shadow-sm',
+        isFull ? 'w-60' : 'w-[68px]',
       )}
       aria-label="Main navigation"
     >
-      {/* ── Header: Brand & Slide Toggle Control ─────────────────────── */}
+      {/* ── Header: Brand Logo & Slide Toggle Control ─────────────────────── */}
       <div
         className={cn(
-          'border-b border-[#0E6E53]/60 transition-all duration-300',
-          isFull ? 'px-4 pt-5 pb-4' : 'px-2 pt-5 pb-3 flex flex-col items-center',
+          'shrink-0 border-b transition-all duration-300',
+          theme === 'dark' ? 'border-[#2B293E]' : 'border-slate-200',
+          isFull ? 'px-3 pt-3 pb-2' : 'px-1.5 pt-3 pb-2 flex flex-col items-center',
         )}
       >
         {isFull ? (
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-teal-500 flex items-center justify-center shrink-0 shadow-sm">
-                <Building2 className="w-4 h-4 text-white" />
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              {/* Voogyo Wordmark Logo - Transparent background, no white container */}
+              <div className="flex items-center justify-center shrink-0">
+                <img
+                  src={theme === 'dark' ? '/voogyo-woodmark-white.png' : '/voogyo-woodmark.png'}
+                  alt="Voogyo"
+                  className="h-5 w-auto object-contain bg-transparent"
+                />
               </div>
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-white leading-tight truncate">
-                  {activeTenant?.legalName ?? activeTenant?.displayName ?? 'RND Technosoft'}
-                </p>
-                <p className="text-[10px] text-teal-300 font-medium uppercase tracking-wide truncate">
-                  Payroll
-                </p>
-              </div>
+
+              {/* Collapse to Symbols Toggle Button */}
+              <button
+                onClick={toggleMode}
+                title="Collapse to symbols (Ctrl+B)"
+                aria-label="Collapse to symbols"
+                className={cn(
+                  'w-6 h-6 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 shrink-0',
+                  theme === 'dark'
+                    ? 'text-slate-400 hover:text-white hover:bg-white/10'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100',
+                )}
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
             </div>
 
-            {/* Collapse to Symbols Toggle Button */}
-            <button
-              onClick={toggleMode}
-              title="Collapse to symbols (Ctrl+B)"
-              aria-label="Collapse to symbols"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-teal-200 hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 shrink-0"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+            <div className="flex items-center justify-between gap-1.5 min-w-0 px-0.5">
+              <p
+                className={cn(
+                  'text-[11px] font-semibold leading-tight truncate',
+                  theme === 'dark' ? 'text-slate-300' : 'text-slate-600',
+                )}
+                title={activeTenant?.legalName ?? activeTenant?.displayName ?? 'Voogyo OS'}
+              >
+                {activeTenant?.legalName ?? activeTenant?.displayName ?? 'Voogyo OS'}
+              </p>
+              <span className="text-[8px] text-teal-400 font-bold uppercase tracking-wider shrink-0 bg-teal-500/10 px-1 py-0.2 rounded border border-teal-500/20">
+                OS
+              </span>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2.5 w-full">
+            {/* Symbol Logo - Clean transparent, no white box */}
             <div
-              className="w-9 h-9 rounded-lg bg-teal-500 flex items-center justify-center shrink-0 shadow-sm"
-              title={activeTenant?.legalName ?? activeTenant?.displayName ?? 'Payroll'}
+              className="w-10 h-10 flex items-center justify-center shrink-0"
+              title={activeTenant?.legalName ?? 'Voogyo'}
             >
-              <Building2 className="w-5 h-5 text-white" />
+              <img
+                src="/voogyo-mark.png"
+                alt="Voogyo"
+                className="w-8 h-8 object-contain bg-transparent"
+              />
             </div>
 
             {/* Expand to Full Names Toggle Button */}
@@ -102,7 +173,12 @@ export const Sidebar: React.FC = () => {
               onClick={toggleMode}
               title="Expand sidebar (show full module names - Ctrl+B)"
               aria-label="Expand sidebar"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-teal-200 hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+              className={cn(
+                'w-7 h-7 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                theme === 'dark'
+                  ? 'text-slate-400 hover:text-white hover:bg-white/10'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100',
+              )}
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -113,34 +189,257 @@ export const Sidebar: React.FC = () => {
       {/* ── Navigation Items ───────────────────────────────────────── */}
       <nav
         className={cn(
-          'flex-1 py-4 overflow-y-auto sidebar-scroll transition-all duration-300',
-          isFull ? 'px-3' : 'px-2',
+          'flex-1 min-h-0 py-2 overflow-y-auto sidebar-scroll transition-all duration-300',
+          isFull ? 'px-2.5' : 'px-1.5',
         )}
         aria-label="Sidebar"
       >
-        <ul className="space-y-1" role="list">
+        <ul className="space-y-0.5" role="list">
           {visibleItems.map((item) => {
-            const isActive =
+            const isItemActive =
               currentView === item.id || (currentView === 'employee-detail' && item.id === 'people');
 
+            // Handle CRM Special Expandable Tree Item
+            if (item.id === 'crm') {
+              if (isSymbol) {
+                return (
+                  <li key={item.id} className="relative group">
+                    <button
+                      onClick={() => navigateTo('crm', 'cold-funnel')}
+                      className={cn(
+                        'w-full flex items-center justify-center py-2 rounded-lg transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                        isCrmActive
+                          ? 'bg-teal-500/20 text-teal-300 shadow-inner ring-1 ring-teal-500/40'
+                          : 'text-slate-400 hover:bg-white/10 hover:text-white',
+                      )}
+                      aria-current={isCrmActive ? 'page' : undefined}
+                      aria-label="CRM & Sales"
+                    >
+                      <Target
+                        className={cn(
+                          'w-4 h-4 shrink-0 transition-colors',
+                          isCrmActive ? 'text-teal-400' : 'text-slate-400',
+                        )}
+                      />
+                    </button>
+
+                    {/* Rich Flyout Menu in Symbol Mode */}
+                    <div
+                      role="tooltip"
+                      className={cn(
+                        'absolute left-full ml-2 top-0 w-56 rounded-xl shadow-2xl p-1.5 z-50 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all duration-150 transform group-hover:translate-x-0 -translate-x-1',
+                        theme === 'dark'
+                          ? 'bg-[#1E1D2D] border border-[#2B293E] text-white'
+                          : 'bg-white border border-slate-200 text-slate-900 shadow-xl',
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          'px-2.5 py-1 border-b mb-1 flex items-center justify-between',
+                          theme === 'dark' ? 'border-[#2B293E]' : 'border-slate-200',
+                        )}
+                      >
+                        <span className={cn('text-xs font-bold', theme === 'dark' ? 'text-white' : 'text-slate-900')}>
+                          CRM &amp; Sales
+                        </span>
+                        <span className="text-[9px] text-teal-400 font-semibold">Voogyo</span>
+                      </div>
+                      <div className="space-y-0.5">
+                        {CRM_SUB_ITEMS.map((sub) => {
+                          const isSubActive =
+                            (sub.view === 'emails' && currentView === 'emails') ||
+                            (sub.view === 'crm' && currentView === 'crm' && crmTab === sub.tab);
+                          return (
+                            <button
+                              key={sub.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigateTo(sub.view, sub.tab);
+                              }}
+                              className={cn(
+                                'w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs transition-colors text-left',
+                                isSubActive
+                                  ? theme === 'dark'
+                                    ? 'bg-teal-500/20 text-teal-300 font-bold'
+                                    : 'bg-teal-50 text-teal-800 font-bold'
+                                  : theme === 'dark'
+                                  ? 'text-slate-300 hover:bg-white/10 hover:text-white'
+                                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <sub.icon className="w-3.5 h-3.5 shrink-0" />
+                                <span>{sub.label}</span>
+                              </div>
+                              {sub.badge && (
+                                <span
+                                  className={cn(
+                                    'text-[9px] px-1 py-0.2 rounded font-extrabold',
+                                    theme === 'dark'
+                                      ? 'bg-teal-500/20 text-teal-300 border border-teal-400/30'
+                                      : 'bg-teal-100 text-teal-800 border border-teal-200',
+                                  )}
+                                >
+                                  {sub.badge}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </li>
+                );
+              }
+
+              // Full sidebar expanded mode
+              return (
+                <li key={item.id} className="space-y-0.5">
+                  <button
+                    onClick={() => {
+                      setCrmExpanded((prev) => !prev);
+                      if (!isCrmActive) {
+                        navigateTo('crm', 'cold-funnel');
+                      }
+                    }}
+                    className={cn(
+                      'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                      isCrmActive
+                        ? theme === 'dark'
+                          ? 'bg-teal-500/15 text-white font-semibold'
+                          : 'bg-teal-50 text-teal-800 font-semibold border border-teal-200/80'
+                        : theme === 'dark'
+                        ? 'text-slate-300 hover:bg-white/10 hover:text-white'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                    )}
+                    aria-expanded={crmExpanded}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Target
+                        className={cn(
+                          'w-4 h-4 shrink-0 transition-colors',
+                          isCrmActive ? 'text-teal-400' : 'text-slate-400',
+                        )}
+                      />
+                      <span className="truncate whitespace-nowrap">CRM &amp; Sales</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isCrmActive && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400" aria-hidden="true" />
+                      )}
+                      <ChevronDown
+                        className={cn(
+                          'w-3.5 h-3.5 text-slate-400 transition-transform duration-200',
+                          crmExpanded ? 'rotate-180 text-teal-400' : '',
+                        )}
+                      />
+                    </div>
+                  </button>
+
+                  {/* Sub-Navigation Links */}
+                  {crmExpanded && (
+                    <ul
+                      className={cn(
+                        'pl-2.5 pr-0.5 py-0.5 space-y-0.5 border-l ml-3 animate-in fade-in slide-in-from-top-1 duration-150',
+                        theme === 'dark' ? 'border-[#2B293E]' : 'border-slate-200',
+                      )}
+                    >
+                      {CRM_SUB_ITEMS.map((sub) => {
+                        const isSubActive =
+                          (sub.view === 'emails' && currentView === 'emails') ||
+                          (sub.view === 'crm' && currentView === 'crm' && crmTab === sub.tab);
+
+                        return (
+                          <li key={sub.id}>
+                            <button
+                              onClick={() => navigateTo(sub.view, sub.tab)}
+                              className={cn(
+                                'w-full flex items-center justify-between px-2 py-1 rounded-md text-[11px] transition-all duration-150',
+                                isSubActive
+                                  ? theme === 'dark'
+                                    ? 'bg-teal-500/25 text-white font-bold shadow-2xs'
+                                    : 'bg-teal-100 text-teal-900 font-bold border border-teal-200/80'
+                                  : theme === 'dark'
+                                  ? 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100',
+                              )}
+                              title={sub.label}
+                            >
+                              <div className="flex items-center gap-1.5 truncate">
+                                <sub.icon
+                                  className={cn(
+                                    'w-3 h-3 shrink-0',
+                                    isSubActive ? 'text-teal-400' : 'text-slate-500',
+                                  )}
+                                />
+                                <span className="truncate">{sub.label}</span>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {sub.badge && (
+                                  <span
+                                    className={cn(
+                                      'text-[8px] px-1 py-0.1 rounded font-extrabold shrink-0',
+                                      isSubActive
+                                        ? theme === 'dark'
+                                          ? 'bg-teal-400 text-slate-950'
+                                          : 'bg-teal-600 text-white'
+                                        : theme === 'dark'
+                                        ? 'bg-slate-800 text-teal-300 border border-teal-500/30'
+                                        : 'bg-teal-50 text-teal-700 border border-teal-200',
+                                    )}
+                                  >
+                                    {sub.badge}
+                                  </span>
+                                )}
+                                {sub.hasPlus && (
+                                  <span
+                                    className={cn(
+                                      'w-3 h-3 rounded flex items-center justify-center transition-colors',
+                                      theme === 'dark'
+                                        ? 'text-slate-500 hover:text-white'
+                                        : 'text-slate-400 hover:text-slate-900 hover:bg-slate-200/60',
+                                    )}
+                                    title={`New ${sub.label}`}
+                                  >
+                                    <Plus className="w-2.5 h-2.5" />
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
+            }
+
+            // Other standard navigation items
             if (isSymbol) {
               return (
                 <li key={item.id} className="relative group">
                   <button
                     onClick={() => setCurrentView(item.id)}
                     className={cn(
-                      'w-full flex items-center justify-center py-2.5 rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
-                      isActive
-                        ? 'bg-teal-500/25 text-white shadow-inner ring-1 ring-teal-400/40'
-                        : 'text-teal-100/80 hover:bg-white/10 hover:text-white',
+                      'w-full flex items-center justify-center py-2 rounded-lg transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                      isItemActive
+                        ? theme === 'dark'
+                          ? 'bg-teal-500/20 text-white shadow-inner ring-1 ring-teal-500/40'
+                          : 'bg-teal-50 text-teal-800 font-semibold ring-1 ring-teal-300'
+                        : theme === 'dark'
+                        ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900',
                     )}
-                    aria-current={isActive ? 'page' : undefined}
+                    aria-current={isItemActive ? 'page' : undefined}
                     aria-label={item.label}
                   >
                     <item.icon
                       className={cn(
-                        'w-5 h-5 shrink-0 transition-colors',
-                        isActive ? 'text-teal-300' : 'text-teal-200/80',
+                        'w-4 h-4 shrink-0 transition-colors',
+                        isItemActive ? 'text-teal-400' : 'text-slate-400',
                       )}
                     />
                   </button>
@@ -148,7 +447,12 @@ export const Sidebar: React.FC = () => {
                   {/* Accessible tooltip in symbol mode */}
                   <div
                     role="tooltip"
-                    className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-xl whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:translate-x-0 -translate-x-1"
+                    className={cn(
+                      'absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs font-semibold rounded-lg shadow-xl whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 transform group-hover:translate-x-0 -translate-x-1',
+                      theme === 'dark'
+                        ? 'bg-[#1E1D2D] text-white border border-[#2B293E]'
+                        : 'bg-slate-900 text-white border border-slate-800',
+                    )}
                   >
                     {item.label}
                   </div>
@@ -161,21 +465,25 @@ export const Sidebar: React.FC = () => {
                 <button
                   onClick={() => setCurrentView(item.id)}
                   className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
-                    isActive
-                      ? 'bg-teal-500/20 text-white'
-                      : 'text-teal-100/80 hover:bg-white/10 hover:text-white',
+                    'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                    isItemActive
+                      ? theme === 'dark'
+                        ? 'bg-teal-500/15 text-white font-semibold'
+                        : 'bg-teal-50 text-teal-800 font-semibold border border-teal-200/80'
+                      : theme === 'dark'
+                      ? 'text-slate-300 hover:bg-white/10 hover:text-white'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                   )}
-                  aria-current={isActive ? 'page' : undefined}
+                  aria-current={isItemActive ? 'page' : undefined}
                 >
                   <item.icon
                     className={cn(
                       'w-4 h-4 shrink-0 transition-colors',
-                      isActive ? 'text-teal-400' : 'text-teal-300/70',
+                      isItemActive ? 'text-teal-400' : 'text-slate-400',
                     )}
                   />
                   <span className="truncate whitespace-nowrap">{item.label}</span>
-                  {isActive && (
+                  {isItemActive && (
                     <span className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-400" aria-hidden="true" />
                   )}
                 </button>
@@ -185,38 +493,121 @@ export const Sidebar: React.FC = () => {
         </ul>
       </nav>
 
-      {/* ── Footer: User & Sign Out ─────────────────────────────────── */}
+      {/* ── Footer: Theme Toggle, User & Sign Out ─────────────────────────────────── */}
       <div
         className={cn(
-          'border-t border-[#0E6E53]/60 transition-all duration-300',
-          isFull ? 'px-3 pb-5 pt-3' : 'px-2 pb-5 pt-3 flex flex-col items-center gap-3',
+          'shrink-0 border-t transition-all duration-300 mt-auto',
+          theme === 'dark' ? 'border-[#2B293E]' : 'border-slate-200',
+          isFull ? 'px-2.5 pb-2.5 pt-2' : 'px-1.5 pb-2.5 pt-2 flex flex-col items-center gap-1.5',
         )}
       >
         {isFull ? (
           <>
-            <div className="flex items-center gap-2.5 px-2 py-2 mb-2">
+            {/* Theme Toggle Segmented Control (Full Mode) */}
+            <div
+              className={cn(
+                'flex items-center p-0.5 rounded-lg border mb-1.5 transition-colors select-none',
+                theme === 'dark'
+                  ? 'bg-[#12111D] border-[#2B293E]'
+                  : 'bg-slate-100 border-slate-200',
+              )}
+              role="group"
+              aria-label="Theme mode switcher"
+            >
+              <button
+                type="button"
+                onClick={() => setTheme('light')}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-xs font-semibold transition-all duration-150',
+                  theme === 'light'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200',
+                )}
+                aria-label="Switch to Light mode"
+                aria-pressed={theme === 'light'}
+              >
+                <Sun className={cn('w-3.5 h-3.5', theme === 'light' ? 'text-amber-500' : 'text-slate-400')} />
+                <span className="text-[11px]">Light</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTheme('dark')}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-xs font-semibold transition-all duration-150',
+                  theme === 'dark'
+                    ? 'bg-[#1E1D2D] text-white shadow-xs border border-[#2B293E]'
+                    : 'text-slate-500 hover:text-slate-800',
+                )}
+                aria-label="Switch to Dark mode"
+                aria-pressed={theme === 'dark'}
+              >
+                <Moon className={cn('w-3.5 h-3.5', theme === 'dark' ? 'text-indigo-400' : 'text-slate-400')} />
+                <span className="text-[11px]">Dark</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 px-1.5 py-1 mb-0.5">
               <Avatar
                 name={user?.displayName ?? 'User'}
                 size="sm"
                 status="active"
               />
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-white truncate">{user?.displayName ?? 'Admin'}</p>
-                <p className="text-[10px] text-teal-300 truncate capitalize">
+                <p className={cn('text-xs font-semibold truncate leading-tight', theme === 'dark' ? 'text-white' : 'text-slate-900')}>
+                  {user?.displayName ?? 'Admin'}
+                </p>
+                <p className="text-[9px] text-teal-400 truncate capitalize font-medium leading-none mt-0.5">
                   {role?.toLowerCase().replace('_', ' ')}
                 </p>
               </div>
             </div>
             <button
               onClick={logout}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-teal-200 hover:bg-white/10 hover:text-white transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+              className={cn(
+                'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                theme === 'dark'
+                  ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+              )}
             >
-              <LogOut className="w-4 h-4" />
-              Sign out
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Sign out</span>
             </button>
           </>
         ) : (
           <>
+            {/* Theme Toggle Button (Symbol Mode) */}
+            <div className="relative group">
+              <button
+                onClick={toggleTheme}
+                type="button"
+                className={cn(
+                  'w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                  theme === 'dark'
+                    ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                )}
+                aria-label={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              >
+                {theme === 'dark' ? (
+                  <Sun className="w-4 h-4 text-amber-400" />
+                ) : (
+                  <Moon className="w-4 h-4 text-indigo-600" />
+                )}
+              </button>
+              <div
+                role="tooltip"
+                className={cn(
+                  'absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 text-xs font-semibold rounded-lg shadow-xl whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150',
+                  theme === 'dark'
+                    ? 'bg-[#1E1D2D] text-white border border-[#2B293E]'
+                    : 'bg-slate-900 text-white border border-slate-800',
+                )}
+              >
+                Switch to {theme === 'dark' ? 'Light' : 'Dark'} Mode
+              </div>
+            </div>
+
             <div className="relative group">
               <Avatar
                 name={user?.displayName ?? 'User'}
@@ -225,7 +616,12 @@ export const Sidebar: React.FC = () => {
               />
               <div
                 role="tooltip"
-                className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-xl whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150"
+                className={cn(
+                  'absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 text-xs font-semibold rounded-lg shadow-xl border whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150',
+                  theme === 'dark'
+                    ? 'bg-[#1E1D2D] text-white border-[#2B293E]'
+                    : 'bg-slate-900 text-white border-slate-800',
+                )}
               >
                 {user?.displayName ?? 'Admin'} ({role?.toLowerCase().replace('_', ' ')})
               </div>
@@ -234,14 +630,24 @@ export const Sidebar: React.FC = () => {
             <div className="relative group">
               <button
                 onClick={logout}
-                className="w-9 h-9 flex items-center justify-center rounded-xl text-teal-200 hover:bg-white/10 hover:text-white transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+                className={cn(
+                  'w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                  theme === 'dark'
+                    ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                )}
                 aria-label="Sign out"
               >
                 <LogOut className="w-4 h-4" />
               </button>
               <div
                 role="tooltip"
-                className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-xl whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150"
+                className={cn(
+                  'absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 text-xs font-semibold rounded-lg shadow-xl border whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150',
+                  theme === 'dark'
+                    ? 'bg-[#1E1D2D] text-white border-[#2B293E]'
+                    : 'bg-slate-900 text-white border-slate-800',
+                )}
               >
                 Sign out
               </div>

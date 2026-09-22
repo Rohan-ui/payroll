@@ -50,7 +50,12 @@ export function mapBackendEmployeeToUi(emp: any): Employee {
     workState: 'Maharashtra',
     workEmail: emp.workEmail || emp.work_email || `${empCode.toLowerCase()}@acme.com`,
     mobileNumber: emp.workMobile || emp.work_mobile || '+91 98765 43210',
-    status: (emp.employeeStatus || emp.employee_status || 'ACTIVE') as any,
+    status: (() => {
+      let st = String(emp.employeeStatus || emp.employee_status || 'ACTIVE').trim();
+      if (st === '1' || st.toLowerCase() === 'true') return 'ACTIVE';
+      if (st === '0' || st.toLowerCase() === 'false') return 'INACTIVE';
+      return st.toUpperCase() as any;
+    })(),
     bank: {
       accountHolder: fullName,
       bankName,

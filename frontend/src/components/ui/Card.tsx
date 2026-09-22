@@ -29,7 +29,7 @@ export const Card: React.FC<CardProps> = ({
       onClick={onClick}
       onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
       className={cn(
-        'bg-white rounded-3xl shadow-card border border-slate-100',
+        'bg-white dark:bg-[#181724] rounded-3xl shadow-card border border-slate-100 dark:border-[#2B293E] text-slate-900 dark:text-slate-100 transition-colors',
         highlight && 'border-l-4 border-l-teal-500',
         padded && 'p-5',
         onClick && 'cursor-pointer hover:shadow-card-hover transition-shadow duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500',
@@ -39,8 +39,8 @@ export const Card: React.FC<CardProps> = ({
       {(title || subtitle || action) && (
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            {title && <h2 className="text-base font-bold text-slate-800">{title}</h2>}
-            {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+            {title && <h2 className="text-base font-bold text-slate-800 dark:text-white">{title}</h2>}
+            {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
           {action && <div className="shrink-0">{action}</div>}
         </div>

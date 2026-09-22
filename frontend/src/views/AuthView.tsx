@@ -43,29 +43,29 @@ export const AuthView: React.FC = () => {
   return (
     <div className="min-h-screen flex font-sans">
       {/* ── Left panel (desktop only) ─────────────────────────── */}
-      <div className="hidden lg:flex lg:w-[52%] bg-[#0E5A47] flex-col justify-between p-12 relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-[52%] bg-[#181724] flex-col justify-between p-12 relative overflow-hidden">
         {/* Background decoration */}
-        <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-teal-500/10" />
-        <div className="absolute bottom-0 right-0 w-72 h-72 rounded-full bg-teal-400/10 translate-x-1/3 translate-y-1/3" />
+        <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-teal-500/10 blur-2xl" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 rounded-full bg-indigo-500/15 translate-x-1/4 translate-y-1/4 blur-2xl" />
 
         {/* Brand */}
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-12">
-            <div className="w-10 h-10 rounded-xl bg-teal-500 flex items-center justify-center">
-              <Building2 className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-white font-bold text-base leading-tight">RND Payroll</p>
-              <p className="text-teal-300 text-xs font-medium">by RND Technosoft</p>
+          <div className="flex items-center gap-3 mb-10">
+            <div className="flex items-center justify-center">
+              <img
+                src="/voogyo-woodmark-white.png"
+                alt="Voogyo"
+                className="h-7 w-auto object-contain bg-transparent"
+              />
             </div>
           </div>
 
-          <h1 className="text-4xl font-bold text-white leading-tight mb-4">
-            Payroll in 5 minutes.<br />
-            Every month.
+          <h1 className="text-4xl font-extrabold text-white leading-tight mb-4 tracking-tight">
+            The Business OS for<br />
+            Modern Enterprises.
           </h1>
-          <p className="text-teal-200 text-base leading-relaxed max-w-xs">
-            Statutory-compliant Indian payroll — PF, ESI, PT, TDS — designed for shop owners, accountants, and HR teams.
+          <p className="text-slate-300 text-base leading-relaxed max-w-sm">
+            High-converting CRM sales pipelines, automated 30-day email outreach cadences, and 100% compliant Indian payroll.
           </p>
         </div>
 
@@ -73,10 +73,10 @@ export const AuthView: React.FC = () => {
         <div className="relative z-10">
           <div className="grid grid-cols-3 gap-4 mb-8">
             {STATS.map(({ icon: Icon, label, value }) => (
-              <div key={label} className="bg-white/10 rounded-2xl p-4">
-                <Icon className="w-5 h-5 text-teal-300 mb-2" />
+              <div key={label} className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/5">
+                <Icon className="w-5 h-5 text-teal-400 mb-2" />
                 <p className="text-white text-xl font-bold">{value}</p>
-                <p className="text-teal-200 text-xs">{label}</p>
+                <p className="text-slate-300 text-xs">{label}</p>
               </div>
             ))}
           </div>
@@ -85,13 +85,15 @@ export const AuthView: React.FC = () => {
               {['Priya', 'Rohit', 'Anjali', 'Karan'].map((n) => (
                 <div
                   key={n}
-                  className="w-8 h-8 rounded-full border-2 border-[#0E5A47] bg-teal-400 flex items-center justify-center text-xs font-bold text-white"
+                  className="w-8 h-8 rounded-full border-2 border-[#181724] bg-teal-500 flex items-center justify-center text-xs font-bold text-white shadow-xs"
                 >
                   {n[0]}
                 </div>
               ))}
             </div>
-            <p className="text-teal-200 text-sm">Trusted by Indian SMEs</p>
+            <p className="text-slate-300 text-xs font-medium ml-2">
+              Trusted by 500+ growing companies across India
+            </p>
           </div>
         </div>
       </div>
@@ -99,11 +101,14 @@ export const AuthView: React.FC = () => {
       {/* ── Right panel (form) ────────────────────────────────── */}
       <div className="flex-1 flex flex-col items-center justify-center bg-surface p-6 sm:p-10">
         {/* Mobile brand */}
-        <div className="lg:hidden flex items-center gap-2.5 mb-8">
-          <div className="w-8 h-8 rounded-lg bg-teal-500 flex items-center justify-center">
-            <Building2 className="w-4 h-4 text-white" />
+        <div className="lg:hidden flex items-center justify-center mb-8">
+          <div className="flex items-center justify-center">
+            <img
+              src="/voogyo-woodmark.png"
+              alt="Voogyo"
+              className="h-7 w-auto object-contain bg-transparent"
+            />
           </div>
-          <span className="text-base font-bold text-slate-800">RND Payroll</span>
         </div>
 
         <div className="w-full max-w-md">
