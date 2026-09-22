@@ -41,6 +41,8 @@ const VALID_VIEWS: AppView[] = [
   'bookkeeping',
   'reports',
   'settings',
+  'organization',
+  'users',
   'help',
 ];
 
@@ -48,7 +50,7 @@ const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
   try {
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
     const params = new URLSearchParams(window.location.search);
-    const tabParam = params.get('tab') as CrmTab | null;
+    const tabParam = params.get('tab') as any;
     const viewParam = params.get('view') as AppView | null;
 
     let crmTab: CrmTab = 'cold-funnel';
@@ -66,17 +68,22 @@ const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
       return { view: 'crm', crmTab };
     }
 
-    // 3. If tabParam is a valid CRM tab (e.g. /?tab=masters)
+    // 3. If tabParam is an organization tab
+    if (['organization', 'roles', 'modules', 'integrations', 'industries'].includes(tabParam)) {
+      return { view: 'organization', crmTab };
+    }
+
+    // 4. If tabParam is a valid CRM tab (e.g. /?tab=masters)
     if (tabParam && VALID_CRM_TABS.includes(tabParam)) {
       return { view: 'crm', crmTab };
     }
 
-    // 4. If path matches a known view
+    // 5. If path matches a known view
     if (rawPath && VALID_VIEWS.includes(rawPath as AppView)) {
       return { view: rawPath as AppView, crmTab };
     }
 
-    // 5. If query param view matches
+    // 6. If query param view matches
     if (viewParam && VALID_VIEWS.includes(viewParam)) {
       return { view: viewParam, crmTab };
     }

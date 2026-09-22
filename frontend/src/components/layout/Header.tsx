@@ -28,6 +28,7 @@ export const Header: React.FC = () => {
 
   const navItems: { id: AppView; label: string }[] = [
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'organization', label: 'Organization & Settings' },
     { id: 'people', label: 'People' },
     { id: 'payroll', label: 'Payroll' },
     { id: 'attendance', label: 'Attendance' },
@@ -35,6 +36,7 @@ export const Header: React.FC = () => {
     { id: 'bookkeeping', label: 'Bookkeeping' },
     { id: 'reports', label: 'Reports' },
     { id: 'settings', label: 'Compliance' },
+    { id: 'super-admin', label: 'Super Admin HQ' },
     { id: 'help', label: 'Help' },
   ];
 
@@ -73,8 +75,24 @@ export const Header: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: theme toggle + notifications + avatar */}
-        <div className="flex items-center gap-2">
+        {/* Right: Platform HQ + theme toggle + notifications + avatar */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setCurrentView('super-admin')}
+            className={cn(
+              'px-2 py-1 flex items-center gap-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer',
+              currentView === 'super-admin'
+                ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
+                : theme === 'dark'
+                ? 'bg-indigo-950/50 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/50 hover:text-white'
+                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+            )}
+            title="Platform Super Admin HQ"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="text-[10px]">HQ</span>
+          </button>
+
           <button
             onClick={toggleTheme}
             type="button"
@@ -152,6 +170,29 @@ export const Header: React.FC = () => {
 
             {/* Nav items */}
             <ul className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+              {/* Platform Super Admin HQ Quick Button */}
+              <li>
+                <button
+                  onClick={() => { setCurrentView('super-admin'); setMenuOpen(false); }}
+                  className={cn(
+                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-bold transition-all border mb-1.5 cursor-pointer',
+                    currentView === 'super-admin'
+                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
+                      : theme === 'dark'
+                      ? 'bg-indigo-950/40 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/50'
+                      : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                    <span>Platform HQ</span>
+                  </div>
+                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded font-black bg-indigo-500/20 text-indigo-300">
+                    Super Admin
+                  </span>
+                </button>
+              </li>
+
               <li>
                 <button
                   onClick={() => { setCurrentView('dashboard'); setMenuOpen(false); }}

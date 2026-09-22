@@ -2,6 +2,13 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '@/prisma/prisma.service';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
+import * as ExcelJS from 'exceljs';
+import {
+  SORTED_COUNTRY_CODES,
+  extractDialCode,
+  combinePhoneWithCountryCode,
+  parsePhoneWithCountryCode,
+} from '@/common/utils/country-codes.util';
 import {
   CADENCE_STEPS_MASTER,
   CADENCE_REPLY_BRANCHES,
@@ -11,6 +18,99 @@ import {
   evaluateStepDueStatus,
   interpolateText,
 } from './crm-cadence.helper';
+
+export const BASELINE_INDUSTRIES = [
+  {
+    id: 'ind_mfg',
+    name: 'Manufacturing',
+    sub_industries: [
+      { id: 'sub_mfg_chem', name: 'Chemical', industry_id: 'ind_mfg' },
+      { id: 'sub_mfg_plast', name: 'Plastic', industry_id: 'ind_mfg' },
+      { id: 'sub_mfg_wire', name: 'Engineering Wire', industry_id: 'ind_mfg' },
+      { id: 'sub_mfg_cnc', name: 'CNC Machining & Tooling', industry_id: 'ind_mfg' },
+      { id: 'sub_mfg_auto', name: 'Automotive Components', industry_id: 'ind_mfg' },
+      { id: 'sub_mfg_pack', name: 'Packaging Materials', industry_id: 'ind_mfg' },
+      { id: 'sub_mfg_mach', name: 'Heavy Machinery & Equipment', industry_id: 'ind_mfg' },
+    ],
+  },
+  {
+    id: 'ind_health',
+    name: 'Healthcare & Medical',
+    sub_industries: [
+      { id: 'sub_hlth_hosp', name: 'Hospitals & Clinics', industry_id: 'ind_health' },
+      { id: 'sub_hlth_pharma', name: 'Pharmaceuticals & Biotech', industry_id: 'ind_health' },
+      { id: 'sub_hlth_eq', name: 'Medical Equipment Mfg.', industry_id: 'ind_health' },
+      { id: 'sub_hlth_diag', name: 'Diagnostic Labs', industry_id: 'ind_health' },
+      { id: 'sub_hlth_dent', name: 'Dental Clinics', industry_id: 'ind_health' },
+      { id: 'sub_hlth_ayur', name: 'Ayurveda & Wellness', industry_id: 'ind_health' },
+    ],
+  },
+  {
+    id: 'ind_chem',
+    name: 'Chemical & Petrochemical',
+    sub_industries: [
+      { id: 'sub_chem_spec', name: 'Specialty Chemicals', industry_id: 'ind_chem' },
+      { id: 'sub_chem_solv', name: 'Industrial Solvents', industry_id: 'ind_chem' },
+      { id: 'sub_chem_agro', name: 'Agro-Chemicals & Fertilizers', industry_id: 'ind_chem' },
+      { id: 'sub_chem_dyes', name: 'Dyes & Pigments', industry_id: 'ind_chem' },
+      { id: 'sub_chem_api', name: 'API & Bulk Drug Ingredients', industry_id: 'ind_chem' },
+    ],
+  },
+  {
+    id: 'ind_it',
+    name: 'Information Technology & Software',
+    sub_industries: [
+      { id: 'sub_it_saas', name: 'SaaS & Cloud Software', industry_id: 'ind_it' },
+      { id: 'sub_it_apps', name: 'Web & Mobile App Engineering', industry_id: 'ind_it' },
+      { id: 'sub_it_ai', name: 'AI & Machine Learning Automation', industry_id: 'ind_it' },
+      { id: 'sub_it_sec', name: 'Cyber Security & VAPT', industry_id: 'ind_it' },
+      { id: 'sub_it_erp', name: 'ERP & Enterprise Solutions', industry_id: 'ind_it' },
+    ],
+  },
+  {
+    id: 'ind_re',
+    name: 'Real Estate & Construction',
+    sub_industries: [
+      { id: 'sub_re_res', name: 'Residential Developers', industry_id: 'ind_re' },
+      { id: 'sub_re_comm', name: 'Commercial & IT Parks', industry_id: 'ind_re' },
+      { id: 'sub_re_log', name: 'Industrial Warehousing & Logistics', industry_id: 'ind_re' },
+      { id: 'sub_re_epc', name: 'EPC Construction & Infrastructure', industry_id: 'ind_re' },
+      { id: 'sub_re_int', name: 'Interior Architecture & Design', industry_id: 'ind_re' },
+    ],
+  },
+  {
+    id: 'ind_ret',
+    name: 'Retail & E-Commerce',
+    sub_industries: [
+      { id: 'sub_ret_d2c', name: 'D2C Brands', industry_id: 'ind_ret' },
+      { id: 'sub_ret_omni', name: 'Omnichannel Retail Chains', industry_id: 'ind_ret' },
+      { id: 'sub_ret_tex', name: 'Textile & Fashion Apparel', industry_id: 'ind_ret' },
+      { id: 'sub_ret_fmcg', name: 'FMCG Packaged Goods', industry_id: 'ind_ret' },
+      { id: 'sub_ret_elec', name: 'Consumer Electronics', industry_id: 'ind_ret' },
+    ],
+  },
+  {
+    id: 'ind_fin',
+    name: 'Financial & Professional Services',
+    sub_industries: [
+      { id: 'sub_fin_wlth', name: 'Wealth Management & Advisory', industry_id: 'ind_fin' },
+      { id: 'sub_fin_nbfc', name: 'NBFC & Business Lending', industry_id: 'ind_fin' },
+      { id: 'sub_fin_ca', name: 'Chartered Accountancy & Tax', industry_id: 'ind_fin' },
+      { id: 'sub_fin_legal', name: 'Legal & Corporate Compliance', industry_id: 'ind_fin' },
+      { id: 'sub_fin_mgmt', name: 'Management Consulting', industry_id: 'ind_fin' },
+    ],
+  },
+  {
+    id: 'ind_hosp',
+    name: 'Hospitality & Tourism',
+    sub_industries: [
+      { id: 'sub_hosp_htl', name: 'Hotels & Luxury Resorts', industry_id: 'ind_hosp' },
+      { id: 'sub_hosp_qsr', name: 'Fine Dining & QSR Chains', industry_id: 'ind_hosp' },
+      { id: 'sub_hosp_tour', name: 'Travel & Tour Operations', industry_id: 'ind_hosp' },
+      { id: 'sub_hosp_evt', name: 'Event & Exhibition Management', industry_id: 'ind_hosp' },
+    ],
+  },
+];
 
 @Injectable()
 export class CrmService {
@@ -485,6 +585,494 @@ export class CrmService {
     return { success: true, count: leadIds.length };
   }
 
+  // ==========================================
+  // LEAD IMPORT / EXPORT / TEMPLATE
+  // ==========================================
+
+  async generateLeadImportTemplate(tenantId: string): Promise<Buffer> {
+    // 1. Fetch Tenant's Dynamic Industries & Sub-Industries
+    let industriesList: string[] = [];
+    let subIndustriesList: string[] = [];
+
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    const configuredIndustries: any[] = settingsJson.industries || [];
+
+    if (configuredIndustries.length > 0) {
+      industriesList = configuredIndustries.map((i: any) => i.name).filter(Boolean);
+      configuredIndustries.forEach((i: any) => {
+        if (Array.isArray(i.sub_industries)) {
+          i.sub_industries.forEach((s: any) => {
+            const subName = typeof s === 'string' ? s : s.name;
+            if (subName && !subIndustriesList.includes(subName)) {
+              subIndustriesList.push(subName);
+            }
+          });
+        }
+      });
+    }
+
+    if (industriesList.length === 0) {
+      industriesList = BASELINE_INDUSTRIES.map((i) => i.name);
+      BASELINE_INDUSTRIES.forEach((i) => {
+        i.sub_industries.forEach((s) => {
+          if (!subIndustriesList.includes(s.name)) {
+            subIndustriesList.push(s.name);
+          }
+        });
+      });
+    }
+
+    // 2. Fetch Tenant's Lead Sources
+    const sourcesRows = await this.prisma.rndtechnosoft_crm_lead_sources.findMany({
+      where: { tenant_id: tenantId, is_active: true },
+      orderBy: { sort_order: 'asc' },
+    });
+    let sourcesList = sourcesRows.map((s) => s.name);
+    if (sourcesList.length === 0) {
+      sourcesList = [
+        'Cold Outreach (Outbound SOP)',
+        'IndiaMART',
+        'TradeIndia',
+        'Google My Business',
+        'Justdial',
+        'Inbound Website Form',
+        'LinkedIn Outreach',
+        'Referral & Network',
+        'Direct Phone / WhatsApp',
+      ];
+    }
+
+    // 3. Fetch Tenant's Active Team Members
+    const members = await this.prisma.rndtechnosoft_tenant_members.findMany({
+      where: { tenant_id: tenantId, membership_status: 'ACTIVE' },
+      include: {
+        rndtechnosoft_users: true,
+        rndtechnosoft_tenant_member_roles: {
+          include: { rndtechnosoft_roles: true },
+        },
+      },
+    });
+
+    let usersList = members.map((m) => {
+      const u = m.rndtechnosoft_users;
+      const r = m.rndtechnosoft_tenant_member_roles[0]?.rndtechnosoft_roles;
+      return `${u.display_name}${r?.role_name ? ` (${r.role_name})` : ''}`;
+    }).filter(Boolean);
+
+    if (usersList.length === 0) {
+      usersList = ['Ravi Shah (Admin)', 'Rahul Verma (Sales Head)'];
+    }
+
+    const INDIAN_STATES = [
+      'Andhra Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Delhi NCR', 'Goa', 'Gujarat', 
+      'Haryana', 'Himachal Pradesh', 'Jammu & Kashmir', 'Jharkhand', 'Karnataka', 'Kerala', 
+      'Madhya Pradesh', 'Maharashtra', 'Odisha', 'Punjab', 'Rajasthan', 'Tamil Nadu', 
+      'Telangana', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Other'
+    ];
+
+    const COUNTRIES = [
+      'India', 'United States', 'United Arab Emirates', 'United Kingdom', 
+      'Singapore', 'Canada', 'Australia', 'Germany', 'Saudi Arabia', 'Other'
+    ];
+
+    const WEBSITE_STATUSES = [
+      'ACTIVE', 'INACTIVE', 'NO_WEBSITE', 'UNDER_CONSTRUCTION', 'REDIRECT'
+    ];
+
+    const countryCodesList = SORTED_COUNTRY_CODES.map((c) => `${c.code} (${c.flag} ${c.name})`);
+
+    // 4. Build Workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Voogyo CRM & ERP';
+    workbook.lastModifiedBy = 'Voogyo CRM';
+    workbook.created = new Date();
+
+    const ws = workbook.addWorksheet('Leads_Import_Template', {
+      views: [{ state: 'frozen', xSplit: 0, ySplit: 1, showGridLines: true }],
+    });
+
+    const refWs = workbook.addWorksheet('CRM_Masters', {
+      views: [{ showGridLines: true }],
+    });
+
+    refWs.columns = [
+      { header: 'Allowed Industries', key: 'industries', width: 35 },
+      { header: 'Allowed Sub-Industries', key: 'sub_industries', width: 35 },
+      { header: 'Allowed Lead Sources', key: 'sources', width: 35 },
+      { header: 'States & Regions', key: 'states', width: 25 },
+      { header: 'Countries', key: 'countries', width: 25 },
+      { header: 'Temperatures', key: 'temperatures', width: 18 },
+      { header: 'Urgency Levels', key: 'urgencies', width: 18 },
+      { header: 'Country Calling Codes', key: 'country_codes', width: 30 },
+      { header: 'Website Statuses', key: 'website_statuses', width: 22 },
+      { header: 'Assigned Team Members', key: 'assigned_users', width: 32 },
+    ];
+
+    const refHeaderRow = refWs.getRow(1);
+    refHeaderRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF1E293B' } };
+    refHeaderRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF1F5F9' },
+    };
+    refHeaderRow.height = 25;
+    refHeaderRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    const maxRefRows = Math.max(
+      industriesList.length,
+      subIndustriesList.length,
+      sourcesList.length,
+      INDIAN_STATES.length,
+      COUNTRIES.length,
+      countryCodesList.length,
+      WEBSITE_STATUSES.length,
+      usersList.length,
+    );
+
+    for (let r = 0; r < maxRefRows; r++) {
+      refWs.addRow([
+        industriesList[r] || '',
+        subIndustriesList[r] || '',
+        sourcesList[r] || '',
+        INDIAN_STATES[r] || '',
+        COUNTRIES[r] || '',
+        r === 0 ? 'HOT' : r === 1 ? 'WARM' : r === 2 ? 'COLD' : '',
+        r === 0 ? 'HIGH' : r === 1 ? 'MEDIUM' : r === 2 ? 'LOW' : '',
+        countryCodesList[r] || '',
+        WEBSITE_STATUSES[r] || '',
+        usersList[r] || '',
+      ]);
+    }
+
+    ws.columns = [
+      { header: 'Date Created', key: 'date_created', width: 16 },
+      { header: 'Company Name *', key: 'company_name', width: 28 },
+      { header: 'First Name *', key: 'first_name', width: 18 },
+      { header: 'Last Name', key: 'last_name', width: 18 },
+      { header: 'Designation', key: 'designation', width: 22 },
+      { header: 'Email *', key: 'email', width: 28 },
+      { header: 'Secondary Email', key: 'secondary_email', width: 28 },
+      { header: 'Country Code *', key: 'country_code', width: 24 },
+      { header: 'Phone', key: 'phone', width: 20 },
+      { header: 'Alternate Phone', key: 'alternate_phone', width: 20 },
+      { header: 'WhatsApp Number', key: 'whatsapp_number', width: 20 },
+      { header: 'Industry *', key: 'industry', width: 30 },
+      { header: 'Sub Industry', key: 'sub_industry', width: 30 },
+      { header: 'Website URL', key: 'website_url', width: 28 },
+      { header: 'LinkedIn Company URL', key: 'linkedin_company_url', width: 30 },
+      { header: 'Personal LinkedIn URL', key: 'personal_linkedin_url', width: 30 },
+      { header: 'City', key: 'city', width: 20 },
+      { header: 'State', key: 'state', width: 22 },
+      { header: 'Country', key: 'country', width: 18 },
+      { header: 'Address', key: 'address', width: 34 },
+      { header: 'Pincode', key: 'pincode', width: 16 },
+      { header: 'Website Status', key: 'website_status', width: 20 },
+      { header: 'Assigned To', key: 'assigned_to', width: 28 },
+      { header: 'Lead Source', key: 'lead_source', width: 28 },
+      { header: 'Budget Amount', key: 'budget_amount', width: 20 },
+      { header: 'Internal Notes', key: 'internal_notes', width: 36 },
+    ];
+
+    const headerRow = ws.getRow(1);
+    headerRow.height = 30;
+    headerRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF4338CA' },
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // In-Cell Dropdown Validations
+    (ws as any).dataValidations.add('H2:H1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$H$2:$H$${countryCodesList.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Country Code',
+      error: 'Please select a country code from the dropdown list.',
+    });
+
+    (ws as any).dataValidations.add('L2:L1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$A$2:$A$${industriesList.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Industry',
+      error: 'Please select an industry from the dropdown list.',
+    });
+
+    (ws as any).dataValidations.add('M2:M1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$B$2:$B$${subIndustriesList.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Sub-Industry',
+      error: 'Please select a sub-industry from the dropdown list.',
+    });
+
+    (ws as any).dataValidations.add('R2:R1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$D$2:$D$${INDIAN_STATES.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid State',
+      error: 'Please select a state from the dropdown.',
+    });
+
+    (ws as any).dataValidations.add('S2:S1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$E$2:$E$${COUNTRIES.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Country',
+      error: 'Please select a country from the dropdown.',
+    });
+
+    (ws as any).dataValidations.add('V2:V1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$I$2:$I$${WEBSITE_STATUSES.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Website Status',
+      error: 'Please select ACTIVE, INACTIVE, NO_WEBSITE, UNDER_CONSTRUCTION, or REDIRECT.',
+    });
+
+    (ws as any).dataValidations.add('W2:W1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$J$2:$J$${usersList.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Assignee',
+      error: 'Please select an active team member from the dropdown list.',
+    });
+
+    (ws as any).dataValidations.add('X2:X1000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`CRM_Masters!$C$2:$C$${sourcesList.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Source',
+      error: 'Please select a valid lead source from the dropdown.',
+    });
+
+    // Add 3 realistic sample rows
+    ws.addRow({
+      date_created: '2026-03-20',
+      company_name: 'Apex Polymer Industries',
+      first_name: 'Rajesh',
+      last_name: 'Shah',
+      designation: 'Managing Director',
+      email: 'rajesh@apexpolymer.com',
+      secondary_email: 'accounts@apexpolymer.com',
+      country_code: '+91 (🇮🇳 India)',
+      phone: '98250 12345',
+      alternate_phone: '079 2650 1234',
+      whatsapp_number: '98250 12345',
+      industry: 'Manufacturing',
+      sub_industry: 'Plastic',
+      website_url: 'https://apexpolymer.com',
+      linkedin_company_url: 'https://linkedin.com/company/apex-polymer',
+      personal_linkedin_url: 'https://linkedin.com/in/rajesh-shah-apex',
+      city: 'Ahmedabad',
+      state: 'Gujarat',
+      country: 'India',
+      address: 'Plot 42, GIDC Industrial Estate, Phase 2, Vatva',
+      pincode: '382445',
+      website_status: 'ACTIVE',
+      assigned_to: usersList[0] || 'Ravi Shah',
+      lead_source: sourcesList[0] || 'Cold Outreach (Outbound SOP)',
+      budget_amount: 750000,
+      internal_notes: 'Urgent requirement for ERP production scheduling and automated quotation engine',
+    });
+
+    ws.addRow({
+      date_created: '2026-03-19',
+      company_name: 'Zenith BioTech Labs',
+      first_name: 'Dr. Ananya',
+      last_name: 'Iyer',
+      designation: 'Head of Procurement',
+      email: 'ananya.iyer@zenithbiotech.in',
+      secondary_email: 'purchase@zenithbiotech.in',
+      country_code: '+91 (🇮🇳 India)',
+      phone: '98401 67890',
+      alternate_phone: '080 4123 5678',
+      whatsapp_number: '98401 67890',
+      industry: 'Healthcare & Medical',
+      sub_industry: 'Pharmaceuticals & Biotech',
+      website_url: 'https://zenithbiotech.in',
+      linkedin_company_url: 'https://linkedin.com/company/zenith-biotech',
+      personal_linkedin_url: 'https://linkedin.com/in/dr-ananya-iyer',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      country: 'India',
+      address: '7th Floor, Bio-Innovation Hub, Electronic City Phase 1',
+      pincode: '560100',
+      website_status: 'ACTIVE',
+      assigned_to: usersList[1] || usersList[0] || 'Ravi Shah',
+      lead_source: sourcesList.find((s) => s.includes('IndiaMART')) || sourcesList[1] || 'IndiaMART',
+      budget_amount: 1200000,
+      internal_notes: 'Looking for LIMS inventory & laboratory batch compliance tracking',
+    });
+
+    ws.addRow({
+      date_created: '2026-03-18',
+      company_name: 'Precision Wire & Cable Corp',
+      first_name: 'Amit',
+      last_name: 'Patel',
+      designation: 'VP Operations',
+      email: 'amit@precisionwire.co.in',
+      secondary_email: 'ops@precisionwire.co.in',
+      country_code: '+91 (🇮🇳 India)',
+      phone: '98980 45678',
+      alternate_phone: '0265 245 8900',
+      whatsapp_number: '98980 45678',
+      industry: 'Manufacturing',
+      sub_industry: 'Engineering Wire',
+      website_url: 'https://precisionwire.co.in',
+      linkedin_company_url: 'https://linkedin.com/company/precision-wire-corp',
+      personal_linkedin_url: 'https://linkedin.com/in/amit-patel',
+      city: 'Vadodara',
+      state: 'Gujarat',
+      country: 'India',
+      address: 'Survey No. 118, Makarpura GIDC Industrial Area',
+      pincode: '390010',
+      website_status: 'ACTIVE',
+      assigned_to: usersList[0] || 'Ravi Shah',
+      lead_source: sourcesList.find((s) => s.includes('TradeIndia')) || sourcesList[2] || 'TradeIndia',
+      budget_amount: 500000,
+      internal_notes: 'Needs sales pipeline management and client WhatsApp cadence engine',
+    });
+
+    for (let i = 2; i <= 4; i++) {
+      const row = ws.getRow(i);
+      row.height = 24;
+      row.alignment = { vertical: 'middle' };
+      row.font = { name: 'Arial', size: 10 };
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+
+  async exportLeads(tenantId: string, filters: any): Promise<Buffer> {
+    const leadsResult = await this.getLeads(tenantId, filters);
+    const leads = Array.isArray(leadsResult) ? leadsResult : (leadsResult.leads || []);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Voogyo CRM & ERP';
+    workbook.lastModifiedBy = 'Voogyo CRM';
+    workbook.created = new Date();
+
+    const ws = workbook.addWorksheet('CRM_Leads_Export', {
+      views: [{ state: 'frozen', xSplit: 0, ySplit: 1, showGridLines: true }],
+    });
+
+    ws.columns = [
+      { header: 'Date Created', key: 'date_created', width: 16 },
+      { header: 'Company Name *', key: 'company_name', width: 28 },
+      { header: 'First Name *', key: 'first_name', width: 18 },
+      { header: 'Last Name', key: 'last_name', width: 18 },
+      { header: 'Designation', key: 'designation', width: 22 },
+      { header: 'Email *', key: 'email', width: 28 },
+      { header: 'Secondary Email', key: 'secondary_email', width: 28 },
+      { header: 'Country Code *', key: 'country_code', width: 24 },
+      { header: 'Phone', key: 'phone', width: 20 },
+      { header: 'Alternate Phone', key: 'alternate_phone', width: 20 },
+      { header: 'WhatsApp Number', key: 'whatsapp_number', width: 20 },
+      { header: 'Industry *', key: 'industry', width: 30 },
+      { header: 'Sub Industry', key: 'sub_industry', width: 30 },
+      { header: 'Website URL', key: 'website_url', width: 28 },
+      { header: 'LinkedIn Company URL', key: 'linkedin_company_url', width: 30 },
+      { header: 'Personal LinkedIn URL', key: 'personal_linkedin_url', width: 30 },
+      { header: 'City', key: 'city', width: 20 },
+      { header: 'State', key: 'state', width: 22 },
+      { header: 'Country', key: 'country', width: 18 },
+      { header: 'Address', key: 'address', width: 34 },
+      { header: 'Pincode', key: 'pincode', width: 16 },
+      { header: 'Website Status', key: 'website_status', width: 20 },
+      { header: 'Assigned To', key: 'assigned_to', width: 28 },
+      { header: 'Lead Source', key: 'lead_source', width: 28 },
+      { header: 'Budget Amount', key: 'budget_amount', width: 20 },
+      { header: 'Internal Notes', key: 'internal_notes', width: 36 },
+    ];
+
+    const headerRow = ws.getRow(1);
+    headerRow.height = 30;
+    headerRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E1B4B' },
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    leads.forEach((l: any) => {
+      const parsedPhone = parsePhoneWithCountryCode(l.phone || '');
+      const parsedAltPhone = parsePhoneWithCountryCode(l.alternate_phone || '');
+      const parsedWa = parsePhoneWithCountryCode(l.whatsapp_number || '');
+
+      let dateCreated = '';
+      if (l.created_at) {
+        try {
+          dateCreated = new Date(l.created_at).toISOString().slice(0, 10);
+        } catch {
+          dateCreated = String(l.created_at).slice(0, 10);
+        }
+      }
+
+      ws.addRow({
+        date_created: dateCreated,
+        company_name: l.company_name || '',
+        first_name: l.first_name || '',
+        last_name: l.last_name || '',
+        designation: l.designation || 'Decision Maker',
+        email: l.email || '',
+        secondary_email: l.alternate_email || '',
+        country_code: parsedPhone.countryCode || '+91',
+        phone: parsedPhone.number || l.phone || '',
+        alternate_phone: parsedAltPhone.number || l.alternate_phone || '',
+        whatsapp_number: parsedWa.number || l.whatsapp_number || '',
+        industry: l.industry || 'Manufacturing',
+        sub_industry: l.sub_industry || '',
+        website_url: l.website_url || '',
+        linkedin_company_url: l.linkedin_company_url || '',
+        personal_linkedin_url: l.linkedin_url || '',
+        city: l.city || '',
+        state: l.state || '',
+        country: 'India',
+        address: l.address || '',
+        pincode: l.postal_code || '',
+        website_status: l.website_status || 'ACTIVE',
+        assigned_to: l.assigned_to_user?.display_name || '',
+        lead_source: l.source?.name || '',
+        budget_amount: Number(l.budget_amount) || 0,
+        internal_notes: l.internal_notes || l.requirement_brief || '',
+      });
+    });
+
+    const totalRows = ws.rowCount;
+    for (let i = 2; i <= totalRows; i++) {
+      const row = ws.getRow(i);
+      row.height = 24;
+      row.alignment = { vertical: 'middle' };
+      row.font = { name: 'Arial', size: 10 };
+      if (i % 2 === 1) {
+        row.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF8FAFC' },
+        };
+      }
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+
   async importLeads(tenantId: string, leads: any[], memberId?: string) {
     if (!Array.isArray(leads) || leads.length === 0) {
       return { importedCount: 0 };
@@ -501,23 +1089,75 @@ export class CrmService {
 
     let count = 0;
     for (const item of leads) {
-      if (!item.company_name && !item.first_name) continue;
+      const companyName = String(
+        item.companyName || item['Company Name *'] || item['Company Name'] || item.company_name || ''
+      ).trim();
+      const firstName = String(
+        item.firstName || item['First Name *'] || item['First Name'] || item.first_name || ''
+      ).trim();
+      const lastName = String(
+        item.lastName || item['Last Name'] || item.last_name || ''
+      ).trim();
+      const email = String(
+        item.email || item['Email *'] || item['Email'] || ''
+      ).trim();
+      const secondaryEmail = String(
+        item.secondaryEmail || item['Secondary Email'] || item.secondary_email || item.alternate_email || ''
+      ).trim();
+
+      if (!companyName && !firstName) continue;
+
+      const rawCountryCode = item.countryCode || item['Country Code *'] || item['Country Code'] || item.country_code || '+91';
+      const dialCode = extractDialCode(rawCountryCode, '+91');
+
+      let phone = String(item.phone || item['Phone'] || item['Phone Number'] || '').trim();
+      let alternatePhone = String(item.alternatePhone || item['Alternate Phone'] || item.alternate_phone || '').trim();
+      let whatsappNumber = String(item.whatsappNumber || item['WhatsApp Number'] || item.whatsapp_number || '').trim();
+
+      if (phone && !phone.startsWith('+')) {
+        phone = combinePhoneWithCountryCode(dialCode, phone);
+      }
+      if (alternatePhone && !alternatePhone.startsWith('+')) {
+        alternatePhone = combinePhoneWithCountryCode(dialCode, alternatePhone);
+      }
+      if (whatsappNumber && !whatsappNumber.startsWith('+')) {
+        whatsappNumber = combinePhoneWithCountryCode(dialCode, whatsappNumber);
+      } else if (!whatsappNumber && phone) {
+        whatsappNumber = phone;
+      }
+
+      const industry = String(item.industry || item['Industry *'] || item['Industry'] || 'Manufacturing').trim();
+      const subIndustry = String(item.subIndustry || item['Sub Industry'] || item.sub_industry || '').trim();
+      const city = String(item.city || item['City'] || '').trim();
+      const state = String(item.state || item['State'] || '').trim();
+      const address = String(item.address || item['Address'] || '').trim();
+      const postalCode = String(item.pincode || item.postalCode || item['Pincode'] || '').trim();
+      const websiteUrl = String(item.websiteUrl || item['Website URL'] || item.website_url || '').trim();
+      const websiteStatus = String(item.websiteStatus || item['Website Status'] || item.website_status || 'ACTIVE').trim();
+      const linkedinUrl = String(item.personalLinkedInUrl || item['Personal LinkedIn URL'] || item.linkedin_url || '').trim();
+      const linkedinCompanyUrl = String(item.linkedinCompanyUrl || item['LinkedIn Company URL'] || item.linkedin_company_url || '').trim();
+      const designation = String(item.designation || item['Designation'] || 'Decision Maker').trim();
+      const internalNotes = String(item.internalNotes || item['Internal Notes'] || item.internal_notes || '').trim();
+      const budgetAmount = Number(item.budgetAmount || item['Budget Amount'] || item.budget_amount) || 0;
+
       await this.createLead(
         tenantId,
         {
-          company_name: item.company_name || 'Imported Lead',
-          first_name: item.first_name || 'Lead',
-          last_name: item.last_name || null,
-          email: item.email || `lead_${Date.now()}_${count}@import.local`,
-          phone: item.phone || '+91 9000000000',
-          whatsapp_number: item.whatsapp_number || item.phone,
-          designation: item.designation,
-          city: item.city,
-          state: item.state,
-          industry: item.industry || 'Software & IT',
-          sub_industry: item.sub_industry,
-          budget_amount: item.budget_amount || 0,
-          temperature: item.temperature || 'COLD',
+          company_name: companyName || 'Imported Lead',
+          first_name: firstName || 'Lead',
+          last_name: lastName || null,
+          email: email || `lead_${Date.now()}_${count}@import.local`,
+          phone: phone || '+91 9000000000',
+          whatsapp_number: whatsappNumber || phone,
+          designation,
+          city: city || null,
+          state: state || null,
+          industry: industry || 'Manufacturing',
+          sub_industry: subIndustry || null,
+          website_url: websiteUrl || null,
+          linkedin_url: linkedinUrl || null,
+          budget_amount: budgetAmount,
+          temperature: (item.temperature || 'COLD') as any,
           pipeline_id: item.pipeline_id || defaultPipe?.id,
           stage_id: item.stage_id || defaultStage?.id,
         },
@@ -526,7 +1166,49 @@ export class CrmService {
       count++;
     }
 
-    return { importedCount: count };
+    await this.logAudit(tenantId, 'IMPORT_LEADS', 'LEAD', tenantId, { importedCount: count }, memberId);
+    return { importedCount: count, successCount: count };
+  }
+
+  async handleInboundWebhook(tenantId: string, payload: any) {
+    const defaultPipe = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
+      where: { tenant_id: tenantId },
+      orderBy: { is_default: 'desc' },
+    });
+    const defaultStage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
+      where: { tenant_id: tenantId, pipeline_id: defaultPipe?.id },
+      orderBy: { sort_order: 'asc' },
+    });
+
+    const companyName = payload.company_name || payload.company || payload.sender_company || 'Inbound Webhook Lead';
+    const firstName = payload.first_name || payload.name?.split(' ')[0] || payload.sender_name || 'Prospect';
+    const lastName = payload.last_name || payload.name?.split(' ').slice(1).join(' ') || '';
+    const email = payload.email || payload.sender_email || `inbound_${Date.now()}@lead.local`;
+    const phone = payload.phone || payload.mobile || payload.sender_mobile || '+91 9876543210';
+    const requirement = payload.requirement || payload.query || payload.message || payload.brief || '';
+    const sourceName = payload.source || payload.channel || 'Inbound Webhook';
+
+    const lead = await this.createLead(
+      tenantId,
+      {
+        company_name: companyName,
+        first_name: firstName,
+        last_name: lastName || null,
+        email,
+        phone,
+        whatsapp_number: phone,
+        industry: payload.industry || 'Manufacturing',
+        city: payload.city || null,
+        state: payload.state || null,
+        budget_amount: Number(payload.budget) || 0,
+        temperature: 'HOT',
+        pipeline_id: defaultPipe?.id,
+        stage_id: defaultStage?.id,
+      },
+    );
+
+    await this.logAudit(tenantId, 'WEBHOOK_INGEST', 'LEAD', lead.id, { sourceName, payload });
+    return lead;
   }
 
   async convertDealWon(tenantId: string, leadId: string, memberId?: string) {
@@ -1376,16 +2058,7 @@ export class CrmService {
     }
 
     if (type === 'industries') {
-      return Object.entries(CADENCE_INDUSTRIES).map(([key, val]) => ({
-        id: val.key || key,
-        key: val.key || key,
-        name: val.name,
-        tagline: val.tagline,
-        portfolioHighlight: val.portfolioHighlight,
-        valueTip: val.valueTip,
-        auditHook: val.auditHook,
-        sub_industries: [],
-      }));
+      return this.getIndustriesMaster(tenantId);
     }
 
     if (type === 'sop-steps') {
@@ -2014,5 +2687,168 @@ export class CrmService {
       message: 'Nexus Quantum Labs updated & 7 demo milestone leads seeded successfully across the 30-Day SOP funnel',
       nexusId,
     };
+  }
+
+  // ==========================================
+  // DYNAMIC INDUSTRIES & SUB-INDUSTRIES MASTER
+  // ==========================================
+
+  async getIndustriesMaster(tenantId: string) {
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    let industries: any[] = settingsJson.industries;
+
+    if (!industries || !Array.isArray(industries) || industries.length === 0) {
+      industries = BASELINE_INDUSTRIES;
+      settingsJson.industries = industries;
+      await this.prisma.rndtechnosoft_tenant_settings.upsert({
+        where: { tenant_id: tenantId },
+        update: { settings: settingsJson },
+        create: { id: randomUUID(), tenant_id: tenantId, settings: settingsJson },
+      });
+    }
+
+    return industries;
+  }
+
+  async createIndustry(tenantId: string, name: string) {
+    if (!name || !name.trim()) throw new BadRequestException('Industry name is required');
+    const industries = await this.getIndustriesMaster(tenantId);
+    const newInd = {
+      id: `ind_${randomUUID().slice(0, 8)}`,
+      name: name.trim(),
+      sub_industries: [],
+    };
+    industries.push(newInd);
+
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    settingsJson.industries = industries;
+    await this.prisma.rndtechnosoft_tenant_settings.update({
+      where: { tenant_id: tenantId },
+      data: { settings: settingsJson },
+    });
+
+    return newInd;
+  }
+
+  async updateIndustry(tenantId: string, id: string, name: string) {
+    if (!id || !name || !name.trim()) throw new BadRequestException('ID and Name are required');
+    const industries = await this.getIndustriesMaster(tenantId);
+    const ind = industries.find((i: any) => i.id === id);
+    if (!ind) throw new NotFoundException('Industry not found');
+    ind.name = name.trim();
+
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    settingsJson.industries = industries;
+    await this.prisma.rndtechnosoft_tenant_settings.update({
+      where: { tenant_id: tenantId },
+      data: { settings: settingsJson },
+    });
+
+    return ind;
+  }
+
+  async deleteIndustry(tenantId: string, id: string) {
+    if (!id) throw new BadRequestException('ID is required');
+    let industries = await this.getIndustriesMaster(tenantId);
+    industries = industries.filter((i: any) => i.id !== id);
+
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    settingsJson.industries = industries;
+    await this.prisma.rndtechnosoft_tenant_settings.update({
+      where: { tenant_id: tenantId },
+      data: { settings: settingsJson },
+    });
+
+    return { success: true };
+  }
+
+  async createSubIndustry(tenantId: string, industryId: string, name: string) {
+    if (!industryId || !name || !name.trim()) throw new BadRequestException('Industry ID and Name are required');
+    const industries = await this.getIndustriesMaster(tenantId);
+    const ind = industries.find((i: any) => i.id === industryId);
+    if (!ind) throw new NotFoundException('Industry not found');
+
+    if (!Array.isArray(ind.sub_industries)) ind.sub_industries = [];
+    const newSub = {
+      id: `sub_${randomUUID().slice(0, 8)}`,
+      industry_id: industryId,
+      name: name.trim(),
+    };
+    ind.sub_industries.push(newSub);
+
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    settingsJson.industries = industries;
+    await this.prisma.rndtechnosoft_tenant_settings.update({
+      where: { tenant_id: tenantId },
+      data: { settings: settingsJson },
+    });
+
+    return newSub;
+  }
+
+  async updateSubIndustry(tenantId: string, id: string, name: string) {
+    if (!id || !name || !name.trim()) throw new BadRequestException('ID and Name are required');
+    const industries = await this.getIndustriesMaster(tenantId);
+    let foundSub: any = null;
+    for (const ind of industries) {
+      if (Array.isArray(ind.sub_industries)) {
+        const s = ind.sub_industries.find((sub: any) => sub.id === id);
+        if (s) {
+          s.name = name.trim();
+          foundSub = s;
+          break;
+        }
+      }
+    }
+    if (!foundSub) throw new NotFoundException('Sub-industry not found');
+
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    settingsJson.industries = industries;
+    await this.prisma.rndtechnosoft_tenant_settings.update({
+      where: { tenant_id: tenantId },
+      data: { settings: settingsJson },
+    });
+
+    return foundSub;
+  }
+
+  async deleteSubIndustry(tenantId: string, id: string) {
+    if (!id) throw new BadRequestException('ID is required');
+    const industries = await this.getIndustriesMaster(tenantId);
+    for (const ind of industries) {
+      if (Array.isArray(ind.sub_industries)) {
+        ind.sub_industries = ind.sub_industries.filter((sub: any) => sub.id !== id);
+      }
+    }
+
+    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
+      where: { tenant_id: tenantId },
+    });
+    const settingsJson: any = (tenantSetting?.settings as any) || {};
+    settingsJson.industries = industries;
+    await this.prisma.rndtechnosoft_tenant_settings.update({
+      where: { tenant_id: tenantId },
+      data: { settings: settingsJson },
+    });
+
+    return { success: true };
   }
 }

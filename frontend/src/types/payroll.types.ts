@@ -18,6 +18,8 @@ export type AppView =
   | 'bookkeeping'
   | 'reports'
   | 'settings'
+  | 'organization'
+  | 'users'
   | 'help';
 
 export type CrmTab =

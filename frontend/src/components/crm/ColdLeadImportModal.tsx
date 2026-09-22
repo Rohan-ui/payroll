@@ -99,8 +99,9 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
           setSources(srcJson.data);
         }
         const usrJson = await usrRes.json();
-        if (usrJson.success && Array.isArray(usrJson.data)) {
-          setUsers(usrJson.data);
+        if (usrJson.success) {
+          const userList = Array.isArray(usrJson.data) ? usrJson.data : (usrJson.data?.users || []);
+          setUsers(userList);
         }
       } catch (err) {
         console.warn('Could not load import masters:', err);
@@ -428,7 +429,7 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
 
       const json = await res.json();
       if (res.ok && json.success) {
-        setSuccessCount(json.data.successCount);
+        setSuccessCount(json.data?.successCount ?? json.data?.importedCount ?? payload.length);
         setStep('success');
         onSuccess();
       } else {

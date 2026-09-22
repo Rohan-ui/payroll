@@ -43,6 +43,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard',  label: 'Dashboard',   icon: LayoutDashboard, roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
   { id: 'crm',        label: 'CRM & Sales', icon: Target,          roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
+  { id: 'organization', label: 'Organization & Settings', icon: Building2, roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
   { id: 'people',     label: 'People',       icon: Users,           roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
   { id: 'payroll',    label: 'Payroll',      icon: Banknote,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
   { id: 'attendance', label: 'Attendance',   icon: CalendarDays,    roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
@@ -50,7 +51,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'bookkeeping',label: 'Bookkeeping',  icon: BookOpen,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
   { id: 'reports',    label: 'Reports',      icon: BarChart2,       roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
   { id: 'settings',   label: 'Compliance',   icon: Settings,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
-  { id: 'super-admin',label: 'Super Admin',  icon: ShieldCheck,     roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { id: 'super-admin',label: 'Super Admin',  icon: ShieldCheck,     roles: ['ADMIN', 'SUPER_ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },
   { id: 'help',       label: 'Help',         icon: HelpCircle,      roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
 ];
 
@@ -153,9 +154,31 @@ export const Sidebar: React.FC = () => {
                 OS
               </span>
             </div>
+
+            {/* Quick Switcher to Platform HQ / Super Admin */}
+            <button
+              onClick={() => setCurrentView('super-admin')}
+              className={cn(
+                'w-full mt-1 flex items-center justify-between px-2 py-1 rounded-md text-[11px] font-semibold transition-all border cursor-pointer',
+                currentView === 'super-admin'
+                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
+                  : theme === 'dark'
+                  ? 'bg-indigo-950/40 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/50 hover:text-white'
+                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+              )}
+              title="Switch to Super Admin Platform HQ"
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="truncate">Platform HQ</span>
+              </div>
+              <span className="text-[8px] uppercase tracking-wider px-1 py-0.2 rounded font-bold bg-indigo-500/20 text-indigo-300 shrink-0">
+                Super Admin
+              </span>
+            </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-2.5 w-full">
+          <div className="flex flex-col items-center gap-2 w-full">
             {/* Symbol Logo - Clean transparent, no white box */}
             <div
               className="w-10 h-10 flex items-center justify-center shrink-0"
@@ -167,6 +190,22 @@ export const Sidebar: React.FC = () => {
                 className="w-8 h-8 object-contain bg-transparent"
               />
             </div>
+
+            {/* Symbol quick switcher to Super Admin */}
+            <button
+              onClick={() => setCurrentView('super-admin')}
+              title="Platform HQ (Super Admin)"
+              className={cn(
+                'w-7 h-7 rounded-lg flex items-center justify-center transition-all border cursor-pointer',
+                currentView === 'super-admin'
+                  ? 'bg-indigo-600 text-white border-indigo-500'
+                  : theme === 'dark'
+                  ? 'bg-indigo-950/40 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/50 hover:text-white'
+                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+              )}
+            >
+              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+            </button>
 
             {/* Expand to Full Names Toggle Button */}
             <button
