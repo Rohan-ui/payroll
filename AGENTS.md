@@ -974,3 +974,9 @@ redesign unrelated screens while fixing one feature,
 expose sensitive data in logs,
 
 claim completion without verification
+
+Earlier Voogyo Product Reference
+
+When the user asks to look at the "earlier voogyo product", "previous voogyo code", or reference the prior implementation:
+- Inspect `/Users/ravishah/git folder/voogyo-erp` (located under `/Users/ravishah/git folder`).
+- Consult its codebase, migrations (`database/migrations/`), API endpoints (`src/app/api/v1/`), components (`src/components/`), libraries (`src/lib/`), and architecture docs (`WOOGIEO_ERP_MASTER_SPECIFICATION_AND_MIGRATION_BLUEPRINT.md` and `docs/`) to get a full overview and understand the prior implementation patterns.

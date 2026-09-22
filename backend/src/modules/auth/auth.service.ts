@@ -277,7 +277,7 @@ export class AuthService {
           displayName: user.display_name,
         },
         tenant: {
-          id: firstTenant?.id || 'e813544d-5b1a-412b-b310-64f21efaf4a9',
+          id: firstTenant?.id || 'cd1e0cac-3656-41e8-bfc4-5fb8d7bfa6fb',
           company_name: firstTenant?.legal_name || firstTenant?.display_name || firstTenant?.tenant_code || 'Voogyo RND',
           name: firstTenant?.display_name || firstTenant?.tenant_code || 'Voogyo RND',
         },
