@@ -9,7 +9,9 @@ import {
   Query,
   UseGuards,
   Headers,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { CrmService } from './crm.service';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { TenantGuard } from '@/common/guards/tenant.guard';
@@ -41,6 +43,51 @@ export class CrmController {
   // ==========================================
   // LEADS
   // ==========================================
+
+  @Get('leads/import/template')
+  async downloadLeadImportTemplate(
+    @CurrentTenant() tenantId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.crmService.generateLeadImportTemplate(tenantId);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="Voogyo_Leads_Import_Template.xlsx"',
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+    res.end(buffer);
+  }
+
+  @Get('leads/export')
+  async exportLeads(
+    @CurrentTenant() tenantId: string,
+    @Query() query: any,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.crmService.exportLeads(tenantId, query);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="Voogyo_CRM_Leads_Export_${dateStr}.xlsx"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+    res.end(buffer);
+  }
+
+  @Post('leads/webhook')
+  async handleLeadWebhook(
+    @CurrentTenant() tenantId: string,
+    @Body() body: any,
+  ) {
+    const data = await this.crmService.handleInboundWebhook(tenantId, body);
+    return { success: true, data, message: 'Lead received successfully' };
+  }
 
   @Get('leads')
   async getLeads(
@@ -334,6 +381,67 @@ export class CrmController {
   async reorderMasters(@CurrentTenant() tenantId: string, @Body() body: any) {
     const data = await this.crmService.reorderMasters(tenantId, body);
     return { success: true, data };
+  }
+
+  // Specific Industry Taxonomy endpoints
+  @Get('masters/industries')
+  async getIndustriesMaster(@CurrentTenant() tenantId: string) {
+    const data = await this.crmService.getIndustriesMaster(tenantId);
+    return { success: true, data };
+  }
+
+  @Post('masters/industries')
+  async createIndustry(
+    @CurrentTenant() tenantId: string,
+    @Body('name') name: string,
+  ) {
+    const data = await this.crmService.createIndustry(tenantId, name);
+    return { success: true, data, message: 'Industry created successfully' };
+  }
+
+  @Put('masters/industries')
+  async updateIndustry(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { id: string; name: string },
+  ) {
+    const data = await this.crmService.updateIndustry(tenantId, body.id, body.name);
+    return { success: true, data, message: 'Industry updated' };
+  }
+
+  @Delete('masters/industries')
+  async deleteIndustry(
+    @CurrentTenant() tenantId: string,
+    @Query('id') id: string,
+  ) {
+    await this.crmService.deleteIndustry(tenantId, id);
+    return { success: true, message: 'Industry and its sub-industries deleted' };
+  }
+
+  @Post('masters/industries/sub')
+  async createSubIndustry(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { industry_id: string; name: string },
+  ) {
+    const data = await this.crmService.createSubIndustry(tenantId, body.industry_id, body.name);
+    return { success: true, data, message: 'Sub-industry created successfully' };
+  }
+
+  @Put('masters/industries/sub')
+  async updateSubIndustry(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { id: string; name: string },
+  ) {
+    const data = await this.crmService.updateSubIndustry(tenantId, body.id, body.name);
+    return { success: true, data, message: 'Sub-industry updated' };
+  }
+
+  @Delete('masters/industries/sub')
+  async deleteSubIndustry(
+    @CurrentTenant() tenantId: string,
+    @Query('id') id: string,
+  ) {
+    await this.crmService.deleteSubIndustry(tenantId, id);
+    return { success: true, message: 'Sub-industry deleted' };
   }
 
   @Get('masters/:type')

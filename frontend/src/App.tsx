@@ -26,6 +26,7 @@ import { ClockInView } from './views/ClockInView';
 import { SuperAdminDashboardView } from './views/super-admin/SuperAdminDashboardView';
 import { CrmWorkspaceView } from './views/crm/CrmWorkspaceView';
 import { EmailMarketingView } from './views/emails/EmailMarketingView';
+import { OrganizationSettingsView } from './views/OrganizationSettingsView';
 import { cn } from './utils/cn';
 
 const MainContent: React.FC = () => {
@@ -46,6 +47,8 @@ const MainContent: React.FC = () => {
       case 'dashboard':       return <DashboardView />;
       case 'crm':             return <CrmWorkspaceView />;
       case 'emails':          return <EmailMarketingView />;
+      case 'organization':    return <OrganizationSettingsView initialTab="organization" />;
+      case 'users':           return <OrganizationSettingsView initialTab="users" />;
       case 'super-admin':     return <SuperAdminDashboardView />;
       case 'payroll':         return <RunPayrollWizardView />;
       case 'people':          return <EmployeesView />;
