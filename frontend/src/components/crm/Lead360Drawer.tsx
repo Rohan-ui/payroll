@@ -28,13 +28,18 @@ import {
 } from '@/lib/industryTaxonomy';
 import { parsePhoneWithCountryCode } from '@/lib/countryCodes';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 interface Lead360DrawerProps {
   leadId: string | null;
   onClose: () => void;
   onRefreshParent: () => void;
+  /** The workspace's own pipelines and stages, for converting a lead into an opportunity. */
+  pipelines?: { id: string; name: string }[];
+  stages?: { id: string; name: string; pipeline_id: string; stage_probability?: number }[];
 }
 
-export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead360DrawerProps) {
+export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipelines = [], stages = [] }: Lead360DrawerProps) {
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -66,7 +71,6 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
   const [saving, setSaving] = useState(false);
   const [showConvertConfirm, setShowConvertConfirm] = useState(false);
   const [converting, setConverting] = useState(false);
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Cadence state inside Lead360
   const [drawerIndustry, setDrawerIndustry] = useState('general');
@@ -80,8 +84,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
 
   // Cadence conversion to Opportunity state
   const [showCadenceConvertModal, setShowCadenceConvertModal] = useState(false);
-  const [cadenceTargetPipeline, setCadenceTargetPipeline] = useState('pipe_rnd_main');
-  const [cadenceTargetStage, setCadenceTargetStage] = useState('stage_2');
+  const [cadenceTargetPipeline, setCadenceTargetPipeline] = useState('');
+  const [cadenceTargetStage, setCadenceTargetStage] = useState('');
   const [cadenceTargetChannel, setCadenceTargetChannel] = useState('cold_sop');
   const [cadenceDealValue, setCadenceDealValue] = useState<string | number>(250000);
   const [cadenceTemperature, setCadenceTemperature] = useState<'HOT' | 'WARM'>('HOT');
@@ -90,8 +94,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
 
   // Industry & Sub-Industry Sector state
   const [isEditingSector, setIsEditingSector] = useState(false);
-  const [selectedInd, setSelectedInd] = useState('information_technology');
-  const [selectedSubInd, setSelectedSubInd] = useState('saas_cloud');
+  const [selectedInd, setSelectedInd] = useState('');
+  const [selectedSubInd, setSelectedSubInd] = useState('');
   const [savingSector, setSavingSector] = useState(false);
 
   // Full Lead Profile Edit State
@@ -121,8 +125,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
   });
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 4000);
+    if (type === 'error') toast.error(text);
+    else toast.success(text);
   };
 
   const openEditModal = () => {
@@ -142,8 +146,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
       address: lead.address || '',
       postalCode: lead.postal_code || '',
       primaryService: lead.primary_service || '',
-      industry: lead.industry || 'information_technology',
-      subIndustry: lead.sub_industry || 'saas_cloud',
+      industry: lead.industry || '',
+      subIndustry: lead.sub_industry || '',
       budgetAmount: Number(lead.budget_amount) || 0,
       requirementBrief: lead.requirement_brief || '',
       gstin: lead.gstin || '',
@@ -157,22 +161,18 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!leadId) return;
     setSavingLeadEdit(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${leadId}`, {
+      const res = await apiFetch(`/api/v1/crm/leads/${leadId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editFormData)
       });
-      const json = await res.json();
-      if (json.success || res.ok) {
-        showToast('Lead dossier updated successfully!', 'success');
+      if (res.ok) {
         setShowEditLeadModal(false);
         fetchLead360();
         onRefreshParent();
-      } else {
-        showToast('Failed to update lead: ' + (json.error || 'Server error'), 'error');
       }
-    } catch (err: any) {
-      showToast('Error saving lead: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setSavingLeadEdit(false);
     }
@@ -182,7 +182,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!leadId) return;
     setSavingSector(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${leadId}`, {
+      const res = await apiFetch(`/api/v1/crm/leads/${leadId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,17 +190,13 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
           sub_industry: selectedSubInd
         })
       });
-      const json = await res.json();
-      if (json.success) {
-        showToast('Industry & Sub-Industry taxonomy updated successfully!');
+      if (res.ok) {
         setIsEditingSector(false);
         fetchLead360();
         onRefreshParent();
-      } else {
-        showToast('Error updating sector: ' + json.error, 'error');
       }
-    } catch (err: any) {
-      showToast('Failed to update sector: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setSavingSector(false);
     }
@@ -210,7 +206,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!leadId) return;
     setConvertingCadenceOpp(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence', {
+      const res = await apiFetch('/api/v1/crm/cadence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -222,19 +218,16 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
           budgetAmount: Number(cadenceDealValue) || 0,
           temperature: cadenceTemperature,
           notes: cadenceNotes || `Prospect converted to active Sales Pipeline Opportunity from Lead 360 Cadence view.`
-        })
+        }),
+        feedback: { success: 'Lead converted to a pipeline opportunity' },
       });
-      const json = await res.json();
-      if (json.success) {
-        showToast('🚀 Successfully converted to Sales Pipeline Opportunity!', 'success');
+      if (res.ok) {
         setShowCadenceConvertModal(false);
         fetchLead360();
         onRefreshParent();
-      } else {
-        showToast(json.error || 'Failed to convert lead', 'error');
       }
-    } catch (err) {
-      showToast('Error converting lead to opportunity', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setConvertingCadenceOpp(false);
     }
@@ -257,7 +250,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
 
     setSendingSmtpStep(step.stepIndex);
     try {
-      const res = await fetch('/api/v1/tenant/email/send', {
+      const res = await apiFetch('/api/v1/tenant/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -270,15 +263,15 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
           advanceCadence: false
         })
       });
-      const json = await res.json();
-      if (json.success) {
-        showToast(json.data?.message || 'Email sent via portal SMTP!', 'success');
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success) {
+        showToast(json.data?.message || 'Email sent', 'success');
         fetchLead360();
       } else {
-        showToast(json.error || 'Failed to send email via SMTP', 'error');
+        showToast(json?.message || json?.error || 'The email could not be sent.', 'error');
       }
-    } catch (err) {
-      showToast('Error communicating with SMTP service', 'error');
+    } catch {
+      showToast('Could not reach the server. Check your connection and try again.', 'error');
     } finally {
       setSendingSmtpStep(null);
     }
@@ -288,25 +281,22 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!leadId) return;
     setEnrollingCadence(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence', {
+      const res = await apiFetch('/api/v1/crm/cadence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'ENROLL',
           leadId,
           industry: drawerIndustry
-        })
+        }),
+        feedback: { success: 'Lead enrolled in the 30-day outreach cadence' },
       });
-      const json = await res.json();
-      if (json.success) {
-        showToast('Enrolled in 30-Day Multi-Channel Client Outreach Funnel!', 'success');
+      if (res.ok) {
         fetchLead360();
         onRefreshParent();
-      } else {
-        showToast(json.error || 'Failed to enroll', 'error');
       }
-    } catch (e) {
-      showToast('Error enrolling lead', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setEnrollingCadence(false);
     }
@@ -316,7 +306,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!leadId) return;
     setExecutingStep(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence', {
+      const res = await apiFetch('/api/v1/crm/cadence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -324,18 +314,15 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
           leadId,
           stepIndex,
           channelsUsed: channels
-        })
+        }),
+        feedback: { success: 'Step completed; next touchpoint scheduled' },
       });
-      const json = await res.json();
-      if (json.success) {
-        showToast('Step completed & next touchpoint scheduled!', 'success');
+      if (res.ok) {
         fetchLead360();
         onRefreshParent();
-      } else {
-        showToast(json.error || 'Failed to complete step', 'error');
       }
-    } catch (e) {
-      showToast('Error completing step', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setExecutingStep(false);
     }
@@ -345,26 +332,23 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!leadId || !drawerBranchKey) return;
     setApplyingDrawerBranch(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence', {
+      const res = await apiFetch('/api/v1/crm/cadence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'BRANCH_REPLY',
           leadId,
           branchKey: drawerBranchKey
-        })
+        }),
+        feedback: { success: 'Reply branch applied' },
       });
-      const json = await res.json();
-      if (json.success) {
-        showToast(json.message || 'Branch applied & lead upgraded!', 'success');
+      if (res.ok) {
         setDrawerBranchKey('');
         fetchLead360();
         onRefreshParent();
-      } else {
-        showToast(json.error || 'Failed to apply branch', 'error');
       }
-    } catch (e) {
-      showToast('Error applying branch', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setApplyingDrawerBranch(false);
     }
@@ -374,7 +358,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!leadId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${leadId}`);
+      const res = await apiFetch(`/api/v1/crm/leads/${leadId}`);
       const json = await res.json();
       if (json.success && json.data) {
         const leadObj = json.data.lead || json.data;
@@ -383,8 +367,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
           lead: leadObj
         });
         if (leadObj) {
-          setSelectedInd(leadObj.industry || 'information_technology');
-          setSelectedSubInd(leadObj.sub_industry || 'saas_cloud');
+          setSelectedInd(leadObj.industry || '');
+          setSelectedSubInd(leadObj.sub_industry || '');
         }
       }
     } catch (err) {
@@ -425,7 +409,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!actTitle) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/crm/activities', {
+      const res = await apiFetch('/api/v1/crm/activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -455,7 +439,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!fupDate) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/crm/followups', {
+      const res = await apiFetch('/api/v1/crm/followups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -484,7 +468,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
     if (!meetDate || !meetTitle) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/crm/meetings', {
+      const res = await apiFetch('/api/v1/crm/meetings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -509,33 +493,34 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
 
   const handleCompleteFollowup = async (fupId: string) => {
     try {
-      await fetch(`/api/v1/crm/followups/${fupId}`, {
+      const res = await apiFetch(`/api/v1/crm/followups/${fupId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'COMPLETED' })
+        body: JSON.stringify({ status: 'COMPLETED' }),
+        feedback: { success: 'Follow-up completed' },
       });
-      fetchLead360();
-      onRefreshParent();
-    } catch (err) {
-      console.error(err);
+      if (res.ok) {
+        fetchLead360();
+        onRefreshParent();
+      }
+    } catch {
+      // Reported by the API client.
     }
   };
 
   const handleExecuteConvertWon = async () => {
     setConverting(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${leadId}/convert-won`, { method: 'POST' });
-      const json = await res.json();
-      if (json.success) {
+      const res = await apiFetch(`/api/v1/crm/leads/${leadId}/convert-won`, { method: 'POST', feedback: { success: false } });
+      if (res.ok) {
+        const json = await res.json();
         setShowConvertConfirm(false);
-        showToast(`🏆 Deal Won! Client Account, Project (${json.data.projectCode}), and Kickoff Invoice (${json.data.invoiceNumber}) auto-created!`);
+        showToast(`Deal won. Client created; project ${json.data.projectCode}, invoice ${json.data.invoiceNumber}.`);
         fetchLead360();
         onRefreshParent();
-      } else {
-        showToast('Conversion failed: ' + json.error, 'error');
       }
-    } catch (err: any) {
-      showToast('Error converting deal: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setConverting(false);
     }
@@ -973,7 +958,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
                       <div>
                         <span className="text-slate-400 dark:text-slate-500 block text-[11px] font-medium">Assigned Sales Rep</span>
                         <span className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5 block">
-                          {lead?.assigned_user_name || 'Saloni Shah'}
+                          {lead?.assigned_user_name || 'Unassigned'}
                         </span>
                       </div>
                     </div>
@@ -993,8 +978,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
                       {!isEditingSector ? (
                         <button
                           onClick={() => {
-                            setSelectedInd(lead?.industry || 'information_technology');
-                            setSelectedSubInd(lead?.sub_industry || 'saas_cloud');
+                            setSelectedInd(lead?.industry || '');
+                            setSelectedSubInd(lead?.sub_industry || '');
                             setIsEditingSector(true);
                           }}
                           className="px-2.5 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
@@ -2431,11 +2416,18 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
                   <label className="block text-xs font-bold text-slate-700 mb-1">Target Pipeline</label>
                   <select
                     value={cadenceTargetPipeline}
-                    onChange={(e) => setCadenceTargetPipeline(e.target.value)}
+                    onChange={(e) => {
+                      setCadenceTargetPipeline(e.target.value);
+                      setCadenceTargetStage('');
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   >
-                    <option value="pipe_rnd_main">RND Main Pipeline</option>
-                    <option value="pipe_enterprise">Enterprise Solutions</option>
+                    <option value="">Choose a pipeline</option>
+                    {pipelines.map((pipeline) => (
+                      <option key={pipeline.id} value={pipeline.id}>
+                        {pipeline.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -2445,10 +2437,15 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
                     onChange={(e) => setCadenceTargetStage(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   >
-                    <option value="stage_1">New (10%)</option>
-                    <option value="stage_2">Qualified (30%)</option>
-                    <option value="stage_3">Proposal (60%)</option>
-                    <option value="stage_4">Negotiation (80%)</option>
+                    <option value="">Choose a stage</option>
+                    {stages
+                      .filter((stage) => stage.pipeline_id === cadenceTargetPipeline)
+                      .map((stage) => (
+                        <option key={stage.id} value={stage.id}>
+                          {stage.name}
+                          {stage.stage_probability !== undefined ? ` (${stage.stage_probability}%)` : ''}
+                        </option>
+                      ))}
                   </select>
                 </div>
               </div>
@@ -2551,18 +2548,6 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent }: Lead
         </div>
       )}
 
-      {/* FLOATING TOAST NOTIFICATION */}
-      {toastMessage && (
-        <div className={`fixed top-5 right-5 z-70 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold animate-in slide-in-from-top ${
-          toastMessage.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-        }`}>
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{toastMessage.text}</span>
-          <button onClick={() => setToastMessage(null)} className="ml-2 hover:opacity-80">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

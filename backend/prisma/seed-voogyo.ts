@@ -1,11 +1,11 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
+import {
+  hashPassword,
+  PASSWORD_ALGORITHM_SCRYPT,
+} from '../src/common/security/password.util';
 
 const prisma = new PrismaClient();
-
-function hashPassword(password: string): string {
-  return createHash('sha256').update(password).digest('hex');
-}
 
 // Helper to create a future date from now
 function futureDate(days: number): Date {
@@ -32,11 +32,16 @@ async function main() {
   });
 
   if (!superAdmin) {
+    // Development seed credential only. Rotate before any shared environment:
+    //   npm run platform:admin -- reset-password superadmin@voogyo.com
+    const seedPassword = process.env.SUPER_ADMIN_SEED_PASSWORD || 'Voogyo@2026!';
+
     superAdmin = await prisma.rndtechnosoft_super_admins.create({
       data: {
         id: randomUUID(),
         email: superAdminEmail,
-        password_hash: hashPassword('Voogyo@2026!'),
+        password_hash: await hashPassword(seedPassword),
+        password_algorithm: PASSWORD_ALGORITHM_SCRYPT,
         display_name: 'Ravi Shah (Chief Architect)',
         role: 'SUPER_ADMIN',
         is_active: true,

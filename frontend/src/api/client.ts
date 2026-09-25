@@ -1,9 +1,26 @@
 /**
  * API HTTP Client for rndtechnosoft Payroll + HRMS
- * Injects x-tenant-id and Authorization headers automatically.
+ * Attaches the session bearer token. No tenant identifier is sent: the server
+ * derives the workspace from the session.
  */
 
-const API_BASE_URL = 'http://localhost:4000/api/v1';
+/**
+ * Same-origin by default: the dev server proxies /api to the backend and
+ * production serves both behind one host. Keeping this relative avoids baking a
+ * developer machine's URL into the build and lets Content-Security-Policy stay
+ * at connect-src 'self'. Override only when the API is on another origin.
+ */
+import { crmPath, FeedbackOptions, NETWORK_ERROR, reportCrmResult } from './crm-feedback';
+import { toast } from '../lib/toast';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+/** Called when the server rejects the session, so the app can show sign-in. */
+let onSessionExpired: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  onSessionExpired = handler;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -19,10 +36,14 @@ export class ApiError extends Error {
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {},
+  { feedback, ...options }: RequestInit & { feedback?: FeedbackOptions } = {},
 ): Promise<T> {
-  const token = localStorage.getItem('rnd_auth_token');
-  const activeTenantId = localStorage.getItem('rnd_active_tenant_id');
+  let token: string | null = null;
+  try {
+    token = localStorage.getItem('rnd_auth_token');
+  } catch {
+    // Storage can be unavailable in private browsing.
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -33,9 +54,8 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  if (activeTenantId) {
-    headers['x-tenant-id'] = activeTenantId;
-  }
+  // No tenant header is sent. The server derives the workspace from the
+  // session, and anything the client supplied would be ignored anyway.
 
   const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
@@ -48,7 +68,15 @@ async function request<T>(
     const isJson = response.headers.get('content-type')?.includes('application/json');
     const data = isJson ? await response.json() : await response.text();
 
+    const crm = crmPath(url);
+    if (crm) reportCrmResult(crm, options.method ?? 'GET', response.status, response.ok, data, feedback);
+
     if (!response.ok) {
+      if (response.status === 401) {
+        // One place decides what an expired session means for the whole app.
+        onSessionExpired?.();
+      }
+
       const errorMessage =
         (data && typeof data === 'object' && (data.message || data.error)) ||
         `Request failed with status ${response.status}`;
@@ -64,8 +92,64 @@ async function request<T>(
     if (err instanceof ApiError) {
       throw err;
     }
+    if (crmPath(url) && feedback?.error !== false) toast.error(NETWORK_ERROR);
     throw new ApiError(err.message || 'Network connection failed. Ensure backend is running.', 0);
   }
+}
+
+/**
+ * Drop-in replacement for `fetch` for calls that want the raw Response.
+ *
+ * Attaches the session bearer token and reports an expired session through the
+ * same central handler as `apiClient`. Callers keep their existing
+ * `await res.json()` handling.
+ *
+ * Without this, a component calling `fetch` directly sends no credentials and
+ * the request is refused, because the tenant API now requires authentication.
+ */
+export async function apiFetch(
+  input: string,
+  { feedback, ...init }: RequestInit & { feedback?: FeedbackOptions } = {},
+): Promise<Response> {
+  let token: string | null = null;
+  try {
+    token = localStorage.getItem('rnd_auth_token');
+  } catch {
+    // Storage can be unavailable in private browsing.
+  }
+
+  const headers = new Headers(init.headers);
+
+  // Let the browser set the type (and multipart boundary) for form and binary
+  // bodies; only default JSON for plain string payloads.
+  if (typeof init.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const crm = crmPath(input);
+  let response: Response;
+  try {
+    response = await fetch(input, { ...init, headers });
+  } catch (error) {
+    if (crm && feedback?.error !== false) toast.error(NETWORK_ERROR);
+    throw error;
+  }
+
+  if (response.status === 401) {
+    onSessionExpired?.();
+  }
+
+  // CRM requests report their own outcome as a toast; the caller still reads the body.
+  if (crm) {
+    const body = await response.clone().json().catch(() => null);
+    reportCrmResult(crm, init.method ?? 'GET', response.status, response.ok, body, feedback);
+  }
+
+  return response;
 }
 
 export const apiClient = {

@@ -13,9 +13,23 @@ import WordDocumentEditor from './WordDocumentEditor';
 import IndustriesMaster from './IndustriesMaster';
 import LeadIntegrationsCenter from './LeadIntegrationsCenter';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 interface CRMMastersManagerProps {
   onRefreshParent: () => void;
 }
+
+/**
+ * What the CRM API lets this screen change, per master. Tabs not listed, and
+ * actions set to false, are shown read-only: there is no API to save them.
+ */
+const MASTER_ACTIONS: Record<string, { create: boolean; update: boolean; delete: boolean }> = {
+  stages: { create: true, update: true, delete: true },
+  services: { create: true, update: true, delete: true },
+  sources: { create: true, update: false, delete: true },
+  pipelines: { create: true, update: false, delete: true },
+};
+const canChange = (tab: string, action: 'create' | 'update' | 'delete') => MASTER_ACTIONS[tab]?.[action] ?? false;
 
 export default function CRMMastersManager({ onRefreshParent }: CRMMastersManagerProps) {
   const [activeMasterTab, setActiveMasterTab] = useState<
@@ -33,7 +47,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
     firstName: 'Rahul',
     lastName: 'Sharma',
     companyName: 'TechCorp Pvt Ltd',
-    assigneeName: 'Saloni Shah', // Sales Team Head
+    assigneeName: 'Your sales rep',
     designation: 'VP of Technology',
     industry: 'IT & Software',
     portfolioLink: 'https://voogyo.com/work'
@@ -84,12 +98,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
   const [submitting, setSubmitting] = useState(false);
 
   // In-app Toast state
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToast({ text, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   // Generic form fields
   const [formData, setFormData] = useState<any>({});
@@ -98,28 +109,26 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
     setLoading(true);
     try {
       const [
-        srcRes, stgRes, pipeRes, srvRes, lrRes, qCatRes, tmplRes, usrRes,
+        srcRes, stgRes, pipeRes, srvRes, lrRes, tmplRes, usrRes,
         sopStepsRes, sopBranchesRes
       ] = await Promise.all([
-        fetch('/api/v1/crm/masters/sources'),
-        fetch('/api/v1/crm/masters/stages'),
-        fetch('/api/v1/crm/masters/pipelines'),
-        fetch('/api/v1/crm/masters/services'),
-        fetch('/api/v1/crm/masters/lost-reasons'),
-        fetch('/api/v1/crm/masters/quotation-categories'),
-        fetch('/api/v1/crm/quotation-templates'),
-        fetch('/api/v1/users'),
-        fetch('/api/v1/crm/masters/sop-steps'),
-        fetch('/api/v1/crm/masters/sop-branches')
+        apiFetch('/api/v1/crm/masters/sources'),
+        apiFetch('/api/v1/crm/masters/stages'),
+        apiFetch('/api/v1/crm/masters/pipelines'),
+        apiFetch('/api/v1/crm/masters/services'),
+        apiFetch('/api/v1/crm/masters/lost-reasons'),
+        apiFetch('/api/v1/crm/quotation-templates'),
+        apiFetch('/api/v1/users'),
+        apiFetch('/api/v1/crm/masters/sop-steps'),
+        apiFetch('/api/v1/crm/masters/sop-branches')
       ]);
 
-      const [srcJ, stgJ, pipeJ, srvJ, lrJ, qCatJ, tmplJ, usrJ, sopStepsJ, sopBranchesJ] = await Promise.all([
+      const [srcJ, stgJ, pipeJ, srvJ, lrJ, tmplJ, usrJ, sopStepsJ, sopBranchesJ] = await Promise.all([
         srcRes.json(),
         stgRes.json(),
         pipeRes.json(),
         srvRes.json(),
         lrRes.json(),
-        qCatRes.json(),
         tmplRes.json(),
         usrRes.json(),
         sopStepsRes.json(),
@@ -131,7 +140,6 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
       if (pipeJ.success) setPipelines(pipeJ.data || []);
       if (srvJ.success) setServices(srvJ.data || []);
       if (lrJ.success) setLostReasons(lrJ.data || []);
-      if (qCatJ.success) setQuotationCategories(qCatJ.data || []);
       if (tmplJ.success) setTemplates(tmplJ.data || []);
       if (sopStepsJ.success) setSopSteps(sopStepsJ.data || []);
       if (sopBranchesJ.success) setSopBranches(sopBranchesJ.data || []);
@@ -139,9 +147,8 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
         setSalesPersons(usrJ.data.users || []);
         setRoles(usrJ.data.roles || []);
       }
-    } catch (err: any) {
-      console.error(err);
-      showToast('Failed to load CRM master data: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setLoading(false);
     }
@@ -207,21 +214,20 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
     // Persist order in backend
     try {
       const orderedIds = updated.map((item) => item.id);
-      const res = await fetch('/api/v1/crm/masters/reorder', {
+      const res = await apiFetch('/api/v1/crm/masters/reorder', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ masterType, orderedIds })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast('New position saved successfully!', 'success');
         onRefreshParent();
       } else {
-        showToast('Failed to save order: ' + data.error, 'error');
         fetchAllMasters();
       }
     } catch (err: any) {
-      showToast('Error saving order: ' + err.message, 'error');
       fetchAllMasters();
     }
   };
@@ -266,7 +272,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
       setFormData({ name: '', channel: 'Organic Search', is_active: 1 });
     } else if (activeMasterTab === 'stages') {
       setFormData({
-        pipeline_id: pipelines[0]?.id || 'pipe_rnd_main',
+        pipeline_id: pipelines[0]?.id ?? '',
         name: '',
         code: '',
         color: '#2563eb',
@@ -283,15 +289,6 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
       setFormData({ name: '', category: 'IT & Software', sac_code: '998314', default_rate: 250000, is_active: 1 });
     } else if (activeMasterTab === 'lost_reasons') {
       setFormData({ reason_name: '', is_active: 1 });
-    } else if (activeMasterTab === 'quotation_categories') {
-      setFormData({
-        name: '',
-        code: '',
-        description: '',
-        color: '#2563eb',
-        sort_order: quotationCategories.length + 1,
-        is_active: 1
-      });
     } else if (activeMasterTab === 'templates') {
       setFormData({
         name: '',
@@ -301,16 +298,6 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
         default_items_json: JSON.stringify([
           { service_name: 'Architecture & Engineering', sac_code: '998314', qty: 1, unit_rate: 150000, amount: 150000 }
         ], null, 2),
-        is_active: 1
-      });
-    } else if (activeMasterTab === 'sales_persons') {
-      setFormData({
-        first_name: '',
-        last_name: '',
-        email: '',
-        phone: '',
-        designation: 'Business Development Manager',
-        role_id: roles[0]?.id || 'role_rnd_mgr',
         is_active: 1
       });
     }
@@ -353,35 +340,47 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
     if (tab === 'pipelines') return '/api/v1/crm/masters/pipelines';
     if (tab === 'services') return '/api/v1/crm/masters/services';
     if (tab === 'lost_reasons') return '/api/v1/crm/masters/lost-reasons';
-    if (tab === 'quotation_categories') return '/api/v1/crm/masters/quotation-categories';
     if (tab === 'templates') return '/api/v1/crm/quotation-templates';
     return '/api/v1/users';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // A stage belongs to a pipeline, so there is nothing to attach it to until
+    // one exists. Stopping here gives a useful message instead of a rejected
+    // write against a missing reference.
+    if (activeMasterTab === 'stages' && !formData.pipeline_id) {
+      showToast('Create a pipeline first, then add stages to it.', 'error');
+      return;
+    }
+
     setSubmitting(true);
     const endpoint = getApiEndpoint();
 
     try {
       const method = showAddModal ? 'POST' : 'PUT';
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
       const data = await res.json();
-      if (data.success) {
-        setShowAddModal(false);
-        setShowEditModal(false);
-        showToast(showAddModal ? 'Master record created successfully' : 'Master record updated successfully');
-        fetchAllMasters();
-        onRefreshParent();
-      } else {
-        showToast(data.error || 'Failed to save master record', 'error');
+
+      // CRM endpoints report their own result; other endpoints are reported here.
+      const reportsItself = endpoint.startsWith('/api/v1/crm/');
+      if (!res.ok) {
+        if (!reportsItself) showToast(data.message || data.error || 'Failed to save master record', 'error');
+        return;
       }
-    } catch (err: any) {
-      showToast('Operation failed: ' + err.message, 'error');
+
+      setShowAddModal(false);
+      setShowEditModal(false);
+      if (!reportsItself) showToast(showAddModal ? 'Record created successfully' : 'Record updated successfully');
+      fetchAllMasters();
+      onRefreshParent();
+    } catch {
+      if (!endpoint.startsWith('/api/v1/crm/')) showToast('Could not reach the server. Check your connection and try again.', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -393,18 +392,14 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
     const endpoint = `${getApiEndpoint(tab as any)}?id=${id}`;
 
     try {
-      const res = await fetch(endpoint, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        showToast('Record deleted from master registry');
+      const res = await apiFetch(endpoint, { method: 'DELETE' });
+      if (res.ok) {
         setDeleteConfirmItem(null);
         fetchAllMasters();
         onRefreshParent();
-      } else {
-        showToast('Delete failed: ' + data.error, 'error');
       }
-    } catch (err: any) {
-      showToast('Error deleting record: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -451,20 +446,6 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
   return (
     <div className="space-y-4">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold animate-in slide-in-from-top duration-300 ${
-          toast.type === 'success' 
-            ? 'bg-emerald-600 text-white border-emerald-500' 
-            : 'bg-rose-600 text-white border-rose-500'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-          <span>{toast.text}</span>
-          <button onClick={() => setToast(null)} className="ml-2 hover:opacity-80">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {/* Sub-Header & Navigation */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -490,7 +471,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
           </button>
-          {activeMasterTab !== 'industries' && activeMasterTab !== 'integrations' && (
+          {canChange(activeMasterTab, 'create') && (
             <button
               onClick={handleOpenAdd}
               className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition-colors"
@@ -612,19 +593,6 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
           <span>Lost Reasons ({lostReasons.length})</span>
         </button>
 
-        {/* Quotation Categories */}
-        <button
-          onClick={() => { setActiveMasterTab('quotation_categories'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'quotation_categories'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <FolderKanban className="w-3.5 h-3.5" />
-          <span>Quotation Categories ({quotationCategories.length})</span>
-        </button>
-
         {/* Quotation Templates */}
         <button
           onClick={() => { setActiveMasterTab('templates'); setOpenActionId(null); }}
@@ -713,13 +681,15 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </button>
                 </div>
 
-                <button
-                  onClick={handleOpenAdd}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add SOP Step</span>
-                </button>
+                {canChange('sop_steps', 'create') && (
+                  <button
+                    onClick={handleOpenAdd}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add SOP Step</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -778,16 +748,16 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                         <div className="flex items-center gap-2 ml-7 md:ml-0">
                           <button
                             type="button"
-                            onClick={() => handleOpenEdit(step, currentChannel)}
-                            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 flex items-center gap-1.5 transition-colors shadow-2xs"
+                            onClick={() => handleOpenEdit(step, currentChannel)} disabled={!canChange(activeMasterTab, 'update')}
+                            className="disabled:hidden px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 flex items-center gap-1.5 transition-colors shadow-2xs"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Edit Strategy & Messages</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeleteConfirmItem({ id: step.id, label: `Day ${step.day_number}: ${step.title}`, tab: 'sop_steps' })}
-                            className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
+                            onClick={() => setDeleteConfirmItem({ id: step.id, label: `Day ${step.day_number}: ${step.title}`, tab: 'sop_steps' })} disabled={!canChange(activeMasterTab, 'delete')}
+                            className="disabled:hidden p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
                             title="Delete Step"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -849,8 +819,8 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                             <span>Preview of {currentChannel} message template:</span>
                             <button
                               type="button"
-                              onClick={() => handleOpenEdit(step, currentChannel)}
-                              className="text-blue-600 hover:underline font-semibold flex items-center gap-1 lowercase"
+                              onClick={() => handleOpenEdit(step, currentChannel)} disabled={!canChange(activeMasterTab, 'update')}
+                              className="disabled:hidden text-blue-600 hover:underline font-semibold flex items-center gap-1 lowercase"
                             >
                               <Edit3 className="w-3 h-3" />
                               <span>edit this template</span>
@@ -1030,15 +1000,15 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button 
-                                onClick={() => handleOpenEdit(step)} 
-                                className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" 
+                                onClick={() => handleOpenEdit(step)} disabled={!canChange(activeMasterTab, 'update')} 
+                                className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" 
                                 title="Edit Step Strategy & Messages"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
                               <button 
-                                onClick={() => setDeleteConfirmItem({ id: step.id, label: `Day ${step.day_number}: ${step.title}`, tab: 'sop_steps' })} 
-                                className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600" 
+                                onClick={() => setDeleteConfirmItem({ id: step.id, label: `Day ${step.day_number}: ${step.title}`, tab: 'sop_steps' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                                className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600" 
                                 title="Delete Step"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1114,12 +1084,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(br)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Strategy">
+                      <button onClick={() => handleOpenEdit(br)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Strategy">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
-                        onClick={() => setDeleteConfirmItem({ id: br.id, label: br.label, tab: 'sop_branches' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
+                        onClick={() => setDeleteConfirmItem({ id: br.id, label: br.label, tab: 'sop_branches' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                        className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
                         title="Delete Strategy"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1171,12 +1141,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(s)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button onClick={() => handleOpenEdit(s)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
-                        onClick={() => setDeleteConfirmItem({ id: s.id, label: s.name, tab: 'sources' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
+                        onClick={() => setDeleteConfirmItem({ id: s.id, label: s.name, tab: 'sources' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                        className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1241,12 +1211,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(stg)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button onClick={() => handleOpenEdit(stg)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
-                        onClick={() => setDeleteConfirmItem({ id: stg.id, label: stg.name, tab: 'stages' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
+                        onClick={() => setDeleteConfirmItem({ id: stg.id, label: stg.name, tab: 'stages' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                        className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1304,12 +1274,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(p)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button onClick={() => handleOpenEdit(p)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
-                        onClick={() => setDeleteConfirmItem({ id: p.id, label: p.name, tab: 'pipelines' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
+                        onClick={() => setDeleteConfirmItem({ id: p.id, label: p.name, tab: 'pipelines' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                        className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1365,12 +1335,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(srv)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button onClick={() => handleOpenEdit(srv)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
-                        onClick={() => setDeleteConfirmItem({ id: srv.id, label: srv.name, tab: 'services' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
+                        onClick={() => setDeleteConfirmItem({ id: srv.id, label: srv.name, tab: 'services' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                        className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1420,12 +1390,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(lr)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button onClick={() => handleOpenEdit(lr)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
-                        onClick={() => setDeleteConfirmItem({ id: lr.id, label: lr.reason_name, tab: 'lost_reasons' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
+                        onClick={() => setDeleteConfirmItem({ id: lr.id, label: lr.reason_name, tab: 'lost_reasons' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                        className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1438,79 +1408,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
           </table>
         )}
 
-        {/* 9. QUOTATION CATEGORIES */}
-        {activeMasterTab === 'quotation_categories' && (
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <th className="py-3 px-3 w-8"></th>
-                <th className="py-3 px-4">Category Name</th>
-                <th className="py-3 px-4">Category Code</th>
-                <th className="py-3 px-4">Description</th>
-                <th className="py-3 px-4">Color Tag</th>
-                <th className="py-3 px-4">Sort Order</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {quotationCategories.map((cat, idx) => (
-                <tr 
-                  key={cat.id} 
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, idx)}
-                  onDragOver={(e) => handleDragOver(e, idx)}
-                  onDragEnd={handleDragEnd}
-                  onDrop={(e) => handleDrop(e, idx, 'quotation_categories', quotationCategories, setQuotationCategories)}
-                  className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
-                  } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
-                  }`}
-                >
-                  <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
-                  </td>
-                  <td className="py-3 px-4 font-bold text-slate-800">
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color || '#2563eb' }} />
-                      <span>{cat.name}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 font-mono text-slate-600">{cat.code || '—'}</td>
-                  <td className="py-3 px-4 text-slate-500 max-w-xs truncate">{cat.description || '—'}</td>
-                  <td className="py-3 px-4">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold" style={{ backgroundColor: `${cat.color}20`, color: cat.color }}>
-                      {cat.color}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 font-semibold text-slate-600">{cat.sort_order}</td>
-                  <td className="py-3 px-4">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${cat.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {cat.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(cat)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Category">
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button 
-                        onClick={() => setDeleteConfirmItem({ id: cat.id, label: cat.name, tab: 'quotation_categories' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
-                        title="Delete Category"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {/* 10. QUOTATION TEMPLATES */}
+        {/* 9. QUOTATION TEMPLATES */}
         {activeMasterTab === 'templates' && (
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -1566,12 +1464,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(tmpl)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Template">
+                      <button onClick={() => handleOpenEdit(tmpl)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Template">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
-                        onClick={() => setDeleteConfirmItem({ id: tmpl.id, label: tmpl.name, tab: 'templates' })} 
-                        className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
+                        onClick={() => setDeleteConfirmItem({ id: tmpl.id, label: tmpl.name, tab: 'templates' })} disabled={!canChange(activeMasterTab, 'delete')} 
+                        className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
                         title="Delete Template"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1586,6 +1484,10 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 11. ASSIGNEES */}
         {activeMasterTab === 'sales_persons' && (
+          <>
+          <p className="px-4 py-3 text-xs text-slate-600 bg-slate-50 border-b border-slate-100">
+            Assignees are this workspace’s team members. Add, edit or remove people in Organization &amp; Settings → Team Members.
+          </p>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
@@ -1594,12 +1496,11 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                 <th className="py-3 px-4">Role Access</th>
                 <th className="py-3 px-4">Assigned Leads</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {salesPersons.map((u) => {
-                const isSalesHead = u.id === 'user_saloni' || u.email === 'saloni@voogyo.com' || (u.first_name === 'Saloni' && u.last_name === 'Shah');
+                const isSalesHead = /sales (head|lead)|director of sales/i.test(u.designation || '');
                 return (
                   <tr key={u.id} className={`hover:bg-slate-50/70 transition-colors ${isSalesHead ? 'bg-amber-50/40 font-medium' : ''}`}>
                     <td className="py-3 px-4">
@@ -1640,18 +1541,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                         {u.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => handleOpenEdit(u)} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Assignee">
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          </>
         )}
 
         {/* 13. LEAD CHANNELS & APIS INTEGRATIONS */}
@@ -1827,7 +1722,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       <p className="text-[11px] text-amber-800 leading-relaxed">
                         Tags like <code className="bg-amber-100/80 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold text-amber-900">{"{{First Name}}"}</code>, <code className="bg-amber-100/80 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold text-amber-900">{"{{Last Name}}"}</code>, and <code className="bg-amber-100/80 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold text-amber-900">{"{{Assignee Name}}"}</code> are dynamic placeholders. 
                         You can <strong>drag & drop</strong> or <strong>click</strong> any tag chip below directly into the message. 
-                        When outreach is sent to a lead, Voogyo automatically replaces them with that lead's actual details and the Sales Team Head (<strong>Saloni Shah</strong>).
+                        When outreach is sent to a lead, Voogyo automatically replaces them with that lead's actual details and the lead's assigned sales rep.
                       </p>
                       <div className="text-[10px] text-amber-700 bg-amber-100/60 p-1.5 rounded-lg border border-amber-200/60 flex items-center gap-1">
                         <Info className="w-3.5 h-3.5 shrink-0 text-amber-600" />
@@ -1850,7 +1745,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                           { tag: '{{Last Name}}', label: 'Last Name', desc: "Lead's surname" },
                           { tag: '{{Full Name}}', label: 'Full Name', desc: 'First + Last name' },
                           { tag: '{{Company Name}}', label: 'Company Name', desc: 'Lead company' },
-                          { tag: '{{Assignee Name}}', label: 'Assignee (Sales Head)', desc: 'Saloni Shah', highlight: true },
+                          { tag: '{{Assignee Name}}', label: 'Assignee', desc: "The lead's assigned sales rep", highlight: true },
                           { tag: '{{Designation}}', label: 'Designation', desc: 'Job title' },
                           { tag: '{{Industry}}', label: 'Industry', desc: 'Business industry' },
                           { tag: '{{Portfolio Link}}', label: 'Portfolio Link', desc: 'Portfolio URL' }
@@ -2397,62 +2292,6 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                 </div>
               )}
 
-              {/* QUOTATION CATEGORIES FORM */}
-              {activeMasterTab === 'quotation_categories' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Category Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name || ''}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="e.g. SaaS Platform Engineering"
-                      className="w-full px-3 py-2 text-xs border rounded-lg"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Category Code</label>
-                      <input
-                        type="text"
-                        value={formData.code || ''}
-                        onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                        placeholder="e.g. SAAS_DEV"
-                        className="w-full px-3 py-2 text-xs border rounded-lg font-mono uppercase"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Badge Color</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={formData.color || '#2563eb'}
-                          onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                          className="w-8 h-8 rounded border p-0.5 cursor-pointer"
-                        />
-                        <input
-                          type="text"
-                          value={formData.color || '#2563eb'}
-                          onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                          className="flex-1 px-3 py-2 text-xs border rounded-lg font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
-                    <textarea
-                      rows={2}
-                      value={formData.description || ''}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      placeholder="Category scope and application area..."
-                      className="w-full px-3 py-2 text-xs border rounded-lg"
-                    />
-                  </div>
-                </>
-              )}
-
               {/* TEMPLATES FORM */}
               {activeMasterTab === 'templates' && (
                 <>
@@ -2518,86 +2357,6 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       onChange={(e) => setFormData({ ...formData, default_items_json: e.target.value })}
                       className="w-full px-3 py-2 text-xs border rounded-lg font-mono text-[11px]"
                     />
-                  </div>
-                </>
-              )}
-
-              {/* SALES PERSONS FORM */}
-              {activeMasterTab === 'sales_persons' && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">First Name *</label>
-                      <input
-                        type="text"
-                        required
-                        value={formData.first_name || ''}
-                        onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                        placeholder="e.g. Saloni"
-                        className="w-full px-3 py-2 text-xs border rounded-lg"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Last Name</label>
-                      <input
-                        type="text"
-                        value={formData.last_name || ''}
-                        onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                        placeholder="e.g. Shah"
-                        className="w-full px-3 py-2 text-xs border rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Email *</label>
-                      <input
-                        type="email"
-                        required
-                        value={formData.email || ''}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        placeholder="saloni@rndtechnosoft.com"
-                        className="w-full px-3 py-2 text-xs border rounded-lg"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Phone</label>
-                      <input
-                        type="text"
-                        value={formData.phone || ''}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        placeholder="+91 98765 43210"
-                        className="w-full px-3 py-2 text-xs border rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Designation</label>
-                      <input
-                        type="text"
-                        value={formData.designation || ''}
-                        onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                        placeholder="e.g. Sr. Business Development"
-                        className="w-full px-3 py-2 text-xs border rounded-lg"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Role Access Level</label>
-                      <select
-                        value={formData.role_id || (roles[0]?.id || '')}
-                        onChange={(e) => setFormData({ ...formData, role_id: e.target.value })}
-                        className="w-full px-3 py-2 text-xs border rounded-lg bg-white"
-                      >
-                        {roles.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
                   </div>
                 </>
               )}

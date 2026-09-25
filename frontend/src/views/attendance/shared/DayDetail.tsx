@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import { cn } from '../../../utils/cn';
 import { StatusPill } from './StatusPill';
-import { PunchTimeline, PunchItem } from './PunchTimeline';
+import { PunchTimeline } from './PunchTimeline';
+import { getAttendancePunches, getPunchSessions } from './punches';
+import { formatShiftClock, shiftClockToHours, shiftDisplayName } from './shift';
 import type { EmployeeMonthDayRecord } from '../../../api/attendance.api';
 
 export interface DayDetailProps {
@@ -93,12 +95,18 @@ export const DayDetail: React.FC<DayDetailProps> = ({
   const workedMinutes = dayRecord.workedMinutes || 0;
   const progressPct = Math.min(100, Math.round((workedMinutes / requiredMinutes) * 100));
 
-  // 24-Hour Bar Calculation (hours from 0 to 24)
-  // Shift standard 9:30 AM to 6:30 PM = 9.5 to 18.5
-  const shiftStartHour = 9.5;
-  const shiftEndHour = 18.5;
-  const shiftLeftPct = (shiftStartHour / 24) * 100;
-  const shiftWidthPct = ((shiftEndHour - shiftStartHour) / 24) * 100;
+  // 24-Hour Bar: scheduled shift window from the API (cross-midnight shifts clipped at end of day)
+  const shiftStartText = formatShiftClock(dayRecord.shift?.startTime);
+  const shiftEndText = formatShiftClock(dayRecord.shift?.endTime);
+  const shiftStartHour = shiftClockToHours(dayRecord.shift?.startTime);
+  const shiftEndHour = shiftClockToHours(dayRecord.shift?.endTime);
+  const shiftWindow =
+    shiftStartHour !== null && shiftEndHour !== null
+      ? {
+          leftPct: (shiftStartHour / 24) * 100,
+          widthPct: (((shiftEndHour > shiftStartHour ? shiftEndHour : 24) - shiftStartHour) / 24) * 100,
+        }
+      : null;
 
   // Helper to get decimal hour in Asia/Kolkata timezone (e.g. 8.5 for 08:30 AM)
   const getKolkataHour = (dateStr?: string | null): number | null => {
@@ -108,19 +116,25 @@ export const DayDetail: React.FC<DayDetailProps> = ({
     return totalMinutes / 60;
   };
 
-  // Actual worked segment calculation from first check-in to last check-out
-  let workedLeftPct = 0;
-  let workedWidthPct = 0;
-  const inHour = getKolkataHour(dayRecord.firstCheckInAt);
-  if (inHour !== null) {
-    let outHour = inHour + workedMinutes / 60;
-    const recordedOutHour = getKolkataHour(dayRecord.lastCheckOutAt);
-    if (recordedOutHour !== null && recordedOutHour >= inHour) {
-      outHour = recordedOutHour;
-    }
-    workedLeftPct = Math.max(0, (inHour / 24) * 100);
-    workedWidthPct = Math.max(1, ((outHour - inHour) / 24) * 100);
-  }
+  const punches = getAttendancePunches(dayRecord.punches);
+  const sessions = getPunchSessions(punches);
+
+  // Worked segments: one per completed IN→OUT session; without punches, first check-in → last check-out
+  const segmentBounds: Array<{ from?: string | null; to?: string | null }> = punches.length > 0
+    ? sessions.filter((s) => s.in && s.out).map((s) => ({ from: s.in?.punchAt, to: s.out?.punchAt }))
+    : [{ from: dayRecord.firstCheckInAt, to: dayRecord.lastCheckOutAt }];
+  const workedSegments = segmentBounds.flatMap(({ from, to }) => {
+    const inHour = getKolkataHour(from);
+    const outHour = getKolkataHour(to);
+    if (inHour === null || outHour === null) return [];
+    const endHour = outHour >= inHour ? outHour : 24; // cross-midnight: clip at end of day
+    return [{ leftPct: (inHour / 24) * 100, widthPct: Math.max(0.5, ((endHour - inHour) / 24) * 100) }];
+  });
+
+  // Last punch is an IN with no recorded check-out: session still open
+  const hasOpenSession = punches.length > 0 && punches[punches.length - 1].direction === 'IN' && !dayRecord.lastCheckOutAt;
+  const todayKolkata = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const openSessionText = dayRecord.date === todayKolkata ? 'Currently inside' : 'Missing check-out punch';
 
   // Format time in Asia/Kolkata
   const formatTimeDisplay = (dateStr?: string | null): string => {
@@ -266,7 +280,7 @@ export const DayDetail: React.FC<DayDetailProps> = ({
                   {formattedInTime}
                 </p>
                 <span className="text-[10px] text-slate-500 block">
-                  Shift start: {dayRecord.shift?.startTime || '09:30 AM'}
+                  Shift start: {shiftStartText}
                 </span>
               </div>
 
@@ -278,8 +292,11 @@ export const DayDetail: React.FC<DayDetailProps> = ({
                 <p className="text-sm font-bold font-mono text-slate-800">
                   {formattedOutTime}
                 </p>
+                {hasOpenSession && (
+                  <span className="text-[10px] font-semibold text-amber-700 block">{openSessionText}</span>
+                )}
                 <span className="text-[10px] text-slate-500 block">
-                  Shift end: {dayRecord.shift?.endTime || '06:30 PM'}
+                  Shift end: {shiftEndText}
                 </span>
               </div>
 
@@ -315,28 +332,30 @@ export const DayDetail: React.FC<DayDetailProps> = ({
                   ))}
                 </div>
 
-                {/* Shift Window Base (09:30 AM – 06:30 PM) */}
-                <div
-                  className="absolute top-1 bottom-1 bg-slate-200/80 rounded border border-slate-300 pointer-events-none"
-                  style={{ left: `${shiftLeftPct}%`, width: `${shiftWidthPct}%` }}
-                  title="Required Shift Window (09:30 AM - 06:30 PM)"
-                />
-
-                {/* Actual Worked Segment */}
-                {workedWidthPct > 0 && (
+                {/* Scheduled Shift Window */}
+                {shiftWindow && (
                   <div
-                    className="absolute top-1.5 bottom-1.5 bg-teal-500 rounded shadow-xs transition-all"
-                    style={{ left: `${workedLeftPct}%`, width: `${workedWidthPct}%` }}
-                    title={`Attended: ${dayRecord.workedHours} hrs`}
+                    className="absolute top-1 bottom-1 bg-slate-200/80 rounded border border-slate-300 pointer-events-none"
+                    style={{ left: `${shiftWindow.leftPct}%`, width: `${shiftWindow.widthPct}%` }}
+                    title={`Scheduled shift window (${shiftStartText} – ${shiftEndText})`}
                   />
                 )}
+
+                {/* Actual Worked Segments */}
+                {workedSegments.map((seg, i) => (
+                  <div
+                    key={i}
+                    className="absolute top-1.5 bottom-1.5 bg-teal-500 rounded shadow-xs transition-all"
+                    style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%` }}
+                  />
+                ))}
               </div>
 
               <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
                 <span>12 AM</span>
                 <span>6 AM</span>
-                <span className="font-medium text-teal-700">9:30 AM (Shift In)</span>
-                <span className="font-medium text-slate-600">6:30 PM (Out)</span>
+                <span className="font-medium text-teal-700">{shiftStartText} (Shift In)</span>
+                <span className="font-medium text-slate-600">{shiftEndText} (Out)</span>
                 <span>12 AM</span>
               </div>
             </div>
@@ -346,32 +365,7 @@ export const DayDetail: React.FC<DayDetailProps> = ({
               <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                 Daily Punch Log
               </h4>
-              <PunchTimeline
-                punches={
-                  dayRecord.punches?.length > 0
-                    ? dayRecord.punches
-                    : dayRecord.firstCheckInAt
-                    ? [
-                        {
-                          id: 'p1',
-                          punchAt: dayRecord.firstCheckInAt,
-                          punchType: 'IN',
-                          source: dayRecord.source,
-                        },
-                        ...(dayRecord.lastCheckOutAt
-                          ? [
-                              {
-                                id: 'p2',
-                                punchAt: dayRecord.lastCheckOutAt,
-                                punchType: 'OUT' as const,
-                                source: dayRecord.source,
-                              },
-                            ]
-                          : []),
-                      ]
-                    : []
-                }
-              />
+              <PunchTimeline punches={punches} />
             </div>
 
             {/* Shift Details Card */}
@@ -382,27 +376,32 @@ export const DayDetail: React.FC<DayDetailProps> = ({
               </div>
               <div className="grid grid-cols-2 gap-2 text-slate-600">
                 <div>
-                  <span className="text-slate-400 block text-[11px]">Shift Name</span>
-                  <span className="font-medium text-slate-700">{dayRecord.shift?.name}</span>
+                  <span className="text-slate-400 block text-[11px]">Shift</span>
+                  <span className="font-medium text-slate-700">{shiftDisplayName(dayRecord.shift)}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[11px]">Standard Hours</span>
                   <span className="font-medium text-slate-700">
-                    {dayRecord.shift?.startTime} – {dayRecord.shift?.endTime}
+                    {shiftStartText} – {shiftEndText}
                   </span>
                 </div>
-                <div>
-                  <span className="text-slate-400 block text-[11px]">Grace In Period</span>
-                  <span className="font-medium text-slate-700">
-                    {dayRecord.shift?.graceMinutes} minutes
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[11px]">Break Length</span>
-                  <span className="font-medium text-slate-700">
-                    {dayRecord.shift?.breakMinutes} minutes (Lunch)
-                  </span>
-                </div>
+                {/* Grace/break come from the configured shift, not the device shift */}
+                {!dayRecord.shift?.scheduledCode && (
+                  <>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Grace In Period</span>
+                      <span className="font-medium text-slate-700">
+                        {dayRecord.shift?.graceMinutes} minutes
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Break Length</span>
+                      <span className="font-medium text-slate-700">
+                        {dayRecord.shift?.breakMinutes} minutes (Lunch)
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </>

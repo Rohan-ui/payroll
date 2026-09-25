@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+
+import { toast } from '../../lib/toast';
+import { apiFetch } from '../../api/client';
 import {
   Mail, Send, Sparkles, Plus, CheckCircle2, Clock, Users,
   BarChart3, ShieldCheck, Eye, MousePointer, MessageSquare,
@@ -382,12 +385,9 @@ export const EmailMarketingView: React.FC = () => {
   const [testEmailSubject, setTestEmailSubject] = useState('Voogyo Email Dispatch Verification Test');
 
   // Toast feedback
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   // Folder Counts
   const inboxCount = mailboxEmails.filter((e) => e.folder === 'inbox').length;
@@ -413,15 +413,33 @@ export const EmailMarketingView: React.FC = () => {
     return true;
   });
 
-  const handleSendCompose = (e: React.FormEvent) => {
+  /** Sends through the workspace email API and reports exactly what it answered. */
+  const handleSendCompose = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!composeTo || !composeSubject || !composeBody) return;
+
+    let res: Response;
+    try {
+      res = await apiFetch('/api/v1/tenant/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: composeTo, subject: composeSubject, text: composeBody }),
+      });
+    } catch {
+      toast.error('Could not reach the server. Check your connection and try again.');
+      return;
+    }
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      toast.error(json?.message || 'The email could not be sent. Nothing was sent.');
+      return;
+    }
 
     const newEmail: MailboxEmail = {
       id: `msg-${Date.now()}`,
       folder: 'sent',
-      fromName: 'Bhavin Pathak',
-      fromEmail: 'bhavin@voogyo.com',
+      fromName: 'You',
+      fromEmail: '',
       toEmail: composeTo,
       subject: composeSubject,
       preview: composeBody.slice(0, 100) + '...',
@@ -435,14 +453,13 @@ export const EmailMarketingView: React.FC = () => {
     setComposeTo('');
     setComposeSubject('');
     setComposeBody('');
-    showToast(`Email dispatched successfully to ${composeTo}!`);
+    showToast(`Email sent to ${composeTo}`);
   };
 
   const handleSaveSmtp = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSmtpConfigured(true);
-    setIsSmtpModalOpen(false);
-    showToast(`SMTP Server (${smtpHost}) verified and active!`);
+    // SMTP is saved and tested in Organization & Settings; this form stores nothing.
+    toast.error('Set up and test the mail server in Organization & Settings → Email. Nothing was saved here.');
   };
 
   const handleCreateCampaign = (e: React.FormEvent) => {
@@ -463,11 +480,8 @@ export const EmailMarketingView: React.FC = () => {
       sender: newCampSender,
     };
 
-    setCampaigns([newCamp, ...campaigns]);
-    setIsCreateCampaignOpen(false);
-    setNewCampName('');
-    setNewCampSubject('');
-    showToast(`Campaign "${newCamp.name}" launched successfully!`);
+    void newCamp;
+    toast.error('Not available yet: this screen is not connected to the server, so nothing was launched.');
   };
 
   const filteredCampaigns = campaigns.filter((c) => {
@@ -485,13 +499,10 @@ export const EmailMarketingView: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-12">
-      {/* Toast alert */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#181724] text-white px-4 py-3 rounded-xl shadow-2xl border border-teal-500/40 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
-          <CheckCircle2 className="w-5 h-5 text-teal-400 shrink-0" />
-          <p className="text-sm font-medium">{toastMessage}</p>
-        </div>
-      )}
+      <p role="note" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+        Preview only. The campaigns, contacts and mailbox below are sample content: this screen is not yet connected to your
+        workspace, and it does not send email. Nothing here reflects your data.
+      </p>
 
       {/* ── Top Header Card (Matching User Screenshot) ── */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs">
@@ -534,7 +545,7 @@ export const EmailMarketingView: React.FC = () => {
 
             <button
               onClick={() => {
-                showToast('Mailbox synced with SMTP server');
+                toast.error('Not available yet: this screen is not connected to the server, so nothing was synced.');
               }}
               className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-2xs transition-colors"
               title="Refresh Mailbox"
@@ -912,7 +923,7 @@ export const EmailMarketingView: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => showToast('Reply dispatched via portal SMTP!')}
+                      onClick={() => toast.error('Not available yet: this screen is not connected to the server, so nothing was sent.')}
                       className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors flex items-center gap-1"
                     >
                       <Send className="w-3 h-3" />
@@ -1095,7 +1106,7 @@ export const EmailMarketingView: React.FC = () => {
 
                       <td className="py-3.5 px-4 text-right">
                         <button
-                          onClick={() => showToast(`Campaign analytics for "${camp.name}" refreshed!`)}
+                          onClick={() => toast.error('Not available yet: this screen is not connected to the server, so nothing was refreshed.')}
                           className="px-2.5 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                         >
                           View Report
@@ -1601,7 +1612,7 @@ export const EmailMarketingView: React.FC = () => {
               <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => showToast('Testing connection to ' + smtpHost + '... Success!')}
+                  onClick={() => toast.error('Test the mail server in Organization & Settings → Email. Nothing was tested here.')}
                   className="text-xs font-semibold text-indigo-600 hover:underline"
                 >
                   Test Connection

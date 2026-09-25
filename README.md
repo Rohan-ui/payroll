@@ -35,7 +35,28 @@ npm install
 npm run dev
 ```
 
-The frontend will start at `http://localhost:5173`.
+The tenant workspace starts at `http://localhost:3000`.
+
+---
+
+### 3. Platform (Super Admin) Portal
+
+The platform portal is a separate application with its own URL, its own sign-in and its
+own accounts. Tenant logins cannot reach it.
+
+```bash
+cd frontend
+npm run dev:superadmin
+```
+
+The portal starts at `http://localhost:3100`. Provision a platform account with:
+
+```bash
+cd backend
+npm run platform:admin -- create ops@voogyo.com "Ops Lead"
+```
+
+See [`PLATFORM_PORTAL.md`](./PLATFORM_PORTAL.md) for accounts, sessions and deployment.
 
 ---
 

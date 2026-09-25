@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import {
@@ -361,27 +361,61 @@ export class CrmService {
     };
   }
 
+  /**
+   * The pipeline and stage a new lead goes into: those requested, when they are
+   * this workspace's and the stage is in that pipeline, or the default pipeline's
+   * first stage. A workspace without one is told how to fix it.
+   */
+  private async leadPlacement(tenantId: string, requestedPipelineId?: string, requestedStageId?: string) {
+    const pipeline = requestedPipelineId
+      ? await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId, id: requestedPipelineId }, select: { id: true } })
+      : await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId }, orderBy: { is_default: 'desc' }, select: { id: true } });
+    if (!pipeline) {
+      throw new BadRequestException(
+        requestedPipelineId ? 'That pipeline does not exist in this workspace.' : 'Create a sales pipeline with at least one stage (CRM Masters → Pipelines) before adding leads.',
+      );
+    }
+    const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
+      where: { tenant_id: tenantId, pipeline_id: pipeline.id, ...(requestedStageId ? { id: requestedStageId } : {}) },
+      orderBy: { sort_order: 'asc' },
+      select: { id: true },
+    });
+    if (!stage) {
+      throw new BadRequestException(requestedStageId ? 'That stage is not in the chosen pipeline.' : 'Add at least one stage to the pipeline before adding leads.');
+    }
+    return { pipelineId: pipeline.id, stageId: stage.id };
+  }
+
+  /**
+   * Creates a record with a free <prefix>-<year>-<number> code (lead, client,
+   * quotation), retrying if another record took the same number meanwhile.
+   */
+  private async withUniqueCode<T>(prefix: string, create: (code: string) => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+      const code = `${prefix}-${new Date().getFullYear()}-${randomInt(100000, 1000000)}`;
+      try {
+        return await create(code);
+      } catch (error) {
+        const isCodeClash =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002' &&
+          /lead_code|client_code|quotation_number|uq_crm_leads_code|uq_crm_clients_code|uq_crm_quotations_number/.test(JSON.stringify(error.meta?.target ?? ''));
+        if (!isCodeClash || attempt >= 4) throw error;
+      }
+    }
+  }
+
   async createLead(tenantId: string, data: any, memberId?: string) {
-    const leadCode = `LD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const leadId = randomUUID();
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
+    const companyName = text(data.companyName ?? data.company_name);
+    const firstName = text(data.firstName ?? data.first_name);
+    const email = text(data.email)?.toLowerCase() ?? null;
+    const missing = [!companyName && 'company name', !firstName && 'first name', !email && 'email'].filter(Boolean);
+    if (missing.length > 0) throw new BadRequestException(`A lead needs a ${missing.join(', ')}.`);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email!)) throw new BadRequestException('Enter a valid email address for the lead.');
 
-    let pipelineId = data.pipelineId || data.pipeline_id;
-    if (!pipelineId) {
-      const defaultPipe = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
-        where: { tenant_id: tenantId },
-        orderBy: { is_default: 'desc' },
-      });
-      pipelineId = defaultPipe?.id;
-    }
-
-    let stageId = data.stageId || data.stage_id;
-    if (!stageId && pipelineId) {
-      const defaultStage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
-        where: { tenant_id: tenantId, pipeline_id: pipelineId },
-        orderBy: { sort_order: 'asc' },
-      });
-      stageId = defaultStage?.id;
-    }
+    const { pipelineId, stageId } = await this.leadPlacement(tenantId, data.pipelineId || data.pipeline_id, data.stageId || data.stage_id);
 
     const temperature = data.temperature || 'WARM';
     let customAttributes = data.customAttributes || data.custom_attributes;
@@ -406,17 +440,17 @@ export class CrmService {
       };
     }
 
-    const lead = await this.prisma.rndtechnosoft_crm_leads.create({
+    const lead = await this.withUniqueCode('LD', (leadCode) => this.prisma.rndtechnosoft_crm_leads.create({
       data: {
         id: leadId,
         tenant_id: tenantId,
         lead_code: leadCode,
-        company_name: data.companyName || data.company_name || 'Untitled Organization',
-        first_name: data.firstName || data.first_name || 'Lead',
+        company_name: companyName!,
+        first_name: firstName!,
         last_name: data.lastName || data.last_name || null,
         designation: data.designation || null,
-        email: data.email || `contact_${leadId.slice(0, 8)}@lead.local`,
-        phone: data.phone || '+91 9800000000',
+        email: email!,
+        phone: text(data.phone),
         whatsapp_number: data.whatsappNumber || data.whatsapp_number || data.phone || null,
         alternate_email: data.alternateEmail || data.alternate_email || null,
         alternate_phone: data.alternatePhone || data.alternate_phone || null,
@@ -428,7 +462,7 @@ export class CrmService {
         address: data.address || null,
         postal_code: data.postalCode || data.postal_code || null,
         country_code: data.countryCode || data.country_code || 'IN',
-        industry: data.industry || 'Software & IT',
+        industry: text(data.industry),
         sub_industry: data.subIndustry || data.sub_industry || null,
         primary_service_id: data.primaryServiceId || data.primary_service_id || null,
         primary_service: data.primaryService || data.primary_service || null,
@@ -447,7 +481,7 @@ export class CrmService {
         custom_attributes: customAttributes || undefined,
         cadence_step: 1,
       },
-    });
+    }));
 
     // Record creation activity
     await this.logActivity(tenantId, lead.id, 'NOTE', 'Lead Created', `Lead account created via CRM Workspace`, memberId);
@@ -1075,7 +1109,7 @@ export class CrmService {
 
   async importLeads(tenantId: string, leads: any[], memberId?: string) {
     if (!Array.isArray(leads) || leads.length === 0) {
-      return { importedCount: 0 };
+      return { importedCount: 0, successCount: 0, skipped: [] as { row: number; reason: string }[] };
     }
 
     const defaultPipe = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
@@ -1088,7 +1122,9 @@ export class CrmService {
     });
 
     let count = 0;
-    for (const item of leads) {
+    const skipped: { row: number; reason: string }[] = [];
+    for (const [index, item] of leads.entries()) {
+      const rowNumber = index + 1;
       const companyName = String(
         item.companyName || item['Company Name *'] || item['Company Name'] || item.company_name || ''
       ).trim();
@@ -1105,7 +1141,10 @@ export class CrmService {
         item.secondaryEmail || item['Secondary Email'] || item.secondary_email || item.alternate_email || ''
       ).trim();
 
-      if (!companyName && !firstName) continue;
+      if (!companyName || !firstName || !email) {
+        skipped.push({ row: rowNumber, reason: 'Company name, first name and email are required.' });
+        continue;
+      }
 
       const rawCountryCode = item.countryCode || item['Country Code *'] || item['Country Code'] || item.country_code || '+91';
       const dialCode = extractDialCode(rawCountryCode, '+91');
@@ -1126,7 +1165,7 @@ export class CrmService {
         whatsappNumber = phone;
       }
 
-      const industry = String(item.industry || item['Industry *'] || item['Industry'] || 'Manufacturing').trim();
+      const industry = String(item.industry || item['Industry *'] || item['Industry'] || '').trim();
       const subIndustry = String(item.subIndustry || item['Sub Industry'] || item.sub_industry || '').trim();
       const city = String(item.city || item['City'] || '').trim();
       const state = String(item.state || item['State'] || '').trim();
@@ -1136,38 +1175,44 @@ export class CrmService {
       const websiteStatus = String(item.websiteStatus || item['Website Status'] || item.website_status || 'ACTIVE').trim();
       const linkedinUrl = String(item.personalLinkedInUrl || item['Personal LinkedIn URL'] || item.linkedin_url || '').trim();
       const linkedinCompanyUrl = String(item.linkedinCompanyUrl || item['LinkedIn Company URL'] || item.linkedin_company_url || '').trim();
-      const designation = String(item.designation || item['Designation'] || 'Decision Maker').trim();
+      const designation = String(item.designation || item['Designation'] || '').trim();
       const internalNotes = String(item.internalNotes || item['Internal Notes'] || item.internal_notes || '').trim();
       const budgetAmount = Number(item.budgetAmount || item['Budget Amount'] || item.budget_amount) || 0;
 
-      await this.createLead(
+      try {
+        await this.createLead(
         tenantId,
         {
-          company_name: companyName || 'Imported Lead',
-          first_name: firstName || 'Lead',
+          company_name: companyName,
+          first_name: firstName,
           last_name: lastName || null,
-          email: email || `lead_${Date.now()}_${count}@import.local`,
-          phone: phone || '+91 9000000000',
-          whatsapp_number: whatsappNumber || phone,
-          designation,
+          email,
+          phone: phone || null,
+          whatsapp_number: whatsappNumber || phone || null,
+          designation: designation || null,
           city: city || null,
           state: state || null,
-          industry: industry || 'Manufacturing',
+          industry: industry || null,
           sub_industry: subIndustry || null,
           website_url: websiteUrl || null,
           linkedin_url: linkedinUrl || null,
           budget_amount: budgetAmount,
           temperature: (item.temperature || 'COLD') as any,
-          pipeline_id: item.pipeline_id || defaultPipe?.id,
-          stage_id: item.stage_id || defaultStage?.id,
+          pipeline_id: defaultPipe?.id,
+          stage_id: defaultStage?.id,
         },
         memberId,
-      );
-      count++;
+        );
+        count++;
+      } catch (error) {
+        // One bad row does not stop the import; it is reported instead.
+        if (!(error instanceof BadRequestException)) throw error;
+        skipped.push({ row: rowNumber, reason: error.message });
+      }
     }
 
-    await this.logAudit(tenantId, 'IMPORT_LEADS', 'LEAD', tenantId, { importedCount: count }, memberId);
-    return { importedCount: count, successCount: count };
+    await this.logAudit(tenantId, 'IMPORT_LEADS', 'LEAD', tenantId, { importedCount: count, skippedCount: skipped.length }, memberId);
+    return { importedCount: count, successCount: count, skipped };
   }
 
   async handleInboundWebhook(tenantId: string, payload: any) {
@@ -1180,11 +1225,12 @@ export class CrmService {
       orderBy: { sort_order: 'asc' },
     });
 
-    const companyName = payload.company_name || payload.company || payload.sender_company || 'Inbound Webhook Lead';
-    const firstName = payload.first_name || payload.name?.split(' ')[0] || payload.sender_name || 'Prospect';
+    // Only what the sender provided: a lead without a company, name or email is refused, not invented.
+    const companyName = payload.company_name || payload.company || payload.sender_company || null;
+    const firstName = payload.first_name || payload.name?.split(' ')[0] || payload.sender_name || null;
     const lastName = payload.last_name || payload.name?.split(' ').slice(1).join(' ') || '';
-    const email = payload.email || payload.sender_email || `inbound_${Date.now()}@lead.local`;
-    const phone = payload.phone || payload.mobile || payload.sender_mobile || '+91 9876543210';
+    const email = payload.email || payload.sender_email || null;
+    const phone = payload.phone || payload.mobile || payload.sender_mobile || null;
     const requirement = payload.requirement || payload.query || payload.message || payload.brief || '';
     const sourceName = payload.source || payload.channel || 'Inbound Webhook';
 
@@ -1197,7 +1243,7 @@ export class CrmService {
         email,
         phone,
         whatsapp_number: phone,
-        industry: payload.industry || 'Manufacturing',
+        industry: payload.industry || null,
         city: payload.city || null,
         state: payload.state || null,
         budget_amount: Number(payload.budget) || 0,
@@ -1223,8 +1269,7 @@ export class CrmService {
     });
 
     if (!client) {
-      const clientCode = `CL-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      client = await this.prisma.rndtechnosoft_crm_clients.create({
+      client = await this.withUniqueCode('CL', (clientCode) => this.prisma.rndtechnosoft_crm_clients.create({
         data: {
           id: randomUUID(),
           tenant_id: tenantId,
@@ -1233,13 +1278,13 @@ export class CrmService {
           contact_person: `${lead.first_name} ${lead.last_name || ''}`.trim(),
           email: lead.email,
           phone: lead.phone,
-          billing_address: lead.address || lead.city || 'India',
+          billing_address: lead.address || lead.city || null,
           gstin: lead.gstin,
           pan: lead.pan,
           client_status: 'ACTIVE',
           created_from_lead_id: lead.id,
         },
-      });
+      }));
     }
 
     // 2. Find WON stage if present
@@ -1379,7 +1424,7 @@ export class CrmService {
         lastName: lead.last_name || '',
         companyName: lead.company_name,
         industry: cadence.industry || 'general',
-        phone: lead.whatsapp_number || lead.phone,
+        phone: lead.whatsapp_number || lead.phone || undefined,
         email: lead.email,
       };
 
@@ -1555,7 +1600,8 @@ export class CrmService {
       }
 
       await this.prisma.rndtechnosoft_crm_leads.update({
-        where: { id: leadId },
+        // Composite [tenant_id, id] key keeps the write inside this tenant.
+        where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
         data: {
           cadence_step: nextIndex + 1,
           touchpoints_count: { increment: 1 },
@@ -1585,7 +1631,7 @@ export class CrmService {
       };
 
       await this.prisma.rndtechnosoft_crm_leads.update({
-        where: { id: leadId },
+        where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
         data: {
           temperature: branch?.nextLeadTemperature || 'WARM',
           custom_attributes: { ...customAttr, cadence },
@@ -1654,7 +1700,7 @@ export class CrmService {
     });
 
     await this.prisma.rndtechnosoft_crm_leads.update({
-      where: { id: body.leadId },
+      where: { tenant_id_id: { tenant_id: tenantId, id: body.leadId } },
       data: {
         last_contacted_at: new Date(),
         touchpoints_count: { increment: 1 },
@@ -1739,7 +1785,7 @@ export class CrmService {
     });
 
     await this.prisma.rndtechnosoft_crm_leads.update({
-      where: { id: body.leadId },
+      where: { tenant_id_id: { tenant_id: tenantId, id: body.leadId } },
       data: { next_followup_at: new Date(body.scheduledAt) },
     });
 
@@ -1753,8 +1799,9 @@ export class CrmService {
     if (body.outcomeNote || body.outcome_note) updateData.outcome_note = body.outcomeNote || body.outcome_note;
     if (body.status === 'COMPLETED') updateData.completed_at = new Date();
 
+    // Composite [tenant_id, id] key: another tenant's follow-up id is a 404.
     const followup = await this.prisma.rndtechnosoft_crm_lead_followups.update({
-      where: { id },
+      where: { tenant_id_id: { tenant_id: tenantId, id } },
       data: updateData,
     });
 
@@ -1766,7 +1813,7 @@ export class CrmService {
   }
 
   async deleteFollowup(tenantId: string, id: string) {
-    await this.prisma.rndtechnosoft_crm_lead_followups.delete({ where: { id } });
+    await this.prisma.rndtechnosoft_crm_lead_followups.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     return { success: true };
   }
 
@@ -1816,7 +1863,7 @@ export class CrmService {
     if (body.status === 'COMPLETED') updateData.status = 'COMPLETED';
 
     const meeting = await this.prisma.rndtechnosoft_crm_meetings.update({
-      where: { id },
+      where: { tenant_id_id: { tenant_id: tenantId, id } },
       data: updateData,
     });
 
@@ -1828,7 +1875,7 @@ export class CrmService {
   }
 
   async deleteMeeting(tenantId: string, id: string) {
-    await this.prisma.rndtechnosoft_crm_meetings.delete({ where: { id } });
+    await this.prisma.rndtechnosoft_crm_meetings.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     return { success: true };
   }
 
@@ -1878,75 +1925,76 @@ export class CrmService {
   }
 
   async createQuotation(tenantId: string, body: any, memberId?: string) {
-    const quoteNumber = `QT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const quoteId = randomUUID();
+    const leadId = body.leadId || body.lead_id;
+    if (!leadId) throw new BadRequestException('Choose the lead this quotation is for.');
+    const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId }, select: { id: true } });
+    if (!lead) throw new NotFoundException('Lead not found');
 
-    const items = body.items || [];
-    const subtotal = items.reduce((acc: number, item: any) => {
-      const qty = Number(item.quantity || 1);
-      const rate = Number(item.unitRate || item.unit_rate || 0);
-      return acc + qty * rate;
-    }, 0);
+    const rawItems: any[] = Array.isArray(body.items) ? body.items : [];
+    if (rawItems.length === 0) throw new BadRequestException('Add at least one line item to the quotation.');
+    // Money is computed in decimal, never in floating point, and rounded once per amount.
+    const items = rawItems.map((item, index) => {
+      const quantity = new Prisma.Decimal(item.quantity ?? 1);
+      const unitRate = new Prisma.Decimal(item.unitRate ?? item.unit_rate ?? 0);
+      const description = typeof item.description === 'string' && item.description.trim() ? item.description.trim() : null;
+      if (!description) throw new BadRequestException(`Line ${index + 1} needs a description.`);
+      if (quantity.lte(0) || unitRate.lt(0)) throw new BadRequestException(`Line ${index + 1} needs a positive quantity and a rate of zero or more.`);
+      return { item, description, quantity, unitRate, lineAmount: quantity.mul(unitRate).toDecimalPlaces(2) };
+    });
 
-    const taxMode = body.taxMode || 'INTRA_STATE';
-    let cgst = 0;
-    let sgst = 0;
-    let igst = 0;
-
-    if (taxMode === 'INTRA_STATE') {
-      cgst = Math.round(subtotal * 0.09 * 100) / 100;
-      sgst = Math.round(subtotal * 0.09 * 100) / 100;
-    } else {
-      igst = Math.round(subtotal * 0.18 * 100) / 100;
-    }
-
-    const totalTax = cgst + sgst + igst;
-    const grandTotal = subtotal + totalTax;
+    const subtotal = items.reduce((sum, line) => sum.add(line.lineAmount), new Prisma.Decimal(0));
+    const taxMode = body.taxMode === 'INTER_STATE' ? 'INTER_STATE' : 'INTRA_STATE';
+    const cgst = taxMode === 'INTRA_STATE' ? subtotal.mul('0.09').toDecimalPlaces(2) : new Prisma.Decimal(0);
+    const sgst = taxMode === 'INTRA_STATE' ? subtotal.mul('0.09').toDecimalPlaces(2) : new Prisma.Decimal(0);
+    const igst = taxMode === 'INTER_STATE' ? subtotal.mul('0.18').toDecimalPlaces(2) : new Prisma.Decimal(0);
+    const totalTax = cgst.add(sgst).add(igst);
+    const grandTotal = subtotal.add(totalTax);
 
     const validUntil = new Date();
     validUntil.setDate(validUntil.getDate() + Number(body.validDays || 30));
+    const quoteId = randomUUID();
 
-    const quotation = await this.prisma.rndtechnosoft_crm_quotations.create({
-      data: {
-        id: quoteId,
-        tenant_id: tenantId,
-        quotation_number: quoteNumber,
-        lead_id: body.leadId || body.lead_id,
-        client_state: body.clientState || 'Maharashtra',
-        branch_state: body.branchState || 'Maharashtra',
-        tax_mode: taxMode,
-        subtotal: new Prisma.Decimal(subtotal),
-        cgst_amount: new Prisma.Decimal(cgst),
-        sgst_amount: new Prisma.Decimal(sgst),
-        igst_amount: new Prisma.Decimal(igst),
-        total_tax: new Prisma.Decimal(totalTax),
-        total_amount: new Prisma.Decimal(grandTotal),
-        valid_until: validUntil,
-        quotation_status: 'DRAFT',
-      },
-    });
+    // The quotation and its lines are written together or not at all.
+    const quotation = await this.withUniqueCode('QT', (quoteNumber) =>
+      this.prisma.$transaction(async (tx) => {
+        const created = await tx.rndtechnosoft_crm_quotations.create({
+          data: {
+            id: quoteId,
+            tenant_id: tenantId,
+            quotation_number: quoteNumber,
+            lead_id: lead.id,
+            client_state: body.clientState || null,
+            branch_state: body.branchState || null,
+            tax_mode: taxMode,
+            subtotal,
+            cgst_amount: cgst,
+            sgst_amount: sgst,
+            igst_amount: igst,
+            total_tax: totalTax,
+            total_amount: grandTotal,
+            valid_until: validUntil,
+            quotation_status: 'DRAFT',
+          },
+        });
+        await tx.rndtechnosoft_crm_quotation_items.createMany({
+          data: items.map((line, index) => ({
+            id: randomUUID(),
+            tenant_id: tenantId,
+            quotation_id: quoteId,
+            service_id: line.item.serviceId || line.item.service_id || null,
+            description: line.description,
+            sac_code: line.item.sacCode || line.item.sac_code || undefined,
+            quantity: line.quantity,
+            unit_rate: line.unitRate,
+            line_amount: line.lineAmount,
+            sort_order: index + 1,
+          })),
+        });
+        return created;
+      }),
+    );
 
-    for (let i = 0; i < items.length; i++) {
-      const itm = items[i];
-      const qty = Number(itm.quantity || 1);
-      const rate = Number(itm.unitRate || itm.unit_rate || 0);
-      await this.prisma.rndtechnosoft_crm_quotation_items.create({
-        data: {
-          id: randomUUID(),
-          tenant_id: tenantId,
-          quotation_id: quoteId,
-          service_id: itm.serviceId || itm.service_id || null,
-          description: itm.description || 'Professional Service',
-          sac_code: itm.sacCode || itm.sac_code || '998314',
-          quantity: new Prisma.Decimal(qty),
-          unit_rate: new Prisma.Decimal(rate),
-          line_amount: new Prisma.Decimal(qty * rate),
-          sort_order: i + 1,
-        },
-      });
-    }
-
-    await this.logActivity(tenantId, quotation.lead_id, 'QUOTATION', `Quotation Generated: ${quoteNumber}`, `Grand Total: ₹${grandTotal.toLocaleString('en-IN')}`, memberId);
+    await this.logActivity(tenantId, quotation.lead_id, 'QUOTATION', `Quotation Generated: ${quotation.quotation_number}`, `Grand Total: ₹${grandTotal.toFixed(2)}`, memberId);
     return quotation;
   }
 
@@ -1956,7 +2004,7 @@ export class CrmService {
     if (body.taxMode) updateData.tax_mode = body.taxMode;
 
     const quote = await this.prisma.rndtechnosoft_crm_quotations.update({
-      where: { id },
+      where: { tenant_id_id: { tenant_id: tenantId, id } },
       data: updateData,
     });
 
@@ -1968,8 +2016,10 @@ export class CrmService {
   }
 
   async deleteQuotation(tenantId: string, id: string) {
-    await this.prisma.rndtechnosoft_crm_quotation_items.deleteMany({ where: { quotation_id: id } });
-    await this.prisma.rndtechnosoft_crm_quotations.delete({ where: { id } });
+    await this.prisma.$transaction([
+      this.prisma.rndtechnosoft_crm_quotation_items.deleteMany({ where: { tenant_id: tenantId, quotation_id: id } }),
+      this.prisma.rndtechnosoft_crm_quotations.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } }),
+    ]);
     return { success: true };
   }
 
@@ -1992,28 +2042,52 @@ export class CrmService {
   }
 
   async createClient(tenantId: string, body: any) {
-    const clientCode = `CL-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    return this.prisma.rndtechnosoft_crm_clients.create({
-      data: {
-        id: randomUUID(),
-        tenant_id: tenantId,
-        client_code: clientCode,
-        company_name: body.company_name || body.companyName || 'Client Org',
-        contact_person: body.contact_person || body.contactPerson || 'Contact',
-        email: body.email || `client_${Date.now()}@domain.local`,
-        phone: body.phone || '+91 9000000000',
-        billing_address: body.address || body.billing_address || body.city || null,
-        gstin: body.gstin || null,
-        pan: body.pan_number || body.pan || null,
-        client_status: body.status || 'ACTIVE',
-      },
-    });
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
+    const companyName = text(body.company_name ?? body.companyName);
+    const contactPerson = text(body.contact_person ?? body.contactPerson);
+    const email = text(body.email)?.toLowerCase() ?? null;
+    const missing = [!companyName && 'company name', !contactPerson && 'contact person', !email && 'email'].filter(Boolean);
+    if (missing.length > 0) throw new BadRequestException(`A client needs a ${missing.join(', ')}.`);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email!)) throw new BadRequestException('Enter a valid email address for the client.');
+
+    return this.withUniqueCode('CL', (clientCode) =>
+      this.prisma.rndtechnosoft_crm_clients.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          client_code: clientCode,
+          company_name: companyName!,
+          contact_person: contactPerson!,
+          email: email!,
+          phone: text(body.phone),
+          billing_address: text(body.address ?? body.billing_address ?? body.city),
+          gstin: text(body.gstin),
+          pan: text(body.pan_number ?? body.pan),
+          client_status: text(body.status) ?? 'ACTIVE',
+        },
+      }),
+    );
   }
 
   async updateClient(tenantId: string, id: string, body: any) {
+    // Only client fields are writable; ids, codes and tenant ownership are not.
+    const pick = (...keys: string[]) => {
+      const key = keys.find((k) => body?.[k] !== undefined);
+      return key === undefined ? undefined : body[key];
+    };
     return this.prisma.rndtechnosoft_crm_clients.update({
-      where: { id },
-      data: body,
+      where: { tenant_id_id: { tenant_id: tenantId, id } },
+      data: {
+        company_name: pick('company_name', 'companyName'),
+        contact_person: pick('contact_person', 'contactPerson'),
+        email: pick('email'),
+        phone: pick('phone'),
+        billing_address: pick('billing_address', 'address'),
+        gstin: pick('gstin'),
+        pan: pick('pan', 'pan_number'),
+        client_status: pick('client_status', 'status'),
+        updated_at: new Date(),
+      },
     });
   }
 
@@ -2090,6 +2164,49 @@ export class CrmService {
     };
   }
 
+  /** Matches a canonical UUID, the format every identifier column expects. */
+  private static readonly UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  /**
+   * Resolves a pipeline referenced by a request, inside the caller's tenant.
+   *
+   * The composite [tenant_id, pipeline_id] foreign key already prevents a
+   * cross-tenant reference, but it reports that as a constraint violation.
+   * Checking here turns a malformed or foreign identifier into a clear
+   * message naming what the caller should do.
+   */
+  private async resolvePipelineForTenant(
+    tenantId: string,
+    pipelineId: unknown,
+  ): Promise<string> {
+    if (typeof pipelineId !== 'string' || pipelineId.trim().length === 0) {
+      throw new BadRequestException(
+        'Choose a pipeline for this stage. Create a pipeline first if none exists.',
+      );
+    }
+
+    const candidate = pipelineId.trim();
+
+    if (!CrmService.UUID_PATTERN.test(candidate)) {
+      throw new BadRequestException(
+        'The selected pipeline is not valid. Reload the page and choose a pipeline from the list.',
+      );
+    }
+
+    const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
+      where: { id: candidate, tenant_id: tenantId },
+      select: { id: true },
+    });
+
+    if (!pipeline) {
+      // Same answer whether it belongs to another tenant or does not exist.
+      throw new NotFoundException('That pipeline was not found in this workspace.');
+    }
+
+    return pipeline.id;
+  }
+
   async createMaster(tenantId: string, type: string, body: any) {
     if (type === 'services') {
       return this.prisma.rndtechnosoft_crm_services_master.create({
@@ -2107,11 +2224,16 @@ export class CrmService {
     }
 
     if (type === 'stages') {
+      const pipelineId = await this.resolvePipelineForTenant(
+        tenantId,
+        body.pipeline_id ?? body.pipelineId,
+      );
+
       return this.prisma.rndtechnosoft_crm_stages.create({
         data: {
           id: randomUUID(),
           tenant_id: tenantId,
-          pipeline_id: body.pipeline_id || body.pipelineId,
+          pipeline_id: pipelineId,
           name: body.name,
           color: body.color || '#2563eb',
           stage_probability: Number(body.stage_probability || body.stageProbability || 20),
@@ -2153,7 +2275,7 @@ export class CrmService {
   async updateMaster(tenantId: string, type: string, id: string, body: any) {
     if (type === 'services') {
       return this.prisma.rndtechnosoft_crm_services_master.update({
-        where: { id },
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
         data: {
           name: body.name,
           category: body.category,
@@ -2166,7 +2288,7 @@ export class CrmService {
 
     if (type === 'stages') {
       return this.prisma.rndtechnosoft_crm_stages.update({
-        where: { id },
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
         data: {
           name: body.name,
           color: body.color,
@@ -2184,13 +2306,13 @@ export class CrmService {
 
   async deleteMaster(tenantId: string, type: string, id: string) {
     if (type === 'services') {
-      await this.prisma.rndtechnosoft_crm_services_master.delete({ where: { id } });
+      await this.prisma.rndtechnosoft_crm_services_master.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     } else if (type === 'stages') {
-      await this.prisma.rndtechnosoft_crm_stages.delete({ where: { id } });
+      await this.prisma.rndtechnosoft_crm_stages.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     } else if (type === 'pipelines') {
-      await this.prisma.rndtechnosoft_crm_pipelines.delete({ where: { id } });
+      await this.prisma.rndtechnosoft_crm_pipelines.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     } else if (type === 'sources') {
-      await this.prisma.rndtechnosoft_crm_lead_sources.delete({ where: { id } });
+      await this.prisma.rndtechnosoft_crm_lead_sources.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     }
     return { success: true };
   }
@@ -2200,8 +2322,9 @@ export class CrmService {
     if (Array.isArray(items)) {
       for (const item of items) {
         if (type === 'stages' && item.id) {
-          await this.prisma.rndtechnosoft_crm_stages.update({
-            where: { id: item.id },
+          // Ids outside this tenant match nothing and are left untouched.
+          await this.prisma.rndtechnosoft_crm_stages.updateMany({
+            where: { tenant_id: tenantId, id: item.id },
             data: { sort_order: item.sort_order ?? item.sortOrder ?? 0 },
           });
         }
@@ -2248,26 +2371,6 @@ export class CrmService {
     } catch {
       // ignore logging failures
     }
-  }
-
-  async getSalesPersons(tenantId: string) {
-    const members = await this.prisma.rndtechnosoft_tenant_members.findMany({
-      where: { tenant_id: tenantId, membership_status: 'ACTIVE' },
-      include: { rndtechnosoft_users: true },
-    });
-
-    return members.map((m) => {
-      const parts = (m.rndtechnosoft_users.display_name || 'Sales Rep').split(' ');
-      return {
-        id: m.id,
-        user_id: m.user_id,
-        first_name: parts[0] || 'User',
-        last_name: parts.slice(1).join(' ') || '',
-        name: m.rndtechnosoft_users.display_name,
-        email: m.rndtechnosoft_users.email,
-        designation: 'Sales Representative',
-      };
-    });
   }
 
   // ==========================================
@@ -2701,16 +2804,27 @@ export class CrmService {
     let industries: any[] = settingsJson.industries;
 
     if (!industries || !Array.isArray(industries) || industries.length === 0) {
-      industries = BASELINE_INDUSTRIES;
-      settingsJson.industries = industries;
-      await this.prisma.rndtechnosoft_tenant_settings.upsert({
-        where: { tenant_id: tenantId },
-        update: { settings: settingsJson },
-        create: { id: randomUUID(), tenant_id: tenantId, settings: settingsJson },
-      });
+      // A deep copy: the built-in list is shared by every workspace and must never be mutated.
+      industries = JSON.parse(JSON.stringify(BASELINE_INDUSTRIES));
+      await this.saveIndustries(tenantId, industries);
     }
 
     return industries;
+  }
+
+  /**
+   * Replaces only `settings.industries`, in one statement, so a concurrent save
+   * of another settings section (SMTP, modules, profile) is never overwritten.
+   */
+  private async saveIndustries(tenantId: string, industries: unknown[]) {
+    const patch = JSON.stringify({ industries });
+    await this.prisma.$executeRaw`
+      INSERT INTO rndtechnosoft_tenant_settings (id, tenant_id, settings, created_at, updated_at)
+      VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${patch}::jsonb, now(), now())
+      ON CONFLICT (tenant_id) DO UPDATE
+      SET settings = rndtechnosoft_tenant_settings.settings || EXCLUDED.settings,
+          updated_at = now()
+    `;
   }
 
   async createIndustry(tenantId: string, name: string) {
@@ -2723,15 +2837,7 @@ export class CrmService {
     };
     industries.push(newInd);
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return newInd;
   }
@@ -2743,15 +2849,7 @@ export class CrmService {
     if (!ind) throw new NotFoundException('Industry not found');
     ind.name = name.trim();
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return ind;
   }
@@ -2761,15 +2859,7 @@ export class CrmService {
     let industries = await this.getIndustriesMaster(tenantId);
     industries = industries.filter((i: any) => i.id !== id);
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return { success: true };
   }
@@ -2788,15 +2878,7 @@ export class CrmService {
     };
     ind.sub_industries.push(newSub);
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return newSub;
   }
@@ -2817,15 +2899,7 @@ export class CrmService {
     }
     if (!foundSub) throw new NotFoundException('Sub-industry not found');
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return foundSub;
   }
@@ -2839,15 +2913,7 @@ export class CrmService {
       }
     }
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return { success: true };
   }

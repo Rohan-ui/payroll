@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Edit3, Trash2, RefreshCw, Layers, CheckCircle2, X } from 'lucide-react';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 export default function IndustriesMaster() {
   const [industries, setIndustries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -14,12 +16,9 @@ export default function IndustriesMaster() {
   
   const [formData, setFormData] = useState<{ name: string; industry_id?: string }>({ name: '' });
   const [submitting, setSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToast({ text, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const normalizeIndustries = (raw: any): any[] => {
     if (!raw) return [];
@@ -64,7 +63,7 @@ export default function IndustriesMaster() {
   const fetchIndustries = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/crm/masters/industries');
+      const res = await apiFetch('/api/v1/crm/masters/industries');
       const json = await res.json();
       if (json && json.success) {
         setIndustries(normalizeIndustries(json.data));
@@ -76,8 +75,6 @@ export default function IndustriesMaster() {
         setIndustries(normalizeIndustries(json));
       }
     } catch (err: any) {
-      console.error(err);
-      showToast('Failed to load industries', 'error');
       setIndustries([]);
     } finally {
       setLoading(false);
@@ -133,22 +130,17 @@ export default function IndustriesMaster() {
       const method = editingId ? 'PUT' : 'POST';
       const body = { ...formData, id: editingId };
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      const json = await res.json();
-      
-      if (json.success) {
-        showToast(`${modalType === 'industry' ? 'Industry' : 'Sub-Industry'} saved successfully`);
+      if (res.ok) {
         setShowModal(false);
         fetchIndustries();
-      } else {
-        showToast(json.error || 'Failed to save', 'error');
       }
-    } catch (err: any) {
-      showToast(err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setSubmitting(false);
     }
@@ -162,17 +154,10 @@ export default function IndustriesMaster() {
         ? `/api/v1/crm/masters/industries?id=${id}` 
         : `/api/v1/crm/masters/industries/sub?id=${id}`;
 
-      const res = await fetch(url, { method: 'DELETE' });
-      const json = await res.json();
-      
-      if (json.success) {
-        showToast('Deleted successfully');
-        fetchIndustries();
-      } else {
-        showToast(json.error || 'Failed to delete', 'error');
-      }
-    } catch (err: any) {
-      showToast(err.message, 'error');
+      const res = await apiFetch(url, { method: 'DELETE' });
+      if (res.ok) fetchIndustries();
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -338,18 +323,6 @@ export default function IndustriesMaster() {
         </div>
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-5 right-5 z-70 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold animate-in slide-in-from-top ${
-          toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-        }`}>
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{toast.text}</span>
-          <button onClick={() => setToast(null)} className="ml-2 hover:opacity-80">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

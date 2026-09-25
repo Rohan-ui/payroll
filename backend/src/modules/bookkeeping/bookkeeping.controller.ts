@@ -5,18 +5,16 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { TenantGuard } from '@/common/guards/tenant.guard';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { BookkeepingService } from './bookkeeping.service';
 import { FinancialYearsService } from './financial-years.service';
 import { CreateFinancialYearDto } from './bookkeeping.types';
+import { RequirePermissions } from '@/common/decorators/access.decorators';
 
 @Controller('bookkeeping')
-@UseGuards(TenantGuard)
 export class BookkeepingController {
   constructor(
     private readonly bookkeepingService: BookkeepingService,
@@ -27,6 +25,7 @@ export class BookkeepingController {
    * Retrieves all Financial Years for the authenticated tenant.
    */
   @Get('financial-years')
+  @RequirePermissions('bookkeeping.financial_years.view')
   async getFinancialYears(@CurrentTenant() tenantId: string) {
     return this.financialYearsService.listFinancialYears(tenantId);
   }
@@ -35,6 +34,7 @@ export class BookkeepingController {
    * Retrieves or auto-provisions the active Financial Year for today.
    */
   @Get('financial-years/current')
+  @RequirePermissions('bookkeeping.financial_years.view')
   async getCurrentFinancialYear(@CurrentTenant() tenantId: string) {
     return this.financialYearsService.getCurrentFinancialYear(tenantId);
   }
@@ -43,6 +43,7 @@ export class BookkeepingController {
    * Manually creates a new Financial Year.
    */
   @Post('financial-years')
+  @RequirePermissions('bookkeeping.financial_years.create')
   async createFinancialYear(
     @CurrentTenant() tenantId: string,
     @Body() dto: CreateFinancialYearDto,
@@ -54,6 +55,7 @@ export class BookkeepingController {
    * Closes a Financial Year.
    */
   @Post('financial-years/:id/close')
+  @RequirePermissions('bookkeeping.financial_years.close')
   @HttpCode(HttpStatus.OK)
   async closeFinancialYear(
     @CurrentTenant() tenantId: string,
@@ -66,6 +68,7 @@ export class BookkeepingController {
    * Retrieves the Chart of Accounts / Ledgers for the tenant.
    */
   @Get('ledgers')
+  @RequirePermissions('bookkeeping.ledgers.view')
   async getLedgers(@CurrentTenant() tenantId: string) {
     return this.bookkeepingService.getLedgers(tenantId);
   }
@@ -74,6 +77,7 @@ export class BookkeepingController {
    * Generates the Trial Balance verifying that Total Debits == Total Credits.
    */
   @Get('trial-balance')
+  @RequirePermissions('bookkeeping.ledgers.view')
   async getTrialBalance(
     @CurrentTenant() tenantId: string,
     @Query('financialYearId') financialYearId?: string,
@@ -85,6 +89,7 @@ export class BookkeepingController {
    * Retrieves Journal Vouchers (entries) with line items.
    */
   @Get('entries')
+  @RequirePermissions('bookkeeping.entries.view')
   async getJournalEntries(
     @CurrentTenant() tenantId: string,
     @Query('financialYearId') financialYearId?: string,
@@ -104,6 +109,7 @@ export class BookkeepingController {
    * ensures chart of accounts, and automatically posts balanced journal vouchers.
    */
   @Post('sync-all')
+  @RequirePermissions('bookkeeping.entries.post')
   @HttpCode(HttpStatus.OK)
   async syncAllHistoricalAccounting(@CurrentTenant() tenantId: string) {
     return this.bookkeepingService.syncAllHistoricalAccounting(tenantId);
@@ -113,6 +119,7 @@ export class BookkeepingController {
    * Manually triggers journal posting for a specific finalized payroll run.
    */
   @Post('post-run/:runId')
+  @RequirePermissions('bookkeeping.entries.post')
   @HttpCode(HttpStatus.OK)
   async postPayrollRun(
     @CurrentTenant() tenantId: string,

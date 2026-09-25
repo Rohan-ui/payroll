@@ -1,26 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  LayoutDashboard,
-  Users,
-  CalendarDays,
-  FileText,
-  BarChart2,
-  Settings,
-  HelpCircle,
   LogOut,
-  Banknote,
-  Building2,
-  BookOpen,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Target,
-  ShieldCheck,
-  Sparkles,
-  Kanban,
-  Mail,
-  Clock,
-  Settings2,
   Plus,
   Sun,
   Moon,
@@ -29,69 +12,34 @@ import { useAuth } from '../../context/AuthContext';
 import { usePayroll } from '../../context/PayrollContext';
 import { useSidebar } from '../../context/SidebarContext';
 import { useTheme } from '../../context/ThemeContext';
-import type { AppView, CrmTab } from '../../types/payroll.types';
 import { Avatar } from '../ui/Avatar';
 import { cn } from '../../utils/cn';
-
-interface NavItem {
-  id: AppView;
-  label: string;
-  icon: React.ElementType;
-  roles: string[];
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard',  label: 'Dashboard',   icon: LayoutDashboard, roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
-  { id: 'crm',        label: 'CRM & Sales', icon: Target,          roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
-  { id: 'organization', label: 'Organization & Settings', icon: Building2, roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
-  { id: 'people',     label: 'People',       icon: Users,           roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'SUPER_ADMIN'] },
-  { id: 'payroll',    label: 'Payroll',      icon: Banknote,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
-  { id: 'attendance', label: 'Attendance',   icon: CalendarDays,    roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
-  { id: 'payslips',   label: 'Payslips',     icon: FileText,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
-  { id: 'bookkeeping',label: 'Bookkeeping',  icon: BookOpen,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
-  { id: 'reports',    label: 'Reports',      icon: BarChart2,       roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
-  { id: 'settings',   label: 'Compliance',   icon: Settings,        roles: ['ADMIN', 'HR_ACCOUNTANT', 'SUPER_ADMIN'] },
-  { id: 'super-admin',label: 'Super Admin',  icon: ShieldCheck,     roles: ['ADMIN', 'SUPER_ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE'] },
-  { id: 'help',       label: 'Help',         icon: HelpCircle,      roles: ['ADMIN', 'HR_ACCOUNTANT', 'MANAGER', 'EMPLOYEE', 'SUPER_ADMIN'] },
-];
-
-interface CrmSubItem {
-  id: string;
-  label: string;
-  href: string;
-  view: AppView;
-  tab?: CrmTab;
-  icon: React.ElementType;
-  badge?: string;
-  hasPlus?: boolean;
-}
-
-const CRM_SUB_ITEMS: CrmSubItem[] = [
-  { id: 'cold-funnel', label: 'Client Outreach',      href: '/crm?tab=cold-funnel', view: 'crm',    tab: 'cold-funnel', icon: Sparkles,  badge: '30D', hasPlus: true },
-  { id: 'pipeline',    label: 'Sales Pipelines',      href: '/crm?tab=pipeline',    view: 'crm',    tab: 'pipeline',    icon: Kanban,   hasPlus: true },
-  { id: 'emails',      label: 'Email & Marketing',    href: '/emails',              view: 'emails',                     icon: Mail,      badge: 'New', hasPlus: true },
-  { id: 'activities',  label: 'Follow-ups & Meetings', href: '/crm?tab=activities',  view: 'crm',    tab: 'activities',  icon: Clock,    hasPlus: true },
-  { id: 'proposals',   label: 'Quotations',           href: '/crm?tab=proposals',   view: 'crm',    tab: 'proposals',   icon: FileText, hasPlus: true },
-  { id: 'reports',     label: 'Reports & Analytics',  href: '/crm?tab=reports',     view: 'crm',    tab: 'reports',     icon: BarChart2 },
-  { id: 'masters',     label: 'Masters',              href: '/crm?tab=masters',     view: 'crm',    tab: 'masters',     icon: Settings2 },
-  { id: 'audit-trail', label: 'Audit Trail',          href: '/crm?tab=audit-trail', view: 'crm',    tab: 'audit-trail', icon: ShieldCheck },
-];
+import { currentNavigationId, sidebarTree, type SidebarItem } from './navigation';
 
 export const Sidebar: React.FC = () => {
-  const { user, logout, activeTenant } = useAuth();
-  const { currentView, setCurrentView, crmTab, navigateTo, role } = usePayroll();
+  const { user, logout, activeTenant, navigation } = useAuth();
+  const { currentView, crmTab, navigateTo, role } = usePayroll();
   const { isFull, isSymbol, toggleMode } = useSidebar();
   const { theme, setTheme, toggleTheme } = useTheme();
 
-  const isCrmActive = currentView === 'crm' || currentView === 'emails';
-  const [crmExpanded, setCrmExpanded] = useState<boolean>(() => isCrmActive);
+  // Only what the server says this member may open, with its module switched
+  // on, grouped and ordered as the server sends it. A group with no permitted
+  // items is absent, because the server omits it.
+  const items = sidebarTree(navigation);
+  const activeId = currentNavigationId(currentView, crmTab);
+  const activeGroup = items.find((item) => item.children.some((child) => child.entry.id === activeId))?.entry.id ?? null;
 
-  // Keep CRM submenu open only when user is in CRM or emails view; collapse otherwise
+  // Keep a group open only while one of its items is on screen; collapse otherwise.
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(activeGroup);
   useEffect(() => {
-    setCrmExpanded(isCrmActive);
-  }, [isCrmActive]);
+    setExpandedGroup(activeGroup);
+  }, [activeGroup]);
 
-  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role ?? ''));
+  // A group opens its first item.
+  const open = (item: SidebarItem) => {
+    const target = item.presentation.view ? item : item.children[0];
+    if (target?.presentation.view) navigateTo(target.presentation.view, target.presentation.tab);
+  };
 
   return (
     <aside
@@ -154,28 +102,6 @@ export const Sidebar: React.FC = () => {
                 OS
               </span>
             </div>
-
-            {/* Quick Switcher to Platform HQ / Super Admin */}
-            <button
-              onClick={() => setCurrentView('super-admin')}
-              className={cn(
-                'w-full mt-1 flex items-center justify-between px-2 py-1 rounded-md text-[11px] font-semibold transition-all border cursor-pointer',
-                currentView === 'super-admin'
-                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
-                  : theme === 'dark'
-                  ? 'bg-indigo-950/40 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/50 hover:text-white'
-                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
-              )}
-              title="Switch to Super Admin Platform HQ"
-            >
-              <div className="flex items-center gap-1.5 truncate">
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                <span className="truncate">Platform HQ</span>
-              </div>
-              <span className="text-[8px] uppercase tracking-wider px-1 py-0.2 rounded font-bold bg-indigo-500/20 text-indigo-300 shrink-0">
-                Super Admin
-              </span>
-            </button>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 w-full">
@@ -190,22 +116,6 @@ export const Sidebar: React.FC = () => {
                 className="w-8 h-8 object-contain bg-transparent"
               />
             </div>
-
-            {/* Symbol quick switcher to Super Admin */}
-            <button
-              onClick={() => setCurrentView('super-admin')}
-              title="Platform HQ (Super Admin)"
-              className={cn(
-                'w-7 h-7 rounded-lg flex items-center justify-center transition-all border cursor-pointer',
-                currentView === 'super-admin'
-                  ? 'bg-indigo-600 text-white border-indigo-500'
-                  : theme === 'dark'
-                  ? 'bg-indigo-950/40 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/50 hover:text-white'
-                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
-              )}
-            >
-              <ShieldCheck className="w-4 h-4 text-indigo-400" />
-            </button>
 
             {/* Expand to Full Names Toggle Button */}
             <button
@@ -234,30 +144,33 @@ export const Sidebar: React.FC = () => {
         aria-label="Sidebar"
       >
         <ul className="space-y-0.5" role="list">
-          {visibleItems.map((item) => {
-            const isItemActive =
-              currentView === item.id || (currentView === 'employee-detail' && item.id === 'people');
+          {items.map((item) => {
+            const { entry } = item;
+            const Icon = item.presentation.icon;
+            const isItemActive = entry.id === activeId;
+            const isGroupActive = entry.id === activeGroup;
 
-            // Handle CRM Special Expandable Tree Item
-            if (item.id === 'crm') {
+            // A business module (or CRM & Sales): a group of the items the member may open.
+            if (item.children.length > 0) {
+              const isExpanded = expandedGroup === entry.id;
               if (isSymbol) {
                 return (
-                  <li key={item.id} className="relative group">
+                  <li key={entry.id} className="relative group">
                     <button
-                      onClick={() => navigateTo('crm', 'cold-funnel')}
+                      onClick={() => open(item)}
                       className={cn(
                         'w-full flex items-center justify-center py-2 rounded-lg transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
-                        isCrmActive
+                        isGroupActive
                           ? 'bg-teal-500/20 text-teal-300 shadow-inner ring-1 ring-teal-500/40'
                           : 'text-slate-400 hover:bg-white/10 hover:text-white',
                       )}
-                      aria-current={isCrmActive ? 'page' : undefined}
-                      aria-label="CRM & Sales"
+                      aria-current={isGroupActive ? 'page' : undefined}
+                      aria-label={entry.label}
                     >
-                      <Target
+                      <Icon
                         className={cn(
                           'w-4 h-4 shrink-0 transition-colors',
-                          isCrmActive ? 'text-teal-400' : 'text-slate-400',
+                          isGroupActive ? 'text-teal-400' : 'text-slate-400',
                         )}
                       />
                     </button>
@@ -279,21 +192,19 @@ export const Sidebar: React.FC = () => {
                         )}
                       >
                         <span className={cn('text-xs font-bold', theme === 'dark' ? 'text-white' : 'text-slate-900')}>
-                          CRM &amp; Sales
+                          {entry.label}
                         </span>
                         <span className="text-[9px] text-teal-400 font-semibold">Voogyo</span>
                       </div>
                       <div className="space-y-0.5">
-                        {CRM_SUB_ITEMS.map((sub) => {
-                          const isSubActive =
-                            (sub.view === 'emails' && currentView === 'emails') ||
-                            (sub.view === 'crm' && currentView === 'crm' && crmTab === sub.tab);
+                        {item.children.map((sub) => {
+                          const isSubActive = sub.entry.id === activeId;
                           return (
                             <button
-                              key={sub.id}
+                              key={sub.entry.id}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigateTo(sub.view, sub.tab);
+                                open(sub);
                               }}
                               className={cn(
                                 'w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs transition-colors text-left',
@@ -307,10 +218,10 @@ export const Sidebar: React.FC = () => {
                               )}
                             >
                               <div className="flex items-center gap-2">
-                                <sub.icon className="w-3.5 h-3.5 shrink-0" />
-                                <span>{sub.label}</span>
+                                <sub.presentation.icon className="w-3.5 h-3.5 shrink-0" />
+                                <span>{sub.entry.label}</span>
                               </div>
-                              {sub.badge && (
+                              {sub.presentation.badge && (
                                 <span
                                   className={cn(
                                     'text-[9px] px-1 py-0.2 rounded font-extrabold',
@@ -319,7 +230,7 @@ export const Sidebar: React.FC = () => {
                                       : 'bg-teal-100 text-teal-800 border border-teal-200',
                                   )}
                                 >
-                                  {sub.badge}
+                                  {sub.presentation.badge}
                                 </span>
                               )}
                             </button>
@@ -333,17 +244,17 @@ export const Sidebar: React.FC = () => {
 
               // Full sidebar expanded mode
               return (
-                <li key={item.id} className="space-y-0.5">
+                <li key={entry.id} className="space-y-0.5">
                   <button
                     onClick={() => {
-                      setCrmExpanded((prev) => !prev);
-                      if (!isCrmActive) {
-                        navigateTo('crm', 'cold-funnel');
+                      setExpandedGroup((prev) => (prev === entry.id ? null : entry.id));
+                      if (!isGroupActive) {
+                        open(item);
                       }
                     }}
                     className={cn(
                       'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
-                      isCrmActive
+                      isGroupActive
                         ? theme === 'dark'
                           ? 'bg-teal-500/15 text-white font-semibold'
                           : 'bg-teal-50 text-teal-800 font-semibold border border-teal-200/80'
@@ -351,48 +262,46 @@ export const Sidebar: React.FC = () => {
                         ? 'text-slate-300 hover:bg-white/10 hover:text-white'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                     )}
-                    aria-expanded={crmExpanded}
+                    aria-expanded={isExpanded}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <Target
+                      <Icon
                         className={cn(
                           'w-4 h-4 shrink-0 transition-colors',
-                          isCrmActive ? 'text-teal-400' : 'text-slate-400',
+                          isGroupActive ? 'text-teal-400' : 'text-slate-400',
                         )}
                       />
-                      <span className="truncate whitespace-nowrap">CRM &amp; Sales</span>
+                      <span className="truncate whitespace-nowrap">{entry.label}</span>
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {isCrmActive && (
+                      {isGroupActive && (
                         <span className="w-1.5 h-1.5 rounded-full bg-teal-400" aria-hidden="true" />
                       )}
                       <ChevronDown
                         className={cn(
                           'w-3.5 h-3.5 text-slate-400 transition-transform duration-200',
-                          crmExpanded ? 'rotate-180 text-teal-400' : '',
+                          isExpanded ? 'rotate-180 text-teal-400' : '',
                         )}
                       />
                     </div>
                   </button>
 
                   {/* Sub-Navigation Links */}
-                  {crmExpanded && (
+                  {isExpanded && (
                     <ul
                       className={cn(
                         'pl-2.5 pr-0.5 py-0.5 space-y-0.5 border-l ml-3 animate-in fade-in slide-in-from-top-1 duration-150',
                         theme === 'dark' ? 'border-[#2B293E]' : 'border-slate-200',
                       )}
                     >
-                      {CRM_SUB_ITEMS.map((sub) => {
-                        const isSubActive =
-                          (sub.view === 'emails' && currentView === 'emails') ||
-                          (sub.view === 'crm' && currentView === 'crm' && crmTab === sub.tab);
+                      {item.children.map((sub) => {
+                        const isSubActive = sub.entry.id === activeId;
 
                         return (
-                          <li key={sub.id}>
+                          <li key={sub.entry.id}>
                             <button
-                              onClick={() => navigateTo(sub.view, sub.tab)}
+                              onClick={() => open(sub)}
                               className={cn(
                                 'w-full flex items-center justify-between px-2 py-1 rounded-md text-[11px] transition-all duration-150',
                                 isSubActive
@@ -403,20 +312,20 @@ export const Sidebar: React.FC = () => {
                                   ? 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100',
                               )}
-                              title={sub.label}
+                              title={sub.entry.label}
                             >
                               <div className="flex items-center gap-1.5 truncate">
-                                <sub.icon
+                                <sub.presentation.icon
                                   className={cn(
                                     'w-3 h-3 shrink-0',
                                     isSubActive ? 'text-teal-400' : 'text-slate-500',
                                   )}
                                 />
-                                <span className="truncate">{sub.label}</span>
+                                <span className="truncate">{sub.entry.label}</span>
                               </div>
 
                               <div className="flex items-center gap-1 shrink-0">
-                                {sub.badge && (
+                                {sub.presentation.badge && (
                                   <span
                                     className={cn(
                                       'text-[8px] px-1 py-0.1 rounded font-extrabold shrink-0',
@@ -429,10 +338,10 @@ export const Sidebar: React.FC = () => {
                                         : 'bg-teal-50 text-teal-700 border border-teal-200',
                                     )}
                                   >
-                                    {sub.badge}
+                                    {sub.presentation.badge}
                                   </span>
                                 )}
-                                {sub.hasPlus && (
+                                {sub.presentation.hasPlus && (
                                   <span
                                     className={cn(
                                       'w-3 h-3 rounded flex items-center justify-center transition-colors',
@@ -440,7 +349,7 @@ export const Sidebar: React.FC = () => {
                                         ? 'text-slate-500 hover:text-white'
                                         : 'text-slate-400 hover:text-slate-900 hover:bg-slate-200/60',
                                     )}
-                                    title={`New ${sub.label}`}
+                                    title={`New ${sub.entry.label}`}
                                   >
                                     <Plus className="w-2.5 h-2.5" />
                                   </span>
@@ -459,9 +368,9 @@ export const Sidebar: React.FC = () => {
             // Other standard navigation items
             if (isSymbol) {
               return (
-                <li key={item.id} className="relative group">
+                <li key={entry.id} className="relative group">
                   <button
-                    onClick={() => setCurrentView(item.id)}
+                    onClick={() => open(item)}
                     className={cn(
                       'w-full flex items-center justify-center py-2 rounded-lg transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
                       isItemActive
@@ -473,9 +382,9 @@ export const Sidebar: React.FC = () => {
                         : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900',
                     )}
                     aria-current={isItemActive ? 'page' : undefined}
-                    aria-label={item.label}
+                    aria-label={entry.label}
                   >
-                    <item.icon
+                    <Icon
                       className={cn(
                         'w-4 h-4 shrink-0 transition-colors',
                         isItemActive ? 'text-teal-400' : 'text-slate-400',
@@ -493,16 +402,16 @@ export const Sidebar: React.FC = () => {
                         : 'bg-slate-900 text-white border border-slate-800',
                     )}
                   >
-                    {item.label}
+                    {entry.label}
                   </div>
                 </li>
               );
             }
 
             return (
-              <li key={item.id}>
+              <li key={entry.id}>
                 <button
-                  onClick={() => setCurrentView(item.id)}
+                  onClick={() => open(item)}
                   className={cn(
                     'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
                     isItemActive
@@ -515,13 +424,13 @@ export const Sidebar: React.FC = () => {
                   )}
                   aria-current={isItemActive ? 'page' : undefined}
                 >
-                  <item.icon
+                  <Icon
                     className={cn(
                       'w-4 h-4 shrink-0 transition-colors',
                       isItemActive ? 'text-teal-400' : 'text-slate-400',
                     )}
                   />
-                  <span className="truncate whitespace-nowrap">{item.label}</span>
+                  <span className="truncate whitespace-nowrap">{entry.label}</span>
                   {isItemActive && (
                     <span className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-400" aria-hidden="true" />
                   )}

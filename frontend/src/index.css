@@ -30,6 +30,103 @@ body {
   overflow: hidden;
 }
 
+/* The tenant app scrolls inside its own layout; the platform portal scrolls
+   the page itself, so wheel, keyboard, scrollbar and zoom all behave normally. */
+body.platform-portal {
+  height: auto;
+  min-height: 100%;
+  overflow-y: auto;
+}
+
+/* ── Platform HQ theme ──────────────────────────────────────────
+   Semantic colour tokens for the platform portal only, as RGB channels so
+   Tailwind opacity modifiers work (bg-hq-success/10). The portal sets
+   data-hq-theme on <html>; the tenant app never does, so it is unaffected,
+   and the portal does not use the tenant app's .dark overrides. */
+:root[data-hq-theme='light'] {
+  color-scheme: light;
+  --hq-background: 246 247 251;
+  --hq-foreground: 15 23 42;
+  --hq-card: 255 255 255;
+  --hq-card-foreground: 15 23 42;
+  --hq-popover: 255 255 255;
+  --hq-muted: 241 243 248;
+  --hq-muted-foreground: 71 85 105;
+  --hq-subtle-foreground: 90 104 128;
+  --hq-border: 226 229 238;
+  --hq-input: 255 255 255;
+  --hq-ring: 93 124 222;
+  --hq-accent: 236 239 247;
+  --hq-accent-foreground: 15 23 42;
+  --hq-secondary: 241 243 248;
+  --hq-secondary-foreground: 30 41 59;
+  --hq-primary: 70 99 196;
+  --hq-primary-hover: 53 76 160;
+  --hq-primary-foreground: 255 255 255;
+  --hq-link: 53 76 160;
+  --hq-destructive: 220 38 38;
+  --hq-destructive-hover: 185 28 28;
+  --hq-destructive-foreground: 255 255 255;
+  --hq-danger: 185 28 28;
+  --hq-success: 4 120 87;
+  --hq-warning: 161 72 8;
+  --hq-info: 3 105 161;
+  --hq-neutral: 71 85 105;
+  --hq-overlay: 15 23 42;
+  --hq-chart-1: 70 99 196;
+  --hq-chart-2: 13 148 136;
+  --hq-chart-3: 217 119 6;
+  --hq-chart-4: 190 24 93;
+  --hq-chart-5: 100 116 139;
+}
+
+:root[data-hq-theme='dark'] {
+  color-scheme: dark;
+  --hq-background: 12 11 20;
+  --hq-foreground: 241 245 249;
+  --hq-card: 18 17 29;
+  --hq-card-foreground: 241 245 249;
+  --hq-popover: 24 23 38;
+  --hq-muted: 22 21 31;
+  --hq-muted-foreground: 160 172 192;
+  --hq-subtle-foreground: 128 141 163;
+  --hq-border: 43 41 62;
+  --hq-input: 20 19 31;
+  --hq-ring: 120 150 229;
+  --hq-accent: 29 28 44;
+  --hq-accent-foreground: 241 245 249;
+  --hq-secondary: 29 28 44;
+  --hq-secondary-foreground: 226 232 240;
+  --hq-primary: 70 99 196;
+  --hq-primary-hover: 53 76 160;
+  --hq-primary-foreground: 255 255 255;
+  --hq-link: 151 175 236;
+  --hq-destructive: 225 29 72;
+  --hq-destructive-hover: 190 18 60;
+  --hq-destructive-foreground: 255 255 255;
+  --hq-danger: 253 164 175;
+  --hq-success: 110 231 183;
+  --hq-warning: 252 211 77;
+  --hq-info: 125 211 252;
+  --hq-neutral: 203 213 225;
+  --hq-overlay: 2 6 23;
+  --hq-chart-1: 120 150 229;
+  --hq-chart-2: 45 212 191;
+  --hq-chart-3: 251 191 36;
+  --hq-chart-4: 244 114 182;
+  --hq-chart-5: 148 163 184;
+}
+
+/* Portal scrollbars follow the theme instead of the tenant app's brand teal. */
+:root[data-hq-theme] ::-webkit-scrollbar-thumb,
+:root[data-hq-theme]::-webkit-scrollbar-thumb {
+  background: rgb(var(--hq-subtle-foreground) / 0.45);
+}
+:root[data-hq-theme] ::-webkit-scrollbar-thumb:hover,
+:root[data-hq-theme]::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--hq-muted-foreground) / 0.8);
+}
+
 /* ── Voogyo Dark Obsidian & Brand Utilities ── */
 .bg-darkGreen-600, .bg-dark-green-600, [class*="bg-darkGreen-600"] {
   background-color: #181724 !important;

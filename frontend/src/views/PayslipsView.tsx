@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, FileText, X, IndianRupee } from 'lucide-react';
+import { Download, FileText, X } from 'lucide-react';
 import { usePayroll } from '../context/PayrollContext';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -119,14 +119,11 @@ const PayslipModal: React.FC<{
 
 /* ── Main view ─────────────────────────────────────────────── */
 export const PayslipsView: React.FC = () => {
-  const { employees, payrollRun, role } = usePayroll();
+  const { employees, payrollRun } = usePayroll();
   const [modalItem, setModalItem] = useState<{ item: EmployeePayrollItem; period: string } | null>(null);
   const [selectedEmpId, setSelectedEmpId] = useState(employees[0]?.id ?? '');
 
   const selectedEmp = employees.find((e) => e.id === selectedEmpId) ?? employees[0];
-
-  // For employee role — show only own payslips using netPayTrend
-  const isEmployee = role === 'EMPLOYEE';
 
   const runs = [
     ...MOCK_PAYROLL_RUNS.filter((r) => r.status === 'PAID' || r.status === 'APPROVED'),
@@ -140,8 +137,7 @@ export const PayslipsView: React.FC = () => {
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Download and view payslips</p>
       </div>
 
-      {!isEmployee && (
-        <div className="flex flex-col lg:flex-row gap-5">
+      <div className="flex flex-col lg:flex-row gap-5">
           {/* Employee selector */}
           <div className="lg:w-64 shrink-0">
             <Card padded={false}>
@@ -220,51 +216,6 @@ export const PayslipsView: React.FC = () => {
             </Card>
           </div>
         </div>
-      )}
-
-      {/* Employee self-service view */}
-      {isEmployee && selectedEmp && (
-        <div className="space-y-4 max-w-lg">
-          <Card highlight>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-mint-100 flex items-center justify-center">
-                <IndianRupee className="w-5 h-5 text-[#0E5A47]" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">September 2026 · Net Pay</p>
-                <p className="text-2xl font-bold text-[#0E5A47]">
-                  {selectedEmp.netPayTrend[5]?.net ? fmt(selectedEmp.netPayTrend[5].net) : '—'}
-                </p>
-              </div>
-            </div>
-            <Button variant="primary" size="sm" className="gap-2">
-              <Download className="w-3.5 h-3.5" /> Download Payslip
-            </Button>
-          </Card>
-
-          <Card>
-            <h3 className="text-sm font-bold text-slate-800 mb-4">Payslip History</h3>
-            <ul className="space-y-2">
-              {selectedEmp.netPayTrend.map((pt, i) => (
-                <li key={i} className="flex items-center justify-between py-2.5 border-b border-slate-50 last:border-0">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700">{pt.month} 2026</p>
-                    <p className="text-xs text-slate-400">{pt.net > 0 ? 'Credited' : 'No record'}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {pt.net > 0 && (
-                      <>
-                        <span className="text-sm font-bold text-slate-800">{fmt(pt.net)}</span>
-                        <Badge variant="success" size="sm">Paid</Badge>
-                      </>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
-      )}
 
       {modalItem && (
         <PayslipModal

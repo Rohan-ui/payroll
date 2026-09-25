@@ -28,6 +28,7 @@ import {
   Sparkles
 } from 'lucide-react';
 
+import { apiFetch } from '../../api/client';
 interface AuditLogItem {
   id: string;
   tenant_id: string;
@@ -84,7 +85,7 @@ export default function CrmAuditTrailView({
       if (selectedEntity !== 'ALL') url += `&entityType=${encodeURIComponent(selectedEntity)}`;
       if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`;
 
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await apiFetch(url, { cache: 'no-store' });
       const json = await res.json();
       if (json.success) {
         setLogs(json.data || []);

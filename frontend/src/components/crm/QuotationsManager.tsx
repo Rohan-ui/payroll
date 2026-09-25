@@ -18,6 +18,9 @@ import {
 import WordDocumentEditor from './WordDocumentEditor';
 import { DEFAULT_HEADER_SVG, DEFAULT_FOOTER_SVG } from '@/lib/letterheadDefaults';
 
+import { sanitizedHtmlProps } from '../../utils/sanitize-html';
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 interface QuotationsManagerProps {
   leads: any[];
   services: any[];
@@ -57,18 +60,15 @@ export default function QuotationsManager({
   const [dealWonConfirmQuote, setDealWonConfirmQuote] = useState<any | null>(null);
 
   // In-app toast
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const fetchQuotationsAndTemplates = async () => {
     setLoading(true);
     try {
       const [qRes, tRes] = await Promise.all([
-        fetch('/api/v1/crm/quotations'),
-        fetch('/api/v1/crm/quotation-templates')
+        apiFetch('/api/v1/crm/quotations'),
+        apiFetch('/api/v1/crm/quotation-templates')
       ]);
       const qJson = await qRes.json();
       const tJson = await tRes.json();
@@ -103,49 +103,51 @@ export default function QuotationsManager({
   const handleConfirmDelete = async () => {
     if (!deleteConfirmQuote) return;
     try {
-      const res = await fetch(`/api/v1/crm/quotations/${deleteConfirmQuote.id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/crm/quotations/${deleteConfirmQuote.id}`, { method: 'DELETE', feedback: { success: false } });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast(`Quotation ${deleteConfirmQuote.quotation_number} deleted.`);
         setDeleteConfirmQuote(null);
         fetchQuotationsAndTemplates();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     }
   };
 
-  const handleUpdateStatus = async (id: string, newStatus: string) => {
+  /** Changes a quotation's status; true only when the server saved it. */
+  const handleUpdateStatus = async (id: string, newStatus: string): Promise<boolean> => {
     try {
-      await fetch(`/api/v1/crm/quotations/${id}`, {
+      const res = await apiFetch(`/api/v1/crm/quotations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ status: newStatus }),
+        feedback: { success: `Quotation marked ${newStatus.toLowerCase()}` },
       });
-      showToast(`Status updated to ${newStatus}`);
-      fetchQuotationsAndTemplates();
-    } catch (err) {
-      console.error(err);
+      if (res.ok) fetchQuotationsAndTemplates();
+      return res.ok;
+    } catch {
+      return false; // Reported by the API client.
     }
   };
 
   const handleConfirmConvertWon = async () => {
     if (!dealWonConfirmQuote) return;
     try {
-      // 1. Mark quote accepted
-      await handleUpdateStatus(dealWonConfirmQuote.id, 'ACCEPTED');
+      // 1. Mark the quote accepted; stop if that did not save.
+      if (!(await handleUpdateStatus(dealWonConfirmQuote.id, 'ACCEPTED'))) return;
 
-      // 2. Trigger deal won
-      const res = await fetch(`/api/v1/crm/leads/${dealWonConfirmQuote.lead_id}/convert-won`, { method: 'POST' });
+      // 2. Then mark the deal won.
+      const res = await apiFetch(`/api/v1/crm/leads/${dealWonConfirmQuote.lead_id}/convert-won`, { method: 'POST', feedback: { success: false } });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast(`🏆 Deal Won! Client created, Project: ${data.data.projectCode}, Invoice: ${data.data.invoiceNumber}`);
         setDealWonConfirmQuote(null);
         fetchQuotationsAndTemplates();
         onRefreshParent();
       }
-    } catch (err: any) {
-      showToast('Conversion failed: ' + err.message);
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -157,19 +159,6 @@ export default function QuotationsManager({
 
   return (
     <div className="space-y-4 relative">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 text-white text-xs font-semibold rounded-xl shadow-xl flex items-center gap-2 animate-in slide-in-from-top duration-200 ${
-          toastMessage.type === 'success' ? 'bg-slate-900' : 'bg-rose-600'
-        }`}>
-          {toastMessage.type === 'success' ? (
-            <Check className="w-4 h-4 text-emerald-400" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-white" />
-          )}
-          <span>{toastMessage.text}</span>
-        </div>
-      )}
 
       {/* Top Action Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -474,7 +463,7 @@ export default function QuotationsManager({
             {/* Scope Content preview */}
             {selectedQuoteForPreview.content_body && (
               <div className="p-4 bg-slate-50 border rounded-xl prose prose-xs max-w-none text-xs text-slate-800">
-                <div dangerouslySetInnerHTML={{ __html: selectedQuoteForPreview.content_body }} />
+                <div {...sanitizedHtmlProps(selectedQuoteForPreview.content_body)} />
               </div>
             )}
 

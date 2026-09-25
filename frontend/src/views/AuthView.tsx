@@ -11,13 +11,13 @@ const STATS = [
   { icon: TrendingUp, label: 'Payroll runs/month', value: '18,000+' },
 ];
 
-export const AuthView: React.FC = () => {
+export const AuthView: React.FC<{ initialEmail?: string }> = ({ initialEmail }) => {
   const { login, registerTenant, isLoading, error } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [showPass, setShowPass] = useState(false);
 
   // Login fields
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail ?? '');
   const [password, setPassword] = useState('');
 
   // Register fields
@@ -265,8 +265,10 @@ export const AuthView: React.FC = () => {
                     id="regPass"
                     type={showPass ? 'text' : 'password'}
                     required
-                    minLength={8}
-                    placeholder="Minimum 8 characters"
+                    minLength={10}
+                    autoComplete="new-password"
+                    placeholder="Minimum 10 characters"
+                    aria-describedby="regPass-hint"
                     value={regPass}
                     onChange={(e) => setRegPass(e.target.value)}
                     className={`${inputClass} pr-11`}

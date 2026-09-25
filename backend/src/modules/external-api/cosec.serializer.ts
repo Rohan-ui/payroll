@@ -71,11 +71,19 @@ export interface CosecRawDailyAttendance {
   punch5_time?: string;
   punch6_time?: string;
   punch7_time?: string;
+  punch8_time?: string;
+  punch9_time?: string;
+  punch10_time?: string;
+  punch11_time?: string;
+  punch12_time?: string;
   outpunch_time?: string;
   firsthalf?: string;     // "PR", "AB", "WO", "PH", etc.
   secondhalf?: string;    // "PR", "AB", "WO", "PH", "IN", etc.
   worktime_hhmm?: string; // "07:30"
-  shiftstart?: string;    // "08:00"
+  shiftstart?: string;    // "08:00" — start of the scheduled shift for this date
+  shiftend?: string;      // "17:00" — end of the scheduled shift for this date
+  scheduleshift?: string; // "GS" — shift code scheduled for this date
+  workingshift?: string;  // "S3" — shift code COSEC evaluated the day against
   integration_reference?: string;
   [key: string]: string | undefined;
 }
@@ -138,13 +146,16 @@ export interface SerializedCosecDailyAttendance {
   currentPresence: 'INSIDE' | 'OUTSIDE' | 'NOT_REPORTED';
   punches: CosecPunchDetail[];      // complete punch history for the day
   rawOutPunchTime: string | null;   // COSEC device reported outpunch_time
-  outPunchMatchedIndex: number | null; // Punch index (1-7) that matches outpunch_time
+  outPunchMatchedIndex: number | null; // Punch index that matches outpunch_time
   punchInTime: string | null;       // compatibility
   punchOutTime: string | null;      // compatibility (only set if actually checked out)
   status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'WEEK_OFF' | 'HOLIDAY';
   firstHalf: string;
   secondHalf: string;
-  shiftStart: string | null;
+  shiftStart: string | null;        // "HH:MM"
+  shiftEnd: string | null;          // "HH:MM"
+  scheduledShiftCode: string | null;
+  workingShiftCode: string | null;
   workedMinutes: number;
   workTimeHhmm: string;
 }
@@ -163,6 +174,12 @@ function parseIntSafe(val: string | undefined): number {
   if (!val) return 0;
   const n = parseInt(val, 10);
   return isNaN(n) ? 0 : n;
+}
+
+/** Validate a COSEC clock value ("HH:MM" or "HH:MM:SS") and return "HH:MM", or null. */
+export function parseCosecClock(val: string | undefined): string | null {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/.exec(val?.trim() ?? '');
+  return m ? `${m[1]}:${m[2]}` : null;
 }
 
 /**
@@ -303,9 +320,14 @@ export function serializeCosecDailyAttendance(
       const fHalf = (r.firsthalf || '').trim().toUpperCase();
       const sHalf = (r.secondhalf || '').trim().toUpperCase();
 
-      // Extract all punches (1 to 7)
+      // Extract every populated punchN_time field returned by COSEC, in punch order
+      const punchIndexes = Object.keys(r)
+        .map((key) => /^punch(\d+)_time$/.exec(key)?.[1])
+        .filter((n): n is string => n !== undefined)
+        .map(Number)
+        .sort((a, b) => a - b);
       const punches: CosecPunchDetail[] = [];
-      for (let i = 1; i <= 7; i++) {
+      for (const i of punchIndexes) {
         const pTime = r[`punch${i}_time`]?.trim();
         if (pTime) {
           const isOdd = i % 2 === 1;
@@ -340,8 +362,8 @@ export function serializeCosecDailyAttendance(
         }
       }
 
-      // Odd-numbered last punch (1, 3, 5, 7) means employee punched IN and has NOT punched out yet -> STILL INSIDE
-      // Even-numbered last punch (2, 4, 6) means employee punched OUT -> OUTSIDE
+      // Odd-numbered last punch (1, 3, 5, ...) means employee punched IN and has NOT punched out yet -> STILL INSIDE
+      // Even-numbered last punch (2, 4, 6, ...) means employee punched OUT -> OUTSIDE
       const isCurrentlyInside = hasPunches && lastPunch?.type === 'CHECK_IN';
       const currentPresence: 'INSIDE' | 'OUTSIDE' | 'NOT_REPORTED' = !hasPunches
         ? 'NOT_REPORTED'
@@ -398,7 +420,10 @@ export function serializeCosecDailyAttendance(
         status,
         firstHalf: fHalf,
         secondHalf: sHalf,
-        shiftStart: r.shiftstart?.trim() || null,
+        shiftStart: parseCosecClock(r.shiftstart),
+        shiftEnd: parseCosecClock(r.shiftend),
+        scheduledShiftCode: r.scheduleshift?.trim() || null,
+        workingShiftCode: r.workingshift?.trim() || null,
         workedMinutes,
         workTimeHhmm: hhmm,
       };

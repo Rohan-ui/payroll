@@ -28,6 +28,7 @@ import { useTenantIndustries } from '@/lib/industryTaxonomy';
 import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 import { SORTED_COUNTRY_CODES, parsePhoneWithCountryCode, combinePhoneWithCountryCode, extractDialCode } from '@/lib/countryCodes';
 
+import { apiFetch } from '../../api/client';
 interface ColdLeadImportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -76,6 +77,7 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
+  const [skippedRows, setSkippedRows] = useState<{ row: number; reason: string }[]>([]);
   const [parsedRows, setParsedRows] = useState<ParsedLeadRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -91,8 +93,8 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
     async function loadMasterData() {
       try {
         const [srcRes, usrRes] = await Promise.all([
-          fetch('/api/v1/crm/masters/sources'),
-          fetch('/api/v1/users')
+          apiFetch('/api/v1/crm/masters/sources'),
+          apiFetch('/api/v1/users')
         ]);
         const srcJson = await srcRes.json();
         if (srcJson.success && Array.isArray(srcJson.data)) {
@@ -117,7 +119,7 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
     try {
       setDownloadingTemplate(true);
       setError(null);
-      const res = await fetch('/api/v1/crm/leads/import/template');
+      const res = await apiFetch('/api/v1/crm/leads/import/template');
       if (!res.ok) throw new Error('Failed to generate template from server');
       
       const blob = await res.blob();
@@ -197,8 +199,8 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
           const websiteUrl = String(row['Website URL'] || row['websiteUrl'] || row['website_url'] || '').trim();
           const linkedinCompanyUrl = String(row['LinkedIn Company URL'] || row['linkedinCompanyUrl'] || row['linkedin_company_url'] || '').trim();
           const personalLinkedInUrl = String(row['Personal LinkedIn URL'] || row['personalLinkedInUrl'] || row['LinkedIn URL'] || row['linkedin_url'] || '').trim();
-          const city = String(row['City'] || row['city'] || 'Mumbai').trim();
-          const state = String(row['State'] || row['state'] || 'Maharashtra').trim();
+          const city = String(row['City'] || row['city'] || '').trim();
+          const state = String(row['State'] || row['state'] || '').trim();
           const country = String(row['Country'] || row['country'] || 'India').trim();
           const address = String(row['Address'] || row['address'] || '').trim();
           const pincode = String(row['Pincode'] || row['pincode'] || row['Postal Code'] || row['postal_code'] || '').trim();
@@ -421,7 +423,7 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
         urgency: r.urgency
       }));
 
-      const res = await fetch('/api/v1/crm/leads/import', {
+      const res = await apiFetch('/api/v1/crm/leads/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leads: payload })
@@ -429,14 +431,15 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
 
       const json = await res.json();
       if (res.ok && json.success) {
-        setSuccessCount(json.data?.successCount ?? json.data?.importedCount ?? payload.length);
+        setSuccessCount(json.data?.successCount ?? json.data?.importedCount ?? 0);
+        setSkippedRows(Array.isArray(json.data?.skipped) ? json.data.skipped : []);
         setStep('success');
         onSuccess();
       } else {
-        setError(json.error || 'Failed to import leads');
+        setError(json.message || json.error || 'Failed to import leads');
       }
-    } catch (err: any) {
-      setError('Network error during import: ' + err.message);
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
     } finally {
       setIsUploading(false);
     }
@@ -447,6 +450,7 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
     setParsedRows([]);
     setError(null);
     setSuccessCount(null);
+    setSkippedRows([]);
     onClose();
   };
 
@@ -982,10 +986,20 @@ export function ColdLeadImportModal({ isOpen, onClose, onSuccess }: ColdLeadImpo
               <div className="h-16 w-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-xs">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Leads Successfully Imported!</h3>
+              <h3 className="text-lg font-bold text-slate-900">Import finished</h3>
               <p className="text-sm text-slate-600 max-w-sm">
-                Successfully enrolled <strong className="text-emerald-700 font-bold">{successCount} leads</strong> into the Outbound Outreach Cadence. Day 1 touchpoints have been automatically scheduled.
+                Imported <strong className="text-emerald-700 font-bold">{successCount} leads</strong>.
+                {skippedRows.length > 0 && ` ${skippedRows.length} rows were skipped.`}
               </p>
+              {skippedRows.length > 0 && (
+                <ul className="max-h-40 overflow-y-auto w-full max-w-md text-left text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+                  {skippedRows.map((skipped) => (
+                    <li key={skipped.row}>
+                      Row {skipped.row}: {skipped.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <div className="pt-3">
                 <button
                   type="button"

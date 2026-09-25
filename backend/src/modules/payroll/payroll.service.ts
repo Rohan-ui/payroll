@@ -181,7 +181,9 @@ export class PayrollService {
     return this.prisma.$transaction(async (tx) => {
       // Mark calculation started
       await tx.rndtechnosoft_payroll_runs.update({
-        where: { id: runId },
+        // Composite [tenant_id, id] key: the database refuses a write against
+        // another tenant's payroll run even if the id is guessed.
+        where: { tenant_id_id: { tenant_id: tenantId, id: runId } },
         data: { calculation_started_at: calculationTimestamp },
       });
 
@@ -317,7 +319,7 @@ export class PayrollService {
 
       // Update Run Status
       return tx.rndtechnosoft_payroll_runs.update({
-        where: { id: runId },
+        where: { tenant_id_id: { tenant_id: tenantId, id: runId } },
         data: {
           run_status: 'CALCULATED',
           calculation_completed_at: new Date(),
@@ -353,7 +355,8 @@ export class PayrollService {
     }
 
     return this.prisma.rndtechnosoft_payroll_runs.update({
-      where: { id: runId },
+      // Composite [tenant_id, id] key keeps approval inside this tenant.
+      where: { tenant_id_id: { tenant_id: tenantId, id: runId } },
       data: {
         run_status: 'APPROVED',
         approved_at: new Date(),
@@ -480,7 +483,9 @@ export class PayrollService {
 
       // Mark run as FINALIZED
       const finalizedRun = await tx.rndtechnosoft_payroll_runs.update({
-        where: { id: runId },
+        // Finalisation is irreversible, so the tenant scope is enforced by the
+        // composite [tenant_id, id] key rather than by the caller.
+        where: { tenant_id_id: { tenant_id: tenantId, id: runId } },
         data: {
           run_status: 'FINALIZED',
           finalized_at: finalizeTimestamp,

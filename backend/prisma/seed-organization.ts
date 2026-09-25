@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { randomUUID, createHash } from 'crypto';
+import { grantDefaultRolePermissions } from '../src/common/access/role-defaults';
 
 const prisma = new PrismaClient();
 
@@ -231,6 +232,8 @@ async function main() {
         },
       });
     }
+    // Permissions come only from role_permissions rows, so seeded roles need their grants too.
+    await grantDefaultRolePermissions(prisma, tenantId, role.id, r.code);
     roleMap[r.code] = role.id;
   }
   console.log(`✓ ${roles.length} roles verified and synced.`);

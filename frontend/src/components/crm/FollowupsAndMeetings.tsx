@@ -7,6 +7,8 @@ import {
   ChevronLeft, ChevronRight, Copy, ExternalLink, Sparkles, User
 } from 'lucide-react';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 interface FollowupsAndMeetingsProps {
   leads: any[];
   initialLeadId?: string | null;
@@ -85,19 +87,16 @@ export default function FollowupsAndMeetings({
 
   // In-app Delete Confirmation state (Zero browser dialogs)
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; type: 'followup' | 'meeting'; title: string } | null>(null);
-  const [toastText, setToastText] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastText(msg);
-    setTimeout(() => setToastText(null), 3000);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const [fRes, mRes] = await Promise.all([
-        fetch('/api/v1/crm/followups'),
-        fetch('/api/v1/crm/meetings')
+        apiFetch('/api/v1/crm/followups'),
+        apiFetch('/api/v1/crm/meetings')
       ]);
       const fJson = await fRes.json();
       const mJson = await mRes.json();
@@ -162,7 +161,8 @@ export default function FollowupsAndMeetings({
     if (!targetLeadId || !fupDate) return;
     setSubmitting(true);
     try {
-      const res = await fetch('/api/v1/crm/followups', {
+      const res = await apiFetch('/api/v1/crm/followups', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,8 +179,8 @@ export default function FollowupsAndMeetings({
         onRefreshParent();
         showToast('Follow-up reminder set successfully!');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     } finally {
       setSubmitting(false);
     }
@@ -191,7 +191,8 @@ export default function FollowupsAndMeetings({
     if (!targetLeadId || !meetDate || !meetTitle) return;
     setSubmitting(true);
     try {
-      const res = await fetch('/api/v1/crm/meetings', {
+      const res = await apiFetch('/api/v1/crm/meetings', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -209,8 +210,8 @@ export default function FollowupsAndMeetings({
         onRefreshParent();
         showToast('Meeting scheduled successfully!');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     } finally {
       setSubmitting(false);
     }
@@ -218,10 +219,11 @@ export default function FollowupsAndMeetings({
 
   const handleCompleteFollowup = async (id: string) => {
     try {
-      await fetch(`/api/v1/crm/followups/${id}`, {
+      await apiFetch(`/api/v1/crm/followups/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'COMPLETED' })
+        body: JSON.stringify({ status: 'COMPLETED' }),
+        feedback: { success: 'Follow-up completed' },
       });
       fetchData();
       onRefreshParent();
@@ -236,14 +238,14 @@ export default function FollowupsAndMeetings({
       const endpoint = deleteConfirmTarget.type === 'followup' 
         ? `/api/v1/crm/followups/${deleteConfirmTarget.id}` 
         : `/api/v1/crm/meetings/${deleteConfirmTarget.id}`;
-      await fetch(endpoint, { method: 'DELETE' });
-      showToast(`${deleteConfirmTarget.type === 'followup' ? 'Follow-up' : 'Meeting'} deleted successfully`);
-      setDeleteConfirmTarget(null);
-      fetchData();
-      onRefreshParent();
-    } catch (err: any) {
-      console.error(err);
-      showToast('Delete failed: ' + err.message);
+      const res = await apiFetch(endpoint, { method: 'DELETE' });
+      if (res.ok) {
+        setDeleteConfirmTarget(null);
+        fetchData();
+        onRefreshParent();
+      }
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -258,7 +260,7 @@ export default function FollowupsAndMeetings({
     if (!selectedMeetingForMOM) return;
     setSubmitting(true);
     try {
-      await fetch(`/api/v1/crm/meetings/${selectedMeetingForMOM.id}`, {
+      await apiFetch(`/api/v1/crm/meetings/${selectedMeetingForMOM.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -336,13 +338,6 @@ export default function FollowupsAndMeetings({
 
   return (
     <div className="space-y-4 relative">
-      {/* Toast */}
-      {toastText && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-3 bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-xl flex items-center gap-2 animate-in slide-in-from-top duration-200">
-          <Check className="w-4 h-4 text-emerald-400" />
-          <span>{toastText}</span>
-        </div>
-      )}
 
       {/* Top Tabs & Actions */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1211,13 +1206,6 @@ export default function FollowupsAndMeetings({
         </div>
       )}
 
-      {/* FLOATING TOAST NOTIFICATION */}
-      {toastText && (
-        <div className="fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl bg-slate-900 text-white text-xs font-semibold animate-in slide-in-from-top">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span>{toastText}</span>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
@@ -6,7 +7,13 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // The reverse proxy on this host (nginx) appends the caller's address to
+  // X-Forwarded-For. Only a loopback peer is trusted to set it, so a caller
+  // connecting directly, or writing the header itself, cannot pick the address
+  // that sign-in throttling and audit records use.
+  app.set('trust proxy', 'loopback');
 
   app.setGlobalPrefix('api/v1');
 
@@ -28,7 +35,7 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.enableShutdownHooks();
+  // app.enableShutdownHooks();
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT') || 4000;

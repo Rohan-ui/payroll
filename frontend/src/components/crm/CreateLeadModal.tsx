@@ -32,6 +32,7 @@ import {
 } from '@/lib/industryTaxonomy';
 import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 
+import { apiFetch } from '../../api/client';
 interface CreateLeadModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -59,8 +60,8 @@ export default function CreateLeadModal({
 
   const [formData, setFormData] = useState({
     companyName: '',
-    industry: 'Manufacturing',
-    sub_industry: 'Chemical',
+    industry: '',
+    sub_industry: '',
     firstName: '',
     lastName: '',
     designation: '',
@@ -69,13 +70,13 @@ export default function CreateLeadModal({
     whatsappNumber: '',
     linkedinUrl: '',
     websiteUrl: '',
-    city: 'Mumbai',
-    state: 'Maharashtra',
+    city: '',
+    state: '',
     gstin: '',
     panNumber: '',
     sourceId: '',
     primaryService: '',
-    budgetAmount: 350000,
+    budgetAmount: 0,
     pipelineId: '',
     stageId: '',
     assignedUserId: '',
@@ -95,13 +96,11 @@ export default function CreateLeadModal({
   // Initialize default selections when modal opens
   useEffect(() => {
     if (isOpen) {
-      const defaultInd = industries[0]?.name || 'Manufacturing';
-      const defaultSub = industries[0]?.subIndustries[0]?.name || 'Chemical';
-
       setFormData({
         companyName: '',
-        industry: defaultInd,
-        sub_industry: defaultSub,
+        // Only what the user chooses is saved; nothing is preselected for them.
+        industry: '',
+        sub_industry: '',
         firstName: '',
         lastName: '',
         designation: '',
@@ -110,16 +109,16 @@ export default function CreateLeadModal({
         whatsappNumber: '',
         linkedinUrl: '',
         websiteUrl: '',
-        city: 'Mumbai',
-        state: 'Maharashtra',
+        city: '',
+        state: '',
         gstin: '',
         panNumber: '',
-        sourceId: sources[0]?.id || '',
-        primaryService: services[0]?.name || '',
-        budgetAmount: services[0]?.default_rate ? Number(services[0].default_rate) : 350000,
+        sourceId: '',
+        primaryService: '',
+        budgetAmount: 0,
         pipelineId: pipelines[0]?.id || '',
         stageId: stages[0]?.id || '',
-        assignedUserId: salesPersons[0]?.id || '',
+        assignedUserId: '',
         temperature: 'WARM',
         urgency: 'MEDIUM',
         requirementBrief: '',
@@ -167,20 +166,20 @@ export default function CreateLeadModal({
       isExistingClient: true,
       clientId: targetClient.id,
       companyName: targetClient.company_name,
-      industry: targetClient.industry || 'information_technology',
-      sub_industry: targetClient.sub_industry || 'saas_cloud',
+      industry: targetClient.industry || '',
+      sub_industry: targetClient.sub_industry || '',
       firstName: fName,
       lastName: lName,
       email: targetClient.email || '',
       phone: targetClient.phone || '',
-      city: targetClient.city || 'Mumbai',
+      city: targetClient.city || '',
       state: targetClient.state || 'Maharashtra',
       gstin: targetClient.gstin || '',
       panNumber: targetClient.pan_number || '',
       temperature: 'HOT',
       urgency: 'HIGH',
       requirementBrief: formData.requirementBrief || `Repeat business / expansion project for ${targetClient.company_name}`,
-      sourceId: sources.find(s => s.id === 'src_existing_client')?.id || formData.sourceId
+      sourceId: formData.sourceId
     });
 
     if (targetClient.gstin || targetClient.pan_number) {
@@ -198,7 +197,7 @@ export default function CreateLeadModal({
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/v1/crm/leads', {
+      const res = await apiFetch('/api/v1/crm/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -208,10 +207,10 @@ export default function CreateLeadModal({
         onSuccess();
         onClose();
       } else {
-        setErrorMsg(data.error || 'Failed to create lead');
+        setErrorMsg(data.message || data.error || 'Failed to create lead');
       }
     } catch (err: any) {
-      setErrorMsg('Failed to save lead: ' + err.message);
+      setErrorMsg('Could not reach the server. Check your connection and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -437,6 +436,7 @@ export default function CreateLeadModal({
                     }}
                     className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
+                    <option value="">Not specified</option>
                     {industries.map((ind) => (
                       <option key={ind.id || ind.key} value={ind.name}>{ind.name}</option>
                     ))}
@@ -453,6 +453,7 @@ export default function CreateLeadModal({
                     onChange={(e) => setFormData({ ...formData, sub_industry: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
+                    <option value="">Not specified</option>
                     {getSubIndustries(formData.industry).map((sub) => (
                       <option key={sub.id || sub.key} value={sub.name}>{sub.name}</option>
                     ))}
@@ -663,6 +664,7 @@ export default function CreateLeadModal({
                     }}
                     className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
+                    <option value="">Not specified</option>
                     {services.map((s) => (
                       <option key={s.id} value={s.name}>
                         {s.name} — {formatCurrency(s.default_rate)}
@@ -715,6 +717,7 @@ export default function CreateLeadModal({
                     onChange={(e) => setFormData({ ...formData, assignedUserId: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
+                    <option value="">Unassigned</option>
                     {salesPersons.map((sp) => (
                       <option key={sp.id} value={sp.id}>
                         {sp.first_name} {sp.last_name}
@@ -733,6 +736,7 @@ export default function CreateLeadModal({
                     onChange={(e) => setFormData({ ...formData, sourceId: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
+                    <option value="">Not specified</option>
                     {sources.map((src) => (
                       <option key={src.id} value={src.id}>{src.name} ({src.channel})</option>
                     ))}

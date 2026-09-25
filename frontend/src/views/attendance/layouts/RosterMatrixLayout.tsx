@@ -542,7 +542,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                               type="button"
                               onClick={() => {
                                 onSelectDate(cell.date);
-                                handleCellClick(cell.date);
+                                onSelectEmployee(emp.employeeId);
                               }}
                               title={`${emp.fullName} • ${cell.date}: ${cell.status}${cell.inTime ? ` (${cell.inTime})` : ''}`}
                               aria-label={`${emp.fullName}, ${cell.date}: ${cell.status}`}
@@ -566,59 +566,6 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
           </table>
         </div>
       </div>
-
-      {/* Centered Modal for Day Detail */}
-      {modalDate && (
-        <DayDetail
-          displayMode="modal"
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          dayRecord={
-            // Construct temporary day record for modal preview from matrix if not in employee detail view
-            employeeMonthData?.days.find((d) => d.date === modalDate) || {
-              date: modalDate,
-              day: parseInt(modalDate.slice(8, 10), 10),
-              weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(`${modalDate}T00:00:00.000Z`).getUTCDay()],
-              status: 'PRESENT',
-              glyph: '✓',
-              firstCheckInAt: `${modalDate}T04:03:00.000Z`,
-              lastCheckOutAt: `${modalDate}T13:00:00.000Z`,
-              workedMinutes: 537,
-              workedHours: 8.9,
-              lateMinutes: 0,
-              overtimeMinutes: 57,
-              isLate: false,
-              source: 'Biometric Scanner',
-              shift: {
-                name: 'General Day Shift (09:30 AM - 06:30 PM)',
-                startTime: '09:30 AM',
-                endTime: '06:30 PM',
-                graceMinutes: 15,
-                standardMinutes: 480,
-                breakMinutes: 60,
-              },
-              punches: [
-                { id: 'p1', punchAt: `${modalDate}T04:03:00.000Z`, punchType: 'IN', source: 'BIOMETRIC' },
-                { id: 'p2', punchAt: `${modalDate}T07:30:00.000Z`, punchType: 'OUT', source: 'BIOMETRIC' },
-                { id: 'p3', punchAt: `${modalDate}T08:30:00.000Z`, punchType: 'IN', source: 'BIOMETRIC' },
-                { id: 'p4', punchAt: `${modalDate}T13:00:00.000Z`, punchType: 'OUT', source: 'BIOMETRIC' },
-              ],
-            }
-          }
-          onPrevDay={() => {
-            const d = new Date(`${modalDate}T00:00:00.000Z`);
-            d.setUTCDate(d.getUTCDate() - 1);
-            setModalDate(d.toISOString().slice(0, 10));
-          }}
-          onNextDay={() => {
-            const d = new Date(`${modalDate}T00:00:00.000Z`);
-            d.setUTCDate(d.getUTCDate() + 1);
-            setModalDate(d.toISOString().slice(0, 10));
-          }}
-          onRegularize={onRegularize}
-          onEditPunches={onEditPunches}
-        />
-      )}
     </div>
   );
 };

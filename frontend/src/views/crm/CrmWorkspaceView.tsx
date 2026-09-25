@@ -6,6 +6,7 @@ import {
   List, Calendar, Mail
 } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
+import { useAuth } from '../../context/AuthContext';
 import LeadsDirectory from '../../components/crm/LeadsDirectory';
 import PipelineKanban from '../../components/crm/PipelineKanban';
 import FollowupsAndMeetings from '../../components/crm/FollowupsAndMeetings';
@@ -17,6 +18,8 @@ import CreateLeadModal from '../../components/crm/CreateLeadModal';
 import SLeadCadenceCenter from '../../components/crm/SLeadCadenceCenter';
 import CrmAuditTrailView from '../../components/crm/CrmAuditTrailView';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
   'cold-funnel': {
     title: 'Client Outreach',
@@ -52,6 +55,7 @@ type CrmTab = 'cold-funnel' | 'pipeline' | 'activities' | 'proposals' | 'reports
 
 function CRMEnterpriseContent() {
   const { crmTab, setCrmTab, navigateTo } = usePayroll();
+  const { canOpen } = useAuth();
   const [activeTab, setActiveTab] = useState<CrmTab>(crmTab || 'cold-funnel');
   const [pipelineView, setPipelineView] = useState<'kanban' | 'list'>('kanban');
   const [leads, setLeads] = useState<any[]>([]);
@@ -98,12 +102,9 @@ function CRMEnterpriseContent() {
   const [convertingWon, setConvertingWon] = useState(false);
 
   // Toast feedback
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const handleTabChange = (tab: CrmTab) => {
     setActiveTab(tab);
@@ -190,13 +191,13 @@ function CRMEnterpriseContent() {
     setLoading(true);
     try {
       const [leadsRes, srvRes, fupRes, meetRes, quotesRes, authRes, cadenceRes] = await Promise.all([
-        fetch('/api/v1/crm/leads'),
-        fetch('/api/v1/crm/masters/services'),
-        fetch('/api/v1/crm/followups'),
-        fetch('/api/v1/crm/meetings'),
-        fetch('/api/v1/crm/quotations'),
-        fetch('/api/v1/auth/me'),
-        fetch('/api/v1/crm/cadence')
+        apiFetch('/api/v1/crm/leads'),
+        apiFetch('/api/v1/crm/masters/services'),
+        apiFetch('/api/v1/crm/followups'),
+        apiFetch('/api/v1/crm/meetings'),
+        apiFetch('/api/v1/crm/quotations'),
+        apiFetch('/api/v1/auth/me'),
+        apiFetch('/api/v1/crm/cadence')
       ]);
 
       const leadsJson = await leadsRes.json().catch(() => ({}));
@@ -305,7 +306,8 @@ function CRMEnterpriseContent() {
     if (!reassignLeadTarget || !reassignSelectedUserId) return;
     setReassignLoading(true);
     try {
-      const res = await fetch('/api/v1/crm/leads/bulk', {
+      const res = await apiFetch('/api/v1/crm/leads/bulk', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -315,15 +317,13 @@ function CRMEnterpriseContent() {
         })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast(`Lead reassigned to new sales representative!`, 'success');
         setReassignLeadTarget(null);
         fetchCRMData();
-      } else {
-        showToast(data.error || 'Failed to reassign lead', 'error');
       }
-    } catch (err: any) {
-      showToast('Error reassigning lead: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setReassignLoading(false);
     }
@@ -333,20 +333,19 @@ function CRMEnterpriseContent() {
     if (!selectedWonLeadId) return;
     setConvertingWon(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${selectedWonLeadId}/convert-won`, {
+      const res = await apiFetch(`/api/v1/crm/leads/${selectedWonLeadId}/convert-won`, {
+        feedback: { success: false },
         method: 'POST'
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast(`🏆 Deal Won! Client created, Project: ${data.data?.projectCode || 'Created'}, Invoice: ${data.data?.invoiceNumber || 'Created'}`);
         setGlobalDealWonModalOpen(false);
         setSelectedWonLeadId('');
         fetchCRMData();
-      } else {
-        showToast('Conversion failed: ' + (data.error || 'Server error'), 'error');
       }
-    } catch (err: any) {
-      showToast('Error converting deal: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setConvertingWon(false);
     }
@@ -409,22 +408,20 @@ function CRMEnterpriseContent() {
   // Active unconverted leads for 1-Click Convert
   const unconvertedLeads = leads.filter(l => !l.is_won && l.temperature !== 'WON');
 
+  // Each CRM area is its own sidebar item; the server decides which ones this member may open.
+  if (!canOpen(`crm.${activeTab}`)) {
+    return (
+      <div role="status" className="max-w-xl mx-auto mt-10 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+        <h1 className="text-lg font-bold text-slate-900">You don't have access to this part of the CRM</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Your role doesn't include it. Choose another CRM item from the menu, or ask a workspace administrator for access.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 relative p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-top duration-200 ${
-          toastMessage.type === 'success' 
-            ? 'bg-emerald-600 text-white border-emerald-700' 
-            : 'bg-red-600 text-white border-red-700'
-        }`}>
-          {toastMessage.type === 'success' ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-          <span>{toastMessage.text}</span>
-          <button onClick={() => setToastMessage(null)} className="ml-2 hover:opacity-80">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {/* Module Title & Top Controls Header */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
@@ -765,6 +762,8 @@ function CRMEnterpriseContent() {
           leadId={selectedLead360Id}
           onClose={() => setSelectedLead360Id(null)}
           onRefreshParent={fetchCRMData}
+          pipelines={pipelines}
+          stages={stages}
         />
       )}
 
@@ -911,7 +910,6 @@ function CRMEnterpriseContent() {
         onClose={() => setIsAddLeadOpen(false)}
         onSuccess={() => {
           setIsAddLeadOpen(false);
-          showToast('Lead created and qualified successfully!');
           fetchCRMData();
         }}
         sources={sources}

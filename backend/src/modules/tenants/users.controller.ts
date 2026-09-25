@@ -1,55 +1,60 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import { TenantsService } from './tenants.service';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
-import { TenantGuard } from '@/common/guards/tenant.guard';
+import { CurrentUser } from '@/common/decorators/auth.decorators';
+import { RequirePermissions } from '@/common/decorators/access.decorators';
+import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
+import { TeamMembersService } from './team-members.service';
+import { TenantRolesService } from './tenant-roles.service';
+import { CreateTeamMemberDto, UpdateTeamMemberDto } from './dto/access-management.dto';
 
+/** Team members of the session's workspace. The workspace is never taken from the request. */
 @Controller('users')
-@UseGuards(TenantGuard)
 export class UsersController {
-  constructor(private readonly tenantsService: TenantsService) {}
+  constructor(
+    private readonly membersService: TeamMembersService,
+    private readonly rolesService: TenantRolesService,
+  ) {}
 
   @Get()
-  async getUsers(
-    @CurrentTenant() tenantId: string,
-    @Query('role') roleCode?: string,
-  ) {
-    let users = await this.tenantsService.getUsers(tenantId);
-    if (roleCode) {
-      users = users.filter((u) => u.role_code === roleCode);
-    }
-    const rolesData = await this.tenantsService.getRoles(tenantId);
+  @RequirePermissions('users.view')
+  async getUsers(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const [users, roles] = await Promise.all([
+      this.membersService.listMembers(tenantId),
+      // Role names for the assignment picker, with the server's answer on who may assign each.
+      this.rolesService.listRoleOptions(tenantId, actor),
+    ]);
 
-    return {
-      success: true,
-      data: {
-        users,
-        roles: rolesData.roles,
-      },
-    };
+    return { success: true, data: { users, roles } };
   }
 
   @Post()
-  async createUser(@CurrentTenant() tenantId: string, @Body() body: any) {
-    return this.tenantsService.createUser(tenantId, body);
+  @RequirePermissions('users.create')
+  async createUser(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: CreateTeamMemberDto,
+  ) {
+    return this.membersService.createMember(tenantId, body, actor);
   }
 
-  @Put()
-  async updateUser(@CurrentTenant() tenantId: string, @Body() body: any) {
-    const { id, ...rest } = body;
-    return this.tenantsService.updateUser(tenantId, id, rest);
+  @Patch(':userId')
+  @RequirePermissions('users.update')
+  async updateUser(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: UpdateTeamMemberDto,
+  ) {
+    return this.membersService.updateMember(tenantId, userId, body, actor);
   }
 
-  @Delete()
-  async deleteUser(@CurrentTenant() tenantId: string, @Query('id') id: string) {
-    return this.tenantsService.deleteUser(tenantId, id);
+  @Delete(':userId')
+  @RequirePermissions('users.delete')
+  async deleteUser(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.membersService.removeMember(tenantId, userId, actor);
   }
 }

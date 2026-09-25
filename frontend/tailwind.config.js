@@ -8,6 +8,16 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Platform HQ semantic tokens; values live in index.css per theme.
+        hq: Object.fromEntries(
+          [
+            'background', 'foreground', 'card', 'card-foreground', 'popover', 'muted', 'muted-foreground',
+            'subtle-foreground', 'border', 'input', 'ring', 'accent', 'accent-foreground', 'secondary',
+            'secondary-foreground', 'primary', 'primary-hover', 'primary-foreground', 'link', 'destructive',
+            'destructive-hover', 'destructive-foreground', 'danger', 'success', 'warning', 'info', 'neutral',
+            'overlay', 'chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5',
+          ].map((token) => [token, `rgb(var(--hq-${token}) / <alpha-value>)`]),
+        ),
         // Voogyo primary teal (from bottom arrow)
         teal: {
           50:  '#E6F8F6',

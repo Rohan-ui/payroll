@@ -485,9 +485,14 @@ export interface EmployeeMonthDayRecord {
   leaveType?: string;
   holidayName?: string;
   shift: {
-    name: string;
-    startTime: string;
-    endTime: string;
+    /** Configured shift name; null when the attendance device reported the shift. */
+    name: string | null;
+    /** Shift code the attendance device scheduled for this date (COSEC SCHEDULESHIFT). */
+    scheduledCode: string | null;
+    /** Shift code the attendance device evaluated the day against (COSEC WORKINGSHIFT). */
+    workingCode: string | null;
+    startTime: string | null; // "HH:MM" 24h
+    endTime: string | null; // "HH:MM" 24h
     graceMinutes: number;
     standardMinutes: number;
     breakMinutes: number;

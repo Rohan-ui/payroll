@@ -28,6 +28,8 @@ import {
 } from '@/lib/industryTaxonomy';
 import { ColdLeadImportModal } from './ColdLeadImportModal';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 interface SLeadCadenceCenterProps {
   onSelectLead360: (leadId: string) => void;
   onRefreshParent?: () => void;
@@ -66,7 +68,7 @@ export default function SLeadCadenceCenter({
 
   // Convert to Opportunity Modal State
   const [selectedLeadForConvert, setSelectedLeadForConvert] = useState<any | null>(null);
-  const [targetPipelineId, setTargetPipelineId] = useState<string>('pipe_rnd_main');
+  const [targetPipelineId, setTargetPipelineId] = useState<string>('');
   const [targetStageId, setTargetStageId] = useState<string>('');
   const [dealValue, setDealValue] = useState<string | number>('');
   const [leadTemperature, setLeadTemperature] = useState<'WARM' | 'HOT'>('HOT');
@@ -81,7 +83,6 @@ export default function SLeadCadenceCenter({
   // Phone logger state
   const [phoneDisposition, setPhoneDisposition] = useState<'ANSWERED' | 'MISSED' | 'NONE'>('NONE');
 
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [sendingSmtp, setSendingSmtp] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -113,24 +114,20 @@ export default function SLeadCadenceCenter({
       : CADENCE_REPLY_BRANCHES;
   }, [radarData]);
 
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const handleReSeedDemoLeads = async () => {
     setSeeding(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence/seed', { method: 'POST' });
+      const res = await apiFetch('/api/v1/crm/cadence/seed', { method: 'POST', feedback: { success: false } });
       const json = await res.json();
-      if (json.success) {
+      if (res.ok && json.success) {
         showToast(json.message || 'Seeded 12 cold marketing leads across all funnel steps!', 'success');
         await fetchCadenceData();
-      } else {
-        showToast(json.error || 'Failed to seed demo leads', 'error');
       }
-    } catch (err: any) {
-      showToast('Error seeding demo leads', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setSeeding(false);
     }
@@ -145,7 +142,7 @@ export default function SLeadCadenceCenter({
       companyName: target.company_name,
       designation: target.designation,
       industry: activeIndustryKey || target.cadence?.industry || 'general',
-      assigneeName: target.assigned_user_name || 'Saloni Shah'
+      assigneeName: target.assigned_user_name || ''
     };
   };
 
@@ -159,7 +156,7 @@ export default function SLeadCadenceCenter({
 
     setSendingSmtp(true);
     try {
-      const res = await fetch('/api/v1/tenant/email/send', {
+      const res = await apiFetch('/api/v1/tenant/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,7 +176,7 @@ export default function SLeadCadenceCenter({
           setExecutionNotes(`Email dispatched via Portal SMTP to ${selectedLeadForAction.email}`);
         }
       } else {
-        showToast(json.error || 'Failed to send email via SMTP', 'error');
+        showToast(json.message || json.error || 'Failed to send email via SMTP', 'error');
       }
     } catch (err: any) {
       showToast('Error communicating with SMTP service', 'error');
@@ -206,7 +203,7 @@ export default function SLeadCadenceCenter({
 
     setSendingWhatsAppApi(true);
     try {
-      const res = await fetch('/api/v1/tenant/whatsapp/send', {
+      const res = await apiFetch('/api/v1/tenant/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -222,7 +219,7 @@ export default function SLeadCadenceCenter({
           setExecutionNotes(`WhatsApp message dispatched via WhatsApp Cloud API to ${recipientPhone}`);
         }
       } else {
-        showToast(json.error || 'Failed to send WhatsApp message via API', 'error');
+        showToast(json.message || json.error || 'Failed to send WhatsApp message via API', 'error');
       }
     } catch (err: any) {
       showToast('Error communicating with WhatsApp API service', 'error');
@@ -234,16 +231,13 @@ export default function SLeadCadenceCenter({
   const fetchCadenceData = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence');
+      const res = await apiFetch('/api/v1/crm/cadence');
       const json = await res.json();
-      if (json.success) {
+      if (res.ok && json.success) {
         setRadarData(json.data);
-      } else {
-        showToast(json.error || 'Failed to load cadence data', 'error');
       }
-    } catch (err: any) {
-      console.error(err);
-      showToast('Network error loading cadence radar', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setLoading(false);
     }
@@ -275,7 +269,8 @@ export default function SLeadCadenceCenter({
     if (!selectedLeadForAction) return;
     setExecuting(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence', {
+      const res = await apiFetch('/api/v1/crm/cadence', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -287,16 +282,14 @@ export default function SLeadCadenceCenter({
         })
       });
       const json = await res.json();
-      if (json.success) {
+      if (res.ok && json.success) {
         showToast(`Day ${selectedLeadForAction.currentStep.dayNumber} touchpoint marked complete! Next step scheduled.`, 'success');
         setSelectedLeadForAction(null);
         fetchCadenceData();
         if (onRefreshParent) onRefreshParent();
-      } else {
-        showToast(json.error || 'Failed to complete step', 'error');
       }
-    } catch (err: any) {
-      showToast('Failed to complete step', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setExecuting(false);
     }
@@ -307,7 +300,8 @@ export default function SLeadCadenceCenter({
     if (!selectedLeadForAction || !selectedBranchKey) return;
     setBranching(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence', {
+      const res = await apiFetch('/api/v1/crm/cadence', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -318,16 +312,14 @@ export default function SLeadCadenceCenter({
         })
       });
       const json = await res.json();
-      if (json.success) {
+      if (res.ok && json.success) {
         showToast(json.message || 'Reply branch applied successfully!', 'success');
         setSelectedLeadForAction(null);
         fetchCadenceData();
         if (onRefreshParent) onRefreshParent();
-      } else {
-        showToast(json.error || 'Failed to branch cadence', 'error');
       }
-    } catch (err: any) {
-      showToast('Error applying reply branch', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setBranching(false);
     }
@@ -336,10 +328,10 @@ export default function SLeadCadenceCenter({
   // Open Convert to Opportunity Modal
   const handleOpenConvertModal = (leadItem: any) => {
     setSelectedLeadForConvert(leadItem);
-    const defaultPipeline = pipelines && pipelines.length > 0 ? pipelines[0].id : 'pipe_rnd_main';
+    const defaultPipeline = pipelines && pipelines.length > 0 ? pipelines[0].id : '';
     setTargetPipelineId(defaultPipeline);
     const pipelineStages = (stages || []).filter((s: any) => s.pipeline_id === defaultPipeline);
-    setTargetStageId(pipelineStages[1]?.id || pipelineStages[0]?.id || 'stage_2');
+    setTargetStageId(pipelineStages[1]?.id || pipelineStages[0]?.id || '');
     setDealValue(leadItem.budget_amount || 250000);
     setLeadTemperature('HOT');
     setConversionNotes(`Prospect expressed strong interest in ${activeTenantName} services during Client Outreach Day ${leadItem.currentStep?.dayNumber || 1} outreach.`);
@@ -350,7 +342,8 @@ export default function SLeadCadenceCenter({
     if (!selectedLeadForConvert) return;
     setConvertingOpp(true);
     try {
-      const res = await fetch('/api/v1/crm/cadence', {
+      const res = await apiFetch('/api/v1/crm/cadence', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -364,16 +357,14 @@ export default function SLeadCadenceCenter({
         })
       });
       const json = await res.json();
-      if (json.success) {
+      if (res.ok && json.success) {
         showToast(`🚀 Converted ${selectedLeadForConvert.company_name} to Sales Pipeline Opportunity!`, 'success');
         setSelectedLeadForConvert(null);
         await fetchCadenceData();
         if (onRefreshParent) onRefreshParent();
-      } else {
-        showToast(json.error || 'Failed to convert lead to opportunity', 'error');
       }
-    } catch (err: any) {
-      showToast('Error converting lead to opportunity', 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setConvertingOpp(false);
     }
@@ -448,9 +439,8 @@ export default function SLeadCadenceCenter({
   const handleExportLeads = async () => {
     try {
       setIsExporting(true);
-      showToast('Generating smart CRM leads export with dynamic masters...', 'success');
-      const res = await fetch('/api/v1/crm/leads/export', { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to generate export file from server');
+      const res = await apiFetch('/api/v1/crm/leads/export', { cache: 'no-store' });
+      if (!res.ok) return; // Reported by the API client.
       
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -462,9 +452,8 @@ export default function SLeadCadenceCenter({
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       showToast('Exported complete CRM leads to Excel successfully!', 'success');
-    } catch (err: any) {
-      console.error('Error exporting leads:', err);
-      showToast('Failed to export leads: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setIsExporting(false);
     }
@@ -628,18 +617,6 @@ export default function SLeadCadenceCenter({
 
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-xl shadow-2xl border border-slate-800 text-sm font-medium animate-in fade-in slide-in-from-bottom-5">
-          {toastMessage.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-rose-400" />
-          )}
-          <span>{toastMessage.text}</span>
-        </div>
-      )}
-
       {/* Minimalist Top Header: Outreach Funnel Command Center */}
       <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1995,7 +1972,7 @@ export default function SLeadCadenceCenter({
                       const newPipeId = e.target.value;
                       setTargetPipelineId(newPipeId);
                       const pipeStages = (stages || []).filter((s: any) => s.pipeline_id === newPipeId);
-                      setTargetStageId(pipeStages[1]?.id || pipeStages[0]?.id || 'stage_2');
+                      setTargetStageId(pipeStages[1]?.id || pipeStages[0]?.id || '');
                     }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   >

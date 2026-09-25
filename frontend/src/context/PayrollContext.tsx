@@ -29,7 +29,6 @@ const VALID_VIEWS: AppView[] = [
   'dashboard',
   'crm',
   'emails',
-  'super-admin',
   'payroll',
   'people',
   'employee-detail',
@@ -166,7 +165,8 @@ const PayrollContext = createContext<PayrollContextType | undefined>(undefined);
 export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { activeTenant, activeRole } = useAuth();
 
-  const [role, setRole] = useState<UserRole>((activeRole as UserRole) || 'ADMIN');
+  // Display label only; what a member may do comes from access.permissions.
+  const [role, setRole] = useState<UserRole>((activeRole as UserRole) || 'EMPLOYEE');
   
   const initialUrlState = parseUrlState();
   const [currentView, setCurrentViewInternal] = useState<AppView>(initialUrlState.view);

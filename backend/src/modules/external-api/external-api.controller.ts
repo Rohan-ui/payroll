@@ -5,16 +5,14 @@ import {
   Put,
   Body,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { ExternalApiService, CosecApiSettings } from './external-api.service';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
-import { TenantGuard } from '../../common/guards/tenant.guard';
+import { RequirePermissions } from '@/common/decorators/access.decorators';
 
 @Controller('external-api')
-@UseGuards(TenantGuard)
 export class ExternalApiController {
   constructor(private readonly externalApiService: ExternalApiService) {}
 
@@ -23,6 +21,7 @@ export class ExternalApiController {
    * Returns the currently saved COSEC config (password masked).
    */
   @Get('cosec/config')
+  @RequirePermissions('attendance.integration.view')
   async getCosecConfig(@CurrentTenant() tenantId: string) {
     return this.externalApiService.getCosecConfigPublic(tenantId);
   }
@@ -33,6 +32,7 @@ export class ExternalApiController {
    * Body: { baseUrl, username, password }
    */
   @Put('cosec/config')
+  @RequirePermissions('attendance.integration.update')
   async saveCosecConfig(
     @CurrentTenant() tenantId: string,
     @Body() body: CosecApiSettings,
@@ -50,6 +50,7 @@ export class ExternalApiController {
    * Optionally accepts override credentials in body for pre-save testing.
    */
   @Post('cosec/test-connection')
+  @RequirePermissions('attendance.integration.update')
   @HttpCode(HttpStatus.OK)
   async testConnection(
     @CurrentTenant() tenantId: string,
@@ -72,6 +73,7 @@ export class ExternalApiController {
    * Fetch all active users from COSEC, serialized to internal format.
    */
   @Get('cosec/users')
+  @RequirePermissions('attendance.integration.view')
   async getUsers(@CurrentTenant() tenantId: string) {
     const users = await this.externalApiService.getUsers(tenantId);
     return { total: users.length, data: users };
@@ -87,6 +89,7 @@ export class ExternalApiController {
    *   rangeId — ID of the selected range group (required if range != "all")
    */
   @Get('cosec/attendance-monthly')
+  @RequirePermissions('attendance.integration.view')
   async getMonthlyAttendance(
     @CurrentTenant() tenantId: string,
     @Query('month') month?: string,
@@ -108,6 +111,7 @@ export class ExternalApiController {
    * Fetch daily attendance from COSEC with punch in / out timestamps.
    */
   @Get('cosec/attendance-daily')
+  @RequirePermissions('attendance.integration.view')
   async getDailyAttendance(
     @CurrentTenant() tenantId: string,
     @Query('startDate') startDate?: string,
@@ -130,6 +134,7 @@ export class ExternalApiController {
    * Import all users from COSEC into internal employee database and remove mock employees.
    */
   @Post('cosec/sync-users')
+  @RequirePermissions('attendance.sync', 'people.create', 'people.update')
   @HttpCode(HttpStatus.OK)
   async syncUsers(@CurrentTenant() tenantId: string) {
     return this.externalApiService.syncUsers(tenantId);
@@ -140,6 +145,7 @@ export class ExternalApiController {
    * Import daily attendance with real punch IN/OUT timestamps into internal attendance records.
    */
   @Post('cosec/sync-daily-attendance')
+  @RequirePermissions('attendance.sync')
   @HttpCode(HttpStatus.OK)
   async syncDailyAttendance(
     @CurrentTenant() tenantId: string,
@@ -154,6 +160,7 @@ export class ExternalApiController {
    * Import monthly attendance from COSEC into attendance records.
    */
   @Post('cosec/sync-attendance')
+  @RequirePermissions('attendance.sync')
   @HttpCode(HttpStatus.OK)
   async syncAttendance(
     @CurrentTenant() tenantId: string,
@@ -168,6 +175,7 @@ export class ExternalApiController {
    * Master sync: users + daily attendance & punches + monthly attendance summary.
    */
   @Post('cosec/sync-all')
+  @RequirePermissions('attendance.sync', 'people.create', 'people.update')
   @HttpCode(HttpStatus.OK)
   async syncAll(
     @CurrentTenant() tenantId: string,

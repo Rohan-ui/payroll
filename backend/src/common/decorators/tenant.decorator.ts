@@ -1,22 +1,24 @@
-import { createParamDecorator, ExecutionContext, BadRequestException } from '@nestjs/common';
-import { RequestWithTenant } from '../interfaces/request-with-tenant.interface';
+import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { RequestWithUser } from '../interfaces/authenticated-user.interface';
 
+/**
+ * Injects the tenant this request is scoped to.
+ *
+ * The value is set by TenantAuthGuard from the authenticated session. It is
+ * never read from a header, query parameter or body, so it is safe to use
+ * directly as the tenant filter in a query.
+ */
 export const CurrentTenant = createParamDecorator(
-  (required = true, ctx: ExecutionContext): string | undefined => {
-    const request = ctx.switchToHttp().getRequest<RequestWithTenant>();
-    const tenantId = request.tenantId;
+  (_required: boolean | undefined, ctx: ExecutionContext): string => {
+    const request = ctx.switchToHttp().getRequest<RequestWithUser>();
 
-    if (required && !tenantId) {
-      throw new BadRequestException('Tenant context is required. Please provide a valid tenant context via authentication or x-tenant-id header.');
+    if (!request.tenantId) {
+      // Reaching here means a route ran without the guard.
+      throw new UnauthorizedException('Authentication is required.');
     }
 
-    return tenantId;
+    return request.tenantId;
   },
 );
 
-export const CurrentUser = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext) => {
-    const request = ctx.switchToHttp().getRequest<RequestWithTenant>();
-    return request.user;
-  },
-);
+export { CurrentUser } from './auth.decorators';

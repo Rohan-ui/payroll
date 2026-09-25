@@ -1063,7 +1063,9 @@ export class AttendanceService {
 
       // 2. Mark adjustment approved
       return tx.rndtechnosoft_attendance_adjustments.update({
-        where: { id: adjustmentId },
+        // Composite [tenant_id, id] key: the database refuses a write against
+        // another tenant's record even if the id is guessed.
+        where: { tenant_id_id: { tenant_id: tenantId, id: adjustmentId } },
         data: {
           adjustment_status: 'APPROVED',
           approved_by_tenant_member_id: approverTenantMemberId,
@@ -2063,6 +2065,10 @@ export class AttendanceService {
       orderBy: { attendance_date: 'asc' },
     });
 
+    // TIME columns arrive as Dates on 1970-01-01 UTC; the built-in default shift uses 'HH:MM:SS' strings
+    const toHhmm = (t: Date | string | null | undefined): string | null =>
+      !t ? null : typeof t === 'string' ? t.slice(0, 5) : t.toISOString().slice(11, 16);
+
     const recordMap = new Map<string, (typeof records)[0]>();
     for (const r of records) {
       const dStr = r.attendance_date.toISOString().slice(0, 10);
@@ -2206,10 +2212,13 @@ export class AttendanceService {
         source,
         leaveType: status === 'PAID_LEAVE' ? 'Earned Leave' : undefined,
         holidayName: isHoliday ? holidayName : undefined,
+        // Device-reported shift for this date wins; otherwise the record's/tenant default shift
         shift: {
-          name: shiftData?.shift_name || 'General Shift',
-          startTime: '09:30 AM',
-          endTime: '06:30 PM',
+          name: r?.scheduled_shift_code ? null : shiftData?.shift_name ?? null,
+          scheduledCode: r?.scheduled_shift_code ?? null,
+          workingCode: r?.working_shift_code ?? null,
+          startTime: toHhmm(r?.scheduled_shift_code ? r.scheduled_shift_start_time : shiftData?.start_time),
+          endTime: toHhmm(r?.scheduled_shift_code ? r.scheduled_shift_end_time : shiftData?.end_time),
           graceMinutes: shiftData?.grace_in_minutes || 15,
           standardMinutes: shiftData?.standard_work_minutes || 480,
           breakMinutes: 60,
