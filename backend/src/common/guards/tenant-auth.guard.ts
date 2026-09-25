@@ -1,9 +1,14 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { TenantSessionService } from '@/modules/auth/session/tenant-session.service';
 import { TenantDomainsService } from '@/modules/tenancy/tenant-domains.service';
 import { RequestWithUser } from '../interfaces/authenticated-user.interface';
-import { IS_PUBLIC_ROUTE, SKIPS_TENANT_AUTH } from '../decorators/auth.decorators';
+import {
+  ALLOWS_PASSWORD_CHANGE_PENDING,
+  IS_PUBLIC_ROUTE,
+  PASSWORD_CHANGE_REQUIRED,
+  SKIPS_TENANT_AUTH,
+} from '../decorators/auth.decorators';
 
 /**
  * Authentication and tenant scoping for every tenant API route.
@@ -12,7 +17,9 @@ import { IS_PUBLIC_ROUTE, SKIPS_TENANT_AUTH } from '../decorators/auth.decorator
  * and has to opt out explicitly. On success it sets both `request.user` and
  * `request.tenantId` from the stored session, which is what makes
  * `@CurrentTenant()` safe to authorize against. On a workspace's own address
- * (kpmg.<base domain>) a session for any other workspace is refused.
+ * (kpmg.<base domain>) a session for any other workspace is refused. A
+ * session whose account still has a temporary password reaches only the
+ * routes that let it replace that password.
  */
 @Injectable()
 export class TenantAuthGuard implements CanActivate {
@@ -46,6 +53,10 @@ export class TenantAuthGuard implements CanActivate {
     // On a workspace's own address only that workspace's sessions are accepted.
     // The host narrows access; it never grants it.
     this.domains.assertSessionFitsHost(await this.domains.resolveHost(request.headers.host), identity.tenantId);
+
+    if (identity.mustChangePassword && !this.reflector.getAllAndOverride<boolean>(ALLOWS_PASSWORD_CHANGE_PENDING, targets)) {
+      throw new ForbiddenException({ code: PASSWORD_CHANGE_REQUIRED, message: 'Choose a new password to replace your temporary one before continuing.' });
+    }
 
     request.user = identity;
     // Anything the caller sent as a tenant hint is discarded here. The tenant

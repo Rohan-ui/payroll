@@ -18,6 +18,8 @@ export interface AuthenticatedTenantUser {
   tenantMemberId: string;
   /** Role codes granted inside this tenant, for example ADMIN or EMPLOYEE. */
   roles: string[];
+  /** True until the account's temporary password is replaced; the session reaches nothing else. */
+  mustChangePassword: boolean;
 }
 
 export interface RequestWithUser extends Request {

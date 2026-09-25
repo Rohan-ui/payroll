@@ -104,17 +104,3 @@ export class SubdomainAvailabilityQueryDto {
   @MaxLength(100)
   subdomain!: string;
 }
-
-/** A one-time account setup link's token, from the URL fragment. */
-export class AccountSetupTokenDto {
-  @IsString()
-  @MaxLength(64)
-  token!: string;
-}
-
-export class CompleteAccountSetupDto extends AccountSetupTokenDto {
-  @IsString()
-  @MinLength(10, { message: 'Password must be at least 10 characters long.' })
-  @MaxLength(256)
-  password!: string;
-}

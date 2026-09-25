@@ -3,9 +3,9 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
-import { ADMIN_ROLE_CODE, DEFAULT_ROLE_PERMISSIONS, PermissionKey, isPermissionKey } from '@/common/access/access-catalog';
+import { ADMIN_ROLE_CODE, PermissionKey, isPermissionKey } from '@/common/access/access-catalog';
 import { AccessService } from '@/common/access/access.service';
-import { grantDefaultRolePermissions } from '@/common/access/role-defaults';
+import { grantDefaultRolePermissions, templatePermissionKeys } from '@/common/access/role-defaults';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { TenantDomainsService } from '@/modules/tenancy/tenant-domains.service';
 
@@ -257,12 +257,12 @@ export class AuthService {
       },
     });
 
-    // A missing built-in role is created with its defaults, so those defaults are what it grants.
+    // A missing role is created from its template, so the template's grants are what it grants.
     const granted: readonly PermissionKey[] = existingRole
       ? existingRole.rndtechnosoft_role_permissions
           .map((grant) => grant.rndtechnosoft_permissions.permission_code)
           .filter(isPermissionKey)
-      : DEFAULT_ROLE_PERMISSIONS[roleCode] ?? [];
+      : await templatePermissionKeys(this.prisma, roleCode);
 
     await this.accessService.assertHoldsAll(
       tenantId,

@@ -154,6 +154,35 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
   // ── Organization profile ─────────────────────────────────────
 
   async updateProfile(tenantId: string, input: UpdateOrganizationProfileDto, actor: AuthenticatedTenantUser) {
+    const changedFields = await this.saveProfile(tenantId, input);
+
+    await this.auditService.log({
+      ...this.auditActor(tenantId, actor),
+      actionCode: 'ORGANIZATION_PROFILE_UPDATED',
+      entityType: 'TENANT',
+      entityId: tenantId,
+      // Field names only: contact details and tax identifiers stay out of the audit trail.
+      metadata: { changedFields },
+    });
+
+    return {
+      success: true,
+      message: 'Organization profile saved.',
+      data: (await this.getSettings(tenantId)).tenant,
+    };
+  }
+
+  /**
+   * Saves the organization profile and the workspace columns it mirrors, for
+   * the workspace's own settings page and for the platform console (which
+   * also sets the legal name and country). Returns the names of the fields
+   * that changed; the caller records the change in its own audit trail.
+   */
+  async saveProfile(
+    tenantId: string,
+    input: UpdateOrganizationProfileDto,
+    tenantColumns: { legal_name?: string; country_code?: string | null } = {},
+  ): Promise<string[]> {
     const before = asRecord((await this.readSettings(tenantId)).profile);
 
     const profile = {
@@ -176,27 +205,13 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
         data: {
           display_name: input.company_name,
           default_currency_code: input.currency,
+          ...tenantColumns,
           updated_at: new Date(),
         },
       });
     });
 
-    await this.auditService.log({
-      ...this.auditActor(tenantId, actor),
-      actionCode: 'ORGANIZATION_PROFILE_UPDATED',
-      entityType: 'TENANT',
-      entityId: tenantId,
-      // Field names only: contact details and tax identifiers stay out of the audit trail.
-      metadata: {
-        changedFields: PROFILE_FIELDS.filter((field) => (text(before[field]) ?? null) !== (profile[field] ?? null)),
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Organization profile saved.',
-      data: (await this.getSettings(tenantId)).tenant,
-    };
+    return PROFILE_FIELDS.filter((field) => (text(before[field]) ?? null) !== (profile[field] ?? null));
   }
 
   // ── SMTP ─────────────────────────────────────────────────────
@@ -447,6 +462,28 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
     enabled: boolean,
     actor: AuthenticatedTenantUser,
   ) {
+    const target = await this.applyModuleSwitch(tenantId, moduleCode, enabled);
+
+    await this.auditService.log({
+      ...this.auditActor(tenantId, actor),
+      actionCode: enabled ? 'MODULE_ENABLED' : 'MODULE_DISABLED',
+      entityType: 'TENANT_MODULE',
+      entityId: tenantId,
+      metadata: { module: target.code },
+    });
+
+    return {
+      success: true,
+      message: `${target.name} is now ${enabled ? 'on' : 'off'} for this workspace.`,
+    };
+  }
+
+  /**
+   * Turns one module on or off, refusing a change that would leave a module
+   * on without a module it depends on. Shared by the workspace's own settings
+   * and the platform console; the caller records the change in its own audit trail.
+   */
+  async applyModuleSwitch(tenantId: string, moduleCode: string, enabled: boolean) {
     const target = MODULES.find((m) => m.code === moduleCode);
     if (!target) {
       throw new NotFoundException('That module does not exist.');
@@ -486,18 +523,7 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
       );
     });
 
-    await this.auditService.log({
-      ...this.auditActor(tenantId, actor),
-      actionCode: enabled ? 'MODULE_ENABLED' : 'MODULE_DISABLED',
-      entityType: 'TENANT_MODULE',
-      entityId: tenantId,
-      metadata: { module: target.code },
-    });
-
-    return {
-      success: true,
-      message: `${target.name} is now ${enabled ? 'on' : 'off'} for this workspace.`,
-    };
+    return target;
   }
 
   // ── Internals ────────────────────────────────────────────────

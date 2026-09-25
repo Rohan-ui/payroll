@@ -6,16 +6,16 @@ import { randomBytes, randomUUID } from 'crypto';
 import { AppModule } from '@/app.module';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
 import { PrismaService } from '@/prisma/prisma.service';
-import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
-import { hashAccountSetupToken } from '@/common/security/account-setup-token';
+import { hashPassword, PASSWORD_ALGORITHM_SCRYPT, verifyPassword } from '@/common/security/password.util';
 import { PERMISSION_KEYS } from '@/common/access/access-catalog';
 import { SMTP_SETTINGS_KEY } from '@/modules/email/email.service';
 import { FakeSmtpServer } from './support/fake-smtp-server';
 
 /**
  * Onboarding a workspace from HQ: provisioning in one transaction, the owner's
- * one-time setup link, real onboarding email delivery (through a local SMTP
- * server), the SMTP settings, idempotency, and who may do any of it.
+ * temporary password and forced first password change, real onboarding email
+ * delivery (through a local SMTP server), the SMTP settings, idempotency, and
+ * who may do any of it.
  */
 
 const API = '/api/v1';
@@ -77,7 +77,9 @@ describe('Tenant provisioning and onboarding', () => {
       .set(asPlatform())
       .send({ host: '127.0.0.1', port: SMTP_PORT, encryption: 'NONE', fromEmail: 'hq@provisioning.test', fromName: 'Voogyo HQ', ...overrides });
 
-  const setupTokenIn = (body: string) => body.match(/#setup=([A-Za-z0-9_-]{43})/)?.[1] ?? null;
+  const temporaryPasswordIn = (body: string) => body.match(/Temporary password: ([A-Za-z0-9]{16})\b/)?.[1] ?? null;
+  const signIn = (subdomain: string, email: string, password: string) =>
+    api().post(`${API}/auth/login`).set('Host', host(subdomain)).send({ email, password });
 
   beforeAll(async () => {
     process.env.PLATFORM_BASE_DOMAIN = BASE;
@@ -120,7 +122,6 @@ describe('Tenant provisioning and onboarding', () => {
       const users = await prisma.rndtechnosoft_users.findMany({ where: { email: { in: userEmails } }, select: { id: true } });
       const userIds = users.map((u) => u.id);
       const scope = { tenant_id: { in: tenantIds } };
-      await prisma.rndtechnosoft_account_setup_tokens.deleteMany({ where: { OR: [scope, { user_id: { in: userIds } }] } });
       await prisma.rndtechnosoft_tenant_onboardings.deleteMany({ where: scope });
       await prisma.rndtechnosoft_email_deliveries.deleteMany({
         where: { OR: [scope, { requested_by_super_admin_id: { in: adminIds } }] },
@@ -232,7 +233,7 @@ describe('Tenant provisioning and onboarding', () => {
   });
 
   describe('provisioning', () => {
-    let owner: { email: string; subdomain: string; tenantId: string; setupToken: string };
+    let owner: { email: string; subdomain: string; tenantId: string; temporaryPassword: string };
 
     it('offers the real module catalog, the owner role and stored plans', async () => {
       const options = await api().get(`${API}/super-admin/provisioning/options`).set(asPlatform());
@@ -243,7 +244,7 @@ describe('Tenant provisioning and onboarding', () => {
       expect(options.body.data).toMatchObject({ baseDomain: BASE, linksAvailable: true, emailConfigured: true });
     });
 
-    it('creates the workspace, owner, modules and profile, then sends a real onboarding email with a setup link', async () => {
+    it('creates the workspace, owner, modules and profile, then emails the owner a temporary password', async () => {
       const body = form('alpha');
       const before = smtp.messages.length;
       const response = await provision(body);
@@ -253,7 +254,7 @@ describe('Tenant provisioning and onboarding', () => {
         replayed: false,
         tenant: { tenantCode: body.tenantCode, name: body.organizationName, status: 'ACTIVE' },
         address: { subdomain: body.subdomain, hostname: host(body.subdomain), url: `https://${host(body.subdomain)}` },
-        owner: { email: body.ownerEmail, name: 'Asha alpha', role: 'Administrator', isNewAccount: true, passwordSet: false },
+        owner: { email: body.ownerEmail, name: 'Asha alpha', role: 'Administrator', isNewAccount: true, passwordStatus: 'TEMPORARY' },
         subscription: null,
         onboardingEmail: { status: 'SENT', recipient: body.ownerEmail, error: null },
       });
@@ -263,21 +264,31 @@ describe('Tenant provisioning and onboarding', () => {
         { code: 'FINANCE', name: 'Finance', enabled: true },
       ]);
 
-      // The email: sent once, to the owner, with the address and a setup link, and no password.
+      // The email: sent once, to the owner, with the workspace, the username and a temporary password.
       expect(smtp.messages).toHaveLength(before + 1);
       const message = smtp.messages.at(-1)!;
       expect(message.to).toEqual([body.ownerEmail]);
       expect(message.body).toContain(body.organizationName);
       expect(message.body).toContain(`https://${host(body.subdomain)}`);
-      expect(message.body).not.toMatch(/temporary password|password:/i);
-      const setupToken = setupTokenIn(message.body);
-      expect(setupToken).not.toBeNull();
+      expect(message.body).toContain(`Username: ${body.ownerEmail}`);
+      expect(message.body).toContain('Access Your Workspace');
+      expect(message.body).not.toContain('#setup=');
+      const temporaryPassword = temporaryPasswordIn(message.body);
+      expect(temporaryPassword).not.toBeNull();
 
-      // Only the digest of the token is stored.
-      const tokens = await prisma.rndtechnosoft_account_setup_tokens.findMany({ where: { tenant_id: data.tenant.id } });
-      expect(tokens).toHaveLength(1);
-      expect(tokens[0].token_hash).toBe(hashAccountSetupToken(setupToken!));
-      expect(JSON.stringify(tokens)).not.toContain(setupToken!);
+      // Only a hash is stored, and the account must replace the password at first sign-in.
+      const user = await prisma.rndtechnosoft_users.findUniqueOrThrow({ where: { email: body.ownerEmail } });
+      expect(user).toMatchObject({ must_change_password: true, display_name: 'Asha alpha', mobile_number: body.ownerPhone });
+      expect(user.password_hash).toMatch(/^scrypt\$/);
+      expect((await verifyPassword(temporaryPassword!, user.password_hash!)).isValid).toBe(true);
+
+      // The plaintext appears nowhere but the email: not in the response, the delivery record or the activity log.
+      expect(JSON.stringify(response.body)).not.toContain(temporaryPassword);
+      const delivery = await prisma.rndtechnosoft_email_deliveries.findMany({ where: { tenant_id: data.tenant.id } });
+      expect(JSON.stringify(delivery)).not.toContain(temporaryPassword);
+      const logs = await prisma.rndtechnosoft_platform_activity_logs.findMany({ where: { target_tenant_id: data.tenant.id } });
+      expect(JSON.stringify(logs)).not.toContain(temporaryPassword);
+      expect(logs.find((l) => l.action === 'ONBOARDING_EMAIL_SENT')?.metadata).toMatchObject({ includesTemporaryPassword: true });
 
       // Profile and module switches, in the workspace's own settings document.
       const settings = await prisma.rndtechnosoft_tenant_settings.findUniqueOrThrow({ where: { tenant_id: data.tenant.id } });
@@ -300,50 +311,48 @@ describe('Tenant provisioning and onboarding', () => {
       expect(role.role_code).toBe('ADMIN');
       expect(role.rndtechnosoft_role_permissions).toHaveLength(PERMISSION_KEYS.length);
 
-      const user = await prisma.rndtechnosoft_users.findUniqueOrThrow({ where: { email: body.ownerEmail } });
-      expect(user).toMatchObject({ password_hash: null, display_name: 'Asha alpha', mobile_number: body.ownerPhone });
-
-      owner = { email: body.ownerEmail, subdomain: body.subdomain, tenantId: data.tenant.id, setupToken: setupToken! };
+      owner = { email: body.ownerEmail, subdomain: body.subdomain, tenantId: data.tenant.id, temporaryPassword: temporaryPassword! };
     });
 
-    it('lets the owner set a password once from the link, at their workspace address only', async () => {
+    it('lets the owner sign in with the temporary password, but only to replace it', async () => {
       await prisma.rndtechnosoft_login_throttle.deleteMany({});
-      const inspect = await api().post(`${API}/auth/account-setup/inspect`).set('Host', host(owner.subdomain)).send({ token: owner.setupToken });
-      expect(inspect.status).toBe(200);
-      expect(inspect.body).toMatchObject({ email: owner.email, name: 'Asha alpha' });
-
-      // Opened at another workspace's address: refused like a sign-in there.
-      const elsewhere = await provision(form('beta', { modules: ['CRM'] }));
-      const wrongHost = await api()
-        .post(`${API}/auth/account-setup`)
-        .set('Host', host(elsewhere.body.data.address.subdomain))
-        .send({ token: owner.setupToken, password: PASSWORD });
-      expect(wrongHost.status).toBe(400);
-
-      expect((await api().post(`${API}/auth/account-setup`).set('Host', host(owner.subdomain)).send({ token: owner.setupToken, password: 'short' })).status).toBe(400);
-
-      const done = await api().post(`${API}/auth/account-setup`).set('Host', host(owner.subdomain)).send({ token: owner.setupToken, password: PASSWORD });
-      expect(done.status).toBe(200);
-      expect((await api().post(`${API}/auth/account-setup`).set('Host', host(owner.subdomain)).send({ token: owner.setupToken, password: PASSWORD })).status).toBe(400);
-
-      const login = await api().post(`${API}/auth/login`).set('Host', host(owner.subdomain)).send({ email: owner.email, password: PASSWORD });
+      const login = await signIn(owner.subdomain, owner.email, owner.temporaryPassword);
       expect(login.status).toBe(200);
+      expect(login.body.user).toMatchObject({ email: owner.email, mustChangePassword: true });
       expect(login.body.activeTenant.tenantId).toBe(owner.tenantId);
+      const session = { Authorization: `Bearer ${login.body.token}`, Host: host(owner.subdomain) };
 
-      const audit = await prisma.rndtechnosoft_audit_logs.findFirst({ where: { tenant_id: owner.tenantId, action_code: 'ACCOUNT_SETUP_COMPLETED' } });
-      expect(audit).not.toBeNull();
-    });
-
-    it('refuses invalid setup links without saying whether they existed', async () => {
-      await prisma.rndtechnosoft_login_throttle.deleteMany({});
-      for (const bad of ['short', 'x'.repeat(43), owner.setupToken]) {
-        const response = await api().post(`${API}/auth/account-setup/inspect`).send({ token: bad });
-        expect([bad.slice(0, 5), response.status, response.body.message]).toEqual([
-          bad.slice(0, 5),
-          400,
-          'This setup link is invalid, already used or expired. Ask your administrator to send a new one.',
-        ]);
+      // The profile and the password change are reachable; nothing else is.
+      const me = await api().get(`${API}/auth/me`).set(session);
+      expect(me.status).toBe(200);
+      expect(me.body.user.mustChangePassword).toBe(true);
+      for (const path of ['/tenant/current', '/tenant/settings', '/tenant/roles']) {
+        const blocked = await api().get(`${API}${path}`).set(session);
+        expect([path, blocked.status, blocked.body.code]).toEqual([path, 403, 'PASSWORD_CHANGE_REQUIRED']);
       }
+
+      // The new password must differ from the temporary one, and the temporary one must be proven.
+      const same = await api().post(`${API}/auth/change-password`).set(session).send({ currentPassword: owner.temporaryPassword, newPassword: owner.temporaryPassword });
+      expect(same.status).toBe(400);
+      const wrong = await api().post(`${API}/auth/change-password`).set(session).send({ currentPassword: 'not-the-password', newPassword: PASSWORD });
+      expect(wrong.status).toBe(401);
+
+      const changed = await api().post(`${API}/auth/change-password`).set(session).send({ currentPassword: owner.temporaryPassword, newPassword: PASSWORD });
+      expect(changed.status).toBe(200);
+
+      // The same session now reaches the workspace.
+      expect((await api().get(`${API}/auth/me`).set(session)).body.user.mustChangePassword).toBe(false);
+      expect((await api().get(`${API}/tenant/current`).set(session)).status).toBe(200);
+      expect(await prisma.rndtechnosoft_users.findUniqueOrThrow({ where: { email: owner.email } })).toMatchObject({ must_change_password: false });
+
+      // The temporary password no longer works; the new one does.
+      expect((await signIn(owner.subdomain, owner.email, owner.temporaryPassword)).status).toBe(401);
+      const again = await signIn(owner.subdomain, owner.email, PASSWORD);
+      expect(again.status).toBe(200);
+      expect(again.body.user.mustChangePassword).toBe(false);
+
+      const status = await api().get(`${API}/super-admin/tenants/${owner.tenantId}/onboarding`).set(asPlatform());
+      expect(status.body.data.owner.passwordStatus).toBe('SET');
     });
 
     it('returns the same workspace for a repeated submission, even two at once', async () => {
@@ -382,15 +391,20 @@ describe('Tenant provisioning and onboarding', () => {
       }
     });
 
-    it('gives an existing account the workspace without a setup link, and refuses a disabled one', async () => {
+    it('gives an existing account the workspace without touching its password, and refuses a disabled one', async () => {
+      const hashBefore = (await prisma.rndtechnosoft_users.findUniqueOrThrow({ where: { email: owner.email } })).password_hash;
       const body = form('delta', { ownerEmail: owner.email });
       const before = smtp.messages.length;
       const response = await provision(body);
       expect(response.status).toBe(201);
-      expect(response.body.data.owner).toMatchObject({ isNewAccount: false, passwordSet: true });
+      expect(response.body.data.owner).toMatchObject({ isNewAccount: false, passwordStatus: 'SET' });
       expect(smtp.messages).toHaveLength(before + 1);
-      expect(setupTokenIn(smtp.messages.at(-1)!.body)).toBeNull();
+      expect(temporaryPasswordIn(smtp.messages.at(-1)!.body)).toBeNull();
       expect(smtp.messages.at(-1)!.body).toMatch(/your existing .+ password/);
+      expect(await prisma.rndtechnosoft_users.findUniqueOrThrow({ where: { email: owner.email } })).toMatchObject({
+        password_hash: hashBefore,
+        must_change_password: false,
+      });
 
       const disabledEmail = `disabled-${SUFFIX}@provisioning.test`;
       userEmails.push(disabledEmail);
@@ -399,7 +413,7 @@ describe('Tenant provisioning and onboarding', () => {
       expect(refused.status).toBe(409);
     });
 
-    it('keeps the workspace when the email fails, and sends it again with a fresh link', async () => {
+    it('keeps the workspace when the email fails, and each resend issues a new temporary password', async () => {
       await saveSmtp({ port: 25 });
       const body = form('zeta');
       const response = await provision(body);
@@ -407,36 +421,53 @@ describe('Tenant provisioning and onboarding', () => {
       expect(response.body.data.onboardingEmail).toMatchObject({ status: 'FAILED', error: expect.stringMatching(/Could not connect/) });
       const tenantId = response.body.data.tenant.id;
       expect(await prisma.rndtechnosoft_tenants.count({ where: { id: tenantId } })).toBe(1);
+      expect(response.body.data.owner.passwordStatus).toBe('TEMPORARY');
 
       await saveSmtp();
-      const before = smtp.messages.length;
-      const resent = await api().post(`${API}/super-admin/tenants/${tenantId}/onboarding/resend-email`).set(asPlatform());
-      expect(resent.status).toBe(200);
-      expect(resent.body.data.onboardingEmail.status).toBe('SENT');
-      expect(smtp.messages).toHaveLength(before + 1);
-      const freshToken = setupTokenIn(smtp.messages.at(-1)!.body)!;
+      const resend = async () => {
+        const before = smtp.messages.length;
+        const resent = await api().post(`${API}/super-admin/tenants/${tenantId}/onboarding/resend-email`).set(asPlatform());
+        expect(resent.status).toBe(200);
+        expect(resent.body.data.onboardingEmail.status).toBe('SENT');
+        expect(smtp.messages).toHaveLength(before + 1);
+        return temporaryPasswordIn(smtp.messages.at(-1)!.body)!;
+      };
+      const first = await resend();
+      const second = await resend();
+      expect(first).not.toBe(second);
 
-      const tokens = await prisma.rndtechnosoft_account_setup_tokens.findMany({ where: { tenant_id: tenantId }, orderBy: { created_at: 'asc' } });
-      expect(tokens).toHaveLength(2);
-      expect(tokens[0].revoked_at).not.toBeNull();
-      expect(tokens[1]).toMatchObject({ token_hash: hashAccountSetupToken(freshToken), revoked_at: null });
+      // Only the newest temporary password signs in; it still has to be replaced.
+      await prisma.rndtechnosoft_login_throttle.deleteMany({});
+      expect((await signIn(body.subdomain, body.ownerEmail, first)).status).toBe(401);
+      const login = await signIn(body.subdomain, body.ownerEmail, second);
+      expect(login.status).toBe(200);
+      expect(login.body.user.mustChangePassword).toBe(true);
 
       const status = await api().get(`${API}/super-admin/tenants/${tenantId}/onboarding`).set(asPlatform());
       expect(status.body.data.onboardingEmail.status).toBe('SENT');
 
       const actions = (await prisma.rndtechnosoft_platform_activity_logs.findMany({ where: { target_tenant_id: tenantId }, orderBy: { created_at: 'asc' } })).map((l) => l.action);
-      expect(actions).toEqual(['TENANT_PROVISIONED', 'ONBOARDING_EMAIL_FAILED', 'ONBOARDING_EMAIL_SENT']);
+      expect(actions).toEqual(['TENANT_PROVISIONED', 'ONBOARDING_EMAIL_FAILED', 'ONBOARDING_EMAIL_SENT', 'ONBOARDING_EMAIL_SENT']);
       const logs = JSON.stringify(await prisma.rndtechnosoft_platform_activity_logs.findMany({ where: { target_tenant_id: tenantId } }));
-      expect(logs).not.toContain(freshToken);
+      expect(logs).not.toContain(first);
+      expect(logs).not.toContain(second);
     });
 
     it('creates the workspace but reports the email as not sent when SMTP is not configured', async () => {
       const saved = await prisma.rndtechnosoft_platform_settings.findUniqueOrThrow({ where: { setting_key: SMTP_SETTINGS_KEY } });
       await prisma.rndtechnosoft_platform_settings.delete({ where: { setting_key: SMTP_SETTINGS_KEY } });
       try {
-        const response = await provision(form('eta'));
+        const body = form('eta');
+        const response = await provision(body);
         expect(response.status).toBe(201);
         expect(response.body.data.onboardingEmail).toMatchObject({ status: 'NOT_SENT', error: expect.stringMatching(/not configured/) });
+
+        // A resend is refused before a new password is issued that nobody would receive.
+        const hashBefore = (await prisma.rndtechnosoft_users.findUniqueOrThrow({ where: { email: body.ownerEmail } })).password_hash;
+        const resent = await api().post(`${API}/super-admin/tenants/${response.body.data.tenant.id}/onboarding/resend-email`).set(asPlatform());
+        expect(resent.status).toBe(400);
+        expect(resent.body.message).toMatch(/Configure SMTP/);
+        expect((await prisma.rndtechnosoft_users.findUniqueOrThrow({ where: { email: body.ownerEmail } })).password_hash).toBe(hashBefore);
       } finally {
         await prisma.rndtechnosoft_platform_settings.create({ data: { ...saved, setting_value: saved.setting_value as object } });
       }
@@ -490,9 +521,9 @@ describe('Tenant provisioning and onboarding', () => {
   describe('authorization', () => {
     it('keeps provisioning, onboarding and SMTP away from anonymous callers and workspace sessions', async () => {
       await prisma.rndtechnosoft_login_throttle.deleteMany({});
-      // An owner who completed setup, so they can sign in to their workspace.
+      // An owner who replaced the temporary password, so they can use their workspace.
       const onboarded = await prisma.rndtechnosoft_tenant_onboardings.findFirstOrThrow({
-        where: { tenant_id: { in: tenantIds }, owner_is_new_account: true, rndtechnosoft_users: { password_hash: { not: null } } },
+        where: { tenant_id: { in: tenantIds }, owner_is_new_account: true, rndtechnosoft_users: { must_change_password: false } },
         include: { rndtechnosoft_users: true },
       });
       const subdomain = (await prisma.rndtechnosoft_tenant_domains.findFirstOrThrow({ where: { tenant_id: onboarded.tenant_id } })).subdomain!;

@@ -57,7 +57,15 @@ export interface OnboardingResult {
   replayed?: boolean;
   tenant: { id: string; tenantCode: string; name: string; legalName: string; status: string; createdAt: string };
   address: { subdomain: string; hostname: string | null; url: string | null } | null;
-  owner: { userId: string; email: string; name: string | null; role: string; isNewAccount: boolean; passwordSet: boolean };
+  owner: {
+    userId: string;
+    email: string;
+    name: string | null;
+    role: string;
+    isNewAccount: boolean;
+    /** TEMPORARY: the owner has not yet replaced the temporary password from the onboarding email. */
+    passwordStatus: 'TEMPORARY' | 'SET' | 'NOT_SET';
+  };
   modules: { code: string; name: string; enabled: boolean }[];
   subscription: {
     planCode: string;

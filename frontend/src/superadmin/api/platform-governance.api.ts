@@ -185,16 +185,6 @@ export interface SecurityOverview {
   }[];
 }
 
-export interface RoleTemplate {
-  code: string;
-  name: string | null;
-  isOwnerRole: boolean;
-  permissionCount: number;
-  workspaces: number;
-  activeMembers: number;
-  sections: { section: string; groups: { group: string; permissions: { key: string; name: string }[] }[] }[];
-}
-
 export interface Branding {
   platformName: string | null;
   supportEmail: string | null;
@@ -279,8 +269,6 @@ export const platformGovernanceApi = {
   support: (query: { page: number; pageSize: number; status?: string }) =>
     platformApi.get<Page<TicketItem>>(`${BASE}/support${toQueryString(query)}`),
   security: () => platformApi.get<SecurityOverview>(`${BASE}/security`),
-  roleTemplates: () => platformApi.get<RoleTemplate[]>(`${BASE}/roles-templates`),
-
   branding: () => platformApi.get<Branding>(`${BASE}/settings/branding`),
   saveBranding: (input: { platformName: string; supportEmail?: string; websiteUrl?: string; currency: string }) =>
     platformApi.put<Branding>(`${BASE}/settings/branding`, input),

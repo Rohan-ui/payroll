@@ -25,6 +25,8 @@ interface AuthContextType {
   }) => Promise<void>;
   switchTenant: (tenantId: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Replaces the password (a temporary one included); the server then allows the rest of the workspace. */
+  completePasswordChange: (currentPassword: string, newPassword: string) => Promise<void>;
   /** Presentation only: the server enforces every permission itself. */
   can: (permission: string) => boolean;
   /** False until the server has reported this member's permissions for the workspace. */
@@ -215,6 +217,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [applySession],
   );
 
+  const completePasswordChange = useCallback(async (currentPassword: string, newPassword: string) => {
+    await authApi.changePassword(currentPassword, newPassword);
+    setUser((current) => (current ? { ...current, mustChangePassword: false } : current));
+  }, []);
+
   const refreshAccess = useCallback(async () => {
     const profile = await authApi.getMe();
     setAccess(completeAccess(profile.access));
@@ -267,6 +274,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       registerTenant,
       switchTenant,
       logout,
+      completePasswordChange,
       can,
       accessLoaded: access !== null,
       isModuleEnabled,
@@ -288,6 +296,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       registerTenant,
       switchTenant,
       logout,
+      completePasswordChange,
       can,
       access,
       isModuleEnabled,

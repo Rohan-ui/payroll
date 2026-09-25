@@ -1,4 +1,4 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from 'crypto';
+import { randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual, createHash } from 'crypto';
 import { promisify } from 'util';
 
 const scrypt = promisify(scryptCallback) as (
@@ -67,6 +67,23 @@ function verifyLegacySha256(password: string, stored: string): boolean {
   }
 
   return timingSafeEqual(candidate, expected);
+}
+
+/** Letters and digits that cannot be mistaken for one another when copied from an email (no 0/O, 1/l/I). */
+const TEMPORARY_PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+const TEMPORARY_PASSWORD_LENGTH = 16;
+
+/**
+ * A random one-time password (about 93 bits) for an account that must choose
+ * its own password at first sign-in. Callers store only its hash and keep the
+ * plaintext just long enough to deliver it.
+ */
+export function generateTemporaryPassword(): string {
+  let password = '';
+  for (let i = 0; i < TEMPORARY_PASSWORD_LENGTH; i += 1) {
+    password += TEMPORARY_PASSWORD_ALPHABET[randomInt(TEMPORARY_PASSWORD_ALPHABET.length)];
+  }
+  return password;
 }
 
 /**

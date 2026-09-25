@@ -51,6 +51,8 @@ export interface UserSession {
     id: string;
     email: string;
     displayName: string | null;
+    /** Signed in with a temporary password: the server allows nothing but replacing it. */
+    mustChangePassword: boolean;
   };
   activeTenant: TenantMembership;
   availableTenants: TenantMembership[];
@@ -91,14 +93,6 @@ export const authApi = {
     apiClient.post<UserSession>('/auth/switch-tenant', { tenantId }),
 
   logout: () => apiClient.post<{ success: boolean }>('/auth/logout'),
-
-  /** Who a one-time setup link is for. The token is sent in the body, never in a URL. */
-  inspectAccountSetup: (token: string) =>
-    apiClient.post<{ email: string; name: string | null; workspace: string; expiresAt: string }>('/auth/account-setup/inspect', { token }),
-
-  /** Sets the first password from a one-time setup link. */
-  completeAccountSetup: (token: string, password: string) =>
-    apiClient.post<{ success: boolean; data: { email: string; workspace: string } }>('/auth/account-setup', { token, password }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
     apiClient.post<{ success: boolean }>('/auth/change-password', {

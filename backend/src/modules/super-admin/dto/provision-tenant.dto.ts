@@ -56,16 +56,12 @@ export class ProvisionSubscriptionDto {
 }
 
 /**
- * Everything needed to onboard a customer workspace from the platform
- * console. Organization fields map to the workspace and its organization
- * profile (the same fields the workspace edits later in its own settings).
+ * A workspace's organization details, as the platform console sets them when
+ * it creates the workspace and edits them later. They map to the workspace
+ * and its organization profile (the same fields the workspace edits in its
+ * own settings).
  */
-export class ProvisionTenantDto {
-  /** From the provisioning form; a repeated submission returns the workspace already created. */
-  @IsUUID('4', { message: 'The request is missing its idempotency key. Reload the page and try again.' })
-  idempotencyKey!: string;
-
-  // Organization
+export class TenantOrganizationDto {
   @trim()
   @IsString()
   @MinLength(2, { message: 'Organization name must be at least 2 characters.' })
@@ -77,17 +73,6 @@ export class ProvisionTenantDto {
   @MinLength(2, { message: 'Legal name must be at least 2 characters.' })
   @MaxLength(200)
   legalName!: string;
-
-  @trim()
-  @Matches(/^[A-Za-z0-9_-]{2,64}$/, { message: 'Tenant code: 2–64 letters, numbers, hyphens or underscores.' })
-  tenantCode!: string;
-
-  /** Workspace address; made from the tenant code when omitted. Checked on the server. */
-  @IsOptional()
-  @trim()
-  @IsString()
-  @MaxLength(100)
-  subdomain?: string;
 
   @ValidateIf(isFilled)
   @IsIn(INDUSTRY_TYPES, { message: 'Choose an industry from the list.' })
@@ -139,6 +124,24 @@ export class ProvisionTenantDto {
   @upper()
   @IsISO4217CurrencyCode({ message: 'Choose a valid currency.' })
   currency!: string;
+}
+
+/** Everything needed to onboard a customer workspace from the platform console. */
+export class ProvisionTenantDto extends TenantOrganizationDto {
+  /** From the provisioning form; a repeated submission returns the workspace already created. */
+  @IsUUID('4', { message: 'The request is missing its idempotency key. Reload the page and try again.' })
+  idempotencyKey!: string;
+
+  @trim()
+  @Matches(/^[A-Za-z0-9_-]{2,64}$/, { message: 'Tenant code: 2–64 letters, numbers, hyphens or underscores.' })
+  tenantCode!: string;
+
+  /** Workspace address; made from the tenant code when omitted. Checked on the server. */
+  @IsOptional()
+  @trim()
+  @IsString()
+  @MaxLength(100)
+  subdomain?: string;
 
   // Owner: becomes the workspace administrator.
   @trim()

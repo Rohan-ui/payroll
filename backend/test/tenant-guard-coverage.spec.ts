@@ -62,8 +62,6 @@ const EXPECTED_PUBLIC_ROUTES = [
   'AuthController.login', // issues the session
   'AuthController.getHost', // the base domain and the name of the workspace whose address this is
   'AuthController.subdomainAvailability', // whether a workspace address is free, for the sign-up form
-  'AuthController.inspectAccountSetup', // who a one-time setup link is for; the link is the credential
-  'AuthController.completeAccountSetup', // sets the first password from a one-time setup link
   'HealthController.check', // liveness probe, no tenant data
 ].sort();
 

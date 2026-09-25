@@ -11,13 +11,13 @@ const STATS = [
   { icon: TrendingUp, label: 'Payroll runs/month', value: '18,000+' },
 ];
 
-export const AuthView: React.FC<{ initialEmail?: string }> = ({ initialEmail }) => {
+export const AuthView: React.FC = () => {
   const { login, registerTenant, isLoading, error } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [showPass, setShowPass] = useState(false);
 
   // Login fields
-  const [email, setEmail] = useState(initialEmail ?? '');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   // Register fields

@@ -12,9 +12,8 @@ import {
 import { Request } from 'express';
 import { AuthService, RegisterUserInput } from './auth.service';
 import { TenantSessionService } from './session/tenant-session.service';
-import { AccountSetupService } from './account-setup.service';
 import { TenantDomainsService, platformBaseDomain } from '@/modules/tenancy/tenant-domains.service';
-import { PublicRoute, CurrentUser } from '@/common/decorators/auth.decorators';
+import { AllowsPasswordChangePending, PublicRoute, CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import {
@@ -24,8 +23,6 @@ import {
   ChangePasswordDto,
   AddMembershipDto,
   SubdomainAvailabilityQueryDto,
-  AccountSetupTokenDto,
-  CompleteAccountSetupDto,
 } from './dto/auth.dto';
 
 @Controller('auth')
@@ -34,16 +31,11 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly sessionService: TenantSessionService,
     private readonly domains: TenantDomainsService,
-    private readonly accountSetup: AccountSetupService,
   ) {}
 
   /** The caller's address; X-Forwarded-For counts only from a trusted proxy (see main.ts). */
   private clientIp(req: Request): string | undefined {
     return req.ip;
-  }
-
-  private requestContext(req: Request) {
-    return { hostHeader: req.headers.host, ipAddress: this.clientIp(req), userAgent: req.headers['user-agent'] };
   }
 
   @Post('register')
@@ -102,24 +94,8 @@ export class AuthController {
     return this.domains.availability(query.subdomain);
   }
 
-  /** Who a first-password link is for. POST so the token never appears in a URL or access log. */
-  @Post('account-setup/inspect')
-  @PublicRoute()
-  @HttpCode(HttpStatus.OK)
-  async inspectAccountSetup(@Body() body: AccountSetupTokenDto, @Req() req: Request) {
-    return this.accountSetup.inspect(body.token, this.requestContext(req));
-  }
-
-  /** Sets the first password from a one-time link. The person then signs in normally. */
-  @Post('account-setup')
-  @PublicRoute()
-  @HttpCode(HttpStatus.OK)
-  async completeAccountSetup(@Body() body: CompleteAccountSetupDto, @Req() req: Request) {
-    const result = await this.accountSetup.complete(body.token, body.password, this.requestContext(req));
-    return { success: true, message: 'Password set. You can sign in now.', data: result };
-  }
-
   @Post('logout')
+  @AllowsPasswordChangePending()
   @HttpCode(HttpStatus.OK)
   async logout(@CurrentUser() user: AuthenticatedTenantUser) {
     await this.sessionService.logout(user);
@@ -128,6 +104,7 @@ export class AuthController {
 
   /** Identity comes from the session; there is no user id parameter to forge. */
   @Get('me')
+  @AllowsPasswordChangePending()
   async getMe(@CurrentUser() user: AuthenticatedTenantUser) {
     return this.sessionService.getProfile(user);
   }
@@ -150,7 +127,9 @@ export class AuthController {
     });
   }
 
+  /** Also the one route that replaces a temporary password (AllowsPasswordChangePending). */
   @Post('change-password')
+  @AllowsPasswordChangePending()
   @HttpCode(HttpStatus.OK)
   async changePassword(
     @Body() body: ChangePasswordDto,

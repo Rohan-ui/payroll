@@ -71,6 +71,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let message = 'An unexpected internal error occurred';
     let errors: unknown = undefined;
     let retryAfterSeconds: number | undefined;
+    // A stable machine-readable reason, for the few errors a client must act on.
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -84,6 +86,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
         if (typeof obj.retryAfterSeconds === 'number') {
           retryAfterSeconds = obj.retryAfterSeconds;
+        }
+        if (typeof obj.code === 'string') {
+          code = obj.code;
         }
       }
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
@@ -119,6 +124,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.url,
       message,
+      ...(code ? { code } : {}),
       ...(errors ? { errors } : {}),
       ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
     });

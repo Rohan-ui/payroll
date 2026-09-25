@@ -9,7 +9,6 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
 import {
   ADMIN_ROLE_CODE,
-  DEFAULT_ROLE_PERMISSIONS,
   NAVIGATION,
   PERMISSION_KEYS,
 } from '@/common/access/access-catalog';
@@ -216,12 +215,13 @@ describe('Workspace role-based access control', () => {
       expect(keys.sort()).toEqual([...PERMISSION_KEYS].sort());
     });
 
-    it('is stored in the database, with every built-in role holding its starting grants', async () => {
+    // Other roles start from editable role templates, so only the Administrator role has fixed grants.
+    it('is stored in the database, with every Administrator role holding every permission', async () => {
       const stored = await prisma.rndtechnosoft_permissions.findMany({ where: { permission_code: { in: [...PERMISSION_KEYS] } } });
       expect(stored.length).toBe(PERMISSION_KEYS.length);
 
       const builtIn = await prisma.rndtechnosoft_roles.findMany({
-        where: { role_code: { in: Object.keys(DEFAULT_ROLE_PERMISSIONS) } },
+        where: { role_code: ADMIN_ROLE_CODE },
         select: {
           role_code: true,
           rndtechnosoft_tenants: { select: { tenant_code: true } },
@@ -231,7 +231,7 @@ describe('Workspace role-based access control', () => {
       const missing = builtIn
         .map((role) => ({
           role: `${role.rndtechnosoft_tenants.tenant_code}/${role.role_code}`,
-          missing: DEFAULT_ROLE_PERMISSIONS[role.role_code].filter(
+          missing: PERMISSION_KEYS.filter(
             (key) => !role.rndtechnosoft_role_permissions.some((g) => g.rndtechnosoft_permissions.permission_code === key),
           ),
         }))

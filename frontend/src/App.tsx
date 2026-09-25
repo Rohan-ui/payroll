@@ -13,7 +13,7 @@ import { VIEW_NAVIGATION } from './components/layout/navigation';
 // Views
 import { AuthView } from './views/AuthView';
 import { Toaster } from './components/ui/Toaster';
-import { AccountSetupView } from './views/AccountSetupView';
+import { ChangeTemporaryPasswordView } from './views/ChangeTemporaryPasswordView';
 import { DashboardView } from './views/DashboardView';
 import { RunPayrollWizardView } from './views/RunPayrollWizardView';
 import { EmployeesView } from './views/EmployeesView';
@@ -134,38 +134,8 @@ const MainContent: React.FC = () => {
   );
 };
 
-/**
- * The one-time token of an emailed setup link (`#setup=<token>`), read once
- * and removed from the address bar so it is not left in history or bookmarks.
- * Cached, because development mode runs state initialisers twice.
- */
-let setupTokenFromLink: string | null | undefined;
-function takeSetupToken(): string | null {
-  if (setupTokenFromLink === undefined) {
-    const match = window.location.hash.match(/^#setup=([A-Za-z0-9_-]{43})$/);
-    setupTokenFromLink = match ? match[1] : null;
-    if (match) window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  }
-  return setupTokenFromLink;
-}
-
 const AppRouter: React.FC = () => {
-  const { isAuthenticated, isLoading, activeTenant } = useAuth();
-  const [setupToken, setSetupToken] = React.useState<string | null>(takeSetupToken);
-  const [signInEmail, setSignInEmail] = React.useState<string | undefined>(undefined);
-
-  if (setupToken) {
-    return (
-      <AccountSetupView
-        token={setupToken}
-        onDone={(email) => {
-          setupTokenFromLink = null;
-          setSetupToken(null);
-          setSignInEmail(email ?? undefined);
-        }}
-      />
-    );
-  }
+  const { isAuthenticated, isLoading, activeTenant, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -179,7 +149,12 @@ const AppRouter: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <AuthView initialEmail={signInEmail} />;
+    return <AuthView />;
+  }
+
+  // Signed in with a temporary password: nothing else is reachable until it is replaced.
+  if (user?.mustChangePassword) {
+    return <ChangeTemporaryPasswordView />;
   }
 
   // Keyed by workspace: switching tenants remounts every view and context, so
