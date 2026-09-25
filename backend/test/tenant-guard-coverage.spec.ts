@@ -15,6 +15,7 @@ import { CrmController } from '@/modules/crm/crm.controller';
 import { EmployeesController } from '@/modules/employees/employees.controller';
 import { ExternalApiController } from '@/modules/external-api/external-api.controller';
 import { HealthController } from '@/modules/health/health.controller';
+import { GmailController } from '@/modules/gmail/gmail.controller';
 import { LeaveController } from '@/modules/leave/leave.controller';
 import { PayrollController } from '@/modules/payroll/payroll.controller';
 import { SalaryController } from '@/modules/salary/salary.controller';
@@ -44,6 +45,7 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['EmployeesController', EmployeesController],
   ['ExternalApiController', ExternalApiController],
   ['HealthController', HealthController],
+  ['GmailController', GmailController],
   ['LeaveController', LeaveController],
   ['PayrollController', PayrollController],
   ['SalaryController', SalaryController],
@@ -65,6 +67,7 @@ const EXPECTED_PUBLIC_ROUTES = [
   'AuthController.inspectAccountSetup', // who a one-time setup link is for; the link is the credential
   'AuthController.completeAccountSetup', // sets the first password from a one-time setup link
   'HealthController.check', // liveness probe, no tenant data
+  'GmailController.callback', // validates one-time OAuth state before storing the connection
 ].sort();
 
 function routesOf(name: string, controller: ControllerClass) {
@@ -202,6 +205,7 @@ describe('Tenant route guard coverage', () => {
       ['EmployeesController', ['HRMS']],
       ['ExternalApiController', ['HRMS']],
       ['HealthController', []],
+      ['GmailController', ['CRM']],
       ['LeaveController', ['HRMS']],
       ['PayrollController', ['FINANCE']],
       ['SalaryController', ['FINANCE']],

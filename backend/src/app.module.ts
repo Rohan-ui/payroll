@@ -23,6 +23,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { AccessModule } from './common/access/access.module';
 import { TenancyModule } from './modules/tenancy/tenancy.module';
 import { EmailModule } from './modules/email/email.module';
+import { GmailModule } from './modules/gmail/gmail.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { EmailModule } from './modules/email/email.module';
     AuditModule,
     TenancyModule,
     EmailModule,
+    GmailModule,
     TenantsModule,
     AuthModule,
     EmployeesModule,

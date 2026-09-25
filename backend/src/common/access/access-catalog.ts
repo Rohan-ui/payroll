@@ -99,6 +99,7 @@ export const PERMISSIONS = [
   { key: 'leads.export', name: 'Export leads', section: 'crm', group: 'Leads', nav: 'crm.pipeline' },
 
   { key: 'marketing.view', name: 'Open Email & Marketing', section: 'crm', group: 'Email & Marketing', nav: 'crm.emails' },
+  { key: 'marketing.manage', name: 'Send Gmail messages and manage templates', section: 'crm', group: 'Email & Marketing', nav: 'crm.emails' },
 
   { key: 'followups.view', name: 'View follow-ups', section: 'crm', group: 'Follow-ups & Meetings', nav: 'crm.activities' },
   { key: 'followups.create', name: 'Schedule follow-ups', section: 'crm', group: 'Follow-ups & Meetings', nav: 'crm.activities' },
