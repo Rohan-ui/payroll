@@ -1413,12 +1413,51 @@ model rndtechnosoft_tenant_members {
   rndtechnosoft_crm_leads                                                                                                                         rndtechnosoft_crm_leads[]
   rndtechnosoft_crm_lead_activities                                                                                                               rndtechnosoft_crm_lead_activities[]
   rndtechnosoft_crm_lead_followups                                                                                                                rndtechnosoft_crm_lead_followups[]
+  rndtechnosoft_gmail_connections                                                                                                                 rndtechnosoft_gmail_connections[]
   rndtechnosoft_tenants                                                                                                                           rndtechnosoft_tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_1")
   rndtechnosoft_users                                                                                                                             rndtechnosoft_users                     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_2")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
   @@index([tenant_id, membership_status], map: "ix_tenant_members_1")
+}
+
+/// One Gmail IMAP connection per application user and workspace. OAuth state is
+/// stored as a one-time digest; refresh tokens are encrypted before persistence.
+model rndtechnosoft_gmail_connections {
+  id                           String                       @id @db.Uuid
+  tenant_id                    String                       @db.Uuid
+  user_id                      String                       @db.Uuid
+  gmail_email                  String?                      @db.VarChar(320)
+  refresh_token_encrypted      String?                      @db.Text
+  connection_status            String                       @default("PENDING") @db.VarChar(32)
+  oauth_state_hash             String?                      @unique(map: "uq_gmail_connections_oauth_state") @db.Char(64)
+  oauth_state_expires_at       DateTime?                    @db.Timestamptz(6)
+  connected_at                 DateTime?                    @db.Timestamptz(6)
+  disconnected_at              DateTime?                    @db.Timestamptz(6)
+  last_error_code              String?                      @db.VarChar(64)
+  created_at                   DateTime                     @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                   DateTime                     @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenant_members rndtechnosoft_tenant_members @relation(fields: [tenant_id, user_id], references: [tenant_id, user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_gmail_connections_member")
+
+  @@unique([tenant_id, user_id], map: "uq_gmail_connections_tenant_user")
+  @@index([tenant_id, connection_status], map: "ix_gmail_connections_tenant_status")
+}
+
+model rndtechnosoft_email_templates {
+  id                    String                @id @db.Uuid
+  tenant_id             String                @db.Uuid
+  template_name         String                @db.VarChar(160)
+  category              String                @db.VarChar(80)
+  subject               String                @db.VarChar(300)
+  description           String?               @db.VarChar(500)
+  body_text             String                @db.Text
+  created_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_templates_tenant")
+
+  @@unique([tenant_id, id], map: "uq_email_templates_tenant_id")
+  @@index([tenant_id, updated_at(sort: Desc)], map: "ix_email_templates_tenant_updated")
 }
 
 model rndtechnosoft_tenant_settings {
@@ -1525,6 +1564,7 @@ model rndtechnosoft_tenants {
   rndtechnosoft_crm_clients                    rndtechnosoft_crm_clients[]
   rndtechnosoft_crm_audit_logs                 rndtechnosoft_crm_audit_logs[]
   rndtechnosoft_email_deliveries               rndtechnosoft_email_deliveries[]
+  rndtechnosoft_email_templates                rndtechnosoft_email_templates[]
   rndtechnosoft_tenant_onboardings             rndtechnosoft_tenant_onboardings?
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
