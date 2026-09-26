@@ -258,7 +258,7 @@ export const TenantDetailView: React.FC<{ tenantId: string }> = ({ tenantId }) =
 
 /** How the workspace was onboarded from HQ, and the real state of its onboarding email. */
 const OnboardingPanel: React.FC<{ tenantId: string; tenantName: string; suspended: boolean }> = ({ tenantId, tenantName, suspended }) => {
-  const [onboarding, setOnboarding] = useState<OnboardingResult | null | undefined>(undefined);
+  const [onboarding, setOnboarding] = useState<OnboardingResult | null | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -272,7 +272,7 @@ const OnboardingPanel: React.FC<{ tenantId: string; tenantName: string; suspende
       setError(err instanceof Error ? err.message : 'Could not load the onboarding record.');
     }
   }, [tenantId]);
-
+console.log(onboarding,"bfuiefiueb")
   useEffect(() => {
     void load();
   }, [load]);
@@ -316,6 +316,7 @@ const OnboardingPanel: React.FC<{ tenantId: string; tenantName: string; suspende
   }
 
   const email = onboarding.onboardingEmail;
+  console.log(email,"ngioehio")
   return (
     <Panel
       title="Onboarding"
@@ -327,6 +328,7 @@ const OnboardingPanel: React.FC<{ tenantId: string; tenantName: string; suspende
           className="h-9 px-3 rounded-lg border border-hq-border text-xs font-semibold text-hq-foreground hover:bg-hq-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hq-ring disabled:opacity-50"
         >
           {email.status === 'SENT' ? 'Send email again' : 'Send onboarding email'}
+          
         </button>
       }
     >
