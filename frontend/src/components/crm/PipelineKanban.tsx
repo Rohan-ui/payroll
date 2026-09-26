@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Sparkles, ArrowRight, ArrowLeft, Building2, Trophy, Clock,
   Eye, Filter, Plus, ChevronDown, CheckCircle2, TrendingUp,
@@ -19,6 +19,16 @@ import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
+import { useAuth } from '../../context/AuthContext';
+import { dealWonMessage, isInOutreach, readRememberedPipeline, rememberPipeline, resolveBoardPipeline } from './pipelineBoard';
+
+/** Asks the board to show one lead: select its pipeline, clear filters, and highlight the card. */
+export interface BoardFocusRequest {
+  leadId: string;
+  pipelineId: string | null;
+  /** Changes on every request, so asking twice for the same lead works. */
+  nonce: number;
+}
 interface PipelineKanbanProps {
   leads: any[];
   stages: any[];
@@ -35,7 +45,14 @@ interface PipelineKanbanProps {
   onReassignSalesPerson?: (lead: any) => void;
   viewMode?: 'kanban' | 'list';
   onViewModeChange?: (mode: 'kanban' | 'list') => void;
+  focusRequest?: BoardFocusRequest | null;
+  /** Called once a focus request has been applied, so it is not replayed when the board remounts. */
+  onFocusHandled?: () => void;
+  /** Opens Client Outreach, where leads in the 30-day cadence are worked. */
+  onOpenOutreach?: () => void;
 }
+
+const HIGHLIGHT_MS = 4000;
 
 export default function PipelineKanban({
   leads,
@@ -52,17 +69,50 @@ export default function PipelineKanban({
   onScheduleFollowup,
   onReassignSalesPerson,
   viewMode = 'kanban',
-  onViewModeChange
+  onViewModeChange,
+  focusRequest = null,
+  onFocusHandled,
+  onOpenOutreach
 }: PipelineKanbanProps) {
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string>(
-    pipelines[0]?.id || ''
-  );
+  // The board shows the user's chosen pipeline while it exists, else the default one. This is
+  // derived on every render, so pipelines that arrive after the board mounts are picked up.
+  const { activeTenant } = useAuth();
+  const tenantId = activeTenant?.tenantId ?? null;
+  const [chosenPipelineId, setChosenPipelineId] = useState<string | null>(() => readRememberedPipeline(tenantId));
+  const selectedPipelineId = resolveBoardPipeline(pipelines, chosenPipelineId);
+  const choosePipeline = (pipelineId: string) => {
+    setChosenPipelineId(pipelineId);
+    rememberPipeline(tenantId, pipelineId);
+  };
+  const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
   const [selectedSalesPerson, setSelectedSalesPerson] = useState<string>('ALL');
   const [selectedOrigin, setSelectedOrigin] = useState<'ALL' | 'EXISTING' | 'NEW'>('ALL');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('ALL');
   const [selectedSubIndustry, setSelectedSubIndustry] = useState<string>('ALL');
 
+
+  // "Show on board": select the lead's pipeline and clear filters so its card is visible.
+  useEffect(() => {
+    if (!focusRequest) return;
+    if (focusRequest.pipelineId) setChosenPipelineId(focusRequest.pipelineId);
+    setSelectedSalesPerson('ALL');
+    setSelectedOrigin('ALL');
+    setSelectedIndustry('ALL');
+    setSelectedSubIndustry('ALL');
+    setHighlightedLeadId(focusRequest.leadId);
+    onFocusHandled?.();
+  }, [focusRequest, onFocusHandled]);
+
+  // Once the highlighted card is on the board (the lead list may still be reloading), bring it
+  // into view and let the highlight fade after a few seconds.
+  const highlightedOnBoard = highlightedLeadId !== null && leads.some((l) => l.id === highlightedLeadId);
+  useEffect(() => {
+    if (!highlightedOnBoard || !highlightedLeadId) return;
+    document.querySelector(`[data-lead-card="${highlightedLeadId}"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+    const timer = window.setTimeout(() => setHighlightedLeadId(null), HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [highlightedOnBoard, highlightedLeadId]);
 
   // Drag state
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
@@ -224,19 +274,13 @@ export default function PipelineKanban({
     };
   };
 
-  // Filter leads by pipeline, sales person, origin, and cold cadence isolation
+  // Leads still in the 30-day outreach cadence are worked in Client Outreach, not on the board;
+  // the link above the board says how many there are.
+  const outreachCount = leads.filter(isInOutreach).length;
+
+  // Filter leads by pipeline, sales person, origin and industry
   const pipelineLeads = leads.filter(l => {
-    // Isolate unconverted cold marketing leads from active sales pipeline (permanently hidden)
-    if (l.custom_attributes) {
-      try {
-        const parsed = typeof l.custom_attributes === 'string' ? JSON.parse(l.custom_attributes) : l.custom_attributes;
-        if (parsed?.cadence && parsed.cadence.status !== 'CONVERTED' && !parsed.cadence.convertedToOpportunity) {
-          return false; // Keep sales pipeline clean and isolated from cold marketing cadence
-        }
-      } catch {
-        // ignore
-      }
-    }
+    if (isInOutreach(l)) return false;
 
     const matchesPipe = !l.pipeline_id || l.pipeline_id === selectedPipelineId;
     const matchesSales = selectedSalesPerson === 'ALL' || l.assigned_user_id === selectedSalesPerson;
@@ -385,7 +429,7 @@ export default function PipelineKanban({
       const res = await apiFetch(`/api/v1/crm/leads/${dealWonConfirmLead.id}/convert-won`, { method: 'POST', feedback: { success: false } });
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast(`🏆 Deal Won! Project: ${data.data.projectCode}, Invoice: ${data.data.invoiceNumber}`);
+        showToast(dealWonMessage(data.data));
         setDealWonConfirmLead(null);
         onRefresh();
       }
@@ -404,7 +448,7 @@ export default function PipelineKanban({
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sales Pipeline</label>
             <select
               value={selectedPipelineId}
-              onChange={(e) => setSelectedPipelineId(e.target.value)}
+              onChange={(e) => choosePipeline(e.target.value)}
               className="mt-0.5 px-3 py-1.5 bg-slate-50 text-xs font-bold text-slate-800 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
             >
               {pipelines.map((p) => (
@@ -503,9 +547,24 @@ export default function PipelineKanban({
         )}
       </div>
 
+      {outreachCount > 0 && (
+        <p className="text-xs text-slate-600">
+          <button
+            type="button"
+            onClick={onOpenOutreach}
+            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+          >
+            {outreachCount} lead{outreachCount === 1 ? '' : 's'} in outreach
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+            Client Outreach
+          </button>
+          <span className="text-slate-400"> · not shown on the board until they move into the pipeline</span>
+        </p>
+      )}
+
       {/* DRAGGABLE KANBAN BOARD */}
       <div className="flex gap-4 overflow-x-auto pb-4 items-start min-h-[600px]">
-        {stages.map((stage) => {
+        {stages.filter((stage) => stage.pipeline_id === selectedPipelineId).map((stage) => {
           const stageLeads = pipelineLeads.filter(l => l.stage_id === stage.id);
           const stageValue = stageLeads.reduce((acc, l) => acc + Number(l.budget_amount || 0), 0);
           const isOver = dragOverStageId === stage.id;
@@ -575,9 +634,12 @@ export default function PipelineKanban({
                 {stageLeads.map((lead) => (
                   <div
                     key={lead.id}
+                    data-lead-card={lead.id}
                     draggable={true}
                     onDragStart={(e) => handleDragStart(e, lead.id)}
-                    className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs hover:shadow-md transition-all space-y-2.5 group cursor-grab active:cursor-grabbing relative"
+                    className={`bg-white p-3.5 rounded-xl border shadow-2xs hover:shadow-md transition-all space-y-2.5 group cursor-grab active:cursor-grabbing relative ${
+                      lead.id === highlightedLeadId ? 'border-blue-500 ring-2 ring-blue-400' : 'border-slate-200'
+                    }`}
                   >
                     {/* Grip & Value & AI Score */}
                     <div className="flex items-center justify-between">

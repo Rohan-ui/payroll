@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 const Link = ({ href, children, className, target, rel, ...props }: any) => (
   <a href={href} className={className} target={target} rel={rel} {...props}>{children}</a>
 );
@@ -30,16 +30,20 @@ import { parsePhoneWithCountryCode } from '@/lib/countryCodes';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
+import { coldFunnelDestination, dealWonMessage } from './pipelineBoard';
+import { ConvertDestination } from './ConvertDestination';
 interface Lead360DrawerProps {
   leadId: string | null;
   onClose: () => void;
   onRefreshParent: () => void;
   /** The workspace's own pipelines and stages, for converting a lead into an opportunity. */
-  pipelines?: { id: string; name: string }[];
-  stages?: { id: string; name: string; pipeline_id: string; stage_probability?: number }[];
+  pipelines?: { id: string; name: string; code?: string | null; is_active?: boolean | null }[];
+  stages?: { id: string; name: string; pipeline_id: string; stage_probability?: number; sort_order?: number | null; is_won?: boolean | null; is_lost?: boolean | null }[];
+  /** Receives the server's answer after the lead is converted into an opportunity. */
+  onLeadConverted?: (result: any) => void;
 }
 
-export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipelines = [], stages = [] }: Lead360DrawerProps) {
+export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipelines = [], stages = [], onLeadConverted }: Lead360DrawerProps) {
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -84,13 +88,13 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
 
   // Cadence conversion to Opportunity state
   const [showCadenceConvertModal, setShowCadenceConvertModal] = useState(false);
-  const [cadenceTargetPipeline, setCadenceTargetPipeline] = useState('');
-  const [cadenceTargetStage, setCadenceTargetStage] = useState('');
   const [cadenceTargetChannel, setCadenceTargetChannel] = useState('cold_sop');
-  const [cadenceDealValue, setCadenceDealValue] = useState<string | number>(250000);
+  const [cadenceDealValue, setCadenceDealValue] = useState<string | number>('');
   const [cadenceTemperature, setCadenceTemperature] = useState<'HOT' | 'WARM'>('HOT');
   const [cadenceNotes, setCadenceNotes] = useState('');
   const [convertingCadenceOpp, setConvertingCadenceOpp] = useState(false);
+  // Set synchronously, so a second click before the next render cannot send a second request.
+  const convertInFlight = useRef(false);
 
   // Industry & Sub-Industry Sector state
   const [isEditingSector, setIsEditingSector] = useState(false);
@@ -202,8 +206,12 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
     }
   };
 
+  // Converted leads go to the Cold Funnel's first open stage; the server decides and checks this too.
+  const convertDestination = coldFunnelDestination(pipelines, stages);
+
   const handleExecuteConvertCadenceOpportunity = async () => {
-    if (!leadId) return;
+    if (!leadId || convertInFlight.current || !convertDestination) return;
+    convertInFlight.current = true;
     setConvertingCadenceOpp(true);
     try {
       const res = await apiFetch('/api/v1/crm/cadence', {
@@ -212,23 +220,25 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
         body: JSON.stringify({
           action: 'CONVERT_OPPORTUNITY',
           leadId,
-          pipelineId: cadenceTargetPipeline,
-          stageId: cadenceTargetStage,
           conversionChannel: cadenceTargetChannel,
-          budgetAmount: Number(cadenceDealValue) || 0,
+          ...(cadenceDealValue !== '' ? { budgetAmount: Number(cadenceDealValue) } : {}),
           temperature: cadenceTemperature,
           notes: cadenceNotes || `Prospect converted to active Sales Pipeline Opportunity from Lead 360 Cadence view.`
         }),
-        feedback: { success: 'Lead converted to a pipeline opportunity' },
+        // The workspace announces the result with a link to the board; otherwise the server's message is shown.
+        ...(onLeadConverted ? { feedback: { success: false as const } } : {}),
       });
-      if (res.ok) {
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.data?.lead) {
         setShowCadenceConvertModal(false);
+        onLeadConverted?.(json.data);
         fetchLead360();
         onRefreshParent();
       }
     } catch {
       // Reported by the API client.
     } finally {
+      convertInFlight.current = false;
       setConvertingCadenceOpp(false);
     }
   };
@@ -515,7 +525,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
       if (res.ok) {
         const json = await res.json();
         setShowConvertConfirm(false);
-        showToast(`Deal won. Client created; project ${json.data.projectCode}, invoice ${json.data.invoiceNumber}.`);
+        showToast(dealWonMessage(json.data));
         fetchLead360();
         onRefreshParent();
       }
@@ -1104,7 +1114,6 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                         <span>Deal Converted & Won</span>
                       </div>
                       <p>Client ID: {lead?.converted_client_id}</p>
-                      <p>Active Project ID: {lead?.converted_project_id || 'PRJ-MUBIILZ8'}</p>
                     </div>
                   )}
                 </div>
@@ -1710,7 +1719,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                           {leadCadence.status !== 'CONVERTED' ? (
                             <button
                               onClick={() => {
-                                setCadenceDealValue(lead?.budget_amount || 250000);
+                                setCadenceDealValue(Number(lead?.budget_amount) > 0 ? Number(lead?.budget_amount) : '');
                                 setCadenceNotes(`Prospect ${lead?.first_name} ${lead?.last_name} qualified during Cold Cadence Day ${CADENCE_STEPS_MASTER[leadCadence.currentStepIndex || 0]?.dayNumber || 1}.`);
                                 setShowCadenceConvertModal(true);
                               }}
@@ -2411,44 +2420,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
             </div>
 
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Target Pipeline</label>
-                  <select
-                    value={cadenceTargetPipeline}
-                    onChange={(e) => {
-                      setCadenceTargetPipeline(e.target.value);
-                      setCadenceTargetStage('');
-                    }}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  >
-                    <option value="">Choose a pipeline</option>
-                    {pipelines.map((pipeline) => (
-                      <option key={pipeline.id} value={pipeline.id}>
-                        {pipeline.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Target Stage</label>
-                  <select
-                    value={cadenceTargetStage}
-                    onChange={(e) => setCadenceTargetStage(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  >
-                    <option value="">Choose a stage</option>
-                    {stages
-                      .filter((stage) => stage.pipeline_id === cadenceTargetPipeline)
-                      .map((stage) => (
-                        <option key={stage.id} value={stage.id}>
-                          {stage.name}
-                          {stage.stage_probability !== undefined ? ` (${stage.stage_probability}%)` : ''}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              </div>
+              <ConvertDestination destination={convertDestination} />
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Conversion Channel</label>
@@ -2521,7 +2493,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-[11px] flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 <span>
-                  Converting will add this deal directly to your active <strong>Sales Pipeline Kanban</strong> and schedule an immediate discovery followup.
+                  Converting takes this lead out of the outreach cadence and puts it on the <strong>Sales Pipeline</strong> board{convertDestination ? <> under <strong>{convertDestination.pipeline.name}</strong></> : null}.
                 </span>
               </div>
             </div>
@@ -2536,7 +2508,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
               </button>
               <button
                 type="button"
-                disabled={convertingCadenceOpp}
+                disabled={convertingCadenceOpp || !convertDestination}
                 onClick={handleExecuteConvertCadenceOpportunity}
                 className="px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 rounded-xl shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
               >

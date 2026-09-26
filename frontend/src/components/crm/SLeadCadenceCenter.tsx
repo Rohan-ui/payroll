@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Sparkles, Clock, Send, CheckCircle2, AlertCircle, Calendar,
   ArrowRight, ExternalLink, Copy, Check, PhoneCall, MessageSquare,
@@ -30,6 +30,8 @@ import { ColdLeadImportModal } from './ColdLeadImportModal';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
+import { coldFunnelDestination } from './pipelineBoard';
+import { ConvertDestination } from './ConvertDestination';
 interface SLeadCadenceCenterProps {
   onSelectLead360: (leadId: string) => void;
   onRefreshParent?: () => void;
@@ -37,6 +39,8 @@ interface SLeadCadenceCenterProps {
   stages?: any[];
   onNavigateToPipeline?: () => void;
   tenantName?: string;
+  /** Receives the server's answer after a lead is converted into an opportunity. */
+  onLeadConverted?: (result: any) => void;
 }
 
 export default function SLeadCadenceCenter({
@@ -45,7 +49,8 @@ export default function SLeadCadenceCenter({
   pipelines = [],
   stages = [],
   onNavigateToPipeline,
-  tenantName = 'Voogyo'
+  tenantName = 'Voogyo',
+  onLeadConverted
 }: SLeadCadenceCenterProps) {
   const [loading, setLoading] = useState(true);
   const [radarData, setRadarData] = useState<any>(null);
@@ -68,12 +73,12 @@ export default function SLeadCadenceCenter({
 
   // Convert to Opportunity Modal State
   const [selectedLeadForConvert, setSelectedLeadForConvert] = useState<any | null>(null);
-  const [targetPipelineId, setTargetPipelineId] = useState<string>('');
-  const [targetStageId, setTargetStageId] = useState<string>('');
   const [dealValue, setDealValue] = useState<string | number>('');
   const [leadTemperature, setLeadTemperature] = useState<'WARM' | 'HOT'>('HOT');
   const [conversionNotes, setConversionNotes] = useState<string>('');
   const [convertingOpp, setConvertingOpp] = useState<boolean>(false);
+  // Set synchronously, so a second click before the next render cannot send a second request.
+  const convertInFlight = useRef(false);
 
   // Layer 3 Reply Branch State
   const [selectedBranchKey, setSelectedBranchKey] = useState<string>('');
@@ -328,18 +333,19 @@ export default function SLeadCadenceCenter({
   // Open Convert to Opportunity Modal
   const handleOpenConvertModal = (leadItem: any) => {
     setSelectedLeadForConvert(leadItem);
-    const defaultPipeline = pipelines && pipelines.length > 0 ? pipelines[0].id : '';
-    setTargetPipelineId(defaultPipeline);
-    const pipelineStages = (stages || []).filter((s: any) => s.pipeline_id === defaultPipeline);
-    setTargetStageId(pipelineStages[1]?.id || pipelineStages[0]?.id || '');
-    setDealValue(leadItem.budget_amount || 250000);
+    // The lead's own budget if it has one; never an invented figure.
+    setDealValue(Number(leadItem.budget_amount) > 0 ? Number(leadItem.budget_amount) : '');
     setLeadTemperature('HOT');
     setConversionNotes(`Prospect expressed strong interest in ${activeTenantName} services during Client Outreach Day ${leadItem.currentStep?.dayNumber || 1} outreach.`);
   };
 
   // Execute conversion to Opportunity
+  // Converted leads go to the Cold Funnel's first open stage; the server decides and checks this too.
+  const convertDestination = coldFunnelDestination(pipelines, stages);
+
   const handleExecuteConvertOpportunity = async () => {
-    if (!selectedLeadForConvert) return;
+    if (!selectedLeadForConvert || convertInFlight.current || !convertDestination) return;
+    convertInFlight.current = true;
     setConvertingOpp(true);
     try {
       const res = await apiFetch('/api/v1/crm/cadence', {
@@ -349,16 +355,16 @@ export default function SLeadCadenceCenter({
         body: JSON.stringify({
           action: 'CONVERT_OPPORTUNITY',
           leadId: selectedLeadForConvert.id,
-          pipelineId: targetPipelineId,
-          stageId: targetStageId,
-          budgetAmount: Number(dealValue) || 0,
+          ...(dealValue !== '' ? { budgetAmount: Number(dealValue) } : {}),
           temperature: leadTemperature,
           notes: conversionNotes
         })
       });
       const json = await res.json();
-      if (res.ok && json.success) {
-        showToast(`🚀 Converted ${selectedLeadForConvert.company_name} to Sales Pipeline Opportunity!`, 'success');
+      // Success only once the server confirms the lead was moved; a refusal is shown by the API client and the dialog stays open.
+      if (res.ok && json.success && json.data?.lead) {
+        if (onLeadConverted) onLeadConverted(json.data);
+        else showToast(json.message, 'success');
         setSelectedLeadForConvert(null);
         await fetchCadenceData();
         if (onRefreshParent) onRefreshParent();
@@ -366,6 +372,7 @@ export default function SLeadCadenceCenter({
     } catch {
       // Reported by the API client.
     } finally {
+      convertInFlight.current = false;
       setConvertingOpp(false);
     }
   };
@@ -695,16 +702,18 @@ export default function SLeadCadenceCenter({
             </button>
 
 
-            {/* Seed Demo Leads */}
-            <button
-              onClick={handleReSeedDemoLeads}
-              disabled={seeding}
-              className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Seed 12 realistic cold leads across all steps"
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${seeding ? 'animate-spin' : ''}`} />
-              <span>{seeding ? 'Seeding...' : '⚡ Seed Demo'}</span>
-            </button>
+            {/* Seed Demo Leads: only where the server allows it (a demo or sandbox deployment) */}
+            {radarData?.demoSeedAllowed === true && (
+              <button
+                onClick={handleReSeedDemoLeads}
+                disabled={seeding}
+                className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Seed 12 realistic cold leads across all steps"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${seeding ? 'animate-spin' : ''}`} />
+                <span>{seeding ? 'Seeding...' : '⚡ Seed Demo'}</span>
+              </button>
+            )}
 
             {/* Refresh */}
             <button
@@ -953,7 +962,9 @@ export default function SLeadCadenceCenter({
                 </div>
                 <h3 className="text-sm font-bold text-slate-800">No Prospects Enrolled in Funnel</h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Click &quot;⚡ Seed Demo Flow&quot; in the header above to load realistic B2B prospects across all 8 touchpoint milestones.
+                  {radarData?.demoSeedAllowed === true
+                    ? 'Click "⚡ Seed Demo" in the header above to load sample prospects across all 8 touchpoint milestones.'
+                    : 'Add a lead as Cold, enrol leads from the list, or import them to start the 30-day outreach cadence.'}
                 </p>
               </div>
             ) : (
@@ -1960,49 +1971,8 @@ export default function SLeadCadenceCenter({
 
               {/* Form Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Target Pipeline */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <Briefcase className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Target Sales Pipeline</span>
-                  </label>
-                  <select
-                    value={targetPipelineId}
-                    onChange={(e) => {
-                      const newPipeId = e.target.value;
-                      setTargetPipelineId(newPipeId);
-                      const pipeStages = (stages || []).filter((s: any) => s.pipeline_id === newPipeId);
-                      setTargetStageId(pipeStages[1]?.id || pipeStages[0]?.id || '');
-                    }}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  >
-                    {pipelines.map((pipe: any) => (
-                      <option key={pipe.id} value={pipe.id}>
-                        {pipe.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Target Stage */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Initial Pipeline Stage</span>
-                  </label>
-                  <select
-                    value={targetStageId}
-                    onChange={(e) => setTargetStageId(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  >
-                    {(stages || [])
-                      .filter((s: any) => s.pipeline_id === targetPipelineId)
-                      .map((stage: any) => (
-                        <option key={stage.id} value={stage.id}>
-                          {stage.name} ({stage.probability_percentage}%)
-                        </option>
-                      ))}
-                  </select>
+                <div className="sm:col-span-2">
+                  <ConvertDestination destination={convertDestination} />
                 </div>
 
                 {/* Deal Value */}
@@ -2076,7 +2046,7 @@ export default function SLeadCadenceCenter({
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-[11px] leading-relaxed flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 <div>
-                  <strong>Automatic Handoff:</strong> Converting this lead will graduate it from cold marketing cadence, schedule an initial Discovery Follow-up call, and immediately make it visible on the <strong>Sales Pipeline Kanban</strong> board!
+                  Converting takes this lead out of the outreach cadence and puts it on the <strong>Sales Pipeline</strong> board{convertDestination ? <> under <strong>{convertDestination.pipeline.name}</strong></> : null}. Its notes are kept on the lead's timeline.
                 </div>
               </div>
             </div>
@@ -2092,7 +2062,7 @@ export default function SLeadCadenceCenter({
 
               <button
                 onClick={handleExecuteConvertOpportunity}
-                disabled={convertingOpp}
+                disabled={convertingOpp || !convertDestination}
                 className="px-6 py-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all hover:shadow-lg disabled:opacity-50"
               >
                 <Trophy className="w-4 h-4" />

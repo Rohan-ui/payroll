@@ -384,6 +384,109 @@ describe('CRM & Sales in a tenant workspace', () => {
     });
   });
 
+  describe('converting from Client Outreach', () => {
+    const conv: Ids = {};
+    const convert = (token: string, leadId: string, extra: Record<string, unknown> = {}) =>
+      call('post', '/crm/cadence', token, { action: 'CONVERT_OPPORTUNITY', leadId, ...extra });
+    const row = (id: string) => prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id } });
+    const cadenceOf = (lead: { custom_attributes: unknown }) => (lead.custom_attributes as { cadence?: Record<string, unknown> } | null)?.cadence;
+    const coldLead = async (label: string) => {
+      const created = await asA('post', '/crm/leads', { companyName: `Outreach ${label}`, firstName: 'Omar', email: `omar.${label}.${SUFFIX}@outreach.test`, temperature: 'COLD', phone: '+91 90000 11111' });
+      expect(created.status).toBe(201);
+      expect(cadenceOf(created.body.data)).toMatchObject({ status: 'ACTIVE' });
+      return created.body.data.id as string;
+    };
+
+    beforeAll(async () => {
+      conv.lead = await coldLead('one');
+    });
+
+    it('refuses with a clear message when the workspace has no Cold Funnel, changing nothing', async () => {
+      const before = await row(conv.lead);
+      const response = await convert(a.token, conv.lead);
+      expect(response.status).toBe(400);
+      expect(response.body.message).toMatch(/Cold Funnel is not set up/);
+      const after = await row(conv.lead);
+      expect([after.pipeline_id, after.stage_id]).toEqual([before.pipeline_id, before.stage_id]);
+      expect(cadenceOf(after)).toMatchObject({ status: 'ACTIVE' });
+    });
+
+    it('refuses a Cold Funnel that has no open stage', async () => {
+      const funnel = await asA('post', '/crm/masters/pipelines', { name: 'Cold Funnel' });
+      expect(funnel.status).toBe(201);
+      conv.funnel = funnel.body.data.id;
+      expect(funnel.body.data.code).toBe('COLD_FUNNEL');
+      expect((await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'Won', sort_order: 0, is_won: 1 })).status).toBe(201);
+      const response = await convert(a.token, conv.lead);
+      expect(response.status).toBe(400);
+      expect(response.body.message).toMatch(/has no open stage/);
+      expect(cadenceOf(await row(conv.lead))).toMatchObject({ status: 'ACTIVE' });
+    });
+
+    it('is refused for a member without outreach and lead rights, and for another workspace', async () => {
+      const first = await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'First touch', sort_order: 1 });
+      conv.firstStage = first.body.data.id;
+      await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'Qualified', sort_order: 2 });
+
+      expect((await convert(restricted.token, conv.lead)).status).toBe(403);
+      // Workspace B, with a Cold Funnel of its own, cannot tell the lead exists.
+      const bFunnel = await asB('post', '/crm/masters/pipelines', { name: 'Cold Funnel' });
+      expect((await asB('post', '/crm/masters/stages', { pipeline_id: bFunnel.body.data.id, name: 'B first', sort_order: 1 })).status).toBe(201);
+      const fromB = await convert(b.token, conv.lead);
+      expect([fromB.status, fromB.body.message]).toEqual([404, 'Lead not found']);
+      expect(cadenceOf(await row(conv.lead))).toMatchObject({ status: 'ACTIVE' });
+    });
+
+    it('moves the same lead into the Cold Funnel first open stage, keeping its details', async () => {
+      const response = await convert(a.token, conv.lead, { budgetAmount: '150000.50', temperature: 'HOT', notes: 'Wants a demo next week' });
+      expect(response.status).toBe(201);
+      expect(response.body.message).toBe(`Outreach one is now in Cold Funnel › First touch`);
+      expect(response.body.data.lead).toMatchObject({ id: conv.lead, pipeline_id: conv.funnel, stage_id: conv.firstStage, pipeline_name: 'Cold Funnel', stage_name: 'First touch' });
+
+      const saved = await row(conv.lead);
+      expect(saved).toMatchObject({ tenant_id: a.tenantId, pipeline_id: conv.funnel, stage_id: conv.firstStage, temperature: 'HOT', company_name: 'Outreach one', phone: '+91 90000 11111' });
+      expect(saved.budget_amount?.toString()).toBe('150000.5');
+      expect(cadenceOf(saved)).toMatchObject({ status: 'CONVERTED', convertedToOpportunity: true });
+      // Opportunities are leads: nothing was duplicated.
+      expect(await prisma.rndtechnosoft_crm_leads.count({ where: { tenant_id: a.tenantId, email: `omar.one.${SUFFIX}@outreach.test` } })).toBe(1);
+      const activity = await prisma.rndtechnosoft_crm_lead_activities.findFirst({ where: { lead_id: conv.lead, title: { startsWith: 'Converted from Client Outreach' } } });
+      expect(activity).toMatchObject({ tenant_id: a.tenantId, description: 'Wants a demo next week' });
+    });
+
+    it('appears in the Sales Pipeline list and the Cold Funnel, and under Converted in outreach', async () => {
+      const all = await asA('get', '/crm/leads?page=1&limit=100');
+      const listed = all.body.data.leads.find((l: { id: string }) => l.id === conv.lead);
+      expect(listed).toMatchObject({ pipeline_id: conv.funnel, stage_id: conv.firstStage, pipeline_name: 'Cold Funnel' });
+      expect(listIds(await asA('get', `/crm/leads?pipelineId=${conv.funnel}`))).toContain(conv.lead);
+      expect(listIds(await asB('get', '/crm/leads'))).not.toContain(conv.lead);
+
+      const outreach = await asA('get', '/crm/cadence');
+      expect(outreach.body.data.radar.converted.map((l: { id: string }) => l.id)).toContain(conv.lead);
+    });
+
+    it('converts a lead once, even when asked twice at the same time', async () => {
+      expect((await convert(a.token, conv.lead)).status).toBe(409);
+
+      const twice = await coldLead('two');
+      const results = await Promise.all([convert(a.token, twice), convert(a.token, twice)]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      const activities = await prisma.rndtechnosoft_crm_lead_activities.count({ where: { lead_id: twice, title: { startsWith: 'Converted from Client Outreach' } } });
+      expect(activities).toBe(1);
+    });
+
+    it('rejects a negative deal value and unknown actions instead of reporting success', async () => {
+      const three = await coldLead('three');
+      expect((await convert(a.token, three, { budgetAmount: -5 })).status).toBe(400);
+      expect(cadenceOf(await row(three))).toMatchObject({ status: 'ACTIVE' });
+      const unknown = await call('post', '/crm/cadence', a.token, { action: 'NOT_AN_ACTION', leadId: three });
+      expect(unknown.status).toBe(400);
+      // Reply branches sent by the screens as BRANCH_REPLY are recorded.
+      const branch = await call('post', '/crm/cadence', a.token, { action: 'BRANCH_REPLY', leadId: three, branchKey: 'already_have_website', feedbackNotes: 'Call me' });
+      expect(branch.status).toBe(201);
+      expect(cadenceOf(await row(three))).toMatchObject({ status: 'BRANCHED', branchReply: { branchKey: 'already_have_website', leadFeedback: 'Call me' } });
+    });
+  });
+
   describe('deleting', () => {
     it('deletes follow-ups, meetings, quotations, masters and leads in A', async () => {
       for (const [label, path] of [

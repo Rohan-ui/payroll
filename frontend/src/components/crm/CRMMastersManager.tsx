@@ -1196,7 +1196,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stg.color }} />
                     <span>{stg.name}</span>
                   </td>
-                  <td className="py-3 px-4 text-slate-500">{stg.pipeline_name || 'Main Pipeline'}</td>
+                  <td className="py-3 px-4 text-slate-500">{pipelines.find((p) => p.id === stg.pipeline_id)?.name ?? 'Unknown pipeline'}</td>
                   <td className="py-3 px-4 font-mono text-[11px]">{stg.color}</td>
                   <td className="py-3 px-4 font-semibold text-blue-700">{stg.stage_probability}%</td>
                   <td className="py-3 px-4 text-slate-600">{stg.sla_duration_hours}h</td>
@@ -2117,6 +2117,25 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
               {/* STAGES FORM */}
               {activeMasterTab === 'stages' && (
                 <>
+                  {/* A stage belongs to one pipeline. It is chosen when the stage is created and cannot move later,
+                      because leads already in the stage would be left in another pipeline. */}
+                  <div>
+                    <label htmlFor="stage-pipeline" className="block text-xs font-bold text-slate-700 mb-1">Pipeline *</label>
+                    <select
+                      id="stage-pipeline"
+                      required
+                      disabled={!showAddModal}
+                      value={formData.pipeline_id || ''}
+                      onChange={(e) => setFormData({ ...formData, pipeline_id: e.target.value })}
+                      className="w-full px-3 py-2 text-xs border rounded-lg bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                    >
+                      <option value="" disabled>Choose a pipeline</option>
+                      {pipelines.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}{p.code ? ` (${p.code})` : ''}</option>
+                      ))}
+                    </select>
+                    {!showAddModal && <p className="mt-1 text-[11px] text-slate-500">A stage stays in the pipeline it was created in.</p>}
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Stage Name *</label>

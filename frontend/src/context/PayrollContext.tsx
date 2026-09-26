@@ -45,6 +45,9 @@ const VALID_VIEWS: AppView[] = [
   'help',
 ];
 
+/** The CRM opens on Sales Pipelines unless a deep link (?tab=…) names another tab. */
+const DEFAULT_CRM_TAB: CrmTab = 'pipeline';
+
 const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
   try {
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
@@ -52,7 +55,7 @@ const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
     const tabParam = params.get('tab') as any;
     const viewParam = params.get('view') as AppView | null;
 
-    let crmTab: CrmTab = 'cold-funnel';
+    let crmTab: CrmTab = DEFAULT_CRM_TAB;
     if (tabParam && VALID_CRM_TABS.includes(tabParam)) {
       crmTab = tabParam;
     }
@@ -87,9 +90,9 @@ const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
       return { view: viewParam, crmTab };
     }
 
-    return { view: 'dashboard', crmTab: 'cold-funnel' };
+    return { view: 'dashboard', crmTab: DEFAULT_CRM_TAB };
   } catch {
-    return { view: 'dashboard', crmTab: 'cold-funnel' };
+    return { view: 'dashboard', crmTab: DEFAULT_CRM_TAB };
   }
 };
 

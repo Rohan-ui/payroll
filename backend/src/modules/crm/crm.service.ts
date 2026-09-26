@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -111,6 +111,33 @@ export const BASELINE_INDUSTRIES = [
     ],
   },
 ];
+
+/**
+ * Loading sample outreach leads writes invented companies and people into the
+ * workspace, so it is allowed only where CRM_ALLOW_DEMO_SEED=true (a demo or
+ * sandbox deployment). Off by default.
+ */
+export const isCrmDemoSeedAllowed = () => process.env.CRM_ALLOW_DEMO_SEED === 'true';
+
+/**
+ * The pipeline that leads converted from Client Outreach enter: each
+ * workspace's pipeline with this code (codes are unique per workspace, set in
+ * CRM Masters → Pipelines). There is no fallback to another pipeline.
+ */
+export const COLD_FUNNEL_PIPELINE_CODE = 'COLD_FUNNEL';
+
+/** The related records a lead is listed with, on the board, in the list and in API answers. */
+const LEAD_LIST_INCLUDE = {
+  rndtechnosoft_crm_stages: true,
+  rndtechnosoft_crm_pipelines: true,
+  rndtechnosoft_crm_lead_sources: true,
+  rndtechnosoft_crm_services_master: true,
+  rndtechnosoft_tenant_members: {
+    include: { rndtechnosoft_users: true },
+  },
+} satisfies Prisma.rndtechnosoft_crm_leadsInclude;
+
+type LeadListRow = Prisma.rndtechnosoft_crm_leadsGetPayload<{ include: typeof LEAD_LIST_INCLUDE }>;
 
 @Injectable()
 export class CrmService {
@@ -239,17 +266,10 @@ export class CrmService {
     const [rawLeads, total, stages, pipelines, sources, members, clients] = await Promise.all([
       this.prisma.rndtechnosoft_crm_leads.findMany({
         where,
-        orderBy: [{ ai_score: 'desc' }, { created_at: 'desc' }],
+        // Newest first, so a lead just added is always on the first page.
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
         ...(query.unpaginated ? {} : { skip, take: limit }),
-        include: {
-          rndtechnosoft_crm_stages: true,
-          rndtechnosoft_crm_pipelines: true,
-          rndtechnosoft_crm_lead_sources: true,
-          rndtechnosoft_crm_services_master: true,
-          rndtechnosoft_tenant_members: {
-            include: { rndtechnosoft_users: true },
-          },
-        },
+        include: LEAD_LIST_INCLUDE,
       }),
       this.prisma.rndtechnosoft_crm_leads.count({ where }),
       this.prisma.rndtechnosoft_crm_stages.findMany({
@@ -288,28 +308,7 @@ export class CrmService {
       };
     });
 
-    const mappedLeads = rawLeads.map((l) => {
-      const assignedUser = l.rndtechnosoft_tenant_members?.rndtechnosoft_users;
-      const userParts = (assignedUser?.display_name || '').split(' ');
-      return {
-        ...l,
-        stage_name: l.rndtechnosoft_crm_stages?.name || 'New',
-        stage_color: l.rndtechnosoft_crm_stages?.color || '#2563eb',
-        stage_order: l.rndtechnosoft_crm_stages?.sort_order || 0,
-        is_won: l.rndtechnosoft_crm_stages?.is_won || l.is_won,
-        is_lost: l.rndtechnosoft_crm_stages?.is_lost || l.is_lost,
-        pipeline_name: l.rndtechnosoft_crm_pipelines?.name || 'Default Pipeline',
-        source_name: l.rndtechnosoft_crm_lead_sources?.name || 'Inbound',
-        assigned_user_id: l.assigned_tenant_member_id,
-        assigned_user_name: assignedUser?.display_name || 'Unassigned',
-        assigned_user_first_name: userParts[0] || 'Unassigned',
-        assigned_user_last_name: userParts.slice(1).join(' ') || '',
-        assigned_user_email: assignedUser?.email || '',
-        assigned_user_designation: 'Sales Representative',
-        existing_client_name: l.company_name,
-        existing_client_status: l.is_won ? 'ACTIVE' : 'PROSPECT',
-      };
-    });
+    const mappedLeads = rawLeads.map((l) => this.toLeadListItem(l));
 
     return {
       leads: mappedLeads,
@@ -319,6 +318,30 @@ export class CrmService {
       sources,
       salesPersons,
       clients,
+    };
+  }
+
+  /** A lead as the board and the list show it. */
+  private toLeadListItem(l: LeadListRow) {
+    const assignedUser = l.rndtechnosoft_tenant_members?.rndtechnosoft_users;
+    const userParts = (assignedUser?.display_name || '').split(' ');
+    return {
+      ...l,
+      stage_name: l.rndtechnosoft_crm_stages?.name || 'New',
+      stage_color: l.rndtechnosoft_crm_stages?.color || '#2563eb',
+      stage_order: l.rndtechnosoft_crm_stages?.sort_order || 0,
+      is_won: l.rndtechnosoft_crm_stages?.is_won || l.is_won,
+      is_lost: l.rndtechnosoft_crm_stages?.is_lost || l.is_lost,
+      pipeline_name: l.rndtechnosoft_crm_pipelines?.name || 'Default Pipeline',
+      source_name: l.rndtechnosoft_crm_lead_sources?.name || 'Inbound',
+      assigned_user_id: l.assigned_tenant_member_id,
+      assigned_user_name: assignedUser?.display_name || 'Unassigned',
+      assigned_user_first_name: userParts[0] || 'Unassigned',
+      assigned_user_last_name: userParts.slice(1).join(' ') || '',
+      assigned_user_email: assignedUser?.email || '',
+      assigned_user_designation: 'Sales Representative',
+      existing_client_name: l.company_name,
+      existing_client_status: l.is_won ? 'ACTIVE' : 'PROSPECT',
     };
   }
 
@@ -1289,6 +1312,7 @@ export class CrmService {
     let client = await this.prisma.rndtechnosoft_crm_clients.findFirst({
       where: { tenant_id: tenantId, company_name: lead.company_name },
     });
+    const clientCreated = !client;
 
     if (!client) {
       client = await this.withUniqueCode('CL', (clientCode) => this.prisma.rndtechnosoft_crm_clients.create({
@@ -1326,15 +1350,14 @@ export class CrmService {
       },
     });
 
-    const projectCode = `PRJ-${Date.now().toString(36).toUpperCase()}`;
-    const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
+    // Only what actually happened: no project or invoice exists yet, so none is named.
+    const outcome = `client ${client.client_code} ${clientCreated ? 'created' : 'linked'}`;
     await this.logActivity(
       tenantId,
       lead.id,
       'STATUS_CHANGE',
-      '🏆 Deal Won & Client Provisioned',
-      `Client record created (${client.company_name}), Project Code: ${projectCode}, Invoice: ${invoiceNumber}`,
+      `Deal won — ${outcome}`,
+      `${client.company_name} (${client.client_code}) ${clientCreated ? 'was created as a client' : 'was already a client and is now linked to this deal'}.`,
       memberId,
     );
 
@@ -1343,14 +1366,14 @@ export class CrmService {
       'CONVERT_WON',
       'LEAD',
       lead.id,
-      { clientId: client.id, projectCode, invoiceNumber },
+      { clientId: client.id, clientCode: client.client_code, clientCreated },
       memberId,
     );
 
     return {
       clientId: client.id,
-      projectCode,
-      invoiceNumber,
+      clientCode: client.client_code,
+      clientCreated,
     };
   }
 
@@ -1543,6 +1566,8 @@ export class CrmService {
       masterSteps: CADENCE_STEPS_MASTER,
       replyBranches: CADENCE_REPLY_BRANCHES,
       industries: CADENCE_INDUSTRIES,
+      // Tells the screen whether to offer "load sample leads".
+      demoSeedAllowed: isCrmDemoSeedAllowed(),
     };
   }
 
@@ -1636,7 +1661,13 @@ export class CrmService {
       return { success: true, nextStepIndex: cadence.currentStepIndex, status: cadence.status };
     }
 
-    if (action === 'CHANGE_BRANCH' && leadId && branchKey) {
+    if (action === 'CONVERT_OPPORTUNITY') {
+      return this.convertOutreachLead(tenantId, body, memberId);
+    }
+
+    // The screens send BRANCH_REPLY (with feedbackNotes); CHANGE_BRANCH is the older name.
+    if ((action === 'CHANGE_BRANCH' || action === 'BRANCH_REPLY') && leadId && branchKey) {
+      const replyNotes: string | undefined = notes ?? body.feedbackNotes;
       const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
       if (!lead) throw new NotFoundException('Lead not found');
 
@@ -1648,7 +1679,7 @@ export class CrmService {
       cadence.branchReply = {
         branchKey,
         repliedAt: new Date().toISOString(),
-        leadFeedback: notes || '',
+        leadFeedback: replyNotes || '',
         actionTaken: branch?.suggestedAction || 'Branch Triggered',
       };
 
@@ -1660,11 +1691,128 @@ export class CrmService {
         },
       });
 
-      await this.logActivity(tenantId, leadId, 'STATUS_CHANGE', `Branched to SOP: ${branch?.label || branchKey}`, notes, memberId);
+      await this.logActivity(tenantId, leadId, 'STATUS_CHANGE', `Branched to SOP: ${branch?.label || branchKey}`, replyNotes, memberId);
       return { success: true, branch: branchKey };
     }
 
-    return { success: true };
+    // An action this endpoint does not know, or one missing its lead, changes nothing, so it must not report success.
+    throw new BadRequestException('That outreach action is not recognised or is missing the lead it applies to.');
+  }
+
+  /**
+   * Converts a lead in the outreach cadence into a sales opportunity: the same
+   * lead record moves into the Cold Funnel pipeline's first open stage and its
+   * cadence is marked converted. Opportunities are leads in this schema, so
+   * nothing is duplicated. One transaction, with the lead row locked, so two
+   * clicks cannot both convert it and a failure leaves it untouched.
+   */
+  private async convertOutreachLead(tenantId: string, body: any, memberId?: string) {
+    const leadId: unknown = body.leadId;
+    if (typeof leadId !== 'string' || !leadId) throw new BadRequestException('Choose the outreach lead to convert.');
+
+    const funnel = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
+      // Case-insensitive: CRM Masters stores a code as typed.
+      where: { tenant_id: tenantId, code: { equals: COLD_FUNNEL_PIPELINE_CODE, mode: 'insensitive' }, is_active: true },
+      orderBy: { created_at: 'asc' },
+      select: { id: true, name: true },
+    });
+    if (!funnel) {
+      throw new BadRequestException(
+        `The Cold Funnel is not set up in this workspace. In CRM Masters → Pipelines, add a pipeline named "Cold Funnel" (its code becomes ${COLD_FUNNEL_PIPELINE_CODE}) with at least one stage, then convert again.`,
+      );
+    }
+    // Its first open stage by the configured order; won and lost stages are where deals end, not start.
+    const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
+      where: { tenant_id: tenantId, pipeline_id: funnel.id, is_won: false, is_lost: false },
+      orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
+      select: { id: true, name: true },
+    });
+    if (!stage) {
+      throw new BadRequestException(`The ${funnel.name} pipeline has no open stage. Add one in CRM Masters → Pipelines, then convert again.`);
+    }
+
+    const temperature = body.temperature === 'HOT' || body.temperature === 'WARM' ? body.temperature : 'WARM';
+    const rawBudget = body.budgetAmount ?? body.budget_amount;
+    let budget: Prisma.Decimal | undefined;
+    if (rawBudget !== undefined && rawBudget !== null && rawBudget !== '') {
+      try {
+        budget = new Prisma.Decimal(rawBudget);
+      } catch {
+        throw new BadRequestException('Enter the deal value as a number.');
+      }
+      if (budget.isNegative()) throw new BadRequestException('The deal value cannot be negative.');
+    }
+    const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null;
+
+    const converted = await this.prisma.$transaction(async (tx) => {
+      // Locks the row: a second conversion of the same lead waits here, then sees it converted.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM rndtechnosoft_crm_leads WHERE tenant_id = ${tenantId}::uuid AND id = ${leadId}::uuid FOR UPDATE`;
+      if (locked.length === 0) throw new NotFoundException('Lead not found');
+
+      const lead = await tx.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
+      if (!lead) throw new NotFoundException('Lead not found');
+      const customAttr = (lead.custom_attributes as Record<string, any> | null) || {};
+      const cadence = customAttr.cadence as CadenceState | undefined;
+      if (!cadence) throw new BadRequestException(`${lead.company_name} is not in the outreach cadence, so there is nothing to convert.`);
+      if (cadence.status === 'CONVERTED' || cadence.convertedToOpportunity) {
+        throw new ConflictException(`${lead.company_name} was already converted and is in the Sales Pipeline.`);
+      }
+      if (lead.is_won || lead.is_lost) {
+        throw new ConflictException(`${lead.company_name} is already closed as ${lead.is_won ? 'won' : 'lost'}.`);
+      }
+
+      const now = new Date();
+      await tx.rndtechnosoft_crm_leads.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
+        data: {
+          pipeline_id: funnel.id,
+          stage_id: stage.id,
+          stage_entered_at: now,
+          temperature,
+          ...(budget !== undefined ? { budget_amount: budget } : {}),
+          custom_attributes: {
+            ...customAttr,
+            cadence: { ...cadence, status: 'CONVERTED', convertedToOpportunity: true, convertedAt: now.toISOString(), nextDueAt: '' },
+          },
+        },
+      });
+      await tx.rndtechnosoft_crm_lead_activities.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          lead_id: leadId,
+          performed_by_tenant_member_id: memberId || null,
+          activity_type: 'STATUS_CHANGE',
+          title: `Converted from Client Outreach to ${funnel.name} › ${stage.name}`,
+          description: notes,
+        },
+      });
+      return tx.rndtechnosoft_crm_leads.findFirstOrThrow({ where: { tenant_id: tenantId, id: leadId }, include: LEAD_LIST_INCLUDE });
+    });
+
+    await this.logAudit(
+      tenantId,
+      'CONVERT_OPPORTUNITY',
+      'LEAD',
+      leadId,
+      {
+        pipelineId: funnel.id,
+        stageId: stage.id,
+        temperature,
+        ...(budget !== undefined ? { budgetAmount: budget.toString() } : {}),
+        ...(typeof body.conversionChannel === 'string' && body.conversionChannel ? { channel: body.conversionChannel.slice(0, 32) } : {}),
+      },
+      memberId,
+    );
+
+    return {
+      success: true,
+      message: `${converted.company_name} is now in ${funnel.name} › ${stage.name}`,
+      lead: this.toLeadListItem(converted),
+      pipeline: { id: funnel.id, name: funnel.name },
+      stage: { id: stage.id, name: stage.name },
+    };
   }
 
   // ==========================================
@@ -2452,6 +2600,9 @@ export class CrmService {
   // ==========================================
 
   async seedCadenceDemoLeads(tenantId: string) {
+    if (!isCrmDemoSeedAllowed()) {
+      throw new ForbiddenException('Sample leads can only be loaded in a demo or sandbox workspace.');
+    }
     const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
       where: { tenant_id: tenantId, is_active: true },
       orderBy: [{ is_default: 'desc' }, { sort_order: 'asc' }],

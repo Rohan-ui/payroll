@@ -16,6 +16,7 @@ import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { AccessService } from '@/common/access/access.service';
+import { PermissionKey } from '@/common/access/access-catalog';
 
 /**
  * The acting member comes from the session (@CurrentUser), never from a
@@ -120,6 +121,7 @@ export class CrmController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('isWon') isWon?: string,
   ) {
     const data = await this.crmService.getLeads(tenantId, {
       pipelineId,
@@ -130,6 +132,8 @@ export class CrmController {
       industry,
       subIndustry,
       search,
+      // Only "true" narrows the list to won deals; anything else lists every lead as before.
+      isWon: isWon === 'true' ? true : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
@@ -243,15 +247,18 @@ export class CrmController {
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
     // Enrolling leads starts outreach; every other action works an existing cadence.
-    const required = body?.action === 'ENROLL' ? 'outreach.create' : 'outreach.update';
+    // Converting also moves the lead into the sales pipeline, so it needs lead editing too.
+    const required: PermissionKey[] =
+      body?.action === 'ENROLL' ? ['outreach.create'] : body?.action === 'CONVERT_OPPORTUNITY' ? ['outreach.update', 'leads.update'] : ['outreach.update'];
     await this.accessService.assertHoldsAll(
       tenantId,
       actor.tenantMemberId,
-      [required],
-      `You do not have permission to do this (requires ${required}).`,
+      required,
+      `You do not have permission to do this (requires ${required.join(' and ')}).`,
     );
     const data = await this.crmService.executeCadenceAction(tenantId, body, actor.tenantMemberId);
-    return { success: true, data, message: 'Cadence action recorded' };
+    const message = typeof (data as { message?: unknown })?.message === 'string' ? (data as { message: string }).message : 'Cadence action recorded';
+    return { success: true, data, message };
   }
 
   @Post('cadence/seed')

@@ -21,6 +21,7 @@ import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
+import { dealWonMessage, isInOutreach } from './pipelineBoard';
 interface LeadsDirectoryProps {
   leads: any[];
   stages: any[];
@@ -38,6 +39,8 @@ interface LeadsDirectoryProps {
   onReassignSalesPerson?: (lead: any) => void;
   initialFilterStageId?: string | null;
   autoOpenAdd?: boolean;
+  /** Called with a lead created from this list's own Add form, so the workspace can say where it went. */
+  onLeadCreated?: (lead: any) => void;
   viewMode?: 'kanban' | 'list';
   onViewModeChange?: (mode: 'kanban' | 'list') => void;
 }
@@ -52,6 +55,7 @@ export default function LeadsDirectory({
   clients = [],
   loading,
   onRefresh,
+  onLeadCreated,
   onSelectLead360,
   onCreateQuotation,
   onScheduleMeeting,
@@ -76,20 +80,10 @@ export default function LeadsDirectory({
     return getSubIndustries(filterIndustry);
   }, [filterIndustry]);
 
-  // Cold Lead Isolation: isolate prospects currently in Cold Funnel cadence until converted
-  const [includeColdFunnelLeads, setIncludeColdFunnelLeads] = useState(false);
+  // Leads in the 30-day outreach cadence are listed (with an "In outreach" badge) unless the user excludes them.
+  const [includeColdFunnelLeads, setIncludeColdFunnelLeads] = useState(true);
 
-  const isolatedColdCount = useMemo(() => {
-    return leads.filter((l: any) => {
-      try {
-        if (l.custom_attributes) {
-          const parsed = typeof l.custom_attributes === 'string' ? JSON.parse(l.custom_attributes) : l.custom_attributes;
-          return parsed?.cadence && parsed.cadence.status !== 'CONVERTED' && !parsed.cadence.convertedToOpportunity;
-        }
-      } catch (e) {}
-      return false;
-    }).length;
-  }, [leads]);
+  const isolatedColdCount = useMemo(() => leads.filter(isInOutreach).length, [leads]);
 
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -299,12 +293,15 @@ export default function LeadsDirectory({
     setSubmitting(true);
     try {
       const res = await apiFetch('/api/v1/crm/leads', {
+        ...(onLeadCreated ? { feedback: { success: false as const } } : {}),
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
       if (res.ok) {
         setShowAddModal(false);
+        const json = await res.json().catch(() => null);
+        if (json?.data) onLeadCreated?.(json.data);
         onRefresh();
       }
     } catch {
@@ -403,7 +400,7 @@ export default function LeadsDirectory({
       });
       if (res.ok) {
         const data = await res.json();
-        toast.success(`Deal won. Client created; project ${data.data.projectCode}, invoice ${data.data.invoiceNumber}.`);
+        toast.success(dealWonMessage(data.data));
         setDealWonConfirmLead(null);
         onRefresh();
       }
@@ -539,19 +536,9 @@ export default function LeadsDirectory({
       return false;
     }
 
-    // Cold Funnel Isolation filter: exclude leads currently in cold cadence unless converted or toggle enabled
-    if (!includeColdFunnelLeads) {
-      try {
-        if (lead.custom_attributes) {
-          const parsed = typeof lead.custom_attributes === 'string'
-            ? JSON.parse(lead.custom_attributes)
-            : lead.custom_attributes;
-          const cadence = parsed?.cadence;
-          if (cadence && cadence.status !== 'CONVERTED' && !cadence.convertedToOpportunity) {
-            return false;
-          }
-        }
-      } catch (e) {}
+    // Optional filter: leave out leads still in the outreach cadence.
+    if (!includeColdFunnelLeads && isInOutreach(lead)) {
+      return false;
     }
 
     return true;
@@ -683,15 +670,16 @@ export default function LeadsDirectory({
             <button
               type="button"
               onClick={() => setIncludeColdFunnelLeads(!includeColdFunnelLeads)}
+              aria-pressed={!includeColdFunnelLeads}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
                 includeColdFunnelLeads
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                  ? 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                  : 'bg-indigo-600 text-white shadow-xs'
               }`}
-              title={includeColdFunnelLeads ? 'Hide active cold funnel prospects' : 'Show active cold funnel prospects'}
+              title={includeColdFunnelLeads ? 'Leave out leads that are still in the 30-day outreach cadence' : 'Include leads that are in the 30-day outreach cadence'}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>{isolatedColdCount} Cold In Cadence ({includeColdFunnelLeads ? 'Shown' : 'Isolated'})</span>
+              <span>{includeColdFunnelLeads ? `Exclude ${isolatedColdCount} in outreach` : `${isolatedColdCount} in outreach excluded · Show`}</span>
             </button>
           )}
 
@@ -832,6 +820,14 @@ export default function LeadsDirectory({
                         >
                           {lead.company_name}
                         </button>
+                        {isInOutreach(lead) && (
+                          <span
+                            className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-bold rounded-md"
+                            title="Being worked in the 30-day Client Outreach cadence; not on the pipeline board yet"
+                          >
+                            In outreach
+                          </span>
+                        )}
                         {(lead.is_existing_client || lead.client_id) && (
                           <span 
                             className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5"

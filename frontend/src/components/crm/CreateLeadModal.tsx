@@ -36,7 +36,8 @@ import { apiFetch } from '../../api/client';
 interface CreateLeadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  /** Receives the created lead, so the caller can say where it went. */
+  onSuccess: (lead: any) => void;
   sources: any[];
   services: any[];
   pipelines: any[];
@@ -198,13 +199,15 @@ export default function CreateLeadModal({
     setErrorMsg(null);
     try {
       const res = await apiFetch('/api/v1/crm/leads', {
+        // The caller announces where the lead went instead of a generic "created" toast.
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
       const data = await res.json();
       if (data.success) {
-        onSuccess();
+        onSuccess(data.data);
         onClose();
       } else {
         setErrorMsg(data.message || data.error || 'Failed to create lead');

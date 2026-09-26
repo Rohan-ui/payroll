@@ -21,6 +21,7 @@ import { DEFAULT_HEADER_SVG, DEFAULT_FOOTER_SVG } from '@/lib/letterheadDefaults
 import { sanitizedHtmlProps } from '../../utils/sanitize-html';
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
+import { dealWonMessage } from './pipelineBoard';
 interface QuotationsManagerProps {
   leads: any[];
   services: any[];
@@ -147,7 +148,7 @@ export default function QuotationsManager({
       const res = await apiFetch(`/api/v1/crm/leads/${dealWonConfirmQuote.lead_id}/convert-won`, { method: 'POST', feedback: { success: false } });
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast(`🏆 Deal Won! Client created, Project: ${data.data.projectCode}, Invoice: ${data.data.invoiceNumber}`);
+        showToast(dealWonMessage(data.data));
         setDealWonConfirmQuote(null);
         fetchQuotationsAndTemplates();
         onRefreshParent();
