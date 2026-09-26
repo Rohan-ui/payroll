@@ -7,15 +7,16 @@ import { toast } from '../lib/toast';
 const MIN_LENGTH = 10;
 
 /**
- * Shown after signing in with the temporary password from an onboarding email.
- * The server refuses every other request from this session until the password
- * is replaced; once it is, the temporary password no longer works.
+ * Shown after signing in with a temporary password (from an onboarding or
+ * password-reset email). The server refuses every other request from this
+ * session until the password is replaced; once it is, the temporary password
+ * no longer works. The temporary password is not asked for again: this session
+ * was opened with it moments ago.
  */
 export const ChangeTemporaryPasswordView: React.FC = () => {
   const { user, activeTenant, completePasswordChange, logout } = useAuth();
   const { theme } = useTheme();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
@@ -27,12 +28,10 @@ export const ChangeTemporaryPasswordView: React.FC = () => {
   const problem =
     password.length > 0 && password.length < MIN_LENGTH
       ? `Use at least ${MIN_LENGTH} characters.`
-      : password.length > 0 && password === current
-        ? 'Choose a password different from your temporary one.'
-        : confirm.length > 0 && confirm !== password
-          ? 'The new passwords do not match.'
-          : null;
-  const canSubmit = current.length > 0 && password.length >= MIN_LENGTH && confirm === password && !problem;
+      : confirm.length > 0 && confirm !== password
+        ? 'The new passwords do not match.'
+        : null;
+  const canSubmit = password.length >= MIN_LENGTH && confirm === password && !problem;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -40,7 +39,7 @@ export const ChangeTemporaryPasswordView: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
-      await completePasswordChange(current, password);
+      await completePasswordChange(password);
       toast.success('Password changed successfully');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Your password could not be changed.');
@@ -63,7 +62,8 @@ export const ChangeTemporaryPasswordView: React.FC = () => {
             </h1>
             <p className="text-sm text-slate-600 mt-1">
               You signed in{activeTenant ? ` to ${activeTenant.displayName}` : ''} as <span className="font-semibold break-words">{user?.email}</span> with a
-              temporary password. Choose your own password to continue; the temporary one stops working as soon as you do.
+              temporary password. Choose your own password to continue; the temporary one stops working as soon as you do, and it
+              cannot be used as your new password.
             </p>
           </div>
           {error && (
@@ -71,23 +71,6 @@ export const ChangeTemporaryPasswordView: React.FC = () => {
               {error}
             </p>
           )}
-          <div>
-            <label htmlFor="temporary-password" className="block text-xs font-bold text-slate-700 mb-1.5">
-              Temporary password
-            </label>
-            <input
-              id="temporary-password"
-              type={showPasswords ? 'text' : 'password'}
-              autoComplete="current-password"
-              value={current}
-              onChange={(event) => setCurrent(event.target.value)}
-              aria-describedby="temporary-password-hint"
-              className={inputClass}
-            />
-            <p id="temporary-password-hint" className="mt-1 text-xs text-slate-500">
-              The one from your onboarding email.
-            </p>
-          </div>
           <div>
             <label htmlFor="new-password" className="block text-xs font-bold text-slate-700 mb-1.5">
               New password

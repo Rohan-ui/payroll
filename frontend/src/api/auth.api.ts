@@ -94,10 +94,11 @@ export const authApi = {
 
   logout: () => apiClient.post<{ success: boolean }>('/auth/logout'),
 
-  changePassword: (currentPassword: string, newPassword: string) =>
+  /** `currentPassword` is left out when replacing a temporary password: the session proves it. */
+  changePassword: (newPassword: string, currentPassword?: string) =>
     apiClient.post<{ success: boolean }>('/auth/change-password', {
-      currentPassword,
       newPassword,
+      ...(currentPassword !== undefined ? { currentPassword } : {}),
     }),
 
   revokeOtherSessions: () =>

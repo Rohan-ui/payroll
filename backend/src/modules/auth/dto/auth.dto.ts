@@ -26,9 +26,14 @@ export class SwitchTenantDto {
 }
 
 export class ChangePasswordDto {
+  /**
+   * Required for a voluntary change. Not needed while the account must replace
+   * a temporary password: that session was opened with it moments ago.
+   */
+  @IsOptional()
   @IsString()
   @MaxLength(256)
-  currentPassword!: string;
+  currentPassword?: string;
 
   @IsString()
   @MinLength(10, { message: 'New password must be at least 10 characters long.' })

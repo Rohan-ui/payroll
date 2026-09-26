@@ -82,6 +82,13 @@ export const platformOperationsApi = {
     platformApi.post<MembershipResult>(`${BASE}/users/${id(userId)}/memberships`, input),
   updateMembership: (userId: string, memberId: string, input: { roleCode?: string; status?: 'ACTIVE' | 'SUSPENDED' }) =>
     platformApi.put<MembershipResult>(`${BASE}/users/${id(userId)}/memberships/${id(memberId)}`, input),
+  /** A new temporary password is emailed to the account; the response never contains it. */
+  resetPassword: (userId: string) =>
+    platformApi.post<{
+      userId: string;
+      revokedSessions: number;
+      email: { status: 'NOT_SENT' | 'QUEUED' | 'SENT' | 'FAILED'; recipient: string; error: string | null; deliveryId: string | null };
+    }>(`${BASE}/users/${id(userId)}/reset-password`),
   removeMembership: (userId: string, memberId: string) =>
     platformApi.delete<MembershipResult>(`${BASE}/users/${id(userId)}/memberships/${id(memberId)}`),
 

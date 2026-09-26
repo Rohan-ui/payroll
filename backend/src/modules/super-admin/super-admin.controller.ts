@@ -484,6 +484,22 @@ export class SuperAdminController {
     return { success: true, data };
   }
 
+  /**
+   * Resets the password to a new temporary one, emailed to the account; every
+   * session ends and a new password must be chosen at next sign-in. The
+   * response never contains the password, only whether the email was sent.
+   */
+  @Post('users/:id/reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetUserPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.resetPassword(id, this.actor(admin, req));
+    return { success: true, data };
+  }
+
   /** The global account, on every workspace. Workspace memberships are left to each workspace. */
   @Post('users/:id/disable')
   @HttpCode(HttpStatus.OK)

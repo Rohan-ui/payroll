@@ -17,6 +17,7 @@ import {
 } from '@/common/access/access-catalog';
 import { grantDefaultRolePermissions } from '@/common/access/role-defaults';
 import { generateTemporaryPassword, hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
+import { replaceWithTemporaryPassword } from '@/common/security/temporary-password';
 import { TenantDomainsService, platformBaseDomain } from '@/modules/tenancy/tenant-domains.service';
 import { EmailService, PlatformActor, SendOutcome } from '@/modules/email/email.service';
 import { INDUSTRY_TYPES } from '@/modules/tenants/dto/organization-settings.dto';
@@ -223,7 +224,7 @@ export class TenantProvisioningService {
           });
         } else if (needsTemporaryPassword(owner)) {
           temporaryPassword = generateTemporaryPassword();
-          await this.replaceWithTemporaryPassword(tx, owner.id, temporaryPassword);
+          await replaceWithTemporaryPassword(tx, owner.id, temporaryPassword);
         }
 
         const roleId = randomUUID();
@@ -342,9 +343,9 @@ export class TenantProvisioningService {
       const fresh = generateTemporaryPassword();
       const issued = await this.prisma.$transaction((tx) =>
         // Conditional on the hash just read, so two resends at once cannot both issue a password.
-        this.replaceWithTemporaryPassword(tx, owner.id, fresh, owner.password_hash),
+        replaceWithTemporaryPassword(tx, owner.id, fresh, owner.password_hash),
       );
-      if (!issued) throw new ConflictException('A new onboarding email is already being sent. Refresh in a moment.');
+      if (issued === null) throw new ConflictException('A new onboarding email is already being sent. Refresh in a moment.');
       temporaryPassword = fresh;
     }
 
@@ -367,34 +368,6 @@ export class TenantProvisioningService {
   }
 
   // ── Internals ────────────────────────────────────────────────
-
-  /**
-   * Replaces the owner's password with a temporary one they must change at
-   * next sign-in, and ends their sessions. With `expectedHash`, only if the
-   * password is still the one read; returns whether it was replaced.
-   */
-  private async replaceWithTemporaryPassword(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    temporaryPassword: string,
-    expectedHash?: string | null,
-  ): Promise<boolean> {
-    const now = new Date();
-    const updated = await tx.rndtechnosoft_users.updateMany({
-      where: { id: userId, ...(expectedHash !== undefined ? { password_hash: expectedHash } : {}) },
-      data: {
-        password_hash: await hashPassword(temporaryPassword),
-        password_algorithm: PASSWORD_ALGORITHM_SCRYPT,
-        must_change_password: true,
-        failed_login_attempts: 0,
-        locked_until: null,
-        updated_at: now,
-      },
-    });
-    if (updated.count !== 1) return false;
-    await tx.rndtechnosoft_user_sessions.updateMany({ where: { user_id: userId, revoked_at: null }, data: { revoked_at: now } });
-    return true;
-  }
 
   private async sendOnboardingEmail(input: {
     tenantId: string;

@@ -72,8 +72,9 @@ async function request<T>(
     if (crm) reportCrmResult(crm, options.method ?? 'GET', response.status, response.ok, data, feedback);
 
     if (!response.ok) {
-      if (response.status === 401) {
+      if (response.status === 401 && token) {
         // One place decides what an expired session means for the whole app.
+        // A 401 on a request without a session (a failed sign-in) is just a refusal.
         onSessionExpired?.();
       }
 
@@ -139,7 +140,7 @@ export async function apiFetch(
     throw error;
   }
 
-  if (response.status === 401) {
+  if (response.status === 401 && token) {
     onSessionExpired?.();
   }
 

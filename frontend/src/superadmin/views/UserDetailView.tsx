@@ -9,10 +9,11 @@ import { UserIdentityForm } from '../components/UserIdentityForm';
 import { describeUserAgent, formatDate, formatDateTime, humanize, initials } from '../format';
 import { hashRoute } from '../hash-route';
 import { toast } from '../../lib/toast';
+import { platformOperationsApi } from '../api/platform-operations.api';
 import { MembershipAction, MembershipDialog } from './MembershipDialogs';
 import { ROLE_KIND_LABEL, Timestamp } from './UserTable';
 
-type PendingAction = 'disable' | 'enable' | null;
+type PendingAction = 'disable' | 'enable' | 'reset-password' | null;
 
 const backLinkClass =
   'inline-flex items-center gap-1.5 text-xs font-semibold text-hq-muted-foreground hover:text-hq-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hq-ring rounded';
@@ -67,7 +68,19 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
     setIsActing(true);
     setActionError(null);
     try {
-      if (pendingAction === 'disable') {
+      if (pendingAction === 'reset-password') {
+        const result = await platformOperationsApi.resetPassword(user.identity.id);
+        const ended = `${result.revokedSessions} session${result.revokedSessions === 1 ? ' was' : 's were'} ended`;
+        // The password is reset either way; success is claimed only for an email the mail server accepted.
+        if (result.email.status === 'SENT') {
+          setNotice(`Password reset. A temporary password was emailed to ${result.email.recipient}, and ${ended}.`);
+          toast.success('Password reset email sent successfully');
+        } else {
+          const reason = result.email.error ?? 'The email was not sent.';
+          setNotice(`Password reset and ${ended}, but the email was not delivered: ${reason} Reset it again once email works.`);
+          toast.error(`The password was reset, but the email was not sent: ${reason}`);
+        }
+      } else if (pendingAction === 'disable') {
         const result = await platformDirectoryApi.disableUser(user.identity.id);
         setNotice(
           `Account disabled. ${result.revokedSessions} session${result.revokedSessions === 1 ? ' was' : 's were'} ended and sign-in is blocked on every workspace.`,
@@ -314,7 +327,23 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
         )}
       </Panel>
 
-      <Panel title="Authentication">
+      <Panel
+        title="Authentication"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              setActionError(null);
+              setPendingAction('reset-password');
+            }}
+            disabled={isDisabled}
+            title={isDisabled ? 'Enable the account first' : undefined}
+            className={secondaryButtonClass}
+          >
+            Reset password
+          </button>
+        }
+      >
         <DetailList>
           <DetailItem label="Account status">
             <StatusBadge status={account.status} />
@@ -468,6 +497,24 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
               there, nobody will be able to administer {ownedWorkspaces.length === 1 ? 'that workspace' : 'those workspaces'}.
             </p>
           )}
+        </ConfirmDialog>
+      )}
+      {pendingAction === 'reset-password' && (
+        <ConfirmDialog
+          title={`Reset ${displayName}’s password?`}
+          confirmLabel="Reset password"
+          busyLabel="Resetting…"
+          tone="danger"
+          isBusy={isActing}
+          error={actionError}
+          onConfirm={() => void runAction()}
+          onCancel={() => setPendingAction(null)}
+        >
+          <p>
+            A new temporary password is emailed to <span className="font-semibold">{identity.email}</span>. Their current password stops
+            working at once and they are signed out of every workspace.
+          </p>
+          <p>At their next sign-in they must choose a new password. The temporary password is never shown here.</p>
         </ConfirmDialog>
       )}
       {pendingAction === 'enable' && (

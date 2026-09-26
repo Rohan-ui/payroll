@@ -189,3 +189,42 @@ describe('membership removal', () => {
     expect(toasts()).toEqual([['error', 'This is the only active administrator of the workspace. Make someone else an administrator first.']]);
   });
 });
+
+describe('Super Admin password reset', () => {
+  const USER = {
+    identity: { id: 'u1', name: 'Priya', email: 'priya@acme.example', phone: null, emailVerifiedAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' },
+    account: { status: 'ACTIVE', lastLoginAt: null, failedSignInAttempts: 0, lockedUntil: null },
+    memberships: [],
+    sessions: { active: 2, recent: [] },
+    activity: [],
+    securityEvents: [],
+  };
+  const reset = (email: Record<string, unknown>) => ({ success: true, data: { userId: 'u1', revokedSessions: 2, email: { recipient: 'priya@acme.example', deliveryId: 'd1', ...email } } });
+
+  const openAndConfirm = async (reply: unknown) => {
+    const fetch = vi.fn(async (url: string, init: RequestInit = {}) =>
+      (init.method ?? 'GET') === 'POST' ? json(200, reply) : json(200, { success: true, data: USER }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { UserDetailView } = await import('./UserDetailView');
+    await render(<UserDetailView userId="u1" />);
+    act(() => button('Reset password').click());
+    expect(container.textContent).toContain('A new temporary password is emailed to priya@acme.example');
+    act(() => (container.querySelector('[role=alertdialog] button:last-child') as HTMLButtonElement).click());
+    await flush();
+    return fetch;
+  };
+
+  it('resets through its own route and confirms only a delivered email', async () => {
+    const fetch = await openAndConfirm(reset({ status: 'SENT', error: null }));
+    expect(fetch).toHaveBeenCalledWith('/api/v1/super-admin/users/u1/reset-password', expect.objectContaining({ method: 'POST' }));
+    expect(toasts()).toEqual([['success', 'Password reset email sent successfully']]);
+    expect(container.textContent).toContain('A temporary password was emailed to priya@acme.example, and 2 sessions were ended.');
+  });
+
+  it('says so when the password was reset but the email failed, and claims no success', async () => {
+    await openAndConfirm(reset({ status: 'FAILED', error: 'Could not connect to smtp.example.com:587.' }));
+    expect(toasts()).toEqual([['error', 'The password was reset, but the email was not sent: Could not connect to smtp.example.com:587.']]);
+    expect(container.textContent).toContain('Reset it again once email works.');
+  });
+});

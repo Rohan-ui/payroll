@@ -12,7 +12,10 @@ interface AuthContextType {
   activeRole: string;
   setActiveRole: (role: string) => void;
   isAuthenticated: boolean;
+  /** Restoring a stored session on page load; the app shows its loading screen meanwhile. */
   isLoading: boolean;
+  /** A sign-in or registration request is in flight; the form stays on screen with its values. */
+  isSubmitting: boolean;
   error: string | null;
   notice: string | null;
   login: (email: string, password: string) => Promise<void>;
@@ -25,8 +28,11 @@ interface AuthContextType {
   }) => Promise<void>;
   switchTenant: (tenantId: string) => Promise<void>;
   logout: () => Promise<void>;
-  /** Replaces the password (a temporary one included); the server then allows the rest of the workspace. */
-  completePasswordChange: (currentPassword: string, newPassword: string) => Promise<void>;
+  /**
+   * Replaces the signed-in user's password. The current password is needed for
+   * a voluntary change, not to replace a temporary one (the session proves it).
+   */
+  completePasswordChange: (newPassword: string, currentPassword?: string) => Promise<void>;
   /** Presentation only: the server enforces every permission itself. */
   can: (permission: string) => boolean;
   /** False until the server has reported this member's permissions for the workspace. */
@@ -80,6 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeRole, setActiveRole] = useState<string>('EMPLOYEE');
   const [access, setAccess] = useState<WorkspaceAccess | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(() => Boolean(readStoredToken()));
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -163,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = useCallback(
     async (email: string, password: string) => {
-      setIsLoading(true);
+      setIsSubmitting(true);
       setError(null);
       try {
         applySession(await authApi.login(email, password));
@@ -171,7 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setError(err instanceof Error ? err.message : 'Sign-in failed');
         throw err;
       } finally {
-        setIsLoading(false);
+        setIsSubmitting(false);
       }
     },
     [applySession],
@@ -185,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       password: string;
       adminName?: string;
     }) => {
-      setIsLoading(true);
+      setIsSubmitting(true);
       setError(null);
       try {
         applySession(await authApi.registerTenant(data));
@@ -193,7 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setError(err instanceof Error ? err.message : 'Workspace registration failed');
         throw err;
       } finally {
-        setIsLoading(false);
+        setIsSubmitting(false);
       }
     },
     [applySession],
@@ -217,8 +224,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [applySession],
   );
 
-  const completePasswordChange = useCallback(async (currentPassword: string, newPassword: string) => {
-    await authApi.changePassword(currentPassword, newPassword);
+  const completePasswordChange = useCallback(async (newPassword: string, currentPassword?: string) => {
+    await authApi.changePassword(newPassword, currentPassword);
     setUser((current) => (current ? { ...current, mustChangePassword: false } : current));
   }, []);
 
@@ -268,6 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setActiveRole,
       isAuthenticated: Boolean(user && activeTenant),
       isLoading,
+      isSubmitting,
       error,
       notice,
       login,
@@ -290,6 +298,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       activeTenant,
       activeRole,
       isLoading,
+      isSubmitting,
       error,
       notice,
       login,

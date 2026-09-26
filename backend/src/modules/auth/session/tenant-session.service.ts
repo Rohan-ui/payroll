@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { randomUUID, randomBytes, createHash } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
@@ -464,9 +465,16 @@ export class TenantSessionService {
     };
   }
 
+  /**
+   * Replaces the signed-in user's own password. While the account must
+   * replace a temporary password, the session itself is the proof of it:
+   * issuing a temporary password ends every session, so this session was
+   * opened with that password. Otherwise the current password is required.
+   * A wrong current password is a 400, not a 401: the session is still valid.
+   */
   async changePassword(
     identity: AuthenticatedTenantUser,
-    currentPassword: string,
+    currentPassword: string | undefined,
     newPassword: string,
   ): Promise<void> {
     if (!newPassword || newPassword.length < 10) {
@@ -481,11 +489,13 @@ export class TenantSessionService {
       throw new UnauthorizedException('Account not found.');
     }
 
-    const { isValid } = await verifyPassword(currentPassword, user.password_hash);
-    if (!isValid) {
-      throw new UnauthorizedException('Current password is incorrect.');
+    if (!user.must_change_password && !currentPassword) {
+      throw new BadRequestException('Enter your current password.');
     }
-    if (newPassword === currentPassword) {
+    if (currentPassword !== undefined && !(await verifyPassword(currentPassword, user.password_hash)).isValid) {
+      throw new BadRequestException('Current password is incorrect.');
+    }
+    if ((await verifyPassword(newPassword, user.password_hash)).isValid) {
       throw new BadRequestException(
         user.must_change_password
           ? 'Choose a new password that is different from your temporary one.'
@@ -496,9 +506,11 @@ export class TenantSessionService {
     const passwordHash = await hashPassword(newPassword);
     const now = new Date();
 
-    await this.prisma.$transaction([
-      this.prisma.rndtechnosoft_users.update({
-        where: { id: identity.userId },
+    await this.prisma.$transaction(async (tx) => {
+      // Conditional on the hash just checked: if an administrator reset the
+      // password meanwhile, that reset wins and this change is refused.
+      const updated = await tx.rndtechnosoft_users.updateMany({
+        where: { id: identity.userId, password_hash: user.password_hash },
         data: {
           password_hash: passwordHash,
           password_algorithm: PASSWORD_ALGORITHM_SCRYPT,
@@ -508,12 +520,15 @@ export class TenantSessionService {
           locked_until: null,
           updated_at: now,
         },
-      }),
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException('Your password was changed or reset a moment ago. Sign in again.');
+      }
       // A password change ends every other session.
-      this.prisma.rndtechnosoft_user_sessions.updateMany({
+      await tx.rndtechnosoft_user_sessions.updateMany({
         where: { user_id: identity.userId, revoked_at: null, id: { not: identity.sessionId } },
         data: { revoked_at: now },
-      }),
-    ]);
+      });
+    });
   }
 }

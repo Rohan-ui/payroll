@@ -9,7 +9,14 @@ import {
   isPlatformEncryptionConfigured,
 } from '@/modules/super-admin/auth/platform-crypto.util';
 import { PlatformSmtpSettingsDto, SmtpEncryption } from './dto/platform-smtp.dto';
-import { RenderedEmail, smtpTestEmail, tenantOnboardingEmail, TenantOnboardingContent } from './email-templates';
+import {
+  passwordResetEmail,
+  PasswordResetContent,
+  RenderedEmail,
+  smtpTestEmail,
+  tenantOnboardingEmail,
+  TenantOnboardingContent,
+} from './email-templates';
 
 export const SMTP_SETTINGS_KEY = 'platform_smtp';
 
@@ -206,6 +213,20 @@ export class EmailService {
       ...tenantOnboardingEmail({ ...content, platformName: branding.platformName, supportEmail: branding.supportEmail }),
       templateCode: 'TENANT_ONBOARDING',
       to: content.ownerEmail,
+      tenantId: meta.tenantId,
+      requestedBySuperAdminId: meta.requestedBySuperAdminId,
+    });
+  }
+
+  async sendPasswordResetEmail(
+    content: Omit<PasswordResetContent, 'platformName' | 'supportEmail'>,
+    meta: { tenantId: string | null; requestedBySuperAdminId: string },
+  ): Promise<SendOutcome> {
+    const branding = await this.branding();
+    return this.send({
+      ...passwordResetEmail({ ...content, platformName: branding.platformName, supportEmail: branding.supportEmail }),
+      templateCode: 'PASSWORD_RESET',
+      to: content.email,
       tenantId: meta.tenantId,
       requestedBySuperAdminId: meta.requestedBySuperAdminId,
     });

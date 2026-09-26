@@ -331,13 +331,15 @@ describe('Tenant provisioning and onboarding', () => {
         expect([path, blocked.status, blocked.body.code]).toEqual([path, 403, 'PASSWORD_CHANGE_REQUIRED']);
       }
 
-      // The new password must differ from the temporary one, and the temporary one must be proven.
-      const same = await api().post(`${API}/auth/change-password`).set(session).send({ currentPassword: owner.temporaryPassword, newPassword: owner.temporaryPassword });
-      expect(same.status).toBe(400);
+      // The session proves the temporary password, so it is not asked for again; it cannot be reused as the new one.
+      const same = await api().post(`${API}/auth/change-password`).set(session).send({ newPassword: owner.temporaryPassword });
+      expect([same.status, same.body.message]).toEqual([400, 'Choose a new password that is different from your temporary one.']);
+      // A wrong current password, if sent, is refused as a bad request; the session stays valid.
       const wrong = await api().post(`${API}/auth/change-password`).set(session).send({ currentPassword: 'not-the-password', newPassword: PASSWORD });
-      expect(wrong.status).toBe(401);
+      expect(wrong.status).toBe(400);
+      expect((await api().get(`${API}/auth/me`).set(session)).status).toBe(200);
 
-      const changed = await api().post(`${API}/auth/change-password`).set(session).send({ currentPassword: owner.temporaryPassword, newPassword: PASSWORD });
+      const changed = await api().post(`${API}/auth/change-password`).set(session).send({ newPassword: PASSWORD });
       expect(changed.status).toBe(200);
 
       // The same session now reaches the workspace.

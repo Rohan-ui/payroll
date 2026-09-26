@@ -1,11 +1,14 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { ADMIN_ROLE_CODE } from '@/common/access/access-catalog';
 import { grantDefaultRolePermissions } from '@/common/access/role-defaults';
-import type { PlatformActor } from '@/modules/email/email.service';
+import { generateTemporaryPassword } from '@/common/security/password.util';
+import { replaceWithTemporaryPassword } from '@/common/security/temporary-password';
+import { EmailService, PlatformActor, SendOutcome } from '@/modules/email/email.service';
 import { OrganizationSettingsService } from '@/modules/tenants/organization-settings.service';
+import { TenantDomainsService } from '@/modules/tenancy/tenant-domains.service';
 import { recordPlatformAction } from './platform-activity';
 import { activeSubscriptionPlan, dateOnly } from './tenant-provisioning.service';
 import { ProvisionSubscriptionDto, TenantOrganizationDto } from './dto/provision-tenant.dto';
@@ -33,9 +36,13 @@ const memberInclude = {
  */
 @Injectable()
 export class PlatformOperationsService {
+  private readonly logger = new Logger(PlatformOperationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly organizationSettings: OrganizationSettingsService,
+    private readonly domains: TenantDomainsService,
+    private readonly email: EmailService,
   ) {}
 
   // ── Workspaces ───────────────────────────────────────────────
@@ -215,6 +222,83 @@ export class PlatformOperationsService {
       throw error;
     }
     return { id: userId, changedFields };
+  }
+
+  /**
+   * Resets the account's password to a new temporary one and emails it. The
+   * previous password and any earlier temporary password stop working, every
+   * session ends, and the person must choose a new password at next sign-in.
+   * The temporary password is never stored (only its hash), logged or
+   * returned: the response says only whether the email was delivered.
+   */
+  async resetPassword(userId: string, actor: PlatformActor) {
+    const user = await this.prisma.rndtechnosoft_users.findUnique({
+      where: { id: userId },
+      select: { email: true, display_name: true, user_status: true, password_hash: true },
+    });
+    if (!user) throw new NotFoundException('User not found.');
+    if (user.user_status !== 'ACTIVE') {
+      throw new BadRequestException('This account is disabled. Enable it before resetting its password.');
+    }
+
+    // Where they can sign in; checked before anything changes, so a reset never leaves an account unreachable.
+    const memberships = await this.prisma.rndtechnosoft_tenant_members.findMany({
+      where: { user_id: userId, membership_status: 'ACTIVE', rndtechnosoft_tenants: { tenant_status: { in: ['ACTIVE', 'TRIALING'] } } },
+      orderBy: [{ joined_at: 'asc' }, { created_at: 'asc' }],
+      select: { tenant_id: true, rndtechnosoft_tenants: { select: { display_name: true, legal_name: true } } },
+    });
+    if (memberships.length === 0) {
+      throw new BadRequestException('This account is not an active member of any active workspace, so it could not sign in. Add it to a workspace first.');
+    }
+    const subdomains = await this.domains.primarySubdomains(memberships.map((m) => m.tenant_id));
+    const workspaces = memberships.flatMap((m) => {
+      const subdomain = subdomains.get(m.tenant_id)?.subdomain;
+      const url = subdomain ? this.domains.workspaceUrl(subdomain) : null;
+      return url ? [{ tenantId: m.tenant_id, name: m.rndtechnosoft_tenants.display_name || m.rndtechnosoft_tenants.legal_name, url }] : [];
+    });
+    if (workspaces.length === 0) {
+      throw new BadRequestException('None of this account\'s workspaces has a web address yet (PLATFORM_BASE_DOMAIN is not set), so the email would have no working link.');
+    }
+    if (!(await this.email.getSmtpSettings()).configured) {
+      throw new BadRequestException('Outgoing email is not set up. Configure SMTP in Global Settings, then reset the password again.');
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    const revokedSessions = await this.prisma.$transaction(async (tx) => {
+      // Conditional on the hash just read: of two resets at once, only one issues a password.
+      const revoked = await replaceWithTemporaryPassword(tx, userId, temporaryPassword, user.password_hash);
+      if (revoked === null) throw new ConflictException('This password was changed or reset a moment ago. Refresh and try again.');
+      await recordPlatformAction(tx, actor, {
+        category: 'USER',
+        action: 'USER_PASSWORD_RESET',
+        description: 'Reset a user password to a temporary one and ended every session',
+        metadata: { userId, revokedSessions: revoked },
+      });
+      return revoked;
+    });
+
+    let outcome: SendOutcome;
+    try {
+      outcome = await this.email.sendPasswordResetEmail(
+        { userName: user.display_name, email: user.email, workspaces, temporaryPassword },
+        { tenantId: workspaces.length === 1 ? workspaces[0].tenantId : null, requestedBySuperAdminId: actor.superAdminId },
+      );
+    } catch (error) {
+      this.logger.error(`Password reset email could not be attempted userId=${userId}: ${error instanceof Error ? error.name : 'unknown'}`);
+      outcome = { status: 'NOT_SENT', deliveryId: null, error: 'The email could not be sent because of a server error. Reset the password again.' };
+    }
+    await recordPlatformAction(this.prisma, actor, {
+      category: 'USER',
+      action: outcome.status === 'SENT' ? 'USER_PASSWORD_RESET_EMAIL_SENT' : 'USER_PASSWORD_RESET_EMAIL_FAILED',
+      description: outcome.status === 'SENT' ? 'Emailed the temporary password' : `Password reset email not delivered: ${outcome.error}`,
+      metadata: { userId, deliveryId: outcome.deliveryId, status: outcome.status },
+    });
+
+    return {
+      userId,
+      revokedSessions,
+      email: { status: outcome.status, recipient: user.email, error: outcome.status === 'SENT' ? null : outcome.error, deliveryId: outcome.deliveryId },
+    };
   }
 
   // ── Workspace memberships ────────────────────────────────────

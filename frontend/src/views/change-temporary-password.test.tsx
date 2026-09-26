@@ -49,43 +49,42 @@ const fill = (id: string, value: string) =>
 const submit = () => container.querySelector<HTMLButtonElement>('button[type=submit]')!;
 
 describe('replacing a temporary password', () => {
+  it('does not ask for the temporary password again: the session was opened with it', () => {
+    expect(container.querySelector('#temporary-password')).toBeNull();
+    expect(container.querySelectorAll('input[type=password]')).toHaveLength(2);
+  });
+
   it('names the account and workspace, and allows nothing until the new password is valid', () => {
     expect(container.textContent).toContain('owner@acme.example');
     expect(container.textContent).toContain('Acme');
     expect(submit().disabled).toBe(true);
 
-    fill('temporary-password', 'Temp0rary9Pass');
     fill('new-password', 'short');
     expect(container.textContent).toContain('Use at least 10 characters.');
-    fill('new-password', 'Temp0rary9Pass');
-    fill('confirm-password', 'Temp0rary9Pass');
-    expect(container.textContent).toContain('different from your temporary one');
-    expect(submit().disabled).toBe(true);
-
     fill('new-password', 'My-own-password-1');
     fill('confirm-password', 'My-own-password-2');
     expect(container.textContent).toContain('do not match');
+    expect(submit().disabled).toBe(true);
     fill('confirm-password', 'My-own-password-1');
     expect(submit().disabled).toBe(false);
   });
 
-  it('confirms only after the server accepted the change', async () => {
+  it('sends only the new password and confirms after the server accepted it', async () => {
     completePasswordChange.mockResolvedValueOnce(undefined);
-    fill('temporary-password', 'Temp0rary9Pass');
     fill('new-password', 'My-own-password-1');
     fill('confirm-password', 'My-own-password-1');
     await act(async () => submit().click());
-    expect(completePasswordChange).toHaveBeenCalledWith('Temp0rary9Pass', 'My-own-password-1');
+    expect(completePasswordChange).toHaveBeenCalledWith('My-own-password-1');
     expect(shown.map((t) => [t.kind, t.message])).toEqual([['success', 'Password changed successfully']]);
   });
 
-  it('shows the refusal in place and claims no success', async () => {
-    completePasswordChange.mockRejectedValueOnce(new Error('Current password is incorrect.'));
-    fill('temporary-password', 'wrong-one');
-    fill('new-password', 'My-own-password-1');
-    fill('confirm-password', 'My-own-password-1');
+  it('shows the refusal in place, keeps the screen, and claims no success', async () => {
+    completePasswordChange.mockRejectedValueOnce(new Error('Choose a new password that is different from your temporary one.'));
+    fill('new-password', 'Temp0rary9Pass1');
+    fill('confirm-password', 'Temp0rary9Pass1');
     await act(async () => submit().click());
-    expect(container.querySelector('[role=alert]')?.textContent).toBe('Current password is incorrect.');
+    expect(container.querySelector('[role=alert]')?.textContent).toBe('Choose a new password that is different from your temporary one.');
+    expect(container.textContent).toContain('Choose your new password');
     expect(shown).toEqual([]);
   });
 });
