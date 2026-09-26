@@ -87,7 +87,6 @@ describe('Workspace addresses and hostname tenancy', () => {
       const users = await prisma.rndtechnosoft_users.findMany({ where: { email: { in: userEmails } }, select: { id: true } });
       const userIds = users.map((u) => u.id);
       const scope = { tenant_id: { in: tenantIds } };
-      await prisma.rndtechnosoft_account_setup_tokens.deleteMany({ where: { tenant_id: { in: tenantIds } } });
       await prisma.rndtechnosoft_tenant_onboardings.deleteMany({ where: { tenant_id: { in: tenantIds } } });
       await prisma.rndtechnosoft_email_deliveries.deleteMany({ where: { tenant_id: { in: tenantIds } } });
       await prisma.rndtechnosoft_user_sessions.deleteMany({ where: { user_id: { in: userIds } } });

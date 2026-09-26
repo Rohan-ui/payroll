@@ -3,23 +3,30 @@ import { ArrowLeft, Ban, CheckCircle2 } from 'lucide-react';
 import { platformDirectoryApi, UserDetail } from '../api/platform-directory.api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DetailItem, DetailList, ErrorBanner, Panel, Value } from '../components/DetailList';
+import { secondaryButtonClass } from '../components/form-styles';
 import { StatusBadge } from '../components/StatusBadge';
+import { UserIdentityForm } from '../components/UserIdentityForm';
 import { describeUserAgent, formatDate, formatDateTime, humanize, initials } from '../format';
 import { hashRoute } from '../hash-route';
+import { toast } from '../../lib/toast';
+import { platformOperationsApi } from '../api/platform-operations.api';
+import { MembershipAction, MembershipDialog } from './MembershipDialogs';
 import { ROLE_KIND_LABEL, Timestamp } from './UserTable';
 
-type PendingAction = 'disable' | 'enable' | null;
+type PendingAction = 'disable' | 'enable' | 'reset-password' | null;
 
 const backLinkClass =
   'inline-flex items-center gap-1.5 text-xs font-semibold text-hq-muted-foreground hover:text-hq-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hq-ring rounded';
 const linkClass =
   'font-semibold text-hq-foreground hover:text-hq-link hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hq-ring rounded break-words';
 const thClass = 'py-2.5 px-3 font-bold';
+const rowActionClass =
+  'text-xs font-semibold text-hq-link hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hq-ring rounded disabled:opacity-50';
 
 /**
- * One global sign-in account. Disabling it is a platform action that applies
- * to every workspace; each workspace's own memberships are left to that
- * workspace's administrators.
+ * One global sign-in account and its workspace memberships. Disabling the
+ * account applies to every workspace; membership changes apply to one
+ * workspace, and removing a membership never deletes the account.
  */
 export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -30,6 +37,8 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
   const [isActing, setIsActing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [membershipAction, setMembershipAction] = useState<MembershipAction | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -59,20 +68,36 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
     setIsActing(true);
     setActionError(null);
     try {
-      if (pendingAction === 'disable') {
+      if (pendingAction === 'reset-password') {
+        const result = await platformOperationsApi.resetPassword(user.identity.id);
+        const ended = `${result.revokedSessions} session${result.revokedSessions === 1 ? ' was' : 's were'} ended`;
+        // The password is reset either way; success is claimed only for an email the mail server accepted.
+        if (result.email.status === 'SENT') {
+          setNotice(`Password reset. A temporary password was emailed to ${result.email.recipient}, and ${ended}.`);
+          toast.success('Password reset email sent successfully');
+        } else {
+          const reason = result.email.error ?? 'The email was not sent.';
+          setNotice(`Password reset and ${ended}, but the email was not delivered: ${reason} Reset it again once email works.`);
+          toast.error(`The password was reset, but the email was not sent: ${reason}`);
+        }
+      } else if (pendingAction === 'disable') {
         const result = await platformDirectoryApi.disableUser(user.identity.id);
         setNotice(
           `Account disabled. ${result.revokedSessions} session${result.revokedSessions === 1 ? ' was' : 's were'} ended and sign-in is blocked on every workspace.`,
         );
+        toast.success('User deactivated successfully');
       } else {
         await platformDirectoryApi.enableUser(user.identity.id);
         setNotice('Account enabled. They can sign in to the workspaces where their membership is active.');
+        toast.success('User activated successfully');
       }
       setPendingAction(null);
       await load();
       headingRef.current?.focus();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'The change could not be saved.');
+      const message = err instanceof Error ? err.message : 'The change could not be saved.';
+      setActionError(message);
+      toast.error(message);
     } finally {
       setIsActing(false);
     }
@@ -167,7 +192,27 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
       )}
       {error && <ErrorBanner message={error} onRetry={() => void load()} />}
 
-      <Panel title="Identity">
+      {isEditing ? (
+        <Panel title="Edit account">
+          <UserIdentityForm
+            userId={identity.id}
+            initial={{ name: identity.name, email: identity.email, phone: identity.phone }}
+            onSaved={async () => {
+              await load();
+              setIsEditing(false);
+            }}
+            onCancel={() => setIsEditing(false)}
+          />
+        </Panel>
+      ) : (
+      <Panel
+        title="Identity"
+        actions={
+          <button type="button" onClick={() => setIsEditing(true)} className={secondaryButtonClass}>
+            Edit account
+          </button>
+        }
+      >
         <DetailList>
           <DetailItem label="Name">
             <Value value={identity.name} />
@@ -186,16 +231,22 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
           <DetailItem label="Updated">{formatDateTime(identity.updatedAt)}</DetailItem>
         </DetailList>
       </Panel>
+      )}
 
       <Panel
         title="Workspace memberships"
         description="One account can belong to several workspaces, each with its own roles and membership status."
+        actions={
+          <button type="button" onClick={() => setMembershipAction({ kind: 'add' })} className={secondaryButtonClass}>
+            Add to workspace
+          </button>
+        }
       >
         {memberships.length === 0 ? (
           <p className="text-xs text-hq-muted-foreground">This account does not belong to any workspace.</p>
         ) : (
           <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <table className="w-full min-w-[720px] text-left text-xs border-collapse">
+            <table className="w-full min-w-[820px] text-left text-xs border-collapse">
               <caption className="sr-only">Workspace memberships</caption>
               <thead>
                 <tr className="border-b border-hq-border text-hq-muted-foreground uppercase tracking-wider text-[10px]">
@@ -205,6 +256,9 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
                   <th scope="col" className={thClass}>Role</th>
                   <th scope="col" className={thClass}>Membership</th>
                   <th scope="col" className={thClass}>Joined</th>
+                  <th scope="col" className={thClass}>
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hq-border">
@@ -241,6 +295,30 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
                     <td className="py-2.5 px-3 text-hq-foreground/90 whitespace-nowrap">
                       <Value value={formatDate(m.joinedAt)} empty="Not recorded" />
                     </td>
+                    <td className="py-2.5 px-3">
+                      {m.membershipStatus === 'ARCHIVED' ? (
+                        <button type="button" onClick={() => setMembershipAction({ kind: 'add', restore: m })} className={rowActionClass}>
+                          Add back<span className="sr-only"> to {m.tenantName}</span>
+                        </button>
+                      ) : (
+                        <div className="flex flex-col items-start gap-1">
+                          <button type="button" onClick={() => setMembershipAction({ kind: 'role', membership: m })} className={rowActionClass}>
+                            Change role<span className="sr-only"> in {m.tenantName}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMembershipAction({ kind: 'status', membership: m, to: m.membershipStatus === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED' })}
+                            className={rowActionClass}
+                          >
+                            {m.membershipStatus === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}
+                            <span className="sr-only"> in {m.tenantName}</span>
+                          </button>
+                          <button type="button" onClick={() => setMembershipAction({ kind: 'remove', membership: m })} className={`${rowActionClass} text-hq-danger`}>
+                            Remove<span className="sr-only"> from {m.tenantName}</span>
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -249,7 +327,23 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
         )}
       </Panel>
 
-      <Panel title="Authentication">
+      <Panel
+        title="Authentication"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              setActionError(null);
+              setPendingAction('reset-password');
+            }}
+            disabled={isDisabled}
+            title={isDisabled ? 'Enable the account first' : undefined}
+            className={secondaryButtonClass}
+          >
+            Reset password
+          </button>
+        }
+      >
         <DetailList>
           <DetailItem label="Account status">
             <StatusBadge status={account.status} />
@@ -366,6 +460,18 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
         </Panel>
       </div>
 
+      {membershipAction && (
+        <MembershipDialog
+          userId={identity.id}
+          userLabel={displayName}
+          action={membershipAction}
+          onDone={async () => {
+            setMembershipAction(null);
+            await load();
+          }}
+          onCancel={() => setMembershipAction(null)}
+        />
+      )}
       {pendingAction === 'disable' && (
         <ConfirmDialog
           title={`Disable ${displayName}’s account?`}
@@ -391,6 +497,24 @@ export const UserDetailView: React.FC<{ userId: string }> = ({ userId }) => {
               there, nobody will be able to administer {ownedWorkspaces.length === 1 ? 'that workspace' : 'those workspaces'}.
             </p>
           )}
+        </ConfirmDialog>
+      )}
+      {pendingAction === 'reset-password' && (
+        <ConfirmDialog
+          title={`Reset ${displayName}’s password?`}
+          confirmLabel="Reset password"
+          busyLabel="Resetting…"
+          tone="danger"
+          isBusy={isActing}
+          error={actionError}
+          onConfirm={() => void runAction()}
+          onCancel={() => setPendingAction(null)}
+        >
+          <p>
+            A new temporary password is emailed to <span className="font-semibold">{identity.email}</span>. Their current password stops
+            working at once and they are signed out of every workspace.
+          </p>
+          <p>At their next sign-in they must choose a new password. The temporary password is never shown here.</p>
         </ConfirmDialog>
       )}
       {pendingAction === 'enable' && (

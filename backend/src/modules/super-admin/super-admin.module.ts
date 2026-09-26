@@ -12,6 +12,8 @@ import { PlatformDirectoryService } from './platform-directory.service';
 import { PlatformCommandCentreService } from './platform-command-centre.service';
 import { PlatformGovernanceService } from './platform-governance.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
+import { PlatformOperationsService } from './platform-operations.service';
+import { PlatformRoleTemplatesService } from './platform-role-templates.service';
 import { DnsModule } from '@/modules/dns/dns.module';
 
 @Module({
@@ -23,6 +25,8 @@ import { DnsModule } from '@/modules/dns/dns.module';
     PlatformCommandCentreService,
     PlatformGovernanceService,
     TenantProvisioningService,
+    PlatformOperationsService,
+    PlatformRoleTemplatesService,
     SuperAdminAuthService,
     SuperAdminMfaService,
     LoginThrottleService,

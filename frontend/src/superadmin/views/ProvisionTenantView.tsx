@@ -9,8 +9,10 @@ import {
 } from '../api/platform-provisioning.api';
 import { ErrorBanner, Panel } from '../components/DetailList';
 import { fieldClass, labelClass, primaryButtonClass, secondaryButtonClass } from '../components/form-styles';
+import { browserTimezone, CURRENT_ZONE_NAMES, EMAIL, Field, industryLabel, PHONE, timezones, today } from '../components/FormField';
 import { formatDate, formatDateTime, humanize } from '../format';
 import { hashRoute } from '../hash-route';
+import { toast } from '../../lib/toast';
 
 const STEPS = ['Organization', 'Owner', 'Address', 'Modules', 'Plan', 'Review'] as const;
 
@@ -41,50 +43,6 @@ export interface FormState {
   trialEndsOn: string;
 }
 
-const browserTimezone = () => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-};
-
-/** Browsers list some zones under legacy ICU names; show the current IANA ones (both are valid). */
-const CURRENT_ZONE_NAMES: Record<string, string> = {
-  'Asia/Calcutta': 'Asia/Kolkata',
-  'Asia/Katmandu': 'Asia/Kathmandu',
-  'Asia/Rangoon': 'Asia/Yangon',
-  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
-  'Europe/Kiev': 'Europe/Kyiv',
-};
-
-/** Every timezone the browser knows, always including the one currently chosen. */
-const timezones = (current: string): string[] => {
-  const list = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.('timeZone') ?? [];
-  const zones = new Set(list.map((zone) => CURRENT_ZONE_NAMES[zone] ?? zone));
-  zones.add(current);
-  return [...zones].sort();
-};
-
-const INDUSTRY_LABELS: Record<string, string> = {
-  DIGITAL_AGENCY: 'Digital agency',
-  IT_SERVICES: 'IT services',
-  CONSULTING: 'Consulting',
-  ECOMMERCE: 'E-commerce',
-  HEALTHCARE: 'Healthcare',
-  REAL_ESTATE: 'Real estate',
-  MANUFACTURING: 'Manufacturing',
-  FINANCE: 'Finance',
-  OTHER: 'Other',
-};
-const industryLabel = (code: string) => INDUSTRY_LABELS[code] ?? humanize(code);
-
-/** Today in the viewer's timezone, as YYYY-MM-DD. */
-const today = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-};
-
 export const emptyForm = (): FormState => ({
   organizationName: '',
   legalName: '',
@@ -111,9 +69,6 @@ export const emptyForm = (): FormState => ({
   endsOn: '',
   trialEndsOn: '',
 });
-
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE = /^\+?[0-9][0-9 ()-]{5,23}$/;
 
 /** The same rules the server applies, so mistakes show up before submitting. The server checks again. */
 export function stepProblems(step: number, form: FormState, options: ProvisioningOptions): Partial<Record<keyof FormState, string>> {
@@ -182,36 +137,6 @@ export function toInput(form: FormState, idempotencyKey: string): ProvisionTenan
       : undefined,
   };
 }
-
-/** One labelled input with its hint and error, wired for screen readers. */
-const Field: React.FC<{
-  id: string;
-  label: string;
-  required?: boolean;
-  hint?: string;
-  error?: string;
-  children: (props: { id: string; 'aria-describedby'?: string; 'aria-invalid'?: boolean }) => React.ReactNode;
-}> = ({ id, label, required, hint, error, children }) => {
-  const describedBy = [hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(' ') || undefined;
-  return (
-    <div>
-      <label htmlFor={id} className={labelClass}>
-        {label} <span className="font-normal text-hq-subtle-foreground">{required ? '(required)' : '(optional)'}</span>
-      </label>
-      {children({ id, 'aria-describedby': describedBy, 'aria-invalid': error ? true : undefined })}
-      {hint && (
-        <p id={`${id}-hint`} className="mt-1 text-[11px] text-hq-subtle-foreground">
-          {hint}
-        </p>
-      )}
-      {error && (
-        <p id={`${id}-error`} className="mt-1 text-[11px] text-hq-danger">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-};
 
 /**
  * Onboards a customer workspace: organization, owner, address, modules and an
@@ -319,9 +244,16 @@ export const ProvisionTenantView: React.FC = () => {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      setResult(await platformProvisioningApi.provision(toInput(form, idempotencyKey)));
+      const created = await platformProvisioningApi.provision(toInput(form, idempotencyKey));
+      setResult(created);
+      toast.success(created.replayed ? 'This workspace was already created' : 'Workspace created successfully');
+      const email = created.onboardingEmail;
+      if (email.status === 'SENT') toast.success('Onboarding email sent successfully');
+      else toast.error(`The onboarding email was not sent: ${email.error ?? humanize(email.status)}`);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'The workspace could not be provisioned.');
+      const message = err instanceof Error ? err.message : 'The workspace could not be provisioned.';
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -829,11 +761,11 @@ export const ProvisioningResult: React.FC<{
       </Panel>
 
       <p className="text-xs text-hq-muted-foreground">
-        {result.owner.passwordSet
+        {result.owner.passwordStatus === 'SET'
           ? `${result.owner.email} already has a Voogyo password and can sign in to the workspace now.`
           : email.status === 'SENT'
-            ? 'The owner sets a password from the link in the email. The link works once and expires in 7 days.'
-            : 'The owner cannot sign in until they receive the email: it carries their one-time link to set a password. Send it again from the workspace page once email works.'}
+            ? 'The owner signs in with the temporary password from the email and must choose a new password straight away.'
+            : 'The owner cannot sign in until they receive the email: it carries their temporary password. Send it again from the workspace page once email works; that issues a new temporary password.'}
       </p>
 
       <div className="flex flex-wrap gap-2">

@@ -80,10 +80,10 @@ describe('provisioning result', () => {
   let container: HTMLDivElement;
   let root: Root | null = null;
 
-  const result = (email: OnboardingResult['onboardingEmail'], passwordSet = false): OnboardingResult => ({
+  const result = (email: OnboardingResult['onboardingEmail'], passwordStatus: OnboardingResult['owner']['passwordStatus'] = 'TEMPORARY'): OnboardingResult => ({
     tenant: { id: 't1', tenantCode: 'ACME_IN', name: 'Acme', legalName: 'Acme Private Limited', status: 'ACTIVE', createdAt: '2026-09-24T10:00:00Z' },
     address: { subdomain: 'acme', hostname: 'acme.voogyo.com', url: 'https://acme.voogyo.com' },
-    owner: { userId: 'u1', email: 'owner@acme.example', name: 'Asha', role: 'Administrator', isNewAccount: true, passwordSet },
+    owner: { userId: 'u1', email: 'owner@acme.example', name: 'Asha', role: 'Administrator', isNewAccount: true, passwordStatus },
     modules: [{ code: 'HRMS', name: 'HRMS', enabled: true }],
     subscription: null,
     onboardingEmail: email,
@@ -107,7 +107,7 @@ describe('provisioning result', () => {
   it('says the email was sent only when the server reported SENT', () => {
     const text = render(result({ status: 'SENT', recipient: 'owner@acme.example', error: null, sentAt: '2026-09-24T10:00:05Z', attemptedAt: '2026-09-24T10:00:04Z' }));
     expect(text).toContain('Onboarding email sent');
-    expect(text).toContain('The owner sets a password from the link in the email.');
+    expect(text).toContain('signs in with the temporary password from the email and must choose a new password');
   });
 
   it('shows a failed email as failed, with the reason, while the workspace stays created', () => {

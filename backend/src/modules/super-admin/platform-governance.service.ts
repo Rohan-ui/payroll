@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
-import { ADMIN_ROLE_CODE, DEFAULT_ROLE_PERMISSIONS, groupPermissionCatalog } from '@/common/access/access-catalog';
 import { AuthenticatedSuperAdmin } from '@/common/interfaces/request-with-super-admin.interface';
 import { isPlatformEncryptionConfigured } from './auth/platform-crypto.util';
 import type { PlatformActionContext } from './super-admin.service';
@@ -204,46 +203,6 @@ export class PlatformGovernanceService {
         actor: event.rndtechnosoft_super_admins?.display_name ?? null,
       })),
     };
-  }
-
-  /**
-   * The built-in roles every workspace can start from, with the permissions
-   * they are granted on creation (the catalog's DEFAULT_ROLE_PERMISSIONS) and
-   * how many workspaces use each. Workspaces then edit their own copies.
-   */
-  async roleTemplates() {
-    const usage = await this.prisma.$queryRaw<{ role_code: string; workspaces: number; members: number; name: string }[]>`
-      SELECT r.role_code,
-             count(DISTINCT r.tenant_id)::int AS workspaces,
-             count(DISTINCT mr.tenant_member_id) FILTER (WHERE m.membership_status = 'ACTIVE')::int AS members,
-             mode() WITHIN GROUP (ORDER BY r.role_name) AS name
-      FROM rndtechnosoft_roles r
-      LEFT JOIN rndtechnosoft_tenant_member_roles mr ON mr.tenant_id = r.tenant_id AND mr.role_id = r.id
-      LEFT JOIN rndtechnosoft_tenant_members m ON m.tenant_id = mr.tenant_id AND m.id = mr.tenant_member_id
-      WHERE r.role_code IN (${Prisma.join(Object.keys(DEFAULT_ROLE_PERMISSIONS))})
-      GROUP BY r.role_code`;
-    const byCode = new Map(usage.map((row) => [row.role_code, row]));
-    const catalog = groupPermissionCatalog();
-
-    return Object.entries(DEFAULT_ROLE_PERMISSIONS).map(([code, keys]) => {
-      const granted = new Set<string>(keys);
-      return {
-        code,
-        name: byCode.get(code)?.name ?? null,
-        isOwnerRole: code === ADMIN_ROLE_CODE,
-        permissionCount: granted.size,
-        workspaces: byCode.get(code)?.workspaces ?? 0,
-        activeMembers: byCode.get(code)?.members ?? 0,
-        sections: catalog
-          .map((section) => ({
-            section: section.section,
-            groups: section.groups
-              .map((group) => ({ group: group.group, permissions: group.permissions.filter((p) => granted.has(p.key)) }))
-              .filter((group) => group.permissions.length > 0),
-          }))
-          .filter((section) => section.groups.length > 0),
-      };
-    });
   }
 
   async getBranding() {

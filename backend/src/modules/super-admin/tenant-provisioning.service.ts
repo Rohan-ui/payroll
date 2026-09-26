@@ -16,12 +16,12 @@ import {
   unmetModuleRequirements,
 } from '@/common/access/access-catalog';
 import { grantDefaultRolePermissions } from '@/common/access/role-defaults';
-import { issueAccountSetupToken } from '@/common/security/account-setup-token';
-import { PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
+import { generateTemporaryPassword, hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
+import { replaceWithTemporaryPassword } from '@/common/security/temporary-password';
 import { TenantDomainsService, platformBaseDomain } from '@/modules/tenancy/tenant-domains.service';
 import { EmailService, PlatformActor, SendOutcome } from '@/modules/email/email.service';
 import { INDUSTRY_TYPES } from '@/modules/tenants/dto/organization-settings.dto';
-import { ProvisioningCheckQueryDto, ProvisionTenantDto } from './dto/provision-tenant.dto';
+import { ProvisioningCheckQueryDto, ProvisionSubscriptionDto, ProvisionTenantDto } from './dto/provision-tenant.dto';
 
 const OWNER_ROLE_NAME = 'Administrator';
 
@@ -33,8 +33,31 @@ const isUniqueViolation = (error: unknown, ...targets: string[]) =>
   error.code === 'P2002' &&
   targets.some((target) => JSON.stringify(error.meta?.target ?? '').includes(target));
 
-const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
+export const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const isoDate = (value: Date | null) => (value ? value.toISOString().slice(0, 10) : null);
+
+/** The active plan a subscription names, after checking its dates make sense together. */
+export async function activeSubscriptionPlan(prisma: PrismaService, subscription: ProvisionSubscriptionDto) {
+  const plan = await prisma.rndtechnosoft_plans.findFirst({
+    where: { plan_code: subscription.planCode, plan_status: 'ACTIVE' },
+    select: { id: true, plan_code: true, plan_name: true },
+  });
+  if (!plan) throw new BadRequestException('That plan does not exist or is not active.');
+  if (subscription.endsOn && subscription.endsOn < subscription.startsOn) {
+    throw new BadRequestException('The subscription cannot end before it starts.');
+  }
+  if (subscription.status === 'TRIALING' && !subscription.trialEndsOn) {
+    throw new BadRequestException('Enter when the trial ends.');
+  }
+  if (subscription.trialEndsOn && subscription.trialEndsOn < subscription.startsOn) {
+    throw new BadRequestException('The trial cannot end before the subscription starts.');
+  }
+  return plan;
+}
+
+/** An owner who has never chosen a password of their own is sent a (new) temporary one. */
+const needsTemporaryPassword = (owner: { password_hash: string | null; must_change_password: boolean }) =>
+  owner.password_hash === null || owner.must_change_password;
 
 /**
  * Onboarding a customer workspace from the platform console: one transaction
@@ -42,6 +65,10 @@ const isoDate = (value: Date | null) => (value ? value.toISOString().slice(0, 10
  * (with the existing Administrator role) and optional subscription; the
  * onboarding email is sent only after that commits, and its real outcome is
  * recorded. A failed email never undoes the workspace.
+ *
+ * A new owner gets a random temporary password. Only its hash is stored; the
+ * plaintext lives in memory until the email is handed to the mail server and
+ * is never logged or returned. The owner must replace it at first sign-in.
  */
 @Injectable()
 export class TenantProvisioningService {
@@ -108,14 +135,14 @@ export class TenantProvisioningService {
       );
     }
 
-    const plan = input.subscription ? await this.subscriptionPlan(input) : null;
+    const plan = input.subscription ? await activeSubscriptionPlan(this.prisma, input.subscription) : null;
     const tenantCode = input.tenantCode.toUpperCase();
     const ownerEmail = input.ownerEmail.toLowerCase();
     const ownerName = [input.ownerFirstName, input.ownerLastName].filter(Boolean).join(' ');
     const tenantId = randomUUID();
     const now = new Date();
 
-    let created: { subdomain: string; ownerUserId: string; ownerIsNew: boolean; setup: { token: string; expiresAt: Date } | null };
+    let created: { subdomain: string; temporaryPassword: string | null };
     try {
       created = await this.prisma.$transaction(async (tx) => {
         await tx.rndtechnosoft_tenants.create({
@@ -172,26 +199,32 @@ export class TenantProvisioningService {
 
         let owner = await tx.rndtechnosoft_users.findUnique({
           where: { email: ownerEmail },
-          select: { id: true, user_status: true, password_hash: true },
+          select: { id: true, user_status: true, password_hash: true, must_change_password: true },
         });
         const ownerIsNew = owner === null;
         if (owner && owner.user_status !== 'ACTIVE') {
           throw new ConflictException('That owner email belongs to a disabled account. Re-enable it in User management or use another email.');
         }
+        // An existing account keeps the password its owner chose; anyone else gets a temporary one.
+        let temporaryPassword: string | null = null;
         if (!owner) {
-          // No password: the owner chooses one from the emailed setup link.
+          temporaryPassword = generateTemporaryPassword();
           owner = await tx.rndtechnosoft_users.create({
             data: {
               id: randomUUID(),
               email: ownerEmail,
-              password_hash: null,
+              password_hash: await hashPassword(temporaryPassword),
               password_algorithm: PASSWORD_ALGORITHM_SCRYPT,
+              must_change_password: true,
               display_name: ownerName,
               mobile_number: input.ownerPhone || null,
               user_status: 'ACTIVE',
             },
-            select: { id: true, user_status: true, password_hash: true },
+            select: { id: true, user_status: true, password_hash: true, must_change_password: true },
           });
+        } else if (needsTemporaryPassword(owner)) {
+          temporaryPassword = generateTemporaryPassword();
+          await replaceWithTemporaryPassword(tx, owner.id, temporaryPassword);
         }
 
         const roleId = randomUUID();
@@ -229,10 +262,6 @@ export class TenantProvisioningService {
           });
         }
 
-        const setup = owner.password_hash
-          ? null
-          : await issueAccountSetupToken(tx, { userId: owner.id, tenantId, superAdminId: actor.superAdminId });
-
         await tx.rndtechnosoft_tenant_onboardings.create({
           data: {
             id: randomUUID(),
@@ -252,7 +281,7 @@ export class TenantProvisioningService {
           ownerIsNewAccount: ownerIsNew,
         });
 
-        return { subdomain, ownerUserId: owner.id, ownerIsNew, setup };
+        return { subdomain, temporaryPassword };
       });
     } catch (error) {
       // The same submission arrived twice and the other request created it
@@ -272,18 +301,23 @@ export class TenantProvisioningService {
       ownerName: ownerName || null,
       ownerEmail,
       subdomain: created.subdomain,
-      setup: created.setup,
+      temporaryPassword: created.temporaryPassword,
       actor,
     });
     return { replayed: false, ...(await this.describe(tenantId, outcome)) };
   }
 
-  /** Sends the onboarding email again, with a new setup link if the owner still has no password. */
+  /**
+   * Sends the onboarding email again. If the owner has not yet replaced their
+   * temporary password, it carries a new one and the earlier one stops working.
+   */
   async resendOnboardingEmail(tenantId: string, actor: PlatformActor) {
     const onboarding = await this.prisma.rndtechnosoft_tenant_onboardings.findUnique({
       where: { tenant_id: tenantId },
       include: {
-        rndtechnosoft_users: { select: { id: true, email: true, display_name: true, password_hash: true, user_status: true } },
+        rndtechnosoft_users: {
+          select: { id: true, email: true, display_name: true, password_hash: true, must_change_password: true, user_status: true },
+        },
         rndtechnosoft_tenants: { select: { display_name: true, tenant_status: true } },
       },
     });
@@ -296,15 +330,23 @@ export class TenantProvisioningService {
 
     const subdomain = (await this.domains.primarySubdomains([tenantId])).get(tenantId)?.subdomain;
     if (!subdomain) throw new BadRequestException('This workspace has no address.');
+    // Checked before a new password is issued, so the owner's current one is not replaced by one nobody receives.
+    if (!this.domains.workspaceUrl(subdomain)) {
+      throw new BadRequestException('The workspace has no web address yet (PLATFORM_BASE_DOMAIN is not set), so the email would have no working link.');
+    }
+    if (!(await this.email.getSmtpSettings()).configured) {
+      throw new BadRequestException('Outgoing email is not set up. Configure SMTP in Global Settings, then send the email again.');
+    }
 
-    let setup: { token: string; expiresAt: Date } | null = null;
-    if (!owner.password_hash) {
-      try {
-        setup = await issueAccountSetupToken(this.prisma, { userId: owner.id, tenantId, superAdminId: actor.superAdminId });
-      } catch (error) {
-        if (isUniqueViolation(error, 'user_id', 'uq_account_setup_tokens_open')) throw new ConflictException('A new setup link is already being sent. Refresh in a moment.');
-        throw error;
-      }
+    let temporaryPassword: string | null = null;
+    if (needsTemporaryPassword(owner)) {
+      const fresh = generateTemporaryPassword();
+      const issued = await this.prisma.$transaction((tx) =>
+        // Conditional on the hash just read, so two resends at once cannot both issue a password.
+        replaceWithTemporaryPassword(tx, owner.id, fresh, owner.password_hash),
+      );
+      if (issued === null) throw new ConflictException('A new onboarding email is already being sent. Refresh in a moment.');
+      temporaryPassword = fresh;
     }
 
     const outcome = await this.sendOnboardingEmail({
@@ -313,7 +355,7 @@ export class TenantProvisioningService {
       ownerName: owner.display_name,
       ownerEmail: owner.email,
       subdomain,
-      setup,
+      temporaryPassword,
       actor,
     });
     return this.describe(tenantId, outcome);
@@ -327,32 +369,13 @@ export class TenantProvisioningService {
 
   // ── Internals ────────────────────────────────────────────────
 
-  private async subscriptionPlan(input: ProvisionTenantDto) {
-    const subscription = input.subscription!;
-    const plan = await this.prisma.rndtechnosoft_plans.findFirst({
-      where: { plan_code: subscription.planCode, plan_status: 'ACTIVE' },
-      select: { id: true, plan_code: true },
-    });
-    if (!plan) throw new BadRequestException('That plan does not exist or is not active.');
-    if (subscription.endsOn && subscription.endsOn < subscription.startsOn) {
-      throw new BadRequestException('The subscription cannot end before it starts.');
-    }
-    if (subscription.status === 'TRIALING' && !subscription.trialEndsOn) {
-      throw new BadRequestException('Enter when the trial ends.');
-    }
-    if (subscription.trialEndsOn && subscription.trialEndsOn < subscription.startsOn) {
-      throw new BadRequestException('The trial cannot end before the subscription starts.');
-    }
-    return plan;
-  }
-
   private async sendOnboardingEmail(input: {
     tenantId: string;
     organizationName: string;
     ownerName: string | null;
     ownerEmail: string;
     subdomain: string;
-    setup: { token: string; expiresAt: Date } | null;
+    temporaryPassword: string | null;
     actor: PlatformActor;
   }): Promise<SendOutcome> {
     const workspaceUrl = this.domains.workspaceUrl(input.subdomain);
@@ -371,9 +394,7 @@ export class TenantProvisioningService {
             ownerName: input.ownerName,
             ownerEmail: input.ownerEmail,
             workspaceUrl,
-            // The token rides in the fragment, which browsers never send to a server.
-            setupUrl: input.setup ? `${workspaceUrl}/#setup=${input.setup.token}` : null,
-            setupExpiresAt: input.setup?.expiresAt ?? null,
+            temporaryPassword: input.temporaryPassword,
           },
           { tenantId: input.tenantId, requestedBySuperAdminId: input.actor.superAdminId },
         );
@@ -396,7 +417,7 @@ export class TenantProvisioningService {
       input.tenantId,
       action,
       outcome.status === 'SENT' ? 'Sent the onboarding email to the workspace owner' : `Onboarding email not delivered: ${outcome.error}`,
-      { deliveryId: outcome.deliveryId, status: outcome.status, includesSetupLink: Boolean(input.setup) },
+      { deliveryId: outcome.deliveryId, status: outcome.status, includesTemporaryPassword: input.temporaryPassword !== null },
     );
     return outcome;
   }
@@ -422,7 +443,7 @@ export class TenantProvisioningService {
             },
           },
         },
-        rndtechnosoft_users: { select: { id: true, email: true, display_name: true, password_hash: true } },
+        rndtechnosoft_users: { select: { id: true, email: true, display_name: true, password_hash: true, must_change_password: true } },
         rndtechnosoft_email_deliveries: true,
       },
     });
@@ -463,7 +484,8 @@ export class TenantProvisioningService {
         name: owner.display_name,
         role: OWNER_ROLE_NAME,
         isNewAccount: onboarding.owner_is_new_account,
-        passwordSet: owner.password_hash !== null,
+        // TEMPORARY: the owner has not yet replaced the password from the onboarding email.
+        passwordStatus: owner.password_hash === null ? 'NOT_SET' : owner.must_change_password ? 'TEMPORARY' : 'SET',
       },
       modules: MODULES.map((m) => ({ code: m.code, name: m.name, enabled: enabled.has(m.code) })),
       subscription: subscription

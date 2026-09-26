@@ -1071,13 +1071,14 @@ model rndtechnosoft_payslips {
 }
 
 model rndtechnosoft_permissions {
-  id                             String                           @id @db.Uuid
-  permission_code                String                           @unique(map: "uq_permissions_1") @db.VarChar(120)
-  module_code                    String                           @db.VarChar(64)
-  permission_name                String                           @db.VarChar(160)
-  description                    String?                          @db.VarChar(500)
-  created_at                     DateTime                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_role_permissions rndtechnosoft_role_permissions[]
+  id                                      String                                    @id @db.Uuid
+  permission_code                         String                                    @unique(map: "uq_permissions_1") @db.VarChar(120)
+  module_code                             String                                    @db.VarChar(64)
+  permission_name                         String                                    @db.VarChar(160)
+  description                             String?                                   @db.VarChar(500)
+  created_at                              DateTime                                  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_role_permissions          rndtechnosoft_role_permissions[]
+  rndtechnosoft_role_template_permissions rndtechnosoft_role_template_permissions[]
 }
 
 model rndtechnosoft_plan_modules {
@@ -1565,32 +1566,32 @@ model rndtechnosoft_tenants {
   rndtechnosoft_email_deliveries               rndtechnosoft_email_deliveries[]
   rndtechnosoft_email_templates                rndtechnosoft_email_templates[]
   rndtechnosoft_tenant_onboardings             rndtechnosoft_tenant_onboardings?
-  rndtechnosoft_account_setup_tokens           rndtechnosoft_account_setup_tokens[]
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model rndtechnosoft_users {
-  id                                 String                               @id @db.Uuid
-  email                              String                               @unique(map: "uq_users_1") @db.VarChar(320)
-  password_hash                      String?                              @db.VarChar(255)
-  password_algorithm                 String                               @default("SHA256") @db.VarChar(32)
-  display_name                       String?                              @db.VarChar(160)
-  mobile_number                      String?                              @db.VarChar(32)
-  user_status                        String                               @default("ACTIVE") @db.VarChar(32)
-  failed_login_attempts              Int                                  @default(0)
-  locked_until                       DateTime?                            @db.Timestamptz(6)
-  email_verified_at                  DateTime?                            @db.Timestamptz(6)
-  last_login_at                      DateTime?                            @db.Timestamptz(6)
-  created_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_audit_logs           rndtechnosoft_audit_logs[]
-  rndtechnosoft_employees            rndtechnosoft_employees[]
-  rndtechnosoft_tenant_members       rndtechnosoft_tenant_members[]
-  rndtechnosoft_user_sessions        rndtechnosoft_user_sessions[]
-  rndtechnosoft_tenant_onboardings   rndtechnosoft_tenant_onboardings[]
-  rndtechnosoft_account_setup_tokens rndtechnosoft_account_setup_tokens[]
+  id                               String                             @id @db.Uuid
+  email                            String                             @unique(map: "uq_users_1") @db.VarChar(320)
+  password_hash                    String?                            @db.VarChar(255)
+  password_algorithm               String                             @default("SHA256") @db.VarChar(32)
+  display_name                     String?                            @db.VarChar(160)
+  mobile_number                    String?                            @db.VarChar(32)
+  user_status                      String                             @default("ACTIVE") @db.VarChar(32)
+  failed_login_attempts            Int                                @default(0)
+  locked_until                     DateTime?                          @db.Timestamptz(6)
+  email_verified_at                DateTime?                          @db.Timestamptz(6)
+  last_login_at                    DateTime?                          @db.Timestamptz(6)
+  /// Set when the account was given a temporary password; sign-in then allows only a password change.
+  must_change_password             Boolean                            @default(false)
+  created_at                       DateTime                           @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                       DateTime                           @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_audit_logs         rndtechnosoft_audit_logs[]
+  rndtechnosoft_employees          rndtechnosoft_employees[]
+  rndtechnosoft_tenant_members     rndtechnosoft_tenant_members[]
+  rndtechnosoft_user_sessions      rndtechnosoft_user_sessions[]
+  rndtechnosoft_tenant_onboardings rndtechnosoft_tenant_onboardings[]
 
   @@index([created_at(sort: Desc)], map: "ix_users_created_at")
 }
@@ -1759,7 +1760,6 @@ model rndtechnosoft_super_admins {
   rndtechnosoft_super_admin_recovery_codes rndtechnosoft_super_admin_recovery_codes[]
   rndtechnosoft_email_deliveries           rndtechnosoft_email_deliveries[]
   rndtechnosoft_tenant_onboardings         rndtechnosoft_tenant_onboardings[]
-  rndtechnosoft_account_setup_tokens       rndtechnosoft_account_setup_tokens[]
 }
 
 model rndtechnosoft_super_admin_sessions {
@@ -2328,19 +2328,27 @@ model rndtechnosoft_tenant_onboardings {
   rndtechnosoft_email_deliveries rndtechnosoft_email_deliveries? @relation(fields: [onboarding_email_delivery_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_onboardings_email")
 }
 
-model rndtechnosoft_account_setup_tokens {
-  id                         String                      @id @db.Uuid
-  user_id                    String                      @db.Uuid
-  tenant_id                  String                      @db.Uuid
-  token_hash                 String                      @unique(map: "uq_account_setup_tokens_hash") @db.Char(64)
-  expires_at                 DateTime                    @db.Timestamptz(6)
-  used_at                    DateTime?                   @db.Timestamptz(6)
-  revoked_at                 DateTime?                   @db.Timestamptz(6)
-  created_by_super_admin_id  String?                     @db.Uuid
-  created_at                 DateTime                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_users        rndtechnosoft_users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_account_setup_tokens_user")
-  rndtechnosoft_tenants      rndtechnosoft_tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_setup_tokens_tenant")
-  rndtechnosoft_super_admins rndtechnosoft_super_admins? @relation(fields: [created_by_super_admin_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_setup_tokens_admin")
+/// Platform-wide blueprint for a workspace role. Its grants are copied when a
+/// workspace role is first created from it; the workspace then owns that role.
+model rndtechnosoft_role_templates {
+  id                                      String                                    @id @db.Uuid
+  template_code                           String                                    @unique(map: "uq_role_templates_code") @db.VarChar(64)
+  template_name                           String                                    @db.VarChar(120)
+  description                             String?                                   @db.VarChar(500)
+  is_system_template                      Boolean                                   @default(false)
+  created_at                              DateTime                                  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                              DateTime                                  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_role_template_permissions rndtechnosoft_role_template_permissions[]
+}
 
-  @@index([tenant_id], map: "ix_account_setup_tokens_tenant")
+model rndtechnosoft_role_template_permissions {
+  id                           String                       @id @db.Uuid
+  role_template_id             String                       @db.Uuid
+  permission_id                String                       @db.Uuid
+  created_at                   DateTime                     @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_role_templates rndtechnosoft_role_templates @relation(fields: [role_template_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_role_template_permissions_template")
+  rndtechnosoft_permissions    rndtechnosoft_permissions    @relation(fields: [permission_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_role_template_permissions_permission")
+
+  @@unique([role_template_id, permission_id], map: "uq_role_template_permissions")
+  @@index([permission_id], map: "ix_role_template_permissions_permission")
 }

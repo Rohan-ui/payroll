@@ -11,13 +11,13 @@ const STATS = [
   { icon: TrendingUp, label: 'Payroll runs/month', value: '18,000+' },
 ];
 
-export const AuthView: React.FC<{ initialEmail?: string }> = ({ initialEmail }) => {
-  const { login, registerTenant, isLoading, error } = useAuth();
+export const AuthView: React.FC = () => {
+  const { login, registerTenant, isSubmitting, error } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [showPass, setShowPass] = useState(false);
 
   // Login fields
-  const [email, setEmail] = useState(initialEmail ?? '');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   // Register fields
@@ -27,14 +27,23 @@ export const AuthView: React.FC<{ initialEmail?: string }> = ({ initialEmail }) 
   const [regEmail, setRegEmail] = useState('');
   const [regPass, setRegPass] = useState('');
 
+  // A failure is shown from the context's `error`; the fields keep what was typed.
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    await login(email, password);
+    try {
+      await login(email, password);
+    } catch {
+      // Already reported.
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    await registerTenant({ companyName: company, tenantCode, email: regEmail, password: regPass, adminName });
+    try {
+      await registerTenant({ companyName: company, tenantCode, email: regEmail, password: regPass, adminName });
+    } catch {
+      // Already reported.
+    }
   };
 
   const inputClass =
@@ -184,7 +193,7 @@ export const AuthView: React.FC<{ initialEmail?: string }> = ({ initialEmail }) 
                   Forgot password?
                 </button>
               </div>
-              <Button type="submit" variant="primary" size="lg" loading={isLoading} className="w-full mt-1">
+              <Button type="submit" variant="primary" size="lg" loading={isSubmitting} className="w-full mt-1">
                 Sign In <ArrowRight className="w-4 h-4" />
               </Button>
               <p className="text-center text-xs text-slate-400 pt-2">
@@ -283,7 +292,7 @@ export const AuthView: React.FC<{ initialEmail?: string }> = ({ initialEmail }) 
                   </button>
                 </div>
               </div>
-              <Button type="submit" variant="primary" size="lg" loading={isLoading} className="w-full mt-1">
+              <Button type="submit" variant="primary" size="lg" loading={isSubmitting} className="w-full mt-1">
                 Create Account <ChevronRight className="w-4 h-4" />
               </Button>
               <p className="text-center text-xs text-slate-400 pt-2">

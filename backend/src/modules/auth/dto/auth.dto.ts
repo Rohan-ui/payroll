@@ -26,9 +26,14 @@ export class SwitchTenantDto {
 }
 
 export class ChangePasswordDto {
+  /**
+   * Required for a voluntary change. Not needed while the account must replace
+   * a temporary password: that session was opened with it moments ago.
+   */
+  @IsOptional()
   @IsString()
   @MaxLength(256)
-  currentPassword!: string;
+  currentPassword?: string;
 
   @IsString()
   @MinLength(10, { message: 'New password must be at least 10 characters long.' })
@@ -103,18 +108,4 @@ export class SubdomainAvailabilityQueryDto {
   @MinLength(1)
   @MaxLength(100)
   subdomain!: string;
-}
-
-/** A one-time account setup link's token, from the URL fragment. */
-export class AccountSetupTokenDto {
-  @IsString()
-  @MaxLength(64)
-  token!: string;
-}
-
-export class CompleteAccountSetupDto extends AccountSetupTokenDto {
-  @IsString()
-  @MinLength(10, { message: 'Password must be at least 10 characters long.' })
-  @MaxLength(256)
-  password!: string;
 }

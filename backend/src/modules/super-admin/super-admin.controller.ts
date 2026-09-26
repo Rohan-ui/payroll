@@ -45,10 +45,22 @@ import {
 import {
   ChangeSubdomainDto,
   ProvisioningCheckQueryDto,
+  ProvisionSubscriptionDto,
   ProvisionTenantDto,
+  TenantOrganizationDto,
   TenantQuotasDto,
 } from './dto/provision-tenant.dto';
+import {
+  AddMembershipDto,
+  CreateRoleTemplateDto,
+  SetModuleDto,
+  UpdateMembershipDto,
+  UpdatePlatformUserDto,
+  UpdateRoleTemplateDto,
+} from './dto/platform-operations.dto';
 import { TenantProvisioningService } from './tenant-provisioning.service';
+import { PlatformOperationsService } from './platform-operations.service';
+import { PlatformRoleTemplatesService } from './platform-role-templates.service';
 import { EmailService, PlatformActor } from '@/modules/email/email.service';
 import { PlatformSmtpSettingsDto, SmtpTestDto } from '@/modules/email/dto/platform-smtp.dto';
 import { PlatformDnsService } from '@/modules/dns/platform-dns.service';
@@ -80,6 +92,8 @@ export class SuperAdminController {
     private readonly provisioning: TenantProvisioningService,
     private readonly email: EmailService,
     private readonly dns: PlatformDnsService,
+    private readonly operations: PlatformOperationsService,
+    private readonly roleTemplates: PlatformRoleTemplatesService,
   ) {}
 
   private context(req: Request) {
@@ -257,6 +271,50 @@ export class SuperAdminController {
     return { success: true, data };
   }
 
+  /** Organization details: the same profile the workspace edits, plus its legal name and country. */
+  @Put('tenants/:id')
+  async updateTenant(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: TenantOrganizationDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.updateTenant(id, body, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  /** Turns one module on or off; a module cannot stay on without the modules it depends on. */
+  @Put('tenants/:id/modules/:code')
+  async setTenantModule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code') code: string,
+    @Body() body: SetModuleDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.setModule(id, code, body.enabled, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  /** Starts a new subscription; the current one is kept as history and ends the day before. */
+  @Put('tenants/:id/subscription')
+  async changeTenantSubscription(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ProvisionSubscriptionDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.changeSubscription(id, body, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  /** Roles a member of this workspace can be given: its own active roles and templates it does not have yet. */
+  @Get('tenants/:id/assignable-roles')
+  async getAssignableRoles(@Param('id', ParseUUIDPipe) id: string) {
+    const data = await this.operations.assignableRoles(id);
+    return { success: true, data };
+  }
+
   @Get('tenants/:id/activity')
   async getTenantActivity(@Param('id', ParseUUIDPipe) id: string, @Query() query: PageQueryDto) {
     const data = await this.directory.listTenantActivity(id, query);
@@ -376,6 +434,69 @@ export class SuperAdminController {
   @Get('users/:id')
   async getUser(@Param('id', ParseUUIDPipe) id: string) {
     const data = await this.directory.getUser(id);
+    return { success: true, data };
+  }
+
+  /** The global account's name, sign-in email and phone. */
+  @Put('users/:id')
+  async updateUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdatePlatformUserDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.updateUser(id, body, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  @Post('users/:id/memberships')
+  async addMembership(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AddMembershipDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.addMembership(id, body, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  @Put('users/:id/memberships/:memberId')
+  async updateMembership(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @Body() body: UpdateMembershipDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.updateMembership(id, memberId, body, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  /** Removes the user from that one workspace (archived for history). The account itself is kept. */
+  @Delete('users/:id/memberships/:memberId')
+  async removeMembership(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.removeMembership(id, memberId, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  /**
+   * Resets the password to a new temporary one, emailed to the account; every
+   * session ends and a new password must be chosen at next sign-in. The
+   * response never contains the password, only whether the email was sent.
+   */
+  @Post('users/:id/reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetUserPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.operations.resetPassword(id, this.actor(admin, req));
     return { success: true, data };
   }
 
@@ -500,7 +621,31 @@ export class SuperAdminController {
 
   @Get('roles-templates')
   async getRoleTemplates() {
-    const data = await this.governance.roleTemplates();
+    const data = await this.roleTemplates.list();
+    return { success: true, data };
+  }
+
+  @Post('roles-templates')
+  async createRoleTemplate(@Body() body: CreateRoleTemplateDto, @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin, @Req() req: Request) {
+    const data = await this.roleTemplates.create(body, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  /** Changes apply to roles created from the template from now on; existing workspace roles keep their own grants. */
+  @Put('roles-templates/:code')
+  async updateRoleTemplate(
+    @Param('code') code: string,
+    @Body() body: UpdateRoleTemplateDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ) {
+    const data = await this.roleTemplates.update(code, body, this.actor(admin, req));
+    return { success: true, data };
+  }
+
+  @Delete('roles-templates/:code')
+  async deleteRoleTemplate(@Param('code') code: string, @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin, @Req() req: Request) {
+    const data = await this.roleTemplates.remove(code, this.actor(admin, req));
     return { success: true, data };
   }
 

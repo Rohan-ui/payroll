@@ -6,6 +6,10 @@ import {
 
 export const IS_PUBLIC_ROUTE = 'isPublicRoute';
 export const SKIPS_TENANT_AUTH = 'skipsTenantAuth';
+export const ALLOWS_PASSWORD_CHANGE_PENDING = 'allowsPasswordChangePending';
+
+/** The error code a session gets on any other route until its temporary password is replaced. */
+export const PASSWORD_CHANGE_REQUIRED = 'PASSWORD_CHANGE_REQUIRED';
 
 /**
  * Marks a route as reachable without a session. Use only for sign-in,
@@ -20,6 +24,12 @@ export const PublicRoute = () => SetMetadata(IS_PUBLIC_ROUTE, true);
  * carries this, and a test asserts that stays true.
  */
 export const SkipsTenantAuth = () => SetMetadata(SKIPS_TENANT_AUTH, true);
+
+/**
+ * Marks a route that a session may use before its temporary password has been
+ * replaced: only the password change itself, the profile and sign-out.
+ */
+export const AllowsPasswordChangePending = () => SetMetadata(ALLOWS_PASSWORD_CHANGE_PENDING, true);
 
 /**
  * Injects the authenticated tenant identity. The value is placed on the

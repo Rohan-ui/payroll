@@ -172,13 +172,13 @@ describe('Platform governance', () => {
       expect([...keys].filter((key) => /password|secret|token|hash|score|pentest|waf/i.test(key))).toEqual([]);
     });
 
-    it('derives role templates from the permission catalog', async () => {
+    it('lists role templates with the Administrator role holding the whole permission catalog', async () => {
       const response = await api().get(`${API}/super-admin/roles-templates`).set(asPlatform());
       expect(response.status).toBe(200);
-      const byCode = Object.fromEntries(response.body.data.map((t: { code: string }) => [t.code, t]));
-      expect(byCode[ADMIN_ROLE_CODE]).toMatchObject({ isOwnerRole: true, permissionCount: PERMISSION_KEYS.length });
-      expect(byCode.EMPLOYEE.permissionCount).toBe(2);
-      expect(Object.keys(byCode).sort()).toEqual([ADMIN_ROLE_CODE, 'EMPLOYEE', 'HR_ACCOUNTANT', 'MANAGER'].sort());
+      const byCode = Object.fromEntries(response.body.data.templates.map((t: { code: string }) => [t.code, t]));
+      expect(byCode[ADMIN_ROLE_CODE]).toMatchObject({ kind: 'OWNER', editable: false });
+      expect(byCode[ADMIN_ROLE_CODE].permissions).toHaveLength(PERMISSION_KEYS.length);
+      expect(Object.keys(byCode)).toEqual(expect.arrayContaining([ADMIN_ROLE_CODE, 'EMPLOYEE', 'HR_ACCOUNTANT', 'MANAGER']));
     });
 
     it('summarises billing from stored plans, subscriptions and invoices only', async () => {

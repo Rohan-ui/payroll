@@ -6,6 +6,7 @@ import { DetailItem, DetailList, ErrorBanner, Panel, Value } from '../components
 import { EmptyRow, LoadingRows, TableShell } from '../components/TableShell';
 import { fieldClass, labelClass, primaryButtonClass, secondaryButtonClass } from '../components/form-styles';
 import { formatDate, formatDateTime } from '../format';
+import { toast } from '../../lib/toast';
 
 type Dialog =
   | { kind: 'add' }
@@ -51,13 +52,17 @@ export const DnsZonePanel: React.FC = () => {
     }
   }, []);
 
-  const loadRecords = useCallback(async () => {
+  /** Reads the zone from the provider; returns the error message, or null when it was read. */
+  const loadRecords = useCallback(async (): Promise<string | null> => {
     setIsLoadingRecords(true);
     setRecordsError(null);
     try {
       setRecords((await platformDnsApi.records()).records);
+      return null;
     } catch (err) {
-      setRecordsError(err instanceof Error ? err.message : 'Could not read the DNS records.');
+      const message = err instanceof Error ? err.message : 'Could not read the DNS records.';
+      setRecordsError(message);
+      return message;
     } finally {
       setIsLoadingRecords(false);
     }
@@ -74,7 +79,9 @@ export const DnsZonePanel: React.FC = () => {
 
   const refresh = async () => {
     setNotice(null);
-    await Promise.all([loadOverview(), loadRecords()]);
+    const [, recordsFailure] = await Promise.all([loadOverview(), loadRecords()]);
+    if (recordsFailure) toast.error(recordsFailure);
+    else toast.success('DNS records refreshed from the provider');
   };
 
   const verify = async () => {
@@ -83,9 +90,13 @@ export const DnsZonePanel: React.FC = () => {
     try {
       const result = await platformDnsApi.verify();
       setNotice(result.verified ? 'DNS verified: every check passed.' : 'DNS not verified: see the checks below.');
+      if (result.verified) toast.success('DNS verified successfully');
+      else toast.error('DNS not verified: see the checks on this page.');
       await loadOverview();
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Verification could not run.');
+      const message = err instanceof Error ? err.message : 'Verification could not run.';
+      setNotice(message);
+      toast.error(message);
     } finally {
       setIsVerifying(false);
     }
@@ -120,9 +131,12 @@ export const DnsZonePanel: React.FC = () => {
       await action();
       setDialog(null);
       setNotice(success);
+      toast.success(success);
       await Promise.all([loadRecords(), loadOverview()]);
     } catch (err) {
-      setDialogError(err instanceof Error ? err.message : 'The change failed.');
+      const message = err instanceof Error ? err.message : 'The change failed.';
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setIsBusy(false);
     }
@@ -306,7 +320,7 @@ export const DnsZonePanel: React.FC = () => {
           isBusy={isBusy}
           error={dialogError}
           initialFocus={firstFieldRef}
-          onConfirm={() => void run(() => platformDnsApi.create({ type: draft.type, name: draft.name.trim(), ...toValues()[0] }), 'Record added.')}
+          onConfirm={() => void run(() => platformDnsApi.create({ type: draft.type, name: draft.name.trim(), ...toValues()[0] }), 'DNS record created successfully')}
           onCancel={() => setDialog(null)}
         >
           <div className="grid grid-cols-2 gap-3">
@@ -343,7 +357,7 @@ export const DnsZonePanel: React.FC = () => {
           isBusy={isBusy}
           error={dialogError}
           initialFocus={firstValueRef}
-          onConfirm={() => void run(() => platformDnsApi.replace(dialog.type, dialog.name, toValues()), 'Record updated.')}
+          onConfirm={() => void run(() => platformDnsApi.replace(dialog.type, dialog.name, toValues()), 'DNS record updated successfully')}
           onCancel={() => setDialog(null)}
         >
           <p>These values replace every current {dialog.type} value for this name. Anything that relies on the old values stops working.</p>
@@ -359,7 +373,7 @@ export const DnsZonePanel: React.FC = () => {
           tone="danger"
           isBusy={isBusy}
           error={dialogError}
-          onConfirm={() => void run(() => platformDnsApi.remove(dialog.type, dialog.name), 'Record deleted.')}
+          onConfirm={() => void run(() => platformDnsApi.remove(dialog.type, dialog.name), 'DNS record deleted successfully')}
           onCancel={() => setDialog(null)}
         >
           <p>
@@ -380,7 +394,7 @@ export const DnsZonePanel: React.FC = () => {
           tone="danger"
           isBusy={isBusy}
           error={dialogError}
-          onConfirm={() => void run(() => platformDnsApi.configureWildcard(), 'Wildcard updated.')}
+          onConfirm={() => void run(() => platformDnsApi.configureWildcard(), 'Wildcard record updated successfully')}
           onCancel={() => setDialog(null)}
         >
           <p>

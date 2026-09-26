@@ -238,56 +238,6 @@ export function moduleFeatures(code: ModuleCode): string[] {
  */
 export const ADMIN_ROLE_CODE = 'ADMIN';
 
-const WORKSPACE_READ: readonly PermissionKey[] = [
-  'organization.view',
-  'users.view',
-  'roles.view',
-  'permissions.view',
-  'modules.view',
-];
-
-/**
- * Starting grants for built-in role codes, applied by grantDefaultRolePermissions
- * when such a role is created and added (never removed) for existing roles by
- * migration. This is seed data only: authorization always reads the role's
- * rows, and administrators change them freely. Employees start with the
- * non-sensitive dashboard and help pages and get everything else explicitly.
- */
-export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly PermissionKey[]>> = {
-  [ADMIN_ROLE_CODE]: PERMISSION_KEYS,
-  HR_ACCOUNTANT: [
-    'dashboard.view',
-    'help.view',
-    ...WORKSPACE_READ,
-    'people.view',
-    'people.create',
-    'people.update',
-    'attendance.view',
-    'attendance.update',
-    'payroll.view',
-    'payroll.process',
-    'payslips.view',
-  ],
-  MANAGER: [
-    'dashboard.view',
-    'help.view',
-    ...WORKSPACE_READ,
-    'pipelines.view',
-    'pipelines.create',
-    'pipelines.update',
-    'leads.view',
-    'leads.create',
-    'leads.update',
-    'quotations.view',
-    'quotations.create',
-    'quotations.update',
-    'analytics.view',
-    'masters.services.view',
-    'masters.sources.view',
-  ],
-  EMPLOYEE: ['dashboard.view', 'help.view'],
-};
-
 /**
  * Reads the per-tenant module switches stored at `settings.modules` as
  * `[{ id, is_enabled }]`. A module without a stored switch is enabled, so

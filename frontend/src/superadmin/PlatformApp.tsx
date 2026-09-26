@@ -4,6 +4,7 @@ import { PlatformThemeProvider } from './theme/PlatformThemeContext';
 import { PlatformLoginView } from './views/PlatformLoginView';
 import { PlatformMfaChallengeView } from './views/PlatformMfaChallengeView';
 import { PlatformConsoleView } from './views/PlatformConsoleView';
+import { PlatformToaster } from './components/PlatformToaster';
 
 const PlatformRouter: React.FC = () => {
   const { isAuthenticated, isRestoring, isMfaChallengePending } = usePlatformAuth();
@@ -37,6 +38,7 @@ export const PlatformApp: React.FC = () => (
   <PlatformThemeProvider>
     <PlatformAuthProvider>
       <PlatformRouter />
+      <PlatformToaster />
     </PlatformAuthProvider>
   </PlatformThemeProvider>
 );
