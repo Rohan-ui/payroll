@@ -7,6 +7,15 @@ import {
   SyncAccountingResult,
 } from '../types/bookkeeping.types';
 
+export interface JournalEntryPage {
+  items: BookkeepingEntry[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
 export const bookkeepingApi = {
   getFinancialYears: async (): Promise<FinancialYear[]> => {
     return apiClient.get<FinancialYear[]>('/bookkeeping/financial-years');
@@ -43,14 +52,16 @@ export const bookkeepingApi = {
   getJournalEntries: async (params?: {
     financialYearId?: string;
     runId?: string;
+    page?: number;
     limit?: number;
-  }): Promise<BookkeepingEntry[]> => {
+  }): Promise<JournalEntryPage> => {
     const searchParams = new URLSearchParams();
     if (params?.financialYearId) searchParams.set('financialYearId', params.financialYearId);
     if (params?.runId) searchParams.set('runId', params.runId);
+    if (params?.page) searchParams.set('page', String(params.page));
     if (params?.limit) searchParams.set('limit', String(params.limit));
     const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    return apiClient.get<BookkeepingEntry[]>(`/bookkeeping/entries${query}`);
+    return apiClient.get<JournalEntryPage>(`/bookkeeping/entries${query}`);
   },
 
   syncAllHistoricalAccounting: async (): Promise<SyncAccountingResult> => {

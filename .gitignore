@@ -1,4 +1,6 @@
 /frontend/node_modules
+/frontend/dist
+/frontend/dist-superadmin
 /backend/node_modules
 /backend/.env
 /backend/dist

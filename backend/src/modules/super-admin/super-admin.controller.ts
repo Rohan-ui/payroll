@@ -409,8 +409,8 @@ export class SuperAdminController {
   }
 
   @Get('workspace-admins')
-  async getWorkspaceAdmins() {
-    const data = await this.superAdminService.getWorkspaceAdmins();
+  async getWorkspaceAdmins(@Query() query: PageQueryDto) {
+    const data = await this.superAdminService.getWorkspaceAdmins(query);
     return { success: true, data };
   }
 
@@ -465,8 +465,8 @@ export class SuperAdminController {
   }
 
   @Get('coupons')
-  async getCoupons() {
-    const data = await this.superAdminService.getCoupons();
+  async getCoupons(@Query() query: PageQueryDto) {
+    const data = await this.superAdminService.getCoupons(query);
     return { success: true, data };
   }
 

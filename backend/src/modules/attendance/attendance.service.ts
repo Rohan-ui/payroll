@@ -964,12 +964,14 @@ export class AttendanceService {
   /**
    * PUNCH HISTORY
    */
-  async getPunches(tenantId: string, employeeId?: string, date?: string) {
+  async getPunches(tenantId: string, employeeId?: string, date?: string, requestedPage = 1, requestedLimit = 50) {
+    const page = Math.max(1, requestedPage);
+    const limit = Math.min(100, Math.max(1, requestedLimit));
     const where: Record<string, any> = { tenant_id: tenantId };
     if (employeeId) {
       const resolvedId = await this.resolveEmployeeId(tenantId, employeeId);
       if (!resolvedId) {
-        return [];
+        return { items: [], total: 0, page, limit, totalPages: 0, hasMore: false };
       }
       where.employee_id = resolvedId;
     }
@@ -981,20 +983,33 @@ export class AttendanceService {
       };
     }
 
-    return this.prisma.rndtechnosoft_attendance_punches.findMany({
-      where,
-      orderBy: { punch_at: 'desc' },
-      take: 50,
-      include: {
-        rndtechnosoft_employees: {
-          select: {
-            employee_code: true,
-            first_name: true,
-            last_name: true,
+    const [items, total] = await Promise.all([
+      this.prisma.rndtechnosoft_attendance_punches.findMany({
+        where,
+        orderBy: { punch_at: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          rndtechnosoft_employees: {
+            select: {
+              employee_code: true,
+              first_name: true,
+              last_name: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_attendance_punches.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore: page * limit < total,
+    };
   }
 
   /**
@@ -2352,5 +2367,4 @@ export class AttendanceService {
     };
   }
 }
-
 

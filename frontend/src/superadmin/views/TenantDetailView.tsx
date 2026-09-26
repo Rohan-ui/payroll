@@ -477,7 +477,17 @@ const AddressPanel: React.FC<{ tenant: TenantDetail; onChanged: () => void }> = 
 };
 
 const OverviewTab: React.FC<{ tenant: TenantDetail; onChanged: () => void }> = ({ tenant, onChanged }) => {
-  const { overview, health, users, modules } = tenant;
+  const { overview, users, modules } = tenant;
+  // Keep the detail view safe during mixed frontend/backend deployments. Health
+  // is derived data; the tenant status remains authoritative when it is absent.
+  const health = tenant.health ?? {
+    status: overview.status,
+    subscriptionStatus: overview.subscription?.status ?? null,
+    lastActivityAt: null,
+    activeSessions: 0,
+    ownerLastLoginAt: tenant.owner?.lastLoginAt ?? null,
+    configuration: [],
+  };
   const enabledModules = modules.filter((m) => m.enabled);
 
   return (

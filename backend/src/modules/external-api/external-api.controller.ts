@@ -7,6 +7,8 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { ExternalApiService, CosecApiSettings } from './external-api.service';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
@@ -74,9 +76,13 @@ export class ExternalApiController {
    */
   @Get('cosec/users')
   @RequirePermissions('attendance.integration.view')
-  async getUsers(@CurrentTenant() tenantId: string) {
+  async getUsers(
+    @CurrentTenant() tenantId: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) requestedPage: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) requestedLimit: number,
+  ) {
     const users = await this.externalApiService.getUsers(tenantId);
-    return { total: users.length, data: users };
+    return this.paginate(users, requestedPage, requestedLimit);
   }
 
   /**
@@ -95,6 +101,8 @@ export class ExternalApiController {
     @Query('month') month?: string,
     @Query('range') range?: string,
     @Query('rangeId') rangeId?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) requestedPage?: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) requestedLimit?: number,
   ) {
     const targetMonth = month ?? new Date().toISOString().substring(0, 7);
     const records = await this.externalApiService.getMonthlyAttendance(
@@ -103,7 +111,7 @@ export class ExternalApiController {
       range ?? 'all',
       rangeId,
     );
-    return { month: targetMonth, total: records.length, data: records };
+    return { month: targetMonth, ...this.paginate(records, requestedPage, requestedLimit) };
   }
 
   /**
@@ -118,6 +126,8 @@ export class ExternalApiController {
     @Query('endDate') endDate?: string,
     @Query('range') range?: string,
     @Query('rangeId') rangeId?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) requestedPage?: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) requestedLimit?: number,
   ) {
     const records = await this.externalApiService.getDailyAttendance(
       tenantId,
@@ -126,7 +136,21 @@ export class ExternalApiController {
       range ?? 'all',
       rangeId,
     );
-    return { total: records.length, data: records };
+    return this.paginate(records, requestedPage, requestedLimit);
+  }
+
+  private paginate<T>(items: T[], requestedPage = 1, requestedLimit = 25) {
+    const page = Math.max(1, requestedPage);
+    const limit = Math.min(100, Math.max(1, requestedLimit));
+    const offset = (page - 1) * limit;
+    return {
+      data: items.slice(offset, offset + limit),
+      total: items.length,
+      page,
+      limit,
+      totalPages: Math.ceil(items.length / limit),
+      hasMore: offset + limit < items.length,
+    };
   }
 
   /**

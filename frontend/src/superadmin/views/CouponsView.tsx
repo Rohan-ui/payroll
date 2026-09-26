@@ -5,26 +5,28 @@ import { StatusBadge } from '../components/StatusBadge';
 import { EmptyRow, LoadingRows, TableShell } from '../components/TableShell';
 import { fieldClass, labelClass, primaryButtonClass } from '../components/form-styles';
 import { formatDate } from '../format';
+import { Pagination } from '../components/Pagination';
 
 const EMPTY_FORM = { couponCode: '', discountType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED', discountValue: '', maxUses: '', validUntil: '' };
 
 /** Platform coupons. Redemptions are counted by the server; nothing here is simulated. */
 export const CouponsView: React.FC = () => {
-  const [coupons, setCoupons] = useState<Coupon[] | null>(null);
+  const [result, setResult] = useState<{ items: Coupon[]; total: number; page: number; pageSize: number; totalPages: number } | null>(null);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (targetPage = page) => {
     setError(null);
     try {
-      setCoupons(await platformGovernanceApi.coupons());
+      setResult(await platformGovernanceApi.coupons(targetPage));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load coupons.');
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     void load();
@@ -50,7 +52,8 @@ export const CouponsView: React.FC = () => {
       });
       setNotice(`Coupon ${created.code} created.`);
       setForm(EMPTY_FORM);
-      await load();
+      setPage(1);
+      await load(1);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'The coupon could not be created.');
     } finally {
@@ -97,9 +100,9 @@ export const CouponsView: React.FC = () => {
 
       {error && <ErrorBanner message={error} onRetry={() => void load()} />}
       <TableShell caption="Coupons" columns={[{ label: 'Code' }, { label: 'Discount', align: 'right' }, { label: 'Used' }, { label: 'Valid' }, { label: 'Status' }]}>
-        {!coupons && <LoadingRows columns={5} />}
-        {coupons && coupons.length === 0 && <EmptyRow columns={5} title="No coupons" detail="Coupons you create appear here." />}
-        {coupons?.map((coupon) => (
+        {!result && <LoadingRows columns={5} />}
+        {result && result.items.length === 0 && <EmptyRow columns={5} title="No coupons" detail="Coupons you create appear here." />}
+        {result?.items.map((coupon) => (
           <tr key={coupon.id}>
             <td className="py-3 px-4 font-mono font-semibold text-hq-foreground">{coupon.code}</td>
             <td className="py-3 px-4 text-right tabular-nums text-hq-foreground">
@@ -118,6 +121,9 @@ export const CouponsView: React.FC = () => {
           </tr>
         ))}
       </TableShell>
+      {result && (
+        <Pagination page={result.page} pageSize={result.pageSize} total={result.total} totalPages={result.totalPages} noun="coupons" onPageChange={setPage} />
+      )}
     </section>
   );
 };

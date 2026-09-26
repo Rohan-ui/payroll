@@ -72,6 +72,7 @@ export interface GmailTemplatePage {
   page: number;
   limit: number;
   total: number;
+  totalPages: number;
   hasMore: boolean;
 }
 
@@ -85,19 +86,44 @@ export interface GmailSendInput {
 
 export type GmailFolder = 'inbox' | 'sent';
 
+export interface GmailMessageFilters {
+  search?: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  exclude?: string;
+  dateRange?: 'any' | '1d' | '7d' | '30d' | '1y';
+  date?: string;
+  dateWithinDays?: number;
+  sizeOperator?: 'larger' | 'smaller';
+  sizeMb?: number;
+  hasAttachment?: boolean;
+  excludePromotions?: boolean;
+  unread?: boolean;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 export const gmailApi = {
   status: () => apiClient.get<GmailConnectionStatus>('/gmail/status'),
   connect: () => apiClient.post<{ authorizationUrl: string }>('/gmail/connect'),
   disconnect: () => apiClient.delete<{ success: true }>('/gmail/connection'),
-  listMessages: (folder: GmailFolder, page = 1, limit = 25) =>
-    apiClient.get<GmailInboxPage>(`/gmail/messages?folder=${folder}&page=${page}&limit=${limit}`),
+  listMessages: (folder: GmailFolder, page = 1, limit = 25, filters: GmailMessageFilters = {}) => {
+    const query = new URLSearchParams({ folder, page: String(page), limit: String(limit) });
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== '' && value !== false && value !== 'any') query.set(key, String(value));
+    }
+    return apiClient.get<GmailInboxPage>(`/gmail/messages?${query}`);
+  },
   getMessage: (folder: GmailFolder, uid: number) => apiClient.get<GmailMessage>(`/gmail/messages/${uid}?folder=${folder}`),
   sendMessage: (body: GmailSendInput) => apiClient.post<{ success: true; messageId: string }>('/gmail/messages/send', body),
   reply: (uid: number, text: string, replyAll = false) =>
     apiClient.post<{ success: true; messageId: string }>(`/gmail/messages/${uid}/reply`, { text, replyAll }),
-  listTemplates: (page = 1, limit = 100) => apiClient.get<GmailTemplatePage>(`/gmail/templates?page=${page}&limit=${limit}`),
+  listTemplates: (page = 1, limit = 12, search = '') => {
+    const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (search.trim()) query.set('search', search.trim());
+    return apiClient.get<GmailTemplatePage>(`/gmail/templates?${query}`);
+  },
   createTemplate: (body: GmailTemplateInput) => apiClient.post<GmailTemplate>('/gmail/templates', body),
   updateTemplate: (id: string, body: GmailTemplateInput) => apiClient.put<GmailTemplate>(`/gmail/templates/${id}`, body),
   deleteTemplate: (id: string) => apiClient.delete<{ success: true }>(`/gmail/templates/${id}`),

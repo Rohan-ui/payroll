@@ -191,11 +191,11 @@ function CRMEnterpriseContent() {
     setLoading(true);
     try {
       const [leadsRes, srvRes, fupRes, meetRes, quotesRes, authRes, cadenceRes] = await Promise.all([
-        apiFetch('/api/v1/crm/leads'),
+        apiFetch('/api/v1/crm/leads?page=1&limit=100'),
         apiFetch('/api/v1/crm/masters/services'),
-        apiFetch('/api/v1/crm/followups'),
-        apiFetch('/api/v1/crm/meetings'),
-        apiFetch('/api/v1/crm/quotations'),
+        apiFetch('/api/v1/crm/followups?page=1&limit=100'),
+        apiFetch('/api/v1/crm/meetings?page=1&limit=100'),
+        apiFetch('/api/v1/crm/quotations?page=1&limit=100'),
         apiFetch('/api/v1/auth/me'),
         apiFetch('/api/v1/crm/cadence')
       ]);

@@ -160,6 +160,53 @@ export interface TenantDetail {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Keeps the portal compatible with detail responses from older deployments.
+ * The health panel is derived data, so a missing section can be rebuilt from
+ * the authoritative overview instead of crashing the whole tenant page.
+ */
+export function normalizeTenantDetail(value: unknown): TenantDetail {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.overview) ||
+    !isRecord(value.organization) ||
+    !isRecord(value.users) ||
+    !Array.isArray(value.modules) ||
+    !Array.isArray(value.roles)
+  ) {
+    throw new Error('Workspace detail response was incomplete. Refresh and try again.');
+  }
+
+  const overview = value.overview;
+  const rawHealth = isRecord(value.health) ? value.health : {};
+  const configuration = Array.isArray(rawHealth.configuration)
+    ? rawHealth.configuration.filter(
+        (item): item is { key: string; label: string; configured: boolean } =>
+          isRecord(item) && typeof item.key === 'string' && typeof item.label === 'string' && typeof item.configured === 'boolean',
+      )
+    : [];
+
+  const health: TenantDetail['health'] = {
+    status: typeof rawHealth.status === 'string' ? rawHealth.status : typeof overview.status === 'string' ? overview.status : 'UNKNOWN',
+    subscriptionStatus:
+      typeof rawHealth.subscriptionStatus === 'string'
+        ? rawHealth.subscriptionStatus
+        : isRecord(overview.subscription) && typeof overview.subscription.status === 'string'
+          ? overview.subscription.status
+          : null,
+    lastActivityAt: typeof rawHealth.lastActivityAt === 'string' ? rawHealth.lastActivityAt : null,
+    activeSessions: typeof rawHealth.activeSessions === 'number' ? rawHealth.activeSessions : 0,
+    ownerLastLoginAt: typeof rawHealth.ownerLastLoginAt === 'string' ? rawHealth.ownerLastLoginAt : null,
+    configuration,
+  };
+
+  return { ...value, health } as TenantDetail;
+}
+
 export interface TenantActivityItem {
   id: string;
   source: 'WORKSPACE' | 'PLATFORM';
@@ -280,7 +327,7 @@ export function toQueryString(query: object): string {
 export const platformDirectoryApi = {
   listTenants: (query: TenantListQuery) => platformApi.get<Page<TenantListItem>>(`${BASE}/tenants${toQueryString(query)}`),
   tenantFilterOptions: () => platformApi.get<TenantFilterOptions>(`${BASE}/tenants/filter-options`),
-  getTenant: (id: string) => platformApi.get<TenantDetail>(`${BASE}/tenants/${encodeURIComponent(id)}`),
+  getTenant: async (id: string) => normalizeTenantDetail(await platformApi.get<unknown>(`${BASE}/tenants/${encodeURIComponent(id)}`)),
   tenantActivity: (id: string, page: number, pageSize = 25) =>
     platformApi.get<Page<TenantActivityItem>>(
       `${BASE}/tenants/${encodeURIComponent(id)}/activity${toQueryString({ page, pageSize })}`,

@@ -16,6 +16,7 @@ import {
   Plus,
   ArrowRight,
   Filter,
+  ChevronLeft,
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -37,6 +38,10 @@ export const BookkeepingView: React.FC = () => {
   const [selectedFyId, setSelectedFyId] = useState<string>('');
   const [trialBalance, setTrialBalance] = useState<TrialBalanceResponse | null>(null);
   const [journalEntries, setJournalEntries] = useState<BookkeepingEntry[]>([]);
+  const [journalPage, setJournalPage] = useState(1);
+  const [journalPageSize, setJournalPageSize] = useState(25);
+  const [journalTotal, setJournalTotal] = useState(0);
+  const [journalTotalPages, setJournalTotalPages] = useState(0);
   const [ledgers, setLedgers] = useState<AccountingLedger[]>([]);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -54,6 +59,8 @@ export const BookkeepingView: React.FC = () => {
 
       const targetFy = fyId
         ? fys.find((f) => f.id === fyId)
+        : selectedFyId
+          ? fys.find((f) => f.id === selectedFyId)
         : fys.find((f) => f.is_current) || fys[0];
 
       const currentId = targetFy?.id || '';
@@ -62,19 +69,21 @@ export const BookkeepingView: React.FC = () => {
       // 2. Fetch Trial Balance, Entries, and Ledgers concurrently
       const [tbData, entriesData, ledgersData] = await Promise.all([
         bookkeepingApi.getTrialBalance(currentId || undefined),
-        bookkeepingApi.getJournalEntries(currentId ? { financialYearId: currentId } : undefined),
+        bookkeepingApi.getJournalEntries({ financialYearId: currentId || undefined, page: journalPage, limit: journalPageSize }),
         bookkeepingApi.getLedgers(),
       ]);
 
       setTrialBalance(tbData);
-      setJournalEntries(entriesData);
+      setJournalEntries(entriesData.items);
+      setJournalTotal(entriesData.total);
+      setJournalTotalPages(entriesData.totalPages);
       setLedgers(ledgersData);
     } catch (err) {
       console.error('Failed to load bookkeeping data:', err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [journalPage, journalPageSize, selectedFyId]);
 
   useEffect(() => {
     loadData();
@@ -87,10 +96,13 @@ export const BookkeepingView: React.FC = () => {
     try {
       const [tbData, entriesData] = await Promise.all([
         bookkeepingApi.getTrialBalance(fyId),
-        bookkeepingApi.getJournalEntries({ financialYearId: fyId }),
+        bookkeepingApi.getJournalEntries({ financialYearId: fyId, page: 1, limit: journalPageSize }),
       ]);
       setTrialBalance(tbData);
-      setJournalEntries(entriesData);
+      setJournalPage(1);
+      setJournalEntries(entriesData.items);
+      setJournalTotal(entriesData.total);
+      setJournalTotalPages(entriesData.totalPages);
     } catch (err) {
       console.error('Failed to switch FY:', err);
     } finally {
@@ -584,6 +596,31 @@ export const BookkeepingView: React.FC = () => {
                   </Card>
                 );
               })}
+              <nav className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between" aria-label="Journal entry pagination">
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span>{journalTotal === 0 ? 0 : (journalPage - 1) * journalPageSize + 1}–{Math.min(journalPage * journalPageSize, journalTotal)} of {journalTotal}</span>
+                  <label htmlFor="journal-page-size">Rows per page</label>
+                  <select
+                    id="journal-page-size"
+                    value={journalPageSize}
+                    onChange={(event) => { setJournalPageSize(Number(event.target.value)); setJournalPage(1); }}
+                    className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" disabled={journalPage <= 1 || isLoading} onClick={() => setJournalPage((value) => value - 1)}>
+                    <ChevronLeft className="h-4 w-4" /> Previous
+                  </Button>
+                  <span className="text-xs text-slate-500">Page {journalPage} of {Math.max(journalTotalPages, 1)}</span>
+                  <Button variant="secondary" disabled={journalPage >= journalTotalPages || isLoading} onClick={() => setJournalPage((value) => value + 1)}>
+                    Next <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </nav>
             </div>
           )}
         </div>

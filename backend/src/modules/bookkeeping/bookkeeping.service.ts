@@ -555,8 +555,10 @@ export class BookkeepingService {
    */
   async getJournalEntries(
     tenantId: string,
-    filters?: { financialYearId?: string; runId?: string; limit?: number },
+    filters?: { financialYearId?: string; runId?: string; page?: number; limit?: number },
   ) {
+    const page = Math.max(1, filters?.page || 1);
+    const limit = Math.min(100, Math.max(1, filters?.limit || 50));
     const where: Prisma.rndtechnosoft_bookkeeping_entriesWhereInput = {
       tenant_id: tenantId,
     };
@@ -568,27 +570,40 @@ export class BookkeepingService {
       where.payroll_run_id = filters.runId;
     }
 
-    return this.prisma.rndtechnosoft_bookkeeping_entries.findMany({
-      where,
-      orderBy: { voucher_date: 'desc' },
-      take: filters?.limit || 100,
-      include: {
-        rndtechnosoft_financial_years: {
-          select: { financial_year_code: true, financial_year_name: true },
-        },
-        rndtechnosoft_payroll_runs: {
-          select: { run_number: true, run_type: true },
-        },
-        rndtechnosoft_bookkeeping_entry_lines: {
-          orderBy: { line_number: 'asc' },
-          include: {
-            rndtechnosoft_accounting_ledgers: {
-              select: { ledger_code: true, ledger_name: true, account_category: true },
+    const [items, total] = await Promise.all([
+      this.prisma.rndtechnosoft_bookkeeping_entries.findMany({
+        where,
+        orderBy: [{ voucher_date: 'desc' }, { created_at: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          rndtechnosoft_financial_years: {
+            select: { financial_year_code: true, financial_year_name: true },
+          },
+          rndtechnosoft_payroll_runs: {
+            select: { run_number: true, run_type: true },
+          },
+          rndtechnosoft_bookkeeping_entry_lines: {
+            orderBy: { line_number: 'asc' },
+            include: {
+              rndtechnosoft_accounting_ledgers: {
+                select: { ledger_code: true, ledger_name: true, account_category: true },
+              },
             },
           },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_bookkeeping_entries.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore: page * limit < total,
+    };
   }
 
   async getLedgers(tenantId: string) {

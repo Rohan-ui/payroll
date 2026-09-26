@@ -134,6 +134,7 @@ interface PayrollContextType {
   role: UserRole;
   setRole: (role: UserRole) => void;
   employees: Employee[];
+  rememberEmployee: (employee: Employee) => void;
   addEmployee: (emp: Partial<Employee>) => Promise<void>;
   updateEmployee: (id: string, emp: Partial<Employee> & { bankAccountNumber?: string }) => Promise<void>;
   currentPeriod: string;
@@ -292,8 +293,13 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 1. Fetch real employees from PostgreSQL
       let mappedEmployees: Employee[] = [];
       try {
-        const empRes = await employeesApi.list(1, 100);
-        mappedEmployees = (empRes.items || []).map(mapBackendEmployeeToUi);
+        const firstPage = await employeesApi.list(1, 50);
+        const pages = [firstPage];
+        // ponytail: the shared payroll prototype needs all employees; move calculations server-side before very large tenants.
+        for (let page = 2; page <= firstPage.totalPages; page += 1) {
+          pages.push(await employeesApi.list(page, 50));
+        }
+        mappedEmployees = pages.flatMap((response) => response.items).map(mapBackendEmployeeToUi);
       } catch (err) {
         console.warn('Could not fetch employees from backend:', err);
         mappedEmployees = [];
@@ -624,12 +630,17 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentView(view, tab);
   }, [setCurrentView]);
 
+  const rememberEmployee = useCallback((employee: Employee) => {
+    setEmployees((current) => [employee, ...current.filter((item) => item.id !== employee.id)]);
+  }, []);
+
   return (
     <PayrollContext.Provider
       value={{
         role,
         setRole,
         employees,
+        rememberEmployee,
         addEmployee,
         updateEmployee,
         currentPeriod: 'October 2026',

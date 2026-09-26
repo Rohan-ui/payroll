@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -77,6 +77,71 @@ export class GmailInboxQueryDto {
   @IsIn(['inbox', 'sent'])
   folder: 'inbox' | 'sent' = 'inbox';
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(320)
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(320)
+  to?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  subject?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  exclude?: string;
+
+  @IsOptional()
+  @IsIn(['any', '1d', '7d', '30d', '1y'])
+  dateRange?: 'any' | '1d' | '7d' | '30d' | '1y';
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(3650)
+  dateWithinDays?: number;
+
+  @IsOptional()
+  @IsIn(['larger', 'smaller'])
+  sizeOperator?: 'larger' | 'smaller';
+
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0.01)
+  @Max(100_000)
+  sizeMb?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  hasAttachment?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  excludePromotions?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  unread?: boolean;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -150,6 +215,11 @@ export class GmailTemplatesQueryDto {
   @Min(1)
   @Max(100)
   limit = 50;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  search?: string;
 }
 
 export class GmailTemplateDto {
