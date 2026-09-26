@@ -63,20 +63,47 @@ export interface UpdateEmployeeInput {
 export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listEmployees(tenantId: string, page = 1, limit = 20, search?: string) {
+  async listEmployees(tenantId: string, page = 1, limit = 20, search?: string, department?: string) {
     const skip = (page - 1) * limit;
+    const normalizedSearch = search?.trim();
+    const normalizedDepartment = department?.trim();
 
     const where: Record<string, unknown> = {
       tenant_id: tenantId,
     };
 
-    if (search) {
+    if (normalizedSearch) {
       where.OR = [
-        { employee_code: { contains: search, mode: 'insensitive' } },
-        { first_name: { contains: search, mode: 'insensitive' } },
-        { last_name: { contains: search, mode: 'insensitive' } },
-        { work_email: { contains: search, mode: 'insensitive' } },
+        { employee_code: { contains: normalizedSearch, mode: 'insensitive' } },
+        { first_name: { contains: normalizedSearch, mode: 'insensitive' } },
+        { last_name: { contains: normalizedSearch, mode: 'insensitive' } },
+        { work_email: { contains: normalizedSearch, mode: 'insensitive' } },
+        {
+          rndtechnosoft_employee_employments: {
+            some: {
+              effective_to: null,
+              rndtechnosoft_departments: { department_name: { contains: normalizedSearch, mode: 'insensitive' } },
+            },
+          },
+        },
+        {
+          rndtechnosoft_employee_employments: {
+            some: {
+              effective_to: null,
+              rndtechnosoft_designations: { designation_name: { contains: normalizedSearch, mode: 'insensitive' } },
+            },
+          },
+        },
       ];
+    }
+
+    if (normalizedDepartment) {
+      where.rndtechnosoft_employee_employments = {
+        some: {
+          effective_to: null,
+          rndtechnosoft_departments: { department_name: { equals: normalizedDepartment, mode: 'insensitive' } },
+        },
+      };
     }
 
     const [total, items] = await Promise.all([
@@ -89,14 +116,14 @@ export class EmployeesService {
         include: {
           rndtechnosoft_employee_employments: {
             where: { effective_to: null },
-            include: {
-              rndtechnosoft_branches: true,
-              rndtechnosoft_departments: true,
-              rndtechnosoft_designations: true,
+            orderBy: { effective_from: 'desc' },
+            take: 1,
+            select: {
+              joining_date: true,
+              rndtechnosoft_branches: { select: { branch_name: true } },
+              rndtechnosoft_departments: { select: { department_name: true } },
+              rndtechnosoft_designations: { select: { designation_name: true } },
             },
-          },
-          rndtechnosoft_employee_bank_accounts: {
-            where: { effective_to: null },
           },
         },
       }),
@@ -107,6 +134,7 @@ export class EmployeesService {
       page,
       limit,
       totalPages: Math.ceil(total / limit),
+      hasMore: skip + items.length < total,
       items: items.map((emp) => ({
         id: emp.id,
         employeeCode: emp.employee_code,

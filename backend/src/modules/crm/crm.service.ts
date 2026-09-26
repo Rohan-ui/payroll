@@ -116,6 +116,20 @@ export const BASELINE_INDUSTRIES = [
 export class CrmService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private pagination(requestedPage?: number, requestedLimit?: number) {
+    const page = Number.isInteger(requestedPage) && requestedPage! > 0 ? requestedPage! : 1;
+    const limit = Number.isInteger(requestedLimit) ? Math.min(100, Math.max(1, requestedLimit!)) : 25;
+    return { page, limit, skip: (page - 1) * limit };
+  }
+
+  private pageMeta(total: number, page: number, limit: number, itemCount = limit) {
+    return { total, page, limit, totalPages: Math.ceil(total / limit), hasMore: (page - 1) * limit + itemCount < total };
+  }
+
+  private pageResult<T>(items: T[], total: number, page: number, limit: number) {
+    return { items, ...this.pageMeta(total, page, limit, items.length) };
+  }
+
   // ==========================================
   // PIPELINES & STAGES
   // ==========================================
@@ -194,8 +208,12 @@ export class CrmService {
       search?: string;
       isWon?: boolean;
       isLost?: boolean;
+      page?: number;
+      limit?: number;
+      unpaginated?: boolean;
     },
   ) {
+    const { page, limit, skip } = this.pagination(query.page, query.limit);
     const where: any = { tenant_id: tenantId };
     if (query.pipelineId) where.pipeline_id = query.pipelineId;
     if (query.stageId) where.stage_id = query.stageId;
@@ -218,10 +236,11 @@ export class CrmService {
       ];
     }
 
-    const [rawLeads, stages, pipelines, sources, members, clients] = await Promise.all([
+    const [rawLeads, total, stages, pipelines, sources, members, clients] = await Promise.all([
       this.prisma.rndtechnosoft_crm_leads.findMany({
         where,
         orderBy: [{ ai_score: 'desc' }, { created_at: 'desc' }],
+        ...(query.unpaginated ? {} : { skip, take: limit }),
         include: {
           rndtechnosoft_crm_stages: true,
           rndtechnosoft_crm_pipelines: true,
@@ -232,6 +251,7 @@ export class CrmService {
           },
         },
       }),
+      this.prisma.rndtechnosoft_crm_leads.count({ where }),
       this.prisma.rndtechnosoft_crm_stages.findMany({
         where: { tenant_id: tenantId },
         orderBy: { sort_order: 'asc' },
@@ -251,6 +271,7 @@ export class CrmService {
       this.prisma.rndtechnosoft_crm_clients.findMany({
         where: { tenant_id: tenantId },
         orderBy: { company_name: 'asc' },
+        take: 100,
       }),
     ]);
 
@@ -292,6 +313,7 @@ export class CrmService {
 
     return {
       leads: mappedLeads,
+      pagination: this.pageMeta(total, page, limit, mappedLeads.length),
       stages,
       pipelines,
       sources,
@@ -993,7 +1015,7 @@ export class CrmService {
   }
 
   async exportLeads(tenantId: string, filters: any): Promise<Buffer> {
-    const leadsResult = await this.getLeads(tenantId, filters);
+    const leadsResult = await this.getLeads(tenantId, { ...filters, unpaginated: true });
     const leads = Array.isArray(leadsResult) ? leadsResult : (leadsResult.leads || []);
 
     const workbook = new ExcelJS.Workbook();
@@ -1649,28 +1671,34 @@ export class CrmService {
   // ACTIVITIES, FOLLOWUPS & MEETINGS
   // ==========================================
 
-  async getActivities(tenantId: string, leadId?: string) {
+  async getActivities(tenantId: string, leadId?: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
     const where: any = { tenant_id: tenantId };
     if (leadId) where.lead_id = leadId;
 
-    const activities = await this.prisma.rndtechnosoft_crm_lead_activities.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      take: 100,
-      include: {
-        rndtechnosoft_crm_leads: { select: { company_name: true, lead_code: true } },
-        rndtechnosoft_tenant_members: {
-          include: { rndtechnosoft_users: true },
+    const [activities, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_lead_activities.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: { select: { company_name: true, lead_code: true } },
+          rndtechnosoft_tenant_members: {
+            include: { rndtechnosoft_users: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_lead_activities.count({ where }),
+    ]);
 
-    return activities.map((a) => ({
+    const items = activities.map((a) => ({
       ...a,
       lead_company_name: a.rndtechnosoft_crm_leads?.company_name,
       lead_code: a.rndtechnosoft_crm_leads?.lead_code,
       created_by_name: a.rndtechnosoft_tenant_members?.rndtechnosoft_users?.display_name || 'System',
     }));
+    return this.pageResult(items, total, page, limit);
   }
 
   async addActivity(
@@ -1735,18 +1763,25 @@ export class CrmService {
     }
   }
 
-  async getFollowups(tenantId: string) {
-    const followups = await this.prisma.rndtechnosoft_crm_lead_followups.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { scheduled_at: 'asc' },
-      include: {
-        rndtechnosoft_crm_leads: {
-          select: { id: true, company_name: true, first_name: true, last_name: true, phone: true, email: true },
+  async getFollowups(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [followups, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_lead_followups.findMany({
+        where,
+        orderBy: { scheduled_at: 'asc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: {
+            select: { id: true, company_name: true, first_name: true, last_name: true, phone: true, email: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_lead_followups.count({ where }),
+    ]);
 
-    return followups.map((f) => {
+    const items = followups.map((f) => {
       const isOverdue = f.status === 'PENDING' && new Date(f.scheduled_at) < new Date();
       return {
         ...f,
@@ -1757,6 +1792,7 @@ export class CrmService {
         is_overdue: isOverdue,
       };
     });
+    return this.pageResult(items, total, page, limit);
   }
 
   async createFollowup(
@@ -1817,24 +1853,32 @@ export class CrmService {
     return { success: true };
   }
 
-  async getMeetings(tenantId: string) {
-    const meetings = await this.prisma.rndtechnosoft_crm_meetings.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { scheduled_at: 'desc' },
-      include: {
-        rndtechnosoft_crm_leads: {
-          select: { id: true, company_name: true, first_name: true, last_name: true, email: true, phone: true },
+  async getMeetings(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [meetings, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_meetings.findMany({
+        where,
+        orderBy: { scheduled_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: {
+            select: { id: true, company_name: true, first_name: true, last_name: true, email: true, phone: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_meetings.count({ where }),
+    ]);
 
-    return meetings.map((m) => ({
+    const items = meetings.map((m) => ({
       ...m,
       lead_company_name: m.rndtechnosoft_crm_leads?.company_name,
       contact_name: `${m.rndtechnosoft_crm_leads?.first_name || ''} ${m.rndtechnosoft_crm_leads?.last_name || ''}`.trim(),
       lead_email: m.rndtechnosoft_crm_leads?.email,
       lead_phone: m.rndtechnosoft_crm_leads?.phone,
     }));
+    return this.pageResult(items, total, page, limit);
   }
 
   async createMeeting(tenantId: string, body: any, memberId?: string) {
@@ -1883,19 +1927,26 @@ export class CrmService {
   // GST QUOTATIONS
   // ==========================================
 
-  async getQuotations(tenantId: string) {
-    const quotations = await this.prisma.rndtechnosoft_crm_quotations.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { created_at: 'desc' },
-      include: {
-        rndtechnosoft_crm_leads: {
-          select: { id: true, company_name: true, first_name: true, last_name: true, email: true },
+  async getQuotations(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [quotations, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_quotations.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: {
+            select: { id: true, company_name: true, first_name: true, last_name: true, email: true },
+          },
+          rndtechnosoft_crm_quotation_items: true,
         },
-        rndtechnosoft_crm_quotation_items: true,
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_quotations.count({ where }),
+    ]);
 
-    return quotations.map((q) => ({
+    const items = quotations.map((q) => ({
       ...q,
       status: q.quotation_status,
       grand_total: Number(q.total_amount),
@@ -1904,6 +1955,7 @@ export class CrmService {
       contact_person: `${q.rndtechnosoft_crm_leads?.first_name || ''} ${q.rndtechnosoft_crm_leads?.last_name || ''}`.trim(),
       items: q.rndtechnosoft_crm_quotation_items,
     }));
+    return this.pageResult(items, total, page, limit);
   }
 
   async getQuotationById(tenantId: string, id: string) {
@@ -2034,11 +2086,14 @@ export class CrmService {
   // CLIENTS
   // ==========================================
 
-  async getClients(tenantId: string) {
-    return this.prisma.rndtechnosoft_crm_clients.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { company_name: 'asc' },
-    });
+  async getClients(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [items, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_clients.findMany({ where, orderBy: { company_name: 'asc' }, skip, take: limit }),
+      this.prisma.rndtechnosoft_crm_clients.count({ where }),
+    ]);
+    return this.pageResult(items, total, page, limit);
   }
 
   async createClient(tenantId: string, body: any) {
@@ -2337,15 +2392,34 @@ export class CrmService {
   // AUDIT LOGS
   // ==========================================
 
-  async getAuditLogs(tenantId: string, query?: { limit?: number; leadId?: string }) {
+  async getAuditLogs(tenantId: string, query?: {
+    page?: number;
+    limit?: number;
+    leadId?: string;
+    actionType?: string;
+    actorId?: string;
+    entityType?: string;
+    search?: string;
+  }) {
+    const { page, limit, skip } = this.pagination(query?.page, query?.limit);
     const where: any = { tenant_id: tenantId };
     if (query?.leadId) where.entity_id = query.leadId;
+    if (query?.actionType) where.action_type = query.actionType;
+    if (query?.actorId) where.actor_id = query.actorId;
+    if (query?.entityType) where.entity_type = query.entityType;
+    if (query?.search) {
+      where.OR = [
+        { actor_name: { contains: query.search.trim(), mode: 'insensitive' } },
+        { action_type: { contains: query.search.trim(), mode: 'insensitive' } },
+        { entity_type: { contains: query.search.trim(), mode: 'insensitive' } },
+      ];
+    }
 
-    return this.prisma.rndtechnosoft_crm_audit_logs.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      take: query?.limit || 100,
-    });
+    const [items, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_audit_logs.findMany({ where, orderBy: { created_at: 'desc' }, skip, take: limit }),
+      this.prisma.rndtechnosoft_crm_audit_logs.count({ where }),
+    ]);
+    return this.pageResult(items, total, page, limit);
   }
 
   async logAudit(

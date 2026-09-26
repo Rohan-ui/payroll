@@ -28,6 +28,11 @@ export class CrmController {
     private readonly accessService: AccessService,
   ) {}
 
+  private collection<T>(result: { items: T[]; total: number; page: number; limit: number; totalPages: number; hasMore: boolean }) {
+    const { items: data, ...pagination } = result;
+    return { success: true, data, pagination };
+  }
+
   // ==========================================
   // PIPELINES
   // ==========================================
@@ -113,6 +118,8 @@ export class CrmController {
     @Query('industry') industry?: string,
     @Query('subIndustry') subIndustry?: string,
     @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     const data = await this.crmService.getLeads(tenantId, {
       pipelineId,
@@ -123,6 +130,8 @@ export class CrmController {
       industry,
       subIndustry,
       search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
     });
     return { success: true, data };
   }
@@ -258,9 +267,13 @@ export class CrmController {
 
   @Get('activities')
   @RequirePermissions('leads.view')
-  async getActivities(@CurrentTenant() tenantId: string, @Query('leadId') leadId?: string) {
-    const data = await this.crmService.getActivities(tenantId, leadId);
-    return { success: true, data };
+  async getActivities(
+    @CurrentTenant() tenantId: string,
+    @Query('leadId') leadId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.collection(await this.crmService.getActivities(tenantId, leadId, Number(page), Number(limit)));
   }
 
   @Post('activities')
@@ -276,9 +289,12 @@ export class CrmController {
 
   @Get('followups')
   @RequirePermissions('followups.view')
-  async getFollowups(@CurrentTenant() tenantId: string) {
-    const data = await this.crmService.getFollowups(tenantId);
-    return { success: true, data };
+  async getFollowups(
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.collection(await this.crmService.getFollowups(tenantId, Number(page), Number(limit)));
   }
 
   @Post('followups')
@@ -313,9 +329,12 @@ export class CrmController {
 
   @Get('meetings')
   @RequirePermissions('meetings.view')
-  async getMeetings(@CurrentTenant() tenantId: string) {
-    const data = await this.crmService.getMeetings(tenantId);
-    return { success: true, data };
+  async getMeetings(
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.collection(await this.crmService.getMeetings(tenantId, Number(page), Number(limit)));
   }
 
   @Post('meetings')
@@ -354,9 +373,12 @@ export class CrmController {
 
   @Get('quotations')
   @RequirePermissions('quotations.view')
-  async getQuotations(@CurrentTenant() tenantId: string) {
-    const data = await this.crmService.getQuotations(tenantId);
-    return { success: true, data };
+  async getQuotations(
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.collection(await this.crmService.getQuotations(tenantId, Number(page), Number(limit)));
   }
 
   @Post('quotations')
@@ -409,9 +431,12 @@ export class CrmController {
 
   @Get('clients')
   @RequirePermissions('clients.view')
-  async getClients(@CurrentTenant() tenantId: string) {
-    const data = await this.crmService.getClients(tenantId);
-    return { success: true, data };
+  async getClients(
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.collection(await this.crmService.getClients(tenantId, Number(page), Number(limit)));
   }
 
   @Post('clients')
@@ -637,12 +662,22 @@ export class CrmController {
   async getAuditLogs(
     @CurrentTenant() tenantId: string,
     @Query('leadId') leadId?: string,
+    @Query('actionType') actionType?: string,
+    @Query('actorId') actorId?: string,
+    @Query('entityType') entityType?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     const data = await this.crmService.getAuditLogs(tenantId, {
       leadId,
+      actionType,
+      actorId,
+      entityType,
+      search,
+      page: page ? Number(page) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
-    return { success: true, data };
+    return this.collection(data);
   }
 }

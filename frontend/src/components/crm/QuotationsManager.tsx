@@ -50,6 +50,8 @@ export default function QuotationsManager({
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Three-dot action menu
   const [openActionId, setOpenActionId] = useState<string | null>(null);
@@ -67,12 +69,16 @@ export default function QuotationsManager({
     setLoading(true);
     try {
       const [qRes, tRes] = await Promise.all([
-        apiFetch('/api/v1/crm/quotations'),
+        apiFetch(`/api/v1/crm/quotations?page=${currentPage}&limit=${pageSize}`),
         apiFetch('/api/v1/crm/quotation-templates')
       ]);
       const qJson = await qRes.json();
       const tJson = await tRes.json();
-      if (qJson.success) setQuotations(qJson.data || []);
+      if (qJson.success) {
+        setQuotations(qJson.data || []);
+        setTotalItems(qJson.pagination?.total || 0);
+        setTotalPages(Math.max(1, qJson.pagination?.totalPages || 1));
+      }
       if (tJson.success) setTemplates(tJson.data || []);
     } catch (err) {
       console.error(err);
@@ -83,7 +89,7 @@ export default function QuotationsManager({
 
   useEffect(() => {
     fetchQuotationsAndTemplates();
-  }, []);
+  }, [currentPage, pageSize]);
 
   useEffect(() => {
     if (autoOpenCreate) {
@@ -152,10 +158,8 @@ export default function QuotationsManager({
   };
 
   // Pagination
-  const totalItems = quotations.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
   const startIndex = (currentPage - 1) * pageSize;
-  const paginatedQuotes = quotations.slice(startIndex, startIndex + pageSize);
+  const paginatedQuotes = quotations;
 
   return (
     <div className="space-y-4 relative">

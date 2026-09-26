@@ -260,7 +260,8 @@ export const platformGovernanceApi = {
   invoices: (query: { page: number; pageSize: number; status?: string }) =>
     platformApi.get<Page<InvoiceItem>>(`${BASE}/invoices${toQueryString(query)}`),
   packages: () => platformApi.get<{ packages: Record<string, unknown>[]; updatedAt: string | null }>(`${BASE}/packages`),
-  coupons: () => platformApi.get<Coupon[]>(`${BASE}/coupons`),
+  coupons: (page: number, pageSize = 25) =>
+    platformApi.get<Page<Coupon>>(`${BASE}/coupons${toQueryString({ page, pageSize })}`),
   createCoupon: (input: { couponCode: string; discountType: 'PERCENTAGE' | 'FIXED'; discountValue: number; maxUses?: number; validUntil?: string }) =>
     platformApi.post<Coupon>(`${BASE}/coupons`, input),
 

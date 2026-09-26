@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { ADMIN_ROLE_CODE } from '@/common/access/access-catalog';
 import { ActivityQueryDto, CreateCouponDto, StatusPageQueryDto, WebsiteSettingsDto } from './dto/platform-settings.dto';
 import { TenantQuotasDto } from './dto/provision-tenant.dto';
+import { PageQueryDto } from './dto/platform-directory.dto';
 
 export interface PlatformActionContext {
   ipAddress?: string;
@@ -83,31 +84,46 @@ export class SuperAdminService {
     });
   }
 
-  async getWorkspaceAdmins() {
-    const members = await this.prisma.rndtechnosoft_tenant_members.findMany({
-      where: {
-        rndtechnosoft_tenant_member_roles: {
-          some: {
-            rndtechnosoft_roles: { role_code: ADMIN_ROLE_CODE },
-          },
+  async getWorkspaceAdmins(query: PageQueryDto) {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 25;
+    const where = {
+      rndtechnosoft_tenant_member_roles: {
+        some: {
+          rndtechnosoft_roles: { role_code: ADMIN_ROLE_CODE },
         },
       },
-      include: {
-        rndtechnosoft_users: true,
-        rndtechnosoft_tenants: true,
-      },
-    });
+    };
+    const [members, total] = await Promise.all([
+      this.prisma.rndtechnosoft_tenant_members.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          rndtechnosoft_users: true,
+          rndtechnosoft_tenants: true,
+        },
+      }),
+      this.prisma.rndtechnosoft_tenant_members.count({ where }),
+    ]);
 
-    return members.map((m) => ({
-      id: m.id,
-      user_id: m.user_id,
-      tenant_id: m.tenant_id,
-      name: m.rndtechnosoft_users.display_name,
-      email: m.rndtechnosoft_users.email,
-      company_name: m.rndtechnosoft_tenants.display_name || m.rndtechnosoft_tenants.legal_name,
-      status: m.membership_status,
-      created_at: m.created_at,
-    }));
+    return {
+      items: members.map((m) => ({
+        id: m.id,
+        user_id: m.user_id,
+        tenant_id: m.tenant_id,
+        name: m.rndtechnosoft_users.display_name,
+        email: m.rndtechnosoft_users.email,
+        company_name: m.rndtechnosoft_tenants.display_name || m.rndtechnosoft_tenants.legal_name,
+        status: m.membership_status,
+        created_at: m.created_at,
+      })),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   /** Package definitions saved by platform operators. Not yet linked to plans or subscriptions. */
@@ -269,23 +285,35 @@ export class SuperAdminService {
     };
   }
 
-  async getCoupons() {
-    const coupons = await this.prisma.rndtechnosoft_platform_coupons.findMany({
-      orderBy: { created_at: 'desc' },
-      take: 200,
-    });
-    return coupons.map((c) => ({
-      id: c.id,
-      code: c.coupon_code,
-      discountType: c.discount_type,
-      discountValue: c.discount_value.toString(),
-      maxUses: c.max_uses,
-      usedCount: c.used_count,
-      validFrom: c.valid_from,
-      validUntil: c.valid_until,
-      isActive: c.is_active,
-      createdAt: c.created_at,
-    }));
+  async getCoupons(query: PageQueryDto) {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 25;
+    const [coupons, total] = await Promise.all([
+      this.prisma.rndtechnosoft_platform_coupons.findMany({
+        orderBy: { created_at: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.rndtechnosoft_platform_coupons.count(),
+    ]);
+    return {
+      items: coupons.map((c) => ({
+        id: c.id,
+        code: c.coupon_code,
+        discountType: c.discount_type,
+        discountValue: c.discount_value.toString(),
+        maxUses: c.max_uses,
+        usedCount: c.used_count,
+        validFrom: c.valid_from,
+        validUntil: c.valid_until,
+        isActive: c.is_active,
+        createdAt: c.created_at,
+      })),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   async createCoupon(data: CreateCouponDto, adminId: string) {
@@ -319,7 +347,7 @@ export class SuperAdminService {
         },
       }),
     ]);
-    return (await this.getCoupons()).find((coupon) => coupon.id === id);
+    return (await this.getCoupons({ page: 1, pageSize: 25 })).items.find((coupon) => coupon.id === id);
   }
 
   async getSupportTickets(query: StatusPageQueryDto) {

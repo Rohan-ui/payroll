@@ -9,6 +9,8 @@ import {
   Query,
   Param,
   ParseUUIDPipe,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   AttendanceService,
@@ -269,8 +271,10 @@ export class AttendanceController {
     @CurrentTenant() tenantId: string,
     @Query('employeeId') employeeId?: string,
     @Query('date') date?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit?: number,
   ) {
-    return this.attendanceService.getPunches(tenantId, employeeId, date);
+    return this.attendanceService.getPunches(tenantId, employeeId, date, page, limit);
   }
 
   /**

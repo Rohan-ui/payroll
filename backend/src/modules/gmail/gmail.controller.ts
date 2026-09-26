@@ -66,7 +66,7 @@ export class GmailController {
     @CurrentUser() user: AuthenticatedTenantUser,
     @Query() query: GmailInboxQueryDto,
   ) {
-    return this.gmail.listMessages(tenantId, user.userId, query.folder, query.page, query.limit);
+    return this.gmail.listMessages(tenantId, user.userId, query);
   }
 
   @Post('messages/send')
@@ -124,7 +124,7 @@ export class GmailController {
   @Get('templates')
   @RequirePermissions('marketing.view')
   listTemplates(@CurrentTenant() tenantId: string, @Query() query: GmailTemplatesQueryDto) {
-    return this.gmail.listTemplates(tenantId, query.page, query.limit);
+    return this.gmail.listTemplates(tenantId, query.page, query.limit, query.search);
   }
 
   @Post('templates')

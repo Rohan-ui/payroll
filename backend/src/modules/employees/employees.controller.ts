@@ -6,8 +6,6 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
-  DefaultValuePipe,
 } from '@nestjs/common';
 import {
   EmployeesService,
@@ -20,6 +18,7 @@ import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { AccessService } from '@/common/access/access.service';
+import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 
 @Controller('employees')
 export class EmployeesController {
@@ -43,11 +42,9 @@ export class EmployeesController {
   @RequirePermissions('people.view')
   async list(
     @CurrentTenant() tenantId: string,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-    @Query('search') search?: string,
+    @Query() query: ListEmployeesQueryDto,
   ) {
-    return this.employeesService.listEmployees(tenantId, page, limit, search);
+    return this.employeesService.listEmployees(tenantId, query.page, query.limit, query.search, query.department);
   }
 
   @Get('meta/departments')

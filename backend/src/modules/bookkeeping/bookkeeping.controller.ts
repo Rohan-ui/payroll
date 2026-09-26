@@ -94,11 +94,13 @@ export class BookkeepingController {
     @CurrentTenant() tenantId: string,
     @Query('financialYearId') financialYearId?: string,
     @Query('runId') runId?: string,
+    @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.bookkeepingService.getJournalEntries(tenantId, {
       financialYearId,
       runId,
+      page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 50,
     });
   }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 
 import { toast } from '../../lib/toast';
@@ -9,6 +10,7 @@ import {
   GmailFolder,
   GmailInboxMessage,
   GmailMessage,
+  GmailMessageFilters,
   GmailTemplate,
 } from '../../api/gmail.api';
 import {
@@ -24,6 +26,96 @@ import { useAuth } from '../../context/AuthContext';
 
 const INBOX_REFRESH_INTERVAL_MS = 30_000;
 const INBOX_PAGE_SIZE = 25;
+const TEMPLATE_PAGE_SIZE = 12;
+const EMPTY_GMAIL_FILTERS: GmailMessageFilters = { dateRange: 'any' };
+
+const TemplateSearchPicker: React.FC<{
+  label: string;
+  onSelect: (template: GmailTemplate) => void;
+}> = ({ label, onSelect }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [items, setItems] = useState<GmailTemplate[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await gmailApi.listTemplates(1, 10, search);
+        if (!cancelled) setItems(result.items);
+      } catch (requestError) {
+        if (!cancelled) setError(requestError instanceof Error ? requestError.message : 'Templates could not be loaded.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, search ? 250 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, search]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative w-full sm:w-64">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+      <input
+        type="search"
+        value={search}
+        onFocus={() => setOpen(true)}
+        onChange={(event) => { setSearch(event.target.value); setOpen(true); }}
+        onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false); }}
+        placeholder="Search templates…"
+        aria-label={label}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        className="h-9 w-full rounded-lg border border-indigo-200 bg-indigo-50/70 pl-8 pr-3 text-[11px] text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+      />
+      {open && (
+        <div role="listbox" className="absolute bottom-full right-0 z-40 mb-1 max-h-64 w-full min-w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
+          {loading ? (
+            <div role="status" className="flex items-center justify-center gap-2 px-3 py-4 text-[11px] text-slate-500"><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Loading templates…</div>
+          ) : error ? (
+            <p role="alert" className="px-3 py-3 text-[11px] text-red-600">{error}</p>
+          ) : items.length === 0 ? (
+            <p className="px-3 py-4 text-center text-[11px] text-slate-500">No matching templates.</p>
+          ) : items.map((template) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected="false"
+              key={template.id}
+              onClick={() => {
+                onSelect(template);
+                setSearch('');
+                setOpen(false);
+              }}
+              className="block w-full rounded-md px-3 py-2 text-left hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              <span className="block truncate text-xs font-semibold text-slate-800">{template.title}</span>
+              <span className="block truncate text-[10px] text-slate-500">{template.category} · {template.subject}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface CampaignItem {
   id: string;
@@ -194,6 +286,11 @@ export const EmailMarketingView: React.FC = () => {
   const [folderTotals, setFolderTotals] = useState<Record<GmailFolder, number>>({ inbox: 0, sent: 0 });
   const [selectedEmail, setSelectedEmail] = useState<GmailMessage | null>(null);
   const [mailboxSearch, setMailboxSearch] = useState('');
+  const [mailboxFilters, setMailboxFilters] = useState<GmailMessageFilters>(EMPTY_GMAIL_FILTERS);
+  const mailboxFiltersRef = useRef<GmailMessageFilters>(EMPTY_GMAIL_FILTERS);
+  const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState<GmailMessageFilters>(EMPTY_GMAIL_FILTERS);
+  const advancedSearchReturnFocus = useRef<HTMLElement | null>(null);
   const [gmailStatus, setGmailStatus] = useState<GmailConnectionStatus | null>(null);
   const [gmailStatusLoading, setGmailStatusLoading] = useState(true);
   const [inboxLoading, setInboxLoading] = useState(false);
@@ -225,6 +322,10 @@ export const EmailMarketingView: React.FC = () => {
   const [templates, setTemplates] = useState<GmailTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [templatePage, setTemplatePage] = useState(1);
+  const [templateTotal, setTemplateTotal] = useState(0);
+  const [templateTotalPages, setTemplateTotalPages] = useState(0);
+  const [templateSearch, setTemplateSearch] = useState('');
   const [templateSaving, setTemplateSaving] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<GmailTemplate | null>(null);
   const [isTemplateEditorOpen, setIsTemplateEditorOpen] = useState(false);
@@ -260,32 +361,23 @@ export const EmailMarketingView: React.FC = () => {
   const mailboxRangeStart = gmailTotal === 0 ? 0 : (gmailPage - 1) * INBOX_PAGE_SIZE + 1;
   const mailboxRangeEnd = Math.min(gmailPage * INBOX_PAGE_SIZE, gmailTotal);
 
-  // Filtered Mailbox Messages
-  const currentFolderEmails = mailboxEmails.filter((e) => {
-    if (mailboxSearch) {
-      const q = mailboxSearch.toLowerCase();
-      return (
-        e.subject.toLowerCase().includes(q) ||
-        e.from.name.toLowerCase().includes(q) ||
-        e.from.email.toLowerCase().includes(q) ||
-        e.to.some((address) => address.name.toLowerCase().includes(q) || address.email.toLowerCase().includes(q)) ||
-        e.preview.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const currentFolderEmails = mailboxEmails;
+  const activeFilterCount = Object.entries(mailboxFilters).filter(
+    ([key, value]) => key !== 'dateRange' ? value !== undefined && value !== '' && value !== false : value !== 'any',
+  ).length;
 
   const loadMailbox = useCallback(async (
     folder: GmailFolder,
     page = 1,
     options: { silent?: boolean; preserveSelection?: boolean } = {},
+    filters = mailboxFiltersRef.current,
   ) => {
     if (inboxRequestInFlight.current) return;
     inboxRequestInFlight.current = true;
     if (!options.silent) setInboxLoading(true);
     setMailboxError(null);
     try {
-      const result = await gmailApi.listMessages(folder, page, INBOX_PAGE_SIZE);
+      const result = await gmailApi.listMessages(folder, page, INBOX_PAGE_SIZE, filters);
       setMailboxEmails(result.items);
       setFolderTotals((current) => ({ ...current, [folder]: result.total }));
       setGmailPage(result.page);
@@ -301,6 +393,62 @@ export const EmailMarketingView: React.FC = () => {
     }
   }, []);
 
+  const applyMailboxFilters = (next: GmailMessageFilters) => {
+    mailboxFiltersRef.current = next;
+    setMailboxFilters(next);
+    setMailboxSearch(next.search ?? '');
+    setSelectedEmail(null);
+    void loadMailbox(mailboxFolder, 1, {}, next);
+  };
+
+  const handleMailboxSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    applyMailboxFilters({ ...mailboxFilters, search: mailboxSearch.trim() || undefined });
+  };
+
+  const closeAdvancedSearch = () => {
+    setAdvancedSearchOpen(false);
+    window.setTimeout(() => advancedSearchReturnFocus.current?.focus(), 0);
+  };
+
+  const openAdvancedSearch = (focus: 'from' | 'to' = 'from') => {
+    advancedSearchReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAdvancedFilters(mailboxFilters);
+    setAdvancedSearchOpen(true);
+    window.setTimeout(() => document.getElementById(`gmail-filter-${focus}`)?.focus(), 0);
+  };
+
+  const submitAdvancedSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    applyMailboxFilters({
+      ...advancedFilters,
+      search: advancedFilters.search?.trim() || undefined,
+      from: advancedFilters.from?.trim() || undefined,
+      to: advancedFilters.to?.trim() || undefined,
+      subject: advancedFilters.subject?.trim() || undefined,
+      exclude: advancedFilters.exclude?.trim() || undefined,
+      dateWithinDays: advancedFilters.date ? advancedFilters.dateWithinDays : undefined,
+      sizeOperator: advancedFilters.sizeMb ? advancedFilters.sizeOperator : undefined,
+    });
+    closeAdvancedSearch();
+  };
+
+  const handleAdvancedSearchKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') return closeAdvancedSearch();
+    if (event.key !== 'Tab') return;
+    const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled])'));
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   const loadGmailStatus = useCallback(async () => {
     setGmailStatusLoading(true);
     try {
@@ -314,12 +462,15 @@ export const EmailMarketingView: React.FC = () => {
     }
   }, [loadMailbox]);
 
-  const loadTemplates = useCallback(async () => {
+  const loadTemplates = useCallback(async (page = 1, search = '') => {
     setTemplatesLoading(true);
     setTemplatesError(null);
     try {
-      const result = await gmailApi.listTemplates();
+      const result = await gmailApi.listTemplates(page, TEMPLATE_PAGE_SIZE, search);
       setTemplates(result.items);
+      setTemplatePage(result.page);
+      setTemplateTotal(result.total);
+      setTemplateTotalPages(result.totalPages);
     } catch (error) {
       setTemplatesError(error instanceof Error ? error.message : 'Email templates could not be loaded.');
     } finally {
@@ -338,8 +489,12 @@ export const EmailMarketingView: React.FC = () => {
       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
     }
     void loadGmailStatus();
-    void loadTemplates();
-  }, [loadGmailStatus, loadTemplates]);
+  }, [loadGmailStatus]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadTemplates(templatePage, templateSearch), templateSearch ? 300 : 0);
+    return () => window.clearTimeout(timer);
+  }, [loadTemplates, templatePage, templateSearch]);
 
   useEffect(() => {
     if (!gmailStatus?.connected || mailboxFolder !== 'inbox' || gmailPage !== 1) return;
@@ -379,6 +534,9 @@ export const EmailMarketingView: React.FC = () => {
       setGmailStatus({ connected: false, email: null, status: 'DISCONNECTED', connectedAt: null, requiresReconnect: false });
       setMailboxEmails([]);
       setMailboxFolder('inbox');
+      setMailboxSearch('');
+      mailboxFiltersRef.current = EMPTY_GMAIL_FILTERS;
+      setMailboxFilters(EMPTY_GMAIL_FILTERS);
       setSelectedEmail(null);
       setGmailTotal(0);
       setFolderTotals({ inbox: 0, sent: 0 });
@@ -393,7 +551,6 @@ export const EmailMarketingView: React.FC = () => {
   const handleSelectFolder = (folder: GmailFolder) => {
     if (folder === mailboxFolder || !gmailStatus?.connected || inboxRequestInFlight.current) return;
     setMailboxFolder(folder);
-    setMailboxSearch('');
     setSelectedEmail(null);
     void loadMailbox(folder, 1);
   };
@@ -517,10 +674,11 @@ export const EmailMarketingView: React.FC = () => {
       body: templateBody,
     };
     try {
-      const saved = editingTemplate
-        ? await gmailApi.updateTemplate(editingTemplate.id, input)
-        : await gmailApi.createTemplate(input);
-      setTemplates((current) => [saved, ...current.filter((template) => template.id !== saved.id)]);
+      if (editingTemplate) await gmailApi.updateTemplate(editingTemplate.id, input);
+      else await gmailApi.createTemplate(input);
+      setTemplateSearch('');
+      setTemplatePage(1);
+      void loadTemplates(1, '');
       setIsTemplateEditorOpen(false);
       showToast(editingTemplate ? 'Template updated.' : 'Template created.');
     } catch (error) {
@@ -534,7 +692,9 @@ export const EmailMarketingView: React.FC = () => {
     if (!window.confirm(`Delete the email template “${template.title}”? This cannot be undone.`)) return;
     try {
       await gmailApi.deleteTemplate(template.id);
-      setTemplates((current) => current.filter((item) => item.id !== template.id));
+      const nextPage = templates.length === 1 && templatePage > 1 ? templatePage - 1 : templatePage;
+      setTemplatePage(nextPage);
+      void loadTemplates(nextPage, templateSearch);
       showToast('Template deleted.');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'The template could not be deleted.', 'error');
@@ -850,7 +1010,7 @@ export const EmailMarketingView: React.FC = () => {
           <div className={`${selectedEmail ? 'hidden lg:flex' : 'flex'} h-[70dvh] min-h-[28rem] max-h-[42rem] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs lg:col-span-4 lg:h-full lg:min-h-0 lg:max-h-none`}>
             {/* Search header */}
             <div className="p-3 border-b border-slate-100 space-y-2">
-              <div className="relative">
+              <form onSubmit={handleMailboxSearch} className="relative">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -858,8 +1018,42 @@ export const EmailMarketingView: React.FC = () => {
                   onChange={(e) => setMailboxSearch(e.target.value)}
                   aria-label={`Filter ${mailboxFolder} messages`}
                   placeholder={`Filter this ${mailboxFolder} page…`}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200/80 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-slate-400"
+                  className="min-h-11 w-full rounded-lg border border-slate-200/80 bg-slate-50 py-2 pl-8 pr-20 text-xs text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:min-h-9"
                 />
+                <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center">
+                  <button type="button" onClick={() => openAdvancedSearch()} aria-label="Open advanced Gmail search" aria-expanded={advancedSearchOpen} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:h-7 sm:w-7">
+                    <Sliders className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="submit" aria-label="Search Gmail" className="flex h-9 w-9 items-center justify-center rounded-md text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:h-7 sm:w-7">
+                    <Search className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </form>
+
+              <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]" aria-label="Mailbox filters">
+                <button type="button" onClick={() => openAdvancedSearch('from')} aria-pressed={Boolean(mailboxFilters.from)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.from ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>
+                  {mailboxFilters.from ? `From: ${mailboxFilters.from}` : 'From'}
+                </button>
+                <select
+                  aria-label="Received date"
+                  value={mailboxFilters.dateRange ?? 'any'}
+                  onChange={(event) => applyMailboxFilters({ ...mailboxFilters, dateRange: event.target.value as GmailMessageFilters['dateRange'], date: undefined, dateWithinDays: undefined })}
+                  className="min-h-11 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:min-h-8"
+                >
+                  <option value="any">Any time</option>
+                  <option value="1d">Past day</option>
+                  <option value="7d">Past week</option>
+                  <option value="30d">Past month</option>
+                  <option value="1y">Past year</option>
+                </select>
+                <button type="button" aria-pressed={Boolean(mailboxFilters.hasAttachment)} onClick={() => applyMailboxFilters({ ...mailboxFilters, hasAttachment: !mailboxFilters.hasAttachment })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.hasAttachment ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Has attachment</button>
+                <button type="button" onClick={() => openAdvancedSearch('to')} aria-pressed={Boolean(mailboxFilters.to)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.to ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>
+                  {mailboxFilters.to ? `To: ${mailboxFilters.to}` : 'To'}
+                </button>
+                <button type="button" aria-pressed={Boolean(mailboxFilters.excludePromotions)} onClick={() => applyMailboxFilters({ ...mailboxFilters, excludePromotions: !mailboxFilters.excludePromotions })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.excludePromotions ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Exclude Promotions</button>
+                <button type="button" aria-pressed={Boolean(mailboxFilters.unread)} onClick={() => applyMailboxFilters({ ...mailboxFilters, unread: !mailboxFilters.unread })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.unread ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Is unread</button>
+                <button type="button" onClick={() => openAdvancedSearch()} className="min-h-11 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 sm:min-h-8">Advanced search</button>
+                {activeFilterCount > 0 && <button type="button" onClick={() => applyMailboxFilters(EMPTY_GMAIL_FILTERS)} className="min-h-11 shrink-0 px-2 text-[11px] font-semibold text-slate-500 hover:text-slate-800 sm:min-h-8">Clear</button>}
               </div>
 
               <div className="flex items-center justify-between gap-3 px-1 text-[11px] text-slate-400">
@@ -914,10 +1108,10 @@ export const EmailMarketingView: React.FC = () => {
                     <Inbox className="w-6 h-6" />
                   </div>
                   <h4 className="text-xs font-bold text-slate-800 mb-1">
-                    No {mailboxFolder} messages
+                    {activeFilterCount > 0 ? 'No matching messages' : `No ${mailboxFolder} messages`}
                   </h4>
                   <p className="text-[11px] text-slate-400 max-w-xs leading-relaxed">
-                    Gmail returned no messages for this page.
+                    {activeFilterCount > 0 ? 'Try changing or clearing the active filters.' : 'Gmail returned no messages for this page.'}
                   </p>
                 </div>
               ) : (
@@ -929,10 +1123,11 @@ export const EmailMarketingView: React.FC = () => {
                       type="button"
                       key={email.uid}
                       onClick={() => void handleOpenEmail(email.uid)}
+                      aria-current={isSelected ? 'true' : undefined}
                       className={`block w-full p-3 text-left transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${
                         isSelected
                           ? 'bg-blue-50/70 border-l-3 border-indigo-600'
-                          : 'hover:bg-slate-50/80'
+                          : 'hover:bg-[#f8fafc] dark:hover:bg-[#252336]'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
@@ -1045,23 +1240,9 @@ export const EmailMarketingView: React.FC = () => {
                 <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3 sm:px-5">
                   {replyOpen ? (
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <label htmlFor="gmail-reply" className="text-xs font-bold text-slate-700">Reply</label>
-                        {templates.length > 0 && (
-                          <select
-                            aria-label="Insert an email template into reply"
-                            defaultValue=""
-                            onChange={(event) => {
-                              const template = templates.find((item) => item.id === event.target.value);
-                              if (template) setReplyBody(template.body);
-                              event.target.value = '';
-                            }}
-                            className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          >
-                            <option value="">Insert template…</option>
-                            {templates.map((template) => <option key={template.id} value={template.id}>{template.title}</option>)}
-                          </select>
-                        )}
+                        <TemplateSearchPicker label="Search and insert an email template into reply" onSelect={(template) => setReplyBody(template.body)} />
                       </div>
                       <textarea
                         id="gmail-reply"
@@ -1393,22 +1574,28 @@ export const EmailMarketingView: React.FC = () => {
           <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-bold text-slate-900">Email templates</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Reusable subject and message text for compose and reply.</p>
+              <p className="mt-0.5 text-xs text-slate-500">{templateTotal} reusable templates for compose and reply.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => openTemplateEditor()}
-              disabled={!canManageEmail}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus className="h-3.5 w-3.5" /> New template
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input type="search" value={templateSearch} onChange={(event) => { setTemplateSearch(event.target.value); setTemplatePage(1); }} placeholder="Search templates…" aria-label="Search email templates" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:w-56" />
+              </div>
+              <button
+                type="button"
+                onClick={() => openTemplateEditor()}
+                disabled={!canManageEmail}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" /> New template
+              </button>
+            </div>
           </div>
 
           {templatesError && (
             <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
               {templatesError}
-              <button type="button" onClick={() => void loadTemplates()} className="ml-2 font-bold underline">Retry</button>
+              <button type="button" onClick={() => void loadTemplates(templatePage, templateSearch)} className="ml-2 font-bold underline">Retry</button>
             </div>
           )}
 
@@ -1419,8 +1606,8 @@ export const EmailMarketingView: React.FC = () => {
           ) : templatesError && templates.length === 0 ? null : templates.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
               <FileCode className="mx-auto h-8 w-8 text-slate-300" />
-              <h3 className="mt-3 text-sm font-bold text-slate-800">No email templates yet</h3>
-              <p className="mt-1 text-xs text-slate-500">Create one to insert it directly while composing or replying.</p>
+              <h3 className="mt-3 text-sm font-bold text-slate-800">{templateSearch ? 'No matching templates' : 'No email templates yet'}</h3>
+              <p className="mt-1 text-xs text-slate-500">{templateSearch ? 'Try a different title, category, or subject.' : 'Create one to insert it directly while composing or replying.'}</p>
             </div>
           ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1471,6 +1658,16 @@ export const EmailMarketingView: React.FC = () => {
               </div>
             ))}
           </div>
+          )}
+
+          {!templatesLoading && !templatesError && templateTotalPages > 1 && (
+            <nav className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2" aria-label="Email template pagination">
+              <span className="text-xs text-slate-500">Page {templatePage} of {templateTotalPages}</span>
+              <div className="flex gap-2">
+                <button type="button" disabled={templatePage <= 1} onClick={() => setTemplatePage((value) => value - 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" /> Previous</button>
+                <button type="button" disabled={templatePage >= templateTotalPages} onClick={() => setTemplatePage((value) => value + 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Next <ChevronRight className="h-3.5 w-3.5" /></button>
+              </div>
+            </nav>
           )}
         </div>
       )}
@@ -1635,6 +1832,93 @@ export const EmailMarketingView: React.FC = () => {
         </div>
       )}
 
+      {advancedSearchOpen && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/60 p-3 backdrop-blur-xs sm:items-center sm:p-4"
+          onKeyDown={handleAdvancedSearchKeyDown}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeAdvancedSearch();
+          }}
+        >
+          <form
+            onSubmit={submitAdvancedSearch}
+            className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gmail-advanced-search-title"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h2 id="gmail-advanced-search-title" className="text-sm font-bold text-slate-900">Advanced Gmail search</h2>
+                <p className="mt-0.5 text-[11px] text-slate-500">Search the current {mailboxFolder} folder on Gmail.</p>
+              </div>
+              <button type="button" onClick={closeAdvancedSearch} aria-label="Close advanced search" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 sm:h-9 sm:w-9"><X className="h-4 w-4" /></button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="gmail-filter-from" className="mb-1 block text-xs font-semibold text-slate-700">From</label>
+                <input id="gmail-filter-from" type="text" value={advancedFilters.from ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, from: event.target.value || undefined }))} placeholder="sender@example.com" className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <div>
+                <label htmlFor="gmail-filter-to" className="mb-1 block text-xs font-semibold text-slate-700">To</label>
+                <input id="gmail-filter-to" type="text" value={advancedFilters.to ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, to: event.target.value || undefined }))} placeholder="recipient@example.com" className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="gmail-filter-subject" className="mb-1 block text-xs font-semibold text-slate-700">Subject</label>
+                <input id="gmail-filter-subject" type="text" value={advancedFilters.subject ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, subject: event.target.value || undefined }))} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <div>
+                <label htmlFor="gmail-filter-include" className="mb-1 block text-xs font-semibold text-slate-700">Includes the words</label>
+                <input id="gmail-filter-include" type="text" value={advancedFilters.search ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, search: event.target.value || undefined }))} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <div>
+                <label htmlFor="gmail-filter-exclude" className="mb-1 block text-xs font-semibold text-slate-700">Doesn’t have</label>
+                <input id="gmail-filter-exclude" type="text" value={advancedFilters.exclude ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, exclude: event.target.value || undefined }))} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+
+              <fieldset className="rounded-xl border border-slate-200 p-3 sm:col-span-2">
+                <legend className="px-1 text-xs font-semibold text-slate-700">Size</legend>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_1fr_5rem]">
+                  <select aria-label="Size comparison" value={advancedFilters.sizeOperator ?? 'larger'} onChange={(event) => setAdvancedFilters((current) => ({ ...current, sizeOperator: event.target.value as GmailMessageFilters['sizeOperator'] }))} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                    <option value="larger">Greater than</option>
+                    <option value="smaller">Less than</option>
+                  </select>
+                  <input type="number" min="0.01" max="100000" step="0.01" aria-label="Message size in megabytes" value={advancedFilters.sizeMb ?? ''} onChange={(event) => setAdvancedFilters((current) => event.target.value ? { ...current, sizeMb: Number(event.target.value), sizeOperator: current.sizeOperator ?? 'larger' } : { ...current, sizeMb: undefined, sizeOperator: undefined })} className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                  <div className="flex min-h-11 items-center rounded-lg bg-slate-50 px-3 text-xs text-slate-500">MB</div>
+                </div>
+              </fieldset>
+
+              <fieldset className="rounded-xl border border-slate-200 p-3 sm:col-span-2">
+                <legend className="px-1 text-xs font-semibold text-slate-700">Date within</legend>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr]">
+                  <div className="flex items-center gap-2">
+                    <input type="number" min="0" max="3650" aria-label="Days around selected date" value={advancedFilters.dateWithinDays ?? 1} onChange={(event) => setAdvancedFilters((current) => ({ ...current, dateWithinDays: Number(event.target.value) }))} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                    <span className="text-xs text-slate-500">days of</span>
+                  </div>
+                  <input type="date" aria-label="Search date" value={advancedFilters.date ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, date: event.target.value || undefined, dateRange: 'any', dateWithinDays: current.dateWithinDays ?? 1 }))} className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                </div>
+              </fieldset>
+
+              <div className="flex flex-wrap gap-x-5 gap-y-3 sm:col-span-2">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={Boolean(advancedFilters.hasAttachment)} onChange={(event) => setAdvancedFilters((current) => ({ ...current, hasAttachment: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /> Has attachment</label>
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={Boolean(advancedFilters.unread)} onChange={(event) => setAdvancedFilters((current) => ({ ...current, unread: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /> Is unread</label>
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={Boolean(advancedFilters.excludePromotions)} onChange={(event) => setAdvancedFilters((current) => ({ ...current, excludePromotions: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /> Exclude Promotions</label>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" onClick={() => setAdvancedFilters(EMPTY_GMAIL_FILTERS)} className="min-h-11 rounded-lg px-4 text-xs font-semibold text-slate-600 hover:bg-slate-100">Reset fields</button>
+              <div className="flex gap-2">
+                <button type="button" onClick={closeAdvancedSearch} className="min-h-11 flex-1 rounded-lg px-4 text-xs font-semibold text-slate-600 hover:bg-slate-100 sm:flex-none">Cancel</button>
+                <button type="submit" className="min-h-11 flex-1 rounded-lg bg-indigo-600 px-5 text-xs font-bold text-white hover:bg-indigo-700 sm:flex-none">Search</button>
+              </div>
+            </div>
+          </form>
+        </div>,
+        document.body,
+      )}
+
       {/* ─────────────────────────────────────────────────────────────
           MODAL: COMPOSE EMAIL
       ───────────────────────────────────────────────────────────── */}
@@ -1701,24 +1985,15 @@ export const EmailMarketingView: React.FC = () => {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <span className="font-semibold text-slate-700">Message Body</span>
-                <select
-                  onChange={(e) => {
-                    const tmpl = templates.find((t) => t.id === e.target.value);
-                    if (tmpl) {
-                      setComposeSubject(tmpl.subject);
-                      setComposeBody(tmpl.body);
-                    }
-                    e.target.value = '';
+                <TemplateSearchPicker
+                  label="Search and insert an email template into compose"
+                  onSelect={(template) => {
+                    setComposeSubject(template.subject);
+                    setComposeBody(template.body);
                   }}
-                  className="text-[11px] text-indigo-600 bg-indigo-50/70 border border-indigo-200 rounded-md px-2 py-0.5 focus:outline-none"
-                >
-                  <option value="">Insert Template...</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>{t.title}</option>
-                  ))}
-                </select>
+                />
               </div>
 
               <textarea

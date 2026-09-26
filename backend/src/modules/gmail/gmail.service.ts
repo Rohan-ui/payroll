@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { ImapFlow, MessageAddressObject, MessageStructureObject } from 'imapflow';
+import { ImapFlow, MessageAddressObject, MessageStructureObject, SearchObject } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import * as nodemailer from 'nodemailer';
 import { Prisma } from '@prisma/client';
@@ -24,6 +24,7 @@ import {
 } from '@/modules/super-admin/auth/platform-crypto.util';
 import {
   GmailOAuthCallbackDto,
+  GmailInboxQueryDto,
   GmailReplyDto,
   GmailSendMessageDto,
   GmailTemplateDto,
@@ -194,20 +195,26 @@ export class GmailService {
     return { success: true };
   }
 
-  async listMessages(tenantId: string, userId: string, folder: GmailFolder, page: number, limit: number) {
+  async listMessages(tenantId: string, userId: string, query: GmailInboxQueryDto) {
     const connection = await this.connection(tenantId, userId);
+    const { folder, page, limit } = query;
 
     return this.withClient(connection, async (client) => {
       const lock = await client.getMailboxLock(await this.mailboxPath(client, folder), { readOnly: true });
       try {
-        const total = client.mailbox ? client.mailbox.exists : 0;
-        const newestSequence = total - (page - 1) * limit;
-        if (newestSequence < 1) return { items: [], page, limit, total, hasMore: false };
+        const criteria = this.searchCriteria(query);
+        const filtered = Object.keys(criteria).length > 0;
+        // ponytail: filtered searches materialize matching UIDs; move to ESEARCH PARTIAL if large mailboxes show latency.
+        const matches = filtered ? (await client.search(criteria, { uid: true })) || [] : [];
+        const total = filtered ? matches.length : (client.mailbox ? client.mailbox.exists : 0);
+        const newestIndex = total - (page - 1) * limit;
+        if (newestIndex < 1) return { items: [], page, limit, total, hasMore: false };
 
-        const oldestSequence = Math.max(1, newestSequence - limit + 1);
+        const oldestIndex = Math.max(0, newestIndex - limit);
+        const range = filtered ? matches.slice(oldestIndex, newestIndex) : `${oldestIndex + 1}:${newestIndex}`;
         const items = [];
         for await (const message of client.fetch(
-          `${oldestSequence}:${newestSequence}`,
+          range,
           {
             uid: true,
             flags: true,
@@ -216,6 +223,7 @@ export class GmailService {
             bodyStructure: true,
             source: { maxLength: PREVIEW_SOURCE_BYTES },
           },
+          filtered ? { uid: true } : undefined,
         )) {
           const parsed = message.source
             ? await simpleParser(message.source, {
@@ -240,7 +248,7 @@ export class GmailService {
         }
 
         items.reverse();
-        return { items, page, limit, total, hasMore: oldestSequence > 1 };
+        return { items, page, limit, total, hasMore: oldestIndex > 0 };
       } finally {
         lock.release();
       }
@@ -384,24 +392,44 @@ export class GmailService {
     return { success: true, messageId: result.messageId };
   }
 
-  async listTemplates(tenantId: string, page: number, limit: number) {
+  async listTemplates(tenantId: string, page: number, limit: number, search?: string) {
     const offset = (page - 1) * limit;
+    const pattern = search?.trim() ? `%${search.trim()}%` : null;
     const [items, counts] = await Promise.all([
       this.prisma.$queryRaw<StoredTemplate[]>(
         Prisma.sql`
           SELECT id, template_name, category, subject, description, body_text, created_at, updated_at
           FROM rndtechnosoft_email_templates
           WHERE tenant_id = ${tenantId}::uuid
+            AND (${pattern}::text IS NULL
+              OR template_name ILIKE ${pattern}
+              OR category ILIKE ${pattern}
+              OR subject ILIKE ${pattern})
           ORDER BY updated_at DESC, id DESC
           LIMIT ${limit} OFFSET ${offset}
         `,
       ),
       this.prisma.$queryRaw<Array<{ count: bigint }>>(
-        Prisma.sql`SELECT COUNT(*)::bigint AS count FROM rndtechnosoft_email_templates WHERE tenant_id = ${tenantId}::uuid`,
+        Prisma.sql`
+          SELECT COUNT(*)::bigint AS count
+          FROM rndtechnosoft_email_templates
+          WHERE tenant_id = ${tenantId}::uuid
+            AND (${pattern}::text IS NULL
+              OR template_name ILIKE ${pattern}
+              OR category ILIKE ${pattern}
+              OR subject ILIKE ${pattern})
+        `,
       ),
     ]);
     const total = Number(counts[0]?.count ?? 0);
-    return { items: items.map((item) => this.template(item)), page, limit, total, hasMore: offset + items.length < total };
+    return {
+      items: items.map((item) => this.template(item)),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasMore: offset + items.length < total,
+    };
   }
 
   async createTemplate(tenantId: string, actor: AuthenticatedTenantUser, body: GmailTemplateDto) {
@@ -627,6 +655,41 @@ export class GmailService {
     } finally {
       client.close();
     }
+  }
+
+  private searchCriteria(query: GmailInboxQueryDto, now = new Date()): SearchObject {
+    const criteria: SearchObject = {};
+    if (text(query.search)) criteria.text = query.search!.trim();
+    if (text(query.from)) criteria.from = query.from!.trim();
+    if (text(query.to)) criteria.to = query.to!.trim();
+    if (text(query.subject)) criteria.subject = query.subject!.trim();
+    if (text(query.exclude)) criteria.not = { text: query.exclude!.trim() };
+    if (query.unread) criteria.seen = false;
+    if (query.sizeMb && query.sizeOperator) {
+      criteria[query.sizeOperator] = Math.round(query.sizeMb * 1024 * 1024);
+    }
+
+    const relativeDays = { any: 0, '1d': 1, '7d': 7, '30d': 30, '1y': 365 }[query.dateRange ?? 'any'];
+    if (relativeDays) criteria.since = new Date(now.getTime() - relativeDays * 86_400_000);
+
+    if (query.date) {
+      const [year, month, day] = query.date.split('-').map(Number);
+      const center = new Date(Date.UTC(year, month - 1, day));
+      if (
+        center.getUTCFullYear() !== year ||
+        center.getUTCMonth() !== month - 1 ||
+        center.getUTCDate() !== day
+      ) {
+        throw new BadRequestException('Search date is invalid.');
+      }
+      const within = query.dateWithinDays ?? 0;
+      criteria.since = new Date(center.getTime() - within * 86_400_000);
+      criteria.before = new Date(center.getTime() + (within + 1) * 86_400_000);
+    }
+
+    const gmailTerms = [query.hasAttachment ? 'has:attachment' : '', query.excludePromotions ? '-category:promotions' : ''].filter(Boolean);
+    if (gmailTerms.length) criteria.gmailraw = gmailTerms.join(' ');
+    return criteria;
   }
 
   private async mailboxPath(client: ImapFlow, folder: GmailFolder): Promise<string> {

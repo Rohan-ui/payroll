@@ -37,7 +37,14 @@ export default function FollowupsAndMeetings({
   const [activeTab, setActiveTab] = useState<'calendar' | 'followups' | 'meetings'>('calendar');
   const [followups, setFollowups] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
+  const [followupPage, setFollowupPage] = useState(1);
+  const [followupTotal, setFollowupTotal] = useState(0);
+  const [followupTotalPages, setFollowupTotalPages] = useState(1);
+  const [meetingPage, setMeetingPage] = useState(1);
+  const [meetingTotal, setMeetingTotal] = useState(0);
+  const [meetingTotalPages, setMeetingTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const pageSize = 25;
 
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -95,13 +102,21 @@ export default function FollowupsAndMeetings({
     setLoading(true);
     try {
       const [fRes, mRes] = await Promise.all([
-        apiFetch('/api/v1/crm/followups'),
-        apiFetch('/api/v1/crm/meetings')
+        apiFetch(`/api/v1/crm/followups?page=${followupPage}&limit=${pageSize}`),
+        apiFetch(`/api/v1/crm/meetings?page=${meetingPage}&limit=${pageSize}`)
       ]);
       const fJson = await fRes.json();
       const mJson = await mRes.json();
-      if (fJson.success) setFollowups(fJson.data || []);
-      if (mJson.success) setMeetings(mJson.data || []);
+      if (fJson.success) {
+        setFollowups(fJson.data || []);
+        setFollowupTotal(fJson.pagination?.total || 0);
+        setFollowupTotalPages(Math.max(1, fJson.pagination?.totalPages || 1));
+      }
+      if (mJson.success) {
+        setMeetings(mJson.data || []);
+        setMeetingTotal(mJson.pagination?.total || 0);
+        setMeetingTotalPages(Math.max(1, mJson.pagination?.totalPages || 1));
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -121,7 +136,7 @@ export default function FollowupsAndMeetings({
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [followupPage, meetingPage]);
 
   useEffect(() => {
     if (isScheduleFollowupOpen) {
@@ -351,7 +366,7 @@ export default function FollowupsAndMeetings({
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            <span>Calendar Schedule ({followups.length + meetings.length})</span>
+            <span>Calendar Schedule ({followupTotal + meetingTotal})</span>
           </button>
           <button
             onClick={() => setActiveTab('followups')}
@@ -362,7 +377,7 @@ export default function FollowupsAndMeetings({
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
-            <span>Follow-up Queue ({followups.length})</span>
+            <span>Follow-up Queue ({followupTotal})</span>
           </button>
           <button
             onClick={() => setActiveTab('meetings')}
@@ -373,7 +388,7 @@ export default function FollowupsAndMeetings({
             }`}
           >
             <Video className="w-3.5 h-3.5" />
-            <span>Client Meetings ({meetings.length})</span>
+            <span>Client Meetings ({meetingTotal})</span>
           </button>
         </div>
 
@@ -677,6 +692,14 @@ export default function FollowupsAndMeetings({
                 )}
               </tbody>
             </table>
+            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+              <span>{followupTotal === 0 ? 0 : (followupPage - 1) * pageSize + 1}–{Math.min(followupPage * pageSize, followupTotal)} of {followupTotal}</span>
+              <div className="flex items-center gap-2">
+                <button type="button" disabled={followupPage <= 1 || loading} onClick={() => setFollowupPage((value) => value - 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Previous</button>
+                <span>Page {followupPage} of {followupTotalPages}</span>
+                <button type="button" disabled={followupPage >= followupTotalPages || loading} onClick={() => setFollowupPage((value) => value + 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Next</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -783,6 +806,14 @@ export default function FollowupsAndMeetings({
                 No meetings scheduled.
               </div>
             )}
+          </div>
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            <span>{meetingTotal === 0 ? 0 : (meetingPage - 1) * pageSize + 1}–{Math.min(meetingPage * pageSize, meetingTotal)} of {meetingTotal}</span>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={meetingPage <= 1 || loading} onClick={() => setMeetingPage((value) => value - 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Previous</button>
+              <span>Page {meetingPage} of {meetingTotalPages}</span>
+              <button type="button" disabled={meetingPage >= meetingTotalPages || loading} onClick={() => setMeetingPage((value) => value + 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Next</button>
+            </div>
           </div>
         </div>
       )}
