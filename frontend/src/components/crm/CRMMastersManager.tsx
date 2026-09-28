@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Settings2, Plus, Edit3, Trash2, CheckCircle2, RefreshCw, X,
   Layers, Tag, Flag, Briefcase, HelpCircle, Check, Palette, FileText,
@@ -28,6 +28,10 @@ const MASTER_ACTIONS: Record<string, { create: boolean; update: boolean; delete:
   services: { create: true, update: true, delete: true },
   sources: { create: true, update: false, delete: true },
   pipelines: { create: true, update: false, delete: true },
+  sop_steps: { create: true, update: true, delete: true },
+  sop_branches: { create: true, update: true, delete: true },
+  lost_reasons: { create: false, update: false, delete: true },
+  templates: { create: false, update: false, delete: true },
 };
 const canChange = (tab: string, action: 'create' | 'update' | 'delete') => MASTER_ACTIONS[tab]?.[action] ?? false;
 
@@ -95,6 +99,27 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<{ id: string; label: string; tab: string } | null>(null);
+  // Why the server refused the delete, e.g. how many leads still use the record.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // The objection strategy shown in full, read-only; focus goes back to its eye button on close.
+  const [viewBranch, setViewBranch] = useState<any | null>(null);
+  const viewBranchTrigger = useRef<HTMLButtonElement | null>(null);
+  const viewBranchClose = useRef<HTMLButtonElement | null>(null);
+  const closeViewBranch = () => {
+    setViewBranch(null);
+    viewBranchTrigger.current?.focus();
+  };
+  useEffect(() => {
+    if (!viewBranch) return;
+    viewBranchClose.current?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeViewBranch();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [viewBranch]);
   const [submitting, setSubmitting] = useState(false);
 
   // In-app Toast state
@@ -386,20 +411,33 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
     }
   };
 
-  const executeDelete = async () => {
-    if (!deleteConfirmItem) return;
-    const { id, tab } = deleteConfirmItem;
-    const endpoint = `${getApiEndpoint(tab as any)}?id=${id}`;
+  const closeDeleteConfirm = () => {
+    setDeleteConfirmItem(null);
+    setDeleteError(null);
+  };
 
+  const executeDelete = async () => {
+    if (!deleteConfirmItem || deleting) return;
+    const { id, tab } = deleteConfirmItem;
+    const endpoint = `${getApiEndpoint(tab as any)}?id=${encodeURIComponent(id)}`;
+
+    setDeleting(true);
+    setDeleteError(null);
     try {
-      const res = await apiFetch(endpoint, { method: 'DELETE' });
+      // A refusal is shown in the dialog, where the user is looking.
+      const res = await apiFetch(endpoint, { method: 'DELETE', feedback: { error: false } });
       if (res.ok) {
-        setDeleteConfirmItem(null);
+        closeDeleteConfirm();
         fetchAllMasters();
         onRefreshParent();
+      } else {
+        const data = await res.json().catch(() => null);
+        setDeleteError(data?.message || 'This record could not be deleted. Reload the page and try again.');
       }
     } catch {
-      // Reported by the API client.
+      setDeleteError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1084,6 +1122,18 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          viewBranchTrigger.current = e.currentTarget;
+                          setViewBranch(br);
+                        }}
+                        className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800"
+                        title="View details"
+                        aria-label={`View details of ${br.label}`}
+                      >
+                        <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
                       <button onClick={() => handleOpenEdit(br)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Strategy">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
@@ -1615,13 +1665,14 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Day Offset</label>
+                      <label htmlFor="sop-day-offset" className="block text-xs font-bold text-slate-700 mb-1">Day Offset</label>
+                      {/* Always the day number less one: the days after enrolment the step falls due. */}
                       <input
+                        id="sop-day-offset"
                         type="number"
-                        min="0"
-                        value={formData.day_offset ?? 0}
-                        onChange={(e) => setFormData({ ...formData, day_offset: Number(e.target.value) })}
-                        className="w-full px-3 py-2 text-xs border rounded-lg text-slate-600"
+                        readOnly
+                        value={Math.max(0, Number(formData.day_number ?? 1) - 1)}
+                        className="w-full px-3 py-2 text-xs border rounded-lg text-slate-500 bg-slate-50"
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -2052,9 +2103,10 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">WhatsApp Response Script</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">WhatsApp Response Script *</label>
                     <textarea
                       rows={3}
+                      required
                       value={formData.whatsapp_message || ''}
                       onChange={(e) => setFormData({ ...formData, whatsapp_message: e.target.value })}
                       placeholder="Understood {{First Name}}! Most of our premier clients already had websites..."
@@ -2380,7 +2432,8 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                 </>
               )}
 
-              {/* Status field */}
+              {/* Status field. Every playbook step runs, so steps have none. */}
+              {activeMasterTab !== 'sop_steps' && (
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
                 <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
                   <input
@@ -2392,6 +2445,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   <span>Active in CRM Dropdowns</span>
                 </label>
               </div>
+              )}
 
               {/* Footer Buttons */}
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -2417,6 +2471,75 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
       )}
 
       {/* DELETE CONFIRMATION MODAL */}
+      {viewBranch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" onClick={closeViewBranch}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="view-branch-title"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Objection strategy</p>
+                <h4 id="view-branch-title" className="font-bold text-sm text-slate-900 break-words">{viewBranch.label}</h4>
+                <p className="text-[11px] text-slate-400 font-mono mt-0.5 break-all">{viewBranch.branch_key}</p>
+              </div>
+              <button
+                ref={viewBranchClose}
+                type="button"
+                onClick={closeViewBranch}
+                aria-label="Close"
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+            <dl className="px-5 py-4 space-y-4 overflow-y-auto text-xs">
+              {([
+                ['Next lead temperature', `${viewBranch.next_lead_temperature} — ${({ HOT: 'Immediate follow-up', WARM: 'Nurture/Audit', COLD: 'Long-term keep-in-touch', LOST: 'Respectful exit' } as Record<string, string>)[viewBranch.next_lead_temperature] ?? ''}`],
+                ['Trigger condition (prospect words)', viewBranch.trigger_condition],
+                ['Suggested SDR action', viewBranch.suggested_action],
+                ['WhatsApp response script', viewBranch.whatsapp_message],
+                ...(viewBranch.recommended_response_script && viewBranch.recommended_response_script !== viewBranch.whatsapp_message
+                  ? [['Recommended response script', viewBranch.recommended_response_script]]
+                  : []),
+                ['Email subject', viewBranch.email_subject],
+                ['Email body', viewBranch.email_body],
+              ] as [string, string | undefined][]).map(([term, value]) => (
+                <div key={term}>
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">{term}</dt>
+                  <dd className={`whitespace-pre-wrap break-words leading-relaxed ${value ? 'text-slate-800' : 'text-slate-400 italic'}`}>{value || 'Not set'}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeViewBranch}
+                className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg"
+              >
+                Close
+              </button>
+              {canChange('sop_branches', 'update') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const branch = viewBranch;
+                    setViewBranch(null);
+                    handleOpenEdit(branch);
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg"
+                >
+                  Edit strategy
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {deleteConfirmItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-5 text-center animate-in zoom-in-95">
@@ -2427,19 +2550,27 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
             <p className="text-xs text-slate-500 mb-4">
               Are you sure you want to remove <span className="font-bold text-slate-800">"{deleteConfirmItem.label}"</span> from the CRM master list?
             </p>
+            {deleteError && (
+              <p role="alert" className="mb-4 p-3 text-left text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-lg">
+                {deleteError}
+              </p>
+            )}
             <div className="flex items-center justify-center gap-2">
               <button
-                onClick={() => setDeleteConfirmItem(null)}
+                onClick={closeDeleteConfirm}
                 className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg"
               >
-                Cancel
+                {deleteError ? 'Close' : 'Cancel'}
               </button>
-              <button
-                onClick={executeDelete}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs"
-              >
-                Delete Record
-              </button>
+              {!deleteError && (
+                <button
+                  onClick={executeDelete}
+                  disabled={deleting}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting…' : 'Delete Record'}
+                </button>
+              )}
             </div>
           </div>
         </div>

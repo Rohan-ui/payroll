@@ -12,8 +12,8 @@ import {
   Edit3, Save
 } from 'lucide-react';
 import { 
-  CADENCE_STEPS_MASTER, 
-  CADENCE_REPLY_BRANCHES, 
+  CadenceStep,
+  ReplyBranch,
   CADENCE_INDUSTRIES,
   interpolateText,
   generateWhatsAppUrl,
@@ -30,7 +30,7 @@ import { parsePhoneWithCountryCode } from '@/lib/countryCodes';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
-import { coldFunnelDestination, dealWonMessage } from './pipelineBoard';
+import { conversionDestination, dealWonMessage } from './pipelineBoard';
 import { ConvertDestination } from './ConvertDestination';
 interface Lead360DrawerProps {
   leadId: string | null;
@@ -91,6 +91,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
   const [cadenceTargetChannel, setCadenceTargetChannel] = useState('cold_sop');
   const [cadenceDealValue, setCadenceDealValue] = useState<string | number>('');
   const [cadenceTemperature, setCadenceTemperature] = useState<'HOT' | 'WARM'>('HOT');
+  const [convertPipelineId, setConvertPipelineId] = useState('');
+  const [convertStageId, setConvertStageId] = useState('');
   const [cadenceNotes, setCadenceNotes] = useState('');
   const [convertingCadenceOpp, setConvertingCadenceOpp] = useState(false);
   // Set synchronously, so a second click before the next render cannot send a second request.
@@ -206,11 +208,11 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
     }
   };
 
-  // Converted leads go to the Cold Funnel's first open stage; the server decides and checks this too.
-  const convertDestination = coldFunnelDestination(pipelines, stages);
+  // Converted leads go to the chosen pipeline and open stage; by default the Cold Funnel and its first open stage. The server checks this too.
+  const convertDestination = conversionDestination(pipelines, stages, { pipelineId: convertPipelineId, stageId: convertStageId });
 
   const handleExecuteConvertCadenceOpportunity = async () => {
-    if (!leadId || convertInFlight.current || !convertDestination) return;
+    if (!leadId || convertInFlight.current || !convertDestination.pipeline || !convertDestination.stage) return;
     convertInFlight.current = true;
     setConvertingCadenceOpp(true);
     try {
@@ -220,6 +222,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
         body: JSON.stringify({
           action: 'CONVERT_OPPORTUNITY',
           leadId,
+          pipelineId: convertDestination.pipeline.id,
+          stageId: convertDestination.stage.id,
           conversionChannel: cadenceTargetChannel,
           ...(cadenceDealValue !== '' ? { budgetAmount: Number(cadenceDealValue) } : {}),
           temperature: cadenceTemperature,
@@ -406,6 +410,13 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
     }
   } catch (e) {}
 
+  // The workspace's outreach playbook, sent with the lead. The lead's current
+  // step is the first after the last day it completed, as the server works it out.
+  const cadenceSteps: CadenceStep[] = data?.cadence_steps ?? [];
+  const lastCompletedDay = Math.max(0, ...(leadCadence?.completedSteps ?? []).map((done: any) => Number(done.dayNumber) || 0));
+  const currentCadenceStep = cadenceSteps.find((step) => step.dayNumber > lastCompletedDay);
+  const replyBranches: Record<string, ReplyBranch> = data?.reply_branches ?? {};
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -537,7 +548,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
+    // !mt-0: the page wrapper spaces its children with space-y, whose top margin would push this full-screen layer down.
+    <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
       <div className="bg-white dark:bg-[#12111A] w-full max-w-4xl h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-[#262438] animate-in slide-in-from-right duration-200">
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-[#262438] bg-slate-50 dark:bg-[#171622] flex items-center justify-between gap-3">
@@ -1708,7 +1720,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                             </span>
                           </div>
                           <h4 className="text-sm font-bold text-white mt-1">
-                            Current: Day {CADENCE_STEPS_MASTER[leadCadence.currentStepIndex || 0]?.dayNumber}: {CADENCE_STEPS_MASTER[leadCadence.currentStepIndex || 0]?.title}
+                            Current: Day {currentCadenceStep?.dayNumber}: {currentCadenceStep?.title}
                           </h4>
                           <div className="text-[11px] text-slate-300 mt-0.5">
                             Industry: <span className="font-semibold text-amber-300">{CADENCE_INDUSTRIES[leadCadence.industry]?.name || leadCadence.industry}</span> • Enrolled: {new Date(leadCadence.enrolledAt).toLocaleDateString('en-IN')}
@@ -1720,7 +1732,9 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                             <button
                               onClick={() => {
                                 setCadenceDealValue(Number(lead?.budget_amount) > 0 ? Number(lead?.budget_amount) : '');
-                                setCadenceNotes(`Prospect ${lead?.first_name} ${lead?.last_name} qualified during Cold Cadence Day ${CADENCE_STEPS_MASTER[leadCadence.currentStepIndex || 0]?.dayNumber || 1}.`);
+                                setCadenceNotes(`Prospect ${lead?.first_name} ${lead?.last_name} qualified during Cold Cadence Day ${currentCadenceStep?.dayNumber || 1}.`);
+                                setConvertPipelineId('');
+                                setConvertStageId('');
                                 setShowCadenceConvertModal(true);
                               }}
                               className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all hover:shadow-md"
@@ -1737,7 +1751,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
 
                           <button
                             onClick={() => handleCadenceCopy(
-                              `Company: ${lead?.company_name}\nContact: ${lead?.first_name} ${lead?.last_name}\nCadence Day: ${CADENCE_STEPS_MASTER[leadCadence.currentStepIndex || 0]?.dayNumber}\nStatus: ${leadCadence.status}`,
+                              `Company: ${lead?.company_name}\nContact: ${lead?.first_name} ${lead?.last_name}\nCadence Day: ${currentCadenceStep?.dayNumber}\nStatus: ${leadCadence.status}`,
                               'summary'
                             )}
                             className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold flex items-center gap-1 border border-white/10 transition-colors"
@@ -1772,7 +1786,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                         <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                           {leadCadence.currentStepIndex === 0
                             ? `Day 1 initiates the Triple Platform Launch across LinkedIn, Email, and WhatsApp. This synchronized 3-channel touchpoint establishes high immediate brand authority and recognition for ${lead?.company_name || 'the prospect'} before subsequent trust and audit milestones.`
-                            : `Currently progressing through Day ${CADENCE_STEPS_MASTER[leadCadence.currentStepIndex]?.dayNumber} of the 30-Day Outbound SOP (${CADENCE_STEPS_MASTER[leadCadence.currentStepIndex]?.title}). Follow-ups are spaced to nurture interest without spamming.`
+                            : `Currently progressing through Day ${currentCadenceStep?.dayNumber} of the 30-Day Outbound SOP (${currentCadenceStep?.title}). Follow-ups are spaced to nurture interest without spamming.`
                           }
                         </p>
 
@@ -1807,7 +1821,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                         </div>
 
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                          {Object.entries(CADENCE_REPLY_BRANCHES).map(([k, br]) => (
+                          {Object.entries(replyBranches).map(([k, br]) => (
                             <button
                               key={k}
                               onClick={() => setDrawerBranchKey(drawerBranchKey === k ? '' : k)}
@@ -1826,13 +1840,13 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                         </div>
 
                         {/* Selected Branch Details */}
-                        {drawerBranchKey && CADENCE_REPLY_BRANCHES[drawerBranchKey] && (
+                        {drawerBranchKey && replyBranches[drawerBranchKey] && (
                           <div className="p-3 bg-white dark:bg-[#151421] border border-amber-300 dark:border-amber-900/60 rounded-xl space-y-2 animate-in fade-in">
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-xs text-amber-900 dark:text-amber-200">Recommended Reply Script:</span>
                               <button
                                 onClick={() => handleCadenceCopy(
-                                  interpolateText(CADENCE_REPLY_BRANCHES[drawerBranchKey].recommendedResponseScript, {
+                                  interpolateText(replyBranches[drawerBranchKey].recommendedResponseScript, {
                                     firstName: lead?.first_name || 'Aditya',
                                     lastName: lead?.last_name || 'Kulkarni',
                                     fullName: [lead?.first_name, lead?.last_name].filter(Boolean).join(' ') || 'Aditya Kulkarni',
@@ -1848,7 +1862,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                               </button>
                             </div>
                             <div className="bg-slate-50 dark:bg-[#11101a] p-2.5 rounded-lg border border-slate-200 dark:border-[#2e2c43] text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-sans leading-relaxed">
-                              {interpolateText(CADENCE_REPLY_BRANCHES[drawerBranchKey].recommendedResponseScript, {
+                              {interpolateText(replyBranches[drawerBranchKey].recommendedResponseScript, {
                                 firstName: lead?.first_name || 'Aditya',
                                 lastName: lead?.last_name || 'Kulkarni',
                                 fullName: [lead?.first_name, lead?.last_name].filter(Boolean).join(' ') || 'Aditya Kulkarni',
@@ -1874,14 +1888,14 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                       <div className="space-y-3">
                         <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center justify-between">
                           <span>30-Day Multi-Channel Roadmap</span>
-                          <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal">8 Touchpoints</span>
+                          <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal">{cadenceSteps.length} Steps</span>
                         </h4>
 
                         <div className="space-y-3">
-                          {CADENCE_STEPS_MASTER.map((step) => {
-                            const isCompleted = leadCadence.completedSteps?.some((s: any) => s.stepIndex === step.stepIndex);
-                            const isCurrent = step.stepIndex === leadCadence.currentStepIndex && leadCadence.status === 'ACTIVE';
-                            const completedRecord = leadCadence.completedSteps?.find((s: any) => s.stepIndex === step.stepIndex);
+                          {cadenceSteps.map((step) => {
+                            const isCompleted = leadCadence.completedSteps?.some((s: any) => s.dayNumber === step.dayNumber);
+                            const isCurrent = step === currentCadenceStep && leadCadence.status === 'ACTIVE';
+                            const completedRecord = leadCadence.completedSteps?.find((s: any) => s.dayNumber === step.dayNumber);
 
                             const vars = {
                               firstName: lead?.first_name || 'Aditya',
@@ -2420,7 +2434,14 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
             </div>
 
             <div className="p-6 space-y-4">
-              <ConvertDestination destination={convertDestination} />
+              <ConvertDestination
+                destination={convertDestination}
+                onPipelineChange={(pipelineId) => {
+                  setConvertPipelineId(pipelineId);
+                  setConvertStageId('');
+                }}
+                onStageChange={setConvertStageId}
+              />
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Conversion Channel</label>
@@ -2493,7 +2514,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-[11px] flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 <span>
-                  Converting takes this lead out of the outreach cadence and puts it on the <strong>Sales Pipeline</strong> board{convertDestination ? <> under <strong>{convertDestination.pipeline.name}</strong></> : null}.
+                  Converting takes this lead out of the outreach cadence and puts it on the <strong>Sales Pipeline</strong> board{convertDestination.pipeline ? <> under <strong>{convertDestination.pipeline.name}</strong></> : null}.
                 </span>
               </div>
             </div>
@@ -2508,7 +2529,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
               </button>
               <button
                 type="button"
-                disabled={convertingCadenceOpp || !convertDestination}
+                disabled={convertingCadenceOpp || !convertDestination.stage}
                 onClick={handleExecuteConvertCadenceOpportunity}
                 className="px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 rounded-xl shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
               >

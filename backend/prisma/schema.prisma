@@ -1989,17 +1989,21 @@ model rndtechnosoft_crm_lost_reasons_master {
 model rndtechnosoft_crm_sop_steps_master {
   id                    String                @id @db.Uuid
   tenant_id             String                @db.Uuid
-  step_index            Int
   day_number            Int
   title                 String                @db.VarChar(160)
   channels              String[]              @default([])
   primary_objective     String                @db.VarChar(500)
   script_template       String?               @db.Text
   sort_order            Int                   @default(0)
+  timing_guide          String?               @db.VarChar(255)
+  role_note             String?               @db.VarChar(500)
+  templates             Json                  @default("{}")
   created_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_sop_steps_master_tenant")
 
   @@unique([tenant_id, id], map: "uq_crm_sop_steps_master_tenant_id")
+  @@unique([tenant_id, day_number], map: "uq_crm_sop_steps_master_tenant_day")
 }
 
 model rndtechnosoft_crm_sop_reply_branches_master {
@@ -2011,10 +2015,16 @@ model rndtechnosoft_crm_sop_reply_branches_master {
   suggested_action            String                @db.VarChar(255)
   recommended_response_script String                @db.Text
   sort_order                  Int                   @default(0)
+  next_lead_temperature       String                @default("WARM") @db.VarChar(8)
+  whatsapp_message            String                @default("") @db.Text
+  email_subject               String?               @db.VarChar(255)
+  email_body                  String?               @db.Text
   created_at                  DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_tenants       rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_sop_reply_branches_master_tenant")
 
   @@unique([tenant_id, id], map: "uq_crm_sop_reply_branches_master_tenant_id")
+  @@unique([tenant_id, branch_key], map: "uq_crm_sop_reply_branches_master_tenant_key")
 }
 
 model rndtechnosoft_crm_sop_industries_master {

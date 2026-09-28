@@ -47,8 +47,9 @@ export const NAV_PRESENTATION: Record<string, NavPresentation> = {
   'crm.activities': { icon: Clock, view: 'crm', tab: 'activities', hasPlus: true },
   'crm.proposals': { icon: FileText, view: 'crm', tab: 'proposals', hasPlus: true },
   'crm.reports': { icon: BarChart2, view: 'crm', tab: 'reports' },
-  'crm.masters': { icon: Settings2, view: 'crm', tab: 'masters' },
   'crm.audit-trail': { icon: ShieldCheck, view: 'crm', tab: 'audit-trail' },
+  'crm.masters': { icon: Settings2, view: 'crm', tab: 'masters' },
+
   organization: { icon: Building2, view: 'organization' },
   hrms: { icon: Contact },
   people: { icon: Users, view: 'people' },

@@ -6,7 +6,7 @@ import { toast, ToastItem } from '../../lib/toast';
 /**
  * Converting a lead from Client Outreach into a Sales Pipeline opportunity,
  * through the real workspace, Outreach screen and board (API stubbed): the
- * destination is the Cold Funnel, success is claimed only after the server
+ * destination is the pipeline and stage chosen (by default the Cold Funnel and its first open stage), success is claimed only after the server
  * confirms, and the board shows the lead in the Cold Funnel straight away.
  */
 
@@ -96,6 +96,13 @@ async function openConvertDialog() {
   act(() => convert?.click());
 }
 
+const select = (selector: string) => container.querySelector(selector) as HTMLSelectElement;
+const options = (selector: string) => [...select(selector).options].map((o) => o.textContent);
+const choose = (selector: string, value: string) =>
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select(selector), value);
+    select(selector).dispatchEvent(new Event('change', { bubbles: true }));
+  });
 const confirmButton = () => button('Confirm Conversion to Opportunity') as HTMLButtonElement;
 const convertPosts = () => calls.filter((c) => c.url === '/api/v1/crm/cadence' && c.method === 'POST');
 
@@ -115,7 +122,7 @@ describe('Convert to Opportunity from Client Outreach', () => {
     await flush();
 
     expect(convertPosts()).toHaveLength(1);
-    expect(convertPosts()[0].body).toEqual({ action: 'CONVERT_OPPORTUNITY', leadId: 'lead-1', temperature: 'HOT', notes: expect.any(String) });
+    expect(convertPosts()[0].body).toEqual({ action: 'CONVERT_OPPORTUNITY', leadId: 'lead-1', pipelineId: 'p-cold', stageId: 's-first', temperature: 'HOT', notes: expect.any(String) });
     expect(shown.map((t) => [t.kind, t.message])).toEqual([['success', 'Outreach Co is now in Cold Funnel › First touch']]);
     expect(shown[0].actions?.map((a) => a.label)).toEqual(['Open lead', 'Show in pipeline']);
     // The pipeline data is reloaded.
@@ -127,6 +134,34 @@ describe('Convert to Opportunity from Client Outreach', () => {
     const card = container.querySelector('[data-lead-card="lead-1"]');
     expect(card?.className).toContain('ring-2');
     expect(card?.closest('.w-72')?.textContent).toContain('First touch');
+  });
+
+  it('defaults to the Cold Funnel and its first open stage, and sends the stage chosen', async () => {
+    convertReply = () => json({ statusCode: 400, message: 'x' }, 400);
+    await openConvertDialog();
+    expect(container.querySelector('label[for="convert-pipeline"]')?.textContent).toBe('Target Sales Pipeline');
+    expect(container.querySelector('label[for="convert-stage"]')?.textContent).toBe('Initial Pipeline Stage');
+    expect(options('#convert-pipeline')).toEqual(['Sales', 'Cold Funnel (default)']);
+    expect(select('#convert-pipeline').value).toBe('p-cold');
+    // Only open stages: a deal does not start in Won.
+    expect(options('#convert-stage')).toEqual(['First touch', 'Qualified']);
+    expect(select('#convert-stage').value).toBe('s-first');
+    choose('#convert-stage', 's-qual');
+    await act(async () => confirmButton().click());
+    await flush();
+    expect(convertPosts()[0].body).toMatchObject({ leadId: 'lead-1', pipelineId: 'p-cold', stageId: 's-qual' });
+  });
+
+  it('can send the lead to another pipeline, starting in one of its stages', async () => {
+    convertReply = () => json({ statusCode: 400, message: 'x' }, 400);
+    await openConvertDialog();
+    choose('#convert-stage', 's-qual');
+    choose('#convert-pipeline', 'p-sales');
+    expect(options('#convert-stage')).toEqual(['New']);
+    expect(select('#convert-stage').value).toBe('s-sales');
+    await act(async () => confirmButton().click());
+    await flush();
+    expect(convertPosts()[0].body).toMatchObject({ pipelineId: 'p-sales', stageId: 's-sales' });
   });
 
   it('keeps the dialog open with the server error, claims no success, and allows a retry', async () => {
@@ -154,12 +189,20 @@ describe('Convert to Opportunity from Client Outreach', () => {
     await flush();
   });
 
-  it('explains that the Cold Funnel must be set up, and does not send anything', async () => {
+  it('without a Cold Funnel, explains it and waits for a pipeline to be chosen', async () => {
     pipelines = [SALES];
+    convertReply = () => json({ statusCode: 400, message: 'x' }, 400);
     await openConvertDialog();
-    expect(container.querySelector('[role=alert]')?.textContent).toContain('The Cold Funnel is not set up');
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('The Cold Funnel, where converted leads go by default, is not set up');
+    expect(select('#convert-pipeline').value).toBe('');
     expect(confirmButton().disabled).toBe(true);
     act(() => confirmButton().click());
     expect(convertPosts()).toHaveLength(0);
+
+    choose('#convert-pipeline', 'p-sales');
+    expect(confirmButton().disabled).toBe(false);
+    await act(async () => confirmButton().click());
+    await flush();
+    expect(convertPosts()[0].body).toMatchObject({ pipelineId: 'p-sales', stageId: 's-sales' });
   });
 });

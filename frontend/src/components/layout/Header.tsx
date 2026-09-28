@@ -14,8 +14,9 @@ const CRM_SUB_ITEMS = [
   { id: 'activities',  label: 'Follow-ups & Meetings', view: 'crm' as AppView,    tab: 'activities' as CrmTab,  icon: Clock },
   { id: 'proposals',   label: 'Quotations',           view: 'crm' as AppView,    tab: 'proposals' as CrmTab,   icon: FileText },
   { id: 'reports',     label: 'Reports & Analytics',  view: 'crm' as AppView,    tab: 'reports' as CrmTab,     icon: BarChart2 },
-  { id: 'masters',     label: 'Masters',              view: 'crm' as AppView,    tab: 'masters' as CrmTab,     icon: Settings2 },
+
   { id: 'audit-trail', label: 'Audit Trail',          view: 'crm' as AppView,    tab: 'audit-trail' as CrmTab, icon: ShieldCheck },
+    { id: 'masters',     label: 'Masters',              view: 'crm' as AppView,    tab: 'masters' as CrmTab,     icon: Settings2 },
 ];
 
 /** Mobile-only top bar. Hidden on md+ (desktop uses Sidebar). */
@@ -28,12 +29,12 @@ export const Header: React.FC = () => {
 
   const navItems: { id: AppView; label: string }[] = [
     { id: 'dashboard', label: 'Dashboard' },
-    { id: 'organization', label: 'Organization & Settings' },
     { id: 'people', label: 'People' },
     { id: 'payroll', label: 'Payroll' },
     { id: 'attendance', label: 'Attendance' },
     { id: 'payslips', label: 'Payslips' },
     { id: 'bookkeeping', label: 'Bookkeeping' },
+    { id: 'organization', label: 'Organization & Settings' },
     { id: 'reports', label: 'Reports' },
     { id: 'settings', label: 'Compliance' },
     { id: 'help', label: 'Help' },

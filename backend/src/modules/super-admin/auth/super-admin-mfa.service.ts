@@ -238,6 +238,7 @@ export class SuperAdminMfaService {
     // A recovery code carries letters or a separator; a TOTP code is six digits.
     const looksLikeRecoveryCode = /[^0-9]/.test(candidate);
 
+
     if (!looksLikeRecoveryCode) {
       const secret = decryptPlatformSecret(admin.totp_secret_encrypted);
       const minimumStep =

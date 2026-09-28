@@ -756,6 +756,16 @@ export function computeStepDueDate(enrolledAt: string | Date, dayOffset: number)
 }
 
 /**
+ * The step a lead in the cadence does next: the first step after the last day
+ * it completed. Worked out from days, not list positions, so adding or removing
+ * a playbook step never makes a lead skip or repeat one. Null when none is left.
+ */
+export function nextCadenceStep<T extends CadenceStep>(steps: T[], cadence: Pick<CadenceState, 'completedSteps'>): T | null {
+  const lastDay = Math.max(0, ...(cadence.completedSteps ?? []).map((done) => done.dayNumber || 0));
+  return steps.find((step) => step.dayNumber > lastDay) ?? null;
+}
+
+/**
  * Formats a Date object to YYYY-MM-DD HH:mm:ss for MySQL datetime
  */
 export function formatMysqlDatetime(date: Date): string {

@@ -405,7 +405,7 @@ describe('CRM & Sales in a tenant workspace', () => {
       const before = await row(conv.lead);
       const response = await convert(a.token, conv.lead);
       expect(response.status).toBe(400);
-      expect(response.body.message).toMatch(/Cold Funnel is not set up/);
+      expect(response.body.message).toMatch(/Cold Funnel, where converted leads go by default, is not set up/);
       const after = await row(conv.lead);
       expect([after.pipeline_id, after.stage_id]).toEqual([before.pipeline_id, before.stage_id]);
       expect(cadenceOf(after)).toMatchObject({ status: 'ACTIVE' });
@@ -416,7 +416,9 @@ describe('CRM & Sales in a tenant workspace', () => {
       expect(funnel.status).toBe(201);
       conv.funnel = funnel.body.data.id;
       expect(funnel.body.data.code).toBe('COLD_FUNNEL');
-      expect((await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'Won', sort_order: 0, is_won: 1 })).status).toBe(201);
+      const won = await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'Won', sort_order: 0, is_won: 1 });
+      expect(won.status).toBe(201);
+      conv.wonStage = won.body.data.id;
       const response = await convert(a.token, conv.lead);
       expect(response.status).toBe(400);
       expect(response.body.message).toMatch(/has no open stage/);
@@ -426,12 +428,15 @@ describe('CRM & Sales in a tenant workspace', () => {
     it('is refused for a member without outreach and lead rights, and for another workspace', async () => {
       const first = await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'First touch', sort_order: 1 });
       conv.firstStage = first.body.data.id;
-      await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'Qualified', sort_order: 2 });
+      conv.qualified = (await asA('post', '/crm/masters/stages', { pipeline_id: conv.funnel, name: 'Qualified', sort_order: 2 })).body.data.id;
 
       expect((await convert(restricted.token, conv.lead)).status).toBe(403);
       // Workspace B, with a Cold Funnel of its own, cannot tell the lead exists.
       const bFunnel = await asB('post', '/crm/masters/pipelines', { name: 'Cold Funnel' });
-      expect((await asB('post', '/crm/masters/stages', { pipeline_id: bFunnel.body.data.id, name: 'B first', sort_order: 1 })).status).toBe(201);
+      const bStage = await asB('post', '/crm/masters/stages', { pipeline_id: bFunnel.body.data.id, name: 'B first', sort_order: 1 });
+      expect(bStage.status).toBe(201);
+      conv.bStage = bStage.body.data.id;
+      conv.bFunnel = bFunnel.body.data.id;
       const fromB = await convert(b.token, conv.lead);
       expect([fromB.status, fromB.body.message]).toEqual([404, 'Lead not found']);
       expect(cadenceOf(await row(conv.lead))).toMatchObject({ status: 'ACTIVE' });
@@ -474,6 +479,41 @@ describe('CRM & Sales in a tenant workspace', () => {
       expect(activities).toBe(1);
     });
 
+    it('starts in the chosen Cold Funnel stage, and only an open stage of this workspace\'s Cold Funnel', async () => {
+      const four = await coldLead('four');
+      for (const [label, stageId] of [['won', conv.wonStage], ['other pipeline', ids.stage], ['other workspace', conv.bStage]]) {
+        const refused = await convert(a.token, four, { stageId });
+        expect([label, refused.status]).toEqual([label, 400]);
+        expect(refused.body.message).toMatch(/not an open stage of the Cold Funnel pipeline/);
+      }
+      expect(cadenceOf(await row(four))).toMatchObject({ status: 'ACTIVE' });
+
+      const response = await convert(a.token, four, { stageId: conv.qualified });
+      expect(response.status).toBe(201);
+      expect(response.body.message).toBe('Outreach four is now in Cold Funnel › Qualified');
+      expect(await row(four)).toMatchObject({ pipeline_id: conv.funnel, stage_id: conv.qualified });
+    });
+
+    it('goes to another pipeline when one is chosen, only an active pipeline of this workspace and one of its open stages', async () => {
+      const five = await coldLead('five');
+      for (const [label, extra, message] of [
+        ['other workspace pipeline', { pipelineId: conv.bFunnel }, /not an active pipeline in this workspace/],
+        ['not an id', { pipelineId: 'sales' }, /Choose the pipeline/],
+        ['Cold Funnel stage in Sales', { pipelineId: ids.pipeline, stageId: conv.qualified }, /not an open stage of the Sales pipeline/],
+      ] as const) {
+        const refused = await convert(a.token, five, extra);
+        expect([label, refused.status]).toEqual([label, 400]);
+        expect(refused.body.message).toMatch(message);
+      }
+      expect(cadenceOf(await row(five))).toMatchObject({ status: 'ACTIVE' });
+
+      const response = await convert(a.token, five, { pipelineId: ids.pipeline });
+      expect(response.status).toBe(201);
+      expect(response.body.message).toBe('Outreach five is now in Sales › Fresh');
+      expect(await row(five)).toMatchObject({ pipeline_id: ids.pipeline, stage_id: ids.stage });
+      expect(cadenceOf(await row(five))).toMatchObject({ status: 'CONVERTED' });
+    });
+
     it('rejects a negative deal value and unknown actions instead of reporting success', async () => {
       const three = await coldLead('three');
       expect((await convert(a.token, three, { budgetAmount: -5 })).status).toBe(400);
@@ -484,6 +524,260 @@ describe('CRM & Sales in a tenant workspace', () => {
       const branch = await call('post', '/crm/cadence', a.token, { action: 'BRANCH_REPLY', leadId: three, branchKey: 'already_have_website', feedbackNotes: 'Call me' });
       expect(branch.status).toBe(201);
       expect(cadenceOf(await row(three))).toMatchObject({ status: 'BRANCHED', branchReply: { branchKey: 'already_have_website', leadFeedback: 'Call me' } });
+    });
+  });
+
+  describe('outreach playbook (30-Day SOP steps)', () => {
+    type Step = { id: string; day_number: number; day_offset: number; title: string; goal: string; channels: string[]; templates: Record<string, unknown> };
+    const steps = async (as: typeof asA) => (await as('get', '/crm/masters/sop-steps')).body.data as Step[];
+    const newStep = (day: number, extra: Record<string, unknown> = {}) => ({
+      day_number: day,
+      title: `Day ${day} check-in`,
+      goal: 'Keep the conversation warm',
+      channels: ['WHATSAPP', 'EMAIL'],
+      timing_guide: 'WhatsApp (11:00 AM)',
+      role_note: 'Friendly nudge',
+      templates: { whatsapp: { message: 'Hi {{First Name}},\n\nJust checking in.' }, email: { subject: 'Quick check-in', body: 'Dear {{First Name}},' } },
+      is_active: 1,
+      ...extra,
+    });
+    const playbook: Ids = {};
+    const current = async (leadId: string) => {
+      const matrix = await asA('get', '/crm/cadence');
+      return matrix.body.data.radar.allActive.find((l: { id: string }) => l.id === leadId)?.currentStep as { dayNumber: number; title: string };
+    };
+
+    it('starts on the default playbook, which a workspace can still edit', async () => {
+      const defaults = await steps(asA);
+      expect(defaults.map((st) => st.day_number)).toEqual([1, 5, 10, 15, 20, 25, 30]);
+      expect(defaults[0]).toMatchObject({ id: 'default-day-1', day_offset: 0, title: 'Triple Platform Launch', goal: 'Make the First Impression' });
+      expect(await prisma.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: a.tenantId } })).toBe(0);
+    });
+
+    it('is refused to a member without the playbook permission', async () => {
+      expect((await call('post', '/crm/masters/sop-steps', restricted.token, newStep(3))).status).toBe(403);
+      expect(await prisma.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: a.tenantId } })).toBe(0);
+    });
+
+    it('adds a step in day order, keeping its messages, and only in this workspace', async () => {
+      const lead = await asA('post', '/crm/leads', { companyName: 'Playbook Co', firstName: 'Priya', email: `priya.${SUFFIX}@playbook.test`, temperature: 'COLD' });
+      expect(lead.status).toBe(201);
+      playbook.lead = lead.body.data.id;
+      expect((await current(playbook.lead)).dayNumber).toBe(1);
+
+      const added = await asA('post', '/crm/masters/sop-steps', newStep(3));
+      expect(added.status).toBe(201);
+      expect(added.body.message).toBe('Day 3 step added to the outreach playbook');
+      playbook.day3 = added.body.data.id;
+
+      const saved = await steps(asA);
+      expect(saved.map((st) => st.day_number)).toEqual([1, 3, 5, 10, 15, 20, 25, 30]);
+      // The defaults were copied in, messages and all, so the workspace owns them now.
+      expect(saved[0]).toMatchObject({ title: 'Triple Platform Launch' });
+      expect(saved[0].id).toMatch(/^[0-9a-f-]{36}$/);
+      expect((saved[0].templates as { whatsapp?: { message: string } }).whatsapp?.message).toContain('{{First Name}}');
+      expect(saved[1]).toMatchObject({ id: playbook.day3, day_offset: 2, title: 'Day 3 check-in', channels: ['WHATSAPP', 'EMAIL'] });
+      expect((saved[1].templates as { whatsapp: { message: string } }).whatsapp.message).toBe('Hi {{First Name}},\n\nJust checking in.');
+      const audit = await prisma.rndtechnosoft_crm_audit_logs.findFirst({ where: { tenant_id: a.tenantId, entity_type: 'SOP_STEP', action_type: 'CREATE' } });
+      expect(audit?.entity_id).toBe(playbook.day3);
+
+      expect((await steps(asB)).map((st) => st.day_number)).toEqual([1, 5, 10, 15, 20, 25, 30]);
+    });
+
+    it('refuses a second step on the same day, and steps that are not complete', async () => {
+      const again = await asA('post', '/crm/masters/sop-steps', newStep(3, { title: 'Another' }));
+      expect([again.status, again.body.message]).toEqual([409, 'Day 3 already has a step ("Day 3 check-in"). Choose another day, or edit that step.']);
+      for (const [label, body, message] of [
+        ['no channel', newStep(4, { channels: [] }), /at least one channel/],
+        ['day 0', newStep(0), /from 1 to 60/],
+        ['day 61', newStep(61), /from 1 to 60/],
+        ['no title', newStep(4, { title: '  ' }), /Enter the step title/],
+        ['no goal', newStep(4, { goal: '' }), /Enter the strategic goal/],
+      ] as const) {
+        const refused = await asA('post', '/crm/masters/sop-steps', body);
+        expect([label, refused.status]).toEqual([label, 400]);
+        expect(refused.body.message).toMatch(message);
+      }
+      expect(await prisma.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: a.tenantId } })).toBe(8);
+    });
+
+    it('edits a step, and another workspace cannot touch it', async () => {
+      const edited = await asA('put', '/crm/masters/sop-steps', { ...newStep(3), id: playbook.day3, title: 'Day 3 value share' });
+      expect(edited.status).toBe(200);
+      expect(edited.body.data).toMatchObject({ id: playbook.day3, day_number: 3, title: 'Day 3 value share' });
+
+      expect((await asB('put', '/crm/masters/sop-steps', { ...newStep(3), id: playbook.day3, title: 'Hijacked' })).status).toBe(404);
+      expect((await asB('delete', `/crm/masters/sop-steps?id=${playbook.day3}`)).status).toBe(404);
+      expect(await prisma.rndtechnosoft_crm_sop_steps_master.findFirst({ where: { id: playbook.day3 } })).toMatchObject({ tenant_id: a.tenantId, title: 'Day 3 value share' });
+      expect(await prisma.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: b.tenantId } })).toBe(0);
+    });
+
+    it('drives Client Outreach: leads meet new steps in day order and never skip one that is removed', async () => {
+      const done = await call('post', '/crm/cadence', a.token, { action: 'COMPLETE_STEP', leadId: playbook.lead, channel: 'WHATSAPP' });
+      expect(done.status).toBe(201);
+      expect(await current(playbook.lead)).toMatchObject({ dayNumber: 3, title: 'Day 3 value share' });
+
+      expect((await asA('delete', `/crm/masters/sop-steps?id=${playbook.day3}`)).status).toBe(200);
+      expect((await current(playbook.lead)).dayNumber).toBe(5);
+      await call('post', '/crm/cadence', a.token, { action: 'COMPLETE_STEP', leadId: playbook.lead });
+      const lead = await prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id: playbook.lead } });
+      const cadence = (lead.custom_attributes as { cadence: { completedSteps: { dayNumber: number }[] } }).cadence;
+      expect(cadence.completedSteps.map((st) => st.dayNumber)).toEqual([1, 5]);
+      expect((await current(playbook.lead)).dayNumber).toBe(10);
+    });
+
+    it('copies the defaults once when two changes arrive together, and keeps at least one step', async () => {
+      const both = await Promise.all([asB('post', '/crm/masters/sop-steps', newStep(2)), asB('post', '/crm/masters/sop-steps', newStep(3))]);
+      expect(both.map((r) => r.status)).toEqual([201, 201]);
+      const saved = await steps(asB);
+      expect(saved.map((st) => st.day_number)).toEqual([1, 2, 3, 5, 10, 15, 20, 25, 30]);
+
+      for (const step of saved.slice(1)) expect((await asB('delete', `/crm/masters/sop-steps?id=${step.id}`)).status).toBe(200);
+      const last = await asB('delete', `/crm/masters/sop-steps?id=${saved[0].id}`);
+      expect(last.status).toBe(409);
+      expect(last.body.message).toMatch(/needs at least one step/);
+      expect((await steps(asB)).map((st) => st.day_number)).toEqual([1]);
+    });
+  });
+
+  describe('objection strategies (reply branches)', () => {
+    type Branch = { id: string; branch_key: string; label: string; next_lead_temperature: string; whatsapp_message: string; email_subject: string };
+    const branches = async (as: typeof asA) => (await as('get', '/crm/masters/sop-branches')).body.data as Branch[];
+    const strategy = (extra: Record<string, unknown> = {}) => ({
+      label: 'Pricing too high',
+      next_lead_temperature: 'WARM',
+      trigger_condition: 'Prospect says: "Too expensive"',
+      suggested_action: 'Offer a phased plan',
+      whatsapp_message: 'Understood {{First Name}}! We can phase it.',
+      email_subject: 'A phased plan',
+      email_body: 'Dear {{First Name}},',
+      is_active: 1,
+      ...extra,
+    });
+    const found: Ids = {};
+
+    it('starts on the default strategies, and is refused to a member without the playbook permission', async () => {
+      const defaults = await branches(asA);
+      expect(defaults.map((br) => br.branch_key)).toEqual(['already_have_website', 'send_details', 'call_me_later', 'interested_in_seo', 'not_interested']);
+      expect(defaults[0].id).toBe('default-branch-already_have_website');
+      expect(defaults[0].whatsapp_message).toContain('{{First Name}}');
+      expect((await call('post', '/crm/masters/sop-branches', restricted.token, strategy())).status).toBe(403);
+      expect(await prisma.rndtechnosoft_crm_sop_reply_branches_master.count({ where: { tenant_id: a.tenantId } })).toBe(0);
+    });
+
+    it('adds a strategy with its messages, only in this workspace', async () => {
+      const added = await asA('post', '/crm/masters/sop-branches', strategy());
+      expect(added.status).toBe(201);
+      expect(added.body.message).toBe('Objection strategy "Pricing too high" added');
+      found.pricing = added.body.data.id;
+      expect(added.body.data).toMatchObject({ branch_key: 'pricing_too_high', next_lead_temperature: 'WARM', email_subject: 'A phased plan' });
+
+      const saved = await branches(asA);
+      expect(saved.map((br) => br.branch_key)).toEqual(['already_have_website', 'send_details', 'call_me_later', 'interested_in_seo', 'not_interested', 'pricing_too_high']);
+      expect(saved[0].id).toMatch(/^[0-9a-f-]{36}$/);
+      // The same label again gets its own key.
+      const twin = await asA('post', '/crm/masters/sop-branches', strategy());
+      expect(twin.body.data.branch_key).toBe('pricing_too_high_2');
+      expect((await asA('delete', `/crm/masters/sop-branches?id=${twin.body.data.id}`)).status).toBe(200);
+
+      expect((await branches(asB)).length).toBe(5);
+      expect(await prisma.rndtechnosoft_crm_audit_logs.count({ where: { tenant_id: a.tenantId, entity_type: 'SOP_BRANCH', entity_id: found.pricing } })).toBe(1);
+    });
+
+    it('refuses incomplete strategies', async () => {
+      for (const [label, body, message] of [
+        ['no label', strategy({ label: '' }), /Enter the objection label/],
+        ['no WhatsApp script', strategy({ whatsapp_message: '   ' }), /Enter the whatsapp response script/],
+        ['bad temperature', strategy({ next_lead_temperature: 'BOILING' }), /HOT, WARM, COLD or LOST/],
+      ] as const) {
+        const refused = await asA('post', '/crm/masters/sop-branches', body);
+        expect([label, refused.status]).toEqual([label, 400]);
+        expect(refused.body.message).toMatch(message);
+      }
+    });
+
+    it('edits a strategy without changing its key, and another workspace cannot touch it', async () => {
+      const edited = await asA('put', '/crm/masters/sop-branches', { ...strategy({ label: 'Budget is tight', next_lead_temperature: 'COLD' }), id: found.pricing });
+      expect(edited.status).toBe(200);
+      expect(edited.body.data).toMatchObject({ id: found.pricing, branch_key: 'pricing_too_high', label: 'Budget is tight', next_lead_temperature: 'COLD' });
+      expect((await asB('put', '/crm/masters/sop-branches', { ...strategy(), id: found.pricing })).status).toBe(404);
+      expect((await asB('delete', `/crm/masters/sop-branches?id=${found.pricing}`)).status).toBe(404);
+      expect(await prisma.rndtechnosoft_crm_sop_reply_branches_master.findFirst({ where: { id: found.pricing } })).toMatchObject({ tenant_id: a.tenantId, label: 'Budget is tight' });
+    });
+
+    it("drives Client Outreach: a reply takes this workspace's strategy, and unknown ones are refused", async () => {
+      const lead = await asA('post', '/crm/leads', { companyName: 'Objection Co', firstName: 'Ravi', email: `ravi.${SUFFIX}@objection.test`, temperature: 'COLD' });
+      found.lead = lead.body.data.id;
+      const matrix = await asA('get', '/crm/cadence');
+      expect(Object.keys(matrix.body.data.replyBranches)).toContain('pricing_too_high');
+
+      const reply = await call('post', '/crm/cadence', a.token, { action: 'BRANCH_REPLY', leadId: found.lead, branchKey: 'pricing_too_high', feedbackNotes: 'Too pricey' });
+      expect(reply.status).toBe(201);
+      expect(await prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id: found.lead } })).toMatchObject({ temperature: 'COLD' });
+
+      for (const branchKey of ['no_such_strategy', '__proto__']) {
+        const unknown = await call('post', '/crm/cadence', a.token, { action: 'BRANCH_REPLY', leadId: found.lead, branchKey });
+        expect([branchKey, unknown.status]).toEqual([branchKey, 400]);
+      }
+      // Lead 360 gets the same strategies.
+      expect(Object.keys((await asA('get', `/crm/leads/${found.lead}`)).body.data.reply_branches)).toContain('pricing_too_high');
+    });
+
+    it('removes strategies but keeps at least one', async () => {
+      const list = await branches(asB);
+      for (const br of list.slice(1)) expect((await asB('delete', `/crm/masters/sop-branches?id=${br.id}`)).status).toBe(200);
+      const last = await asB('delete', `/crm/masters/sop-branches?id=${list[0].id}`);
+      expect([last.status, last.body.message]).toEqual([409, 'Keep at least one objection strategy. Add another before removing this one.']);
+    });
+  });
+
+  describe('deleting masters that are in use', () => {
+    it('refuses a stage or pipeline that has leads, saying how many, and changes nothing', async () => {
+      const inStage = await prisma.rndtechnosoft_crm_leads.findMany({ where: { stage_id: ids.stage }, select: { id: true } });
+      expect(inStage.length).toBeGreaterThan(0);
+      const stage = await asA('delete', `/crm/masters/stages?id=${ids.stage}`);
+      expect(stage.status).toBe(409);
+      expect(stage.body.message).toMatch(/^\d+ leads? (is|are) in "Fresh"\. Move them to another stage on the Sales Pipeline board, then delete it\.$/);
+      const pipeline = await asA('delete', `/crm/masters/pipelines?id=${ids.pipeline}`);
+      expect(pipeline.status).toBe(409);
+      expect(pipeline.body.message).toMatch(/are in the "Sales" pipeline\. Move them to another pipeline, then delete it\./);
+      expect(await prisma.rndtechnosoft_crm_stages.count({ where: { id: ids.stage } })).toBe(1);
+      expect(stage.body.message.startsWith(`${inStage.length} lead`)).toBe(true);
+      expect(await prisma.rndtechnosoft_crm_leads.findMany({ where: { stage_id: ids.stage }, select: { id: true } })).toEqual(inStage);
+    });
+
+    it('deletes an empty stage', async () => {
+      const empty = await asA('post', '/crm/masters/stages', { pipeline_id: ids.pipeline, name: 'Unused', sort_order: 9 });
+      expect((await asA('delete', `/crm/masters/stages?id=${empty.body.data.id}`)).status).toBe(200);
+      expect(await prisma.rndtechnosoft_crm_stages.count({ where: { id: empty.body.data.id } })).toBe(0);
+    });
+
+    it('refuses a source, service or lost reason that leads use', async () => {
+      const lead = await asA('post', '/crm/leads', { companyName: 'Sourced Co', firstName: 'Anu', email: `anu.${SUFFIX}@sourced.test`, sourceId: ids.source, primaryServiceId: ids.service });
+      expect(lead.status).toBe(201);
+      const source = await asA('delete', `/crm/masters/sources?id=${ids.source}`);
+      expect([source.status, source.body.message]).toEqual([409, `"Referral ${SUFFIX}" is the source of 1 lead, so it can't be deleted. Change their source first.`]);
+      const service = await asA('delete', `/crm/masters/services?id=${ids.service}`);
+      expect(service.status).toBe(409);
+      expect(service.body.message).toMatch(new RegExp(`^"Audit\\+ ${SUFFIX}" is the service on 1 lead( and \\d+ quotation lines?)?, so it can't be deleted\\. Change their service first\\.$`));
+
+      const reason = await prisma.rndtechnosoft_crm_lost_reasons_master.create({ data: { id: randomUUID(), tenant_id: a.tenantId, reason_name: 'Went with a competitor' } });
+      await prisma.rndtechnosoft_crm_leads.update({ where: { id: lead.body.data.id }, data: { lost_reason_id: reason.id } });
+      expect((await call('delete', `/crm/masters/lost-reasons?id=${reason.id}`, restricted.token)).status).toBe(403);
+      const inUse = await asA('delete', `/crm/masters/lost-reasons?id=${reason.id}`);
+      expect([inUse.status, inUse.body.message]).toEqual([409, `"Went with a competitor" is the lost reason of 1 lead, so it can't be deleted.`]);
+
+      // Once nothing uses them, they go.
+      expect((await asA('delete', `/crm/leads/${lead.body.data.id}`)).status).toBe(200);
+      expect((await asA('delete', `/crm/masters/lost-reasons?id=${reason.id}`)).status).toBe(200);
+    });
+
+    it('deletes a quotation template, only in its own workspace, and reports a missing record', async () => {
+      const template = await prisma.rndtechnosoft_crm_quotation_templates.create({ data: { id: randomUUID(), tenant_id: a.tenantId, template_name: 'Starter', items_json: [] } });
+      expect((await asB('delete', `/crm/quotation-templates?id=${template.id}`)).status).toBe(404);
+      expect((await asA('delete', `/crm/quotation-templates?id=${template.id}`)).status).toBe(200);
+      expect((await asA('delete', `/crm/quotation-templates?id=${template.id}`)).status).toBe(404);
+      expect((await asA('delete', '/crm/masters/stages?id=not-an-id')).status).toBe(404);
     });
   });
 

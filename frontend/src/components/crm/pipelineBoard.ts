@@ -79,18 +79,27 @@ interface FunnelStage {
 }
 
 /**
- * Where a converted outreach lead will go: the active Cold Funnel pipeline and
- * its first open stage by order, as the server decides it. Null when the
- * workspace has no such pipeline or stage, in which case conversion is refused.
+ * Where a converted outreach lead will go: the chosen active pipeline, else the
+ * Cold Funnel; and the chosen open stage of it, else its first open stage by
+ * order. The server checks the same. `pipeline` is null when nothing is chosen
+ * and there is no Cold Funnel; `stage` is null when the pipeline has no open stage.
  */
-export function coldFunnelDestination(
+export function conversionDestination(
   pipelines: FunnelPipeline[],
   stages: FunnelStage[],
-): { pipeline: { id: string; name: string }; stage: { id: string; name: string } } | null {
-  const pipeline = pipelines.find((p) => p.code?.toUpperCase() === COLD_FUNNEL_PIPELINE_CODE && p.is_active !== false);
-  if (!pipeline) return null;
-  const stage = stages
-    .filter((s) => s.pipeline_id === pipeline.id && !s.is_won && !s.is_lost)
-    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
-  return stage ? { pipeline: { id: pipeline.id, name: pipeline.name }, stage: { id: stage.id, name: stage.name } } : null;
+  chosen: { pipelineId?: string; stageId?: string } = {},
+) {
+  const activePipelines = pipelines
+    .filter((p) => p.is_active !== false)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    .map((p) => ({ id: p.id, name: p.name, isColdFunnel: p.code?.toUpperCase() === COLD_FUNNEL_PIPELINE_CODE }));
+  const pipeline = activePipelines.find((p) => p.id === chosen.pipelineId) ?? activePipelines.find((p) => p.isColdFunnel) ?? null;
+  const openStages = pipeline
+    ? stages
+        .filter((s) => s.pipeline_id === pipeline.id && !s.is_won && !s.is_lost)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .map((s) => ({ id: s.id, name: s.name }))
+    : [];
+  const stage = openStages.find((s) => s.id === chosen.stageId) ?? openStages[0] ?? null;
+  return { pipelines: activePipelines, pipeline, openStages, stage };
 }

@@ -53,7 +53,7 @@ const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
   }
 };
 
-type CrmTab = 'cold-funnel' | 'pipeline' | 'activities' | 'proposals' | 'reports' | 'masters' | 'audit-trail';
+type CrmTab = 'cold-funnel' | 'pipeline' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters';
 
 function CRMEnterpriseContent() {
   const { crmTab, setCrmTab, navigateTo } = usePayroll();
@@ -837,7 +837,7 @@ function CRMEnterpriseContent() {
 
       {/* Central Reassign Assignee Modal */}
       {reassignLeadTarget && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -900,7 +900,7 @@ function CRMEnterpriseContent() {
 
       {/* Central 1-Click Convert Won Modal */}
       {globalDealWonModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">

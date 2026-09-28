@@ -143,8 +143,13 @@ export class CrmController {
   @Get('leads/:id')
   @RequirePermissions('leads.view')
   async getLeadById(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    const data = await this.crmService.getLeadById(tenantId, id);
-    return { success: true, data };
+    const [lead, cadenceSteps, replyBranches] = await Promise.all([
+      this.crmService.getLeadById(tenantId, id),
+      this.crmService.getCadenceSteps(tenantId),
+      this.crmService.getReplyBranches(tenantId),
+    ]);
+    // The workspace's outreach playbook, for the lead's cadence roadmap and reply options.
+    return { success: true, data: { ...lead, cadence_steps: cadenceSteps, reply_branches: replyBranches } };
   }
 
   @Post('leads')
@@ -432,6 +437,13 @@ export class CrmController {
     return { success: true, data };
   }
 
+  @Delete('quotation-templates')
+  @RequirePermissions('quotations.delete')
+  async deleteQuotationTemplate(@CurrentTenant() tenantId: string, @Query('id') id: string) {
+    await this.crmService.deleteMaster(tenantId, 'quotation-templates', id);
+    return { success: true, message: 'Quotation template deleted' };
+  }
+
   // ==========================================
   // CLIENTS
   // ==========================================
@@ -648,16 +660,65 @@ export class CrmController {
     return { success: true, data: await this.crmService.getMasters(tenantId, 'lost-reasons') };
   }
 
+  @Delete('masters/lost-reasons')
+  @RequirePermissions('masters.lost_reasons.delete')
+  async deleteLostReason(@CurrentTenant() tenantId: string, @Query('id') id: string) {
+    await this.crmService.deleteMaster(tenantId, 'lost-reasons', id);
+    return { success: true, message: 'Lost reason deleted' };
+  }
+
   @Get('masters/sop-steps')
   @RequirePermissions('masters.sop.view')
   async getSopStepsMaster(@CurrentTenant() tenantId: string) {
     return { success: true, data: await this.crmService.getMasters(tenantId, 'sop-steps') };
   }
 
+  @Post('masters/sop-steps')
+  @RequirePermissions('masters.sop.update')
+  async createSopStep(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: any) {
+    const data = await this.crmService.saveSopStep(tenantId, body, actor.tenantMemberId);
+    return { success: true, data, message: `Day ${data?.day_number} step added to the outreach playbook` };
+  }
+
+  @Put('masters/sop-steps')
+  @RequirePermissions('masters.sop.update')
+  async updateSopStep(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: any) {
+    const data = await this.crmService.saveSopStep(tenantId, body, actor.tenantMemberId, body?.id ?? null);
+    return { success: true, data, message: `Day ${data?.day_number} step updated` };
+  }
+
+  @Delete('masters/sop-steps')
+  @RequirePermissions('masters.sop.update')
+  async deleteSopStep(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Query('id') id: string) {
+    await this.crmService.deleteSopStep(tenantId, id, actor.tenantMemberId);
+    return { success: true, message: 'Step removed from the outreach playbook' };
+  }
+
   @Get('masters/sop-branches')
   @RequirePermissions('masters.sop.view')
   async getSopBranchesMaster(@CurrentTenant() tenantId: string) {
     return { success: true, data: await this.crmService.getMasters(tenantId, 'sop-branches') };
+  }
+
+  @Post('masters/sop-branches')
+  @RequirePermissions('masters.sop.update')
+  async createSopBranch(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: any) {
+    const data = await this.crmService.saveReplyBranch(tenantId, body, actor.tenantMemberId);
+    return { success: true, data, message: `Objection strategy "${data.label}" added` };
+  }
+
+  @Put('masters/sop-branches')
+  @RequirePermissions('masters.sop.update')
+  async updateSopBranch(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: any) {
+    const data = await this.crmService.saveReplyBranch(tenantId, body, actor.tenantMemberId, body?.id ?? null);
+    return { success: true, data, message: `Objection strategy "${data.label}" updated` };
+  }
+
+  @Delete('masters/sop-branches')
+  @RequirePermissions('masters.sop.update')
+  async deleteSopBranch(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Query('id') id: string) {
+    await this.crmService.deleteReplyBranch(tenantId, id, actor.tenantMemberId);
+    return { success: true, message: 'Objection strategy removed' };
   }
 
   // ==========================================

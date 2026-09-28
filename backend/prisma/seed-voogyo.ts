@@ -370,100 +370,14 @@ async function main() {
   console.log(`✓ ${lostReasons.length} lost reasons seeded.`);
 
   // ═══════════════════════════════════════════════════════════════
-  // 9. 30-DAY SOP STEPS MASTER (8-touchpoint Gold Funnel)
+  // 9. 30-DAY SOP STEPS: none seeded. A workspace starts on the default
+  //    outreach playbook and owns its own copy once it edits it in Masters.
   // ═══════════════════════════════════════════════════════════════
-  const sopSteps = [
-    { idx: 1, day: 1, title: 'Day 1: Immediate Hook & Free Audit Offer', channels: ['WHATSAPP', 'EMAIL', 'LINKEDIN', 'PHONE'], obj: 'Introduce the firm, cite 2 relevant client wins in the prospect\'s industry, send LinkedIn connect request, and offer a complimentary UI/code/SEO audit of their digital properties.' },
-    { idx: 2, day: 5, title: 'Day 5: Metric-Driven Case Study Delivery', channels: ['EMAIL', 'WHATSAPP'], obj: 'Share a verifiable, data-backed client case study (e.g., "+140% organic leads in 90 days" or "50% reduction in checkout abandonment"). Include before/after screenshots.' },
-    { idx: 3, day: 10, title: 'Day 10: Technical / UX Teardown Report', channels: ['WHATSAPP', 'EMAIL', 'LINKEDIN'], obj: 'Deliver a 2-3 point teardown highlighting specific bugs, page speed issues, or SEO gaps identified on the prospect\'s live website. Attach Lighthouse scores.' },
-    { idx: 4, day: 15, title: 'Day 15: Personalized Loom Video Walkthrough', channels: ['EMAIL', 'WHATSAPP'], obj: 'Record a 60-second personalized screencast showing how Voogyo or a similar solution transforms their specific workflow. Include a Calendly booking link.' },
-    { idx: 5, day: 20, title: 'Day 20: Social Proof & Client Testimonial', channels: ['WHATSAPP', 'EMAIL'], obj: 'Share a 30-second founder/CEO testimonial video from a similar-industry client highlighting ROI, delivery speed, and ongoing support quality.' },
-    { idx: 6, day: 25, title: 'Day 25: Complimentary Strategy Roadmap Session', channels: ['PHONE', 'WHATSAPP'], obj: 'Offer a complimentary 20-minute architecture/marketing roadmap session. Position as a no-strings-attached knowledge transfer. Use soft urgency (limited slots this quarter).' },
-    { idx: 7, day: 28, title: 'Day 28: Executive Founder Direct Check-In', channels: ['WHATSAPP', 'EMAIL'], obj: 'Direct personal message from the Chief Architect or Founder asking if there are any blockers, concerns, or questions. Demonstrates senior leadership involvement.' },
-    { idx: 8, day: 30, title: 'Day 30: Respectful Breakup — File Closure', channels: ['EMAIL', 'LINKEDIN', 'WHATSAPP'], obj: '"Permission to close your file?" We commit to not reaching out again unless you initiate. Leaves the door open with professionalism and dignity.' },
-  ];
-
-  for (const step of sopSteps) {
-    const existing = await prisma.rndtechnosoft_crm_sop_steps_master.findFirst({
-      where: { tenant_id: tenantId, step_index: step.idx },
-    });
-    if (!existing) {
-      await prisma.rndtechnosoft_crm_sop_steps_master.create({
-        data: {
-          id: randomUUID(),
-          tenant_id: tenantId,
-          step_index: step.idx,
-          day_number: step.day,
-          title: step.title,
-          channels: step.channels,
-          primary_objective: step.obj,
-          sort_order: step.idx,
-        },
-      });
-    }
-  }
-  console.log(`✓ ${sopSteps.length} SOP cadence steps seeded.`);
 
   // ═══════════════════════════════════════════════════════════════
-  // 10. OBJECTION HANDLING BATTLECARDS (5 proven scripts)
+  // 10. OBJECTION STRATEGIES: none seeded. A workspace starts on the default
+  //     strategies and owns its own copy once it edits them in Masters.
   // ═══════════════════════════════════════════════════════════════
-  const battlecards = [
-    {
-      key: 'PRICE_HIGH',
-      label: 'Pricing Too High',
-      trigger: 'Prospect remarks the proposal exceeds their budget or expectations',
-      action: 'Re-frame pricing into monthly milestone-based ROI; propose phased scope delivery',
-      script: 'We completely understand cash flow pacing is paramount for growing businesses. Let us split Deliverable 1 into a Phase 1 MVP at 60% of the quoted budget — we validate ROI, you see tangible results within 6 weeks, and Phase 2 only proceeds once you are confident in the partnership.',
-    },
-    {
-      key: 'IN_HOUSE_TEAM',
-      label: 'Already Have In-House Team / Agency',
-      trigger: 'Prospect mentions they have internal engineers or an existing vendor',
-      action: 'Position as a specialized accelerator pod — not a replacement, but a force multiplier',
-      script: 'Most of our long-term clients have strong in-house teams. We plug in as a high-velocity specialist pod for focused sprints — think GST integration, mobile app, or performance marketing — without any recruitment overhead. Your team stays focused on core product while we deliver the specialized sprint.',
-    },
-    {
-      key: 'SEND_EMAIL',
-      label: 'Send Details on Email',
-      trigger: 'Gatekeeper or prospect asks for a deck or more information via email',
-      action: 'Send a 1-page executive PDF lookbook with an embedded meeting link and follow up within 48 hours',
-      script: 'Absolutely — sending our verified case studies and executive capability deck to your inbox right now. To save you time, I have included a 1-click calendar link for a 10-minute briefing. Would Thursday at 3 PM or Friday at 11 AM work better for a quick walkthrough?',
-    },
-    {
-      key: 'CALL_NEXT_QUARTER',
-      label: 'Call Me Back Next Quarter',
-      trigger: 'Prospect defers the conversation to a future quarter or budget cycle',
-      action: 'Auto-schedule a follow-up 60 days out, tag lead as WARM, enroll in quarterly newsletter',
-      script: 'Completely understood — timing is everything. I will personally circle back on {{recontact_date}} with a fresh market snapshot for your industry. In the meantime, I will add you to our monthly insights newsletter — zero spam, just 1 actionable tip per month. Would that be helpful?',
-    },
-    {
-      key: 'NEED_REFERENCES',
-      label: 'We Need Client References First',
-      trigger: 'Prospect asks for references or wants to speak with existing clients before proceeding',
-      action: 'Offer 2-3 curated reference calls from similar-industry clients within 48 hours',
-      script: 'Absolutely, references are a critical part of due diligence. I can arrange a direct 15-minute call with 2 of our clients in a similar domain — they have been with us for over 18 months. Let me send you their LinkedIn profiles and schedule the calls this week. Would that work?',
-    },
-  ];
-
-  for (const bc of battlecards) {
-    const existing = await prisma.rndtechnosoft_crm_sop_reply_branches_master.findFirst({
-      where: { tenant_id: tenantId, branch_key: bc.key },
-    });
-    if (!existing) {
-      await prisma.rndtechnosoft_crm_sop_reply_branches_master.create({
-        data: {
-          id: randomUUID(),
-          tenant_id: tenantId,
-          branch_key: bc.key,
-          label: bc.label,
-          trigger_condition: bc.trigger,
-          suggested_action: bc.action,
-          recommended_response_script: bc.script,
-        },
-      });
-    }
-  }
-  console.log(`✓ ${battlecards.length} objection battlecards seeded.`);
 
   // ═══════════════════════════════════════════════════════════════
   // 11. INDUSTRY VERTICALS MASTER (5 verticals from spec)
@@ -2089,8 +2003,6 @@ async function main() {
   console.log(`   Lead Sources:        ${leadSources.length}`);
   console.log(`   Services Master:     ${services.length}`);
   console.log(`   Lost Reasons:        ${lostReasons.length}`);
-  console.log(`   SOP Steps:           ${sopSteps.length}`);
-  console.log(`   Battlecards:         ${battlecards.length}`);
   console.log(`   Industry Verticals:  ${industries.length}`);
   console.log(`   Leads:               ${Object.keys(leadIdMap).length}`);
   console.log(`   Activities:          ${additionalActivities.length + Object.keys(leadIdMap).length}`);

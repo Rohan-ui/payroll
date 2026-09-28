@@ -13,8 +13,13 @@ import {
   CADENCE_STEPS_MASTER,
   CADENCE_REPLY_BRANCHES,
   CADENCE_INDUSTRIES,
+  CadenceChannel,
   CadenceState,
+  CadenceStep,
+  CadenceTemplate,
+  ReplyBranch,
   computeStepDueDate,
+  nextCadenceStep,
   evaluateStepDueStatus,
   interpolateText,
 } from './crm-cadence.helper';
@@ -468,7 +473,7 @@ export class CrmService {
     // Auto-enroll COLD leads into 30-day cadence
     if (temperature === 'COLD' && (!customAttributes || !customAttributes.cadence)) {
       const now = new Date();
-      const firstStep = CADENCE_STEPS_MASTER[0];
+      const [firstStep] = await this.getCadenceSteps(tenantId);
       const dueDate = computeStepDueDate(now, firstStep?.dayOffset || 0);
       customAttributes = {
         ...(customAttributes || {}),
@@ -1394,12 +1399,13 @@ export class CrmService {
       return {
         lead,
         cadence: customAttr.cadence || null,
-        masterSteps: CADENCE_STEPS_MASTER,
-        replyBranches: CADENCE_REPLY_BRANCHES,
+        masterSteps: await this.getCadenceSteps(tenantId),
+        replyBranches: await this.getReplyBranches(tenantId),
         industries: CADENCE_INDUSTRIES,
       };
     }
 
+    const steps = await this.getCadenceSteps(tenantId);
     const leads = await this.prisma.rndtechnosoft_crm_leads.findMany({
       where: { tenant_id: tenantId },
       orderBy: { created_at: 'desc' },
@@ -1459,8 +1465,8 @@ export class CrmService {
       }
 
       totalEnrolled++;
-      const stepIndex = cadence.currentStepIndex ?? 0;
-      const currentMasterStep = CADENCE_STEPS_MASTER[stepIndex] || CADENCE_STEPS_MASTER[0];
+      // Where the lead is in this workspace's playbook; once past the last step, that step.
+      const currentMasterStep = nextCadenceStep(steps, cadence) ?? steps[steps.length - 1];
       const stepDueDate = cadence.nextDueAt ? new Date(cadence.nextDueAt) : new Date(lead.created_at);
       const dueStatus = cadence.status === 'ACTIVE' ? evaluateStepDueStatus(stepDueDate) : 'UPCOMING';
 
@@ -1563,8 +1569,8 @@ export class CrmService {
         branched: branchedList,
         converted: convertedList,
       },
-      masterSteps: CADENCE_STEPS_MASTER,
-      replyBranches: CADENCE_REPLY_BRANCHES,
+      masterSteps: steps,
+      replyBranches: await this.getReplyBranches(tenantId),
       industries: CADENCE_INDUSTRIES,
       // Tells the screen whether to offer "load sample leads".
       demoSeedAllowed: isCrmDemoSeedAllowed(),
@@ -1577,7 +1583,7 @@ export class CrmService {
 
     if (action === 'ENROLL') {
       const now = new Date();
-      const firstStep = CADENCE_STEPS_MASTER[0];
+      const [firstStep] = await this.getCadenceSteps(tenantId);
       const dueDate = computeStepDueDate(now, firstStep.dayOffset);
 
       for (const id of targetIds) {
@@ -1624,21 +1630,28 @@ export class CrmService {
         completedSteps: [],
       };
 
-      const currentIndex = cadence.currentStepIndex ?? 0;
-      const executedStep = CADENCE_STEPS_MASTER[currentIndex];
+      // The step due now in this workspace's playbook, found by day so playbook edits never skip or repeat one.
+      const steps = await this.getCadenceSteps(tenantId);
+      const executedStep = nextCadenceStep(steps, cadence);
+      const currentIndex = executedStep ? steps.indexOf(executedStep) : steps.length;
 
-      cadence.completedSteps.push({
-        stepIndex: currentIndex,
-        dayNumber: executedStep?.dayNumber || 1,
-        completedAt: new Date().toISOString(),
-        channelsUsed: channel ? [channel] : executedStep?.channels || ['WHATSAPP'],
-        notes: notes || 'Step executed successfully',
-      });
+      if (executedStep) {
+        cadence.completedSteps = [
+          ...(cadence.completedSteps ?? []),
+          {
+            stepIndex: currentIndex,
+            dayNumber: executedStep.dayNumber,
+            completedAt: new Date().toISOString(),
+            channelsUsed: channel ? [channel] : executedStep.channels,
+            notes: notes || 'Step executed successfully',
+          },
+        ];
+      }
 
       const nextIndex = currentIndex + 1;
-      if (nextIndex < CADENCE_STEPS_MASTER.length) {
+      const nextStep = steps[nextIndex];
+      if (nextStep) {
         cadence.currentStepIndex = nextIndex;
-        const nextStep = CADENCE_STEPS_MASTER[nextIndex];
         const nextDue = computeStepDueDate(new Date(), nextStep.dayOffset - (executedStep?.dayOffset || 0));
         cadence.nextDueAt = nextDue.toISOString();
       } else {
@@ -1671,7 +1684,10 @@ export class CrmService {
       const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
       if (!lead) throw new NotFoundException('Lead not found');
 
-      const branch = CADENCE_REPLY_BRANCHES[branchKey];
+      // One of this workspace's objection strategies; never a key that is not in its list.
+      const branches = await this.getReplyBranches(tenantId);
+      const branch = typeof branchKey === 'string' && Object.prototype.hasOwnProperty.call(branches, branchKey) ? branches[branchKey] : undefined;
+      if (!branch) throw new BadRequestException('That objection strategy no longer exists. Reload the page and choose one from the list.');
       const customAttr = (lead.custom_attributes as any) || {};
       const cadence: CadenceState = customAttr.cadence || ({} as any);
 
@@ -1701,34 +1717,51 @@ export class CrmService {
 
   /**
    * Converts a lead in the outreach cadence into a sales opportunity: the same
-   * lead record moves into the Cold Funnel pipeline's first open stage and its
-   * cadence is marked converted. Opportunities are leads in this schema, so
-   * nothing is duplicated. One transaction, with the lead row locked, so two
-   * clicks cannot both convert it and a failure leaves it untouched.
+   * lead record moves into the chosen pipeline and stage (by default the Cold
+   * Funnel and its first open stage) and its cadence is marked converted.
+   * Opportunities are leads in this schema, so nothing is duplicated. One
+   * transaction, with the lead row locked, so two clicks cannot both convert it
+   * and a failure leaves it untouched.
    */
   private async convertOutreachLead(tenantId: string, body: any, memberId?: string) {
     const leadId: unknown = body.leadId;
     if (typeof leadId !== 'string' || !leadId) throw new BadRequestException('Choose the outreach lead to convert.');
+    const optionalId = (value: unknown, message: string): string | undefined => {
+      if (value === undefined || value === null || value === '') return undefined;
+      if (typeof value !== 'string' || !CrmService.UUID_PATTERN.test(value)) throw new BadRequestException(message);
+      return value;
+    };
+    const chosenPipelineId = optionalId(body.pipelineId, 'Choose the pipeline the opportunity goes to.');
+    const chosenStageId = optionalId(body.stageId, 'Choose the stage the opportunity starts in.');
 
-    const funnel = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
-      // Case-insensitive: CRM Masters stores a code as typed.
-      where: { tenant_id: tenantId, code: { equals: COLD_FUNNEL_PIPELINE_CODE, mode: 'insensitive' }, is_active: true },
+    // The chosen active pipeline of this workspace; otherwise the Cold Funnel, never some other pipeline silently.
+    const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
+      where: chosenPipelineId
+        ? { tenant_id: tenantId, id: chosenPipelineId, is_active: true }
+        : // Case-insensitive: CRM Masters stores a code as typed.
+          { tenant_id: tenantId, code: { equals: COLD_FUNNEL_PIPELINE_CODE, mode: 'insensitive' }, is_active: true },
       orderBy: { created_at: 'asc' },
       select: { id: true, name: true },
     });
-    if (!funnel) {
+    if (!pipeline && chosenPipelineId) {
+      throw new BadRequestException('That pipeline is not an active pipeline in this workspace. Choose another pipeline and convert again.');
+    }
+    if (!pipeline) {
       throw new BadRequestException(
-        `The Cold Funnel is not set up in this workspace. In CRM Masters → Pipelines, add a pipeline named "Cold Funnel" (its code becomes ${COLD_FUNNEL_PIPELINE_CODE}) with at least one stage, then convert again.`,
+        `The Cold Funnel, where converted leads go by default, is not set up in this workspace. Choose a target pipeline, or in CRM Masters → Pipelines add a pipeline named "Cold Funnel" (its code becomes ${COLD_FUNNEL_PIPELINE_CODE}) with at least one stage, then convert again.`,
       );
     }
-    // Its first open stage by the configured order; won and lost stages are where deals end, not start.
+    // The chosen stage, or the first open stage by the configured order; won and lost stages are where deals end, not start.
     const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
-      where: { tenant_id: tenantId, pipeline_id: funnel.id, is_won: false, is_lost: false },
+      where: { tenant_id: tenantId, pipeline_id: pipeline.id, is_won: false, is_lost: false, ...(chosenStageId ? { id: chosenStageId } : {}) },
       orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
       select: { id: true, name: true },
     });
+    if (!stage && chosenStageId) {
+      throw new BadRequestException(`That stage is not an open stage of the ${pipeline.name} pipeline. Choose one of its open stages and convert again.`);
+    }
     if (!stage) {
-      throw new BadRequestException(`The ${funnel.name} pipeline has no open stage. Add one in CRM Masters → Pipelines, then convert again.`);
+      throw new BadRequestException(`The ${pipeline.name} pipeline has no open stage. Add one in CRM Masters → Pipeline Stages, or choose another pipeline, then convert again.`);
     }
 
     const temperature = body.temperature === 'HOT' || body.temperature === 'WARM' ? body.temperature : 'WARM';
@@ -1766,7 +1799,7 @@ export class CrmService {
       await tx.rndtechnosoft_crm_leads.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
         data: {
-          pipeline_id: funnel.id,
+          pipeline_id: pipeline.id,
           stage_id: stage.id,
           stage_entered_at: now,
           temperature,
@@ -1784,7 +1817,7 @@ export class CrmService {
           lead_id: leadId,
           performed_by_tenant_member_id: memberId || null,
           activity_type: 'STATUS_CHANGE',
-          title: `Converted from Client Outreach to ${funnel.name} › ${stage.name}`,
+          title: `Converted from Client Outreach to ${pipeline.name} › ${stage.name}`,
           description: notes,
         },
       });
@@ -1797,7 +1830,7 @@ export class CrmService {
       'LEAD',
       leadId,
       {
-        pipelineId: funnel.id,
+        pipelineId: pipeline.id,
         stageId: stage.id,
         temperature,
         ...(budget !== undefined ? { budgetAmount: budget.toString() } : {}),
@@ -1808,9 +1841,9 @@ export class CrmService {
 
     return {
       success: true,
-      message: `${converted.company_name} is now in ${funnel.name} › ${stage.name}`,
+      message: `${converted.company_name} is now in ${pipeline.name} › ${stage.name}`,
       lead: this.toLeadListItem(converted),
-      pipeline: { id: funnel.id, name: funnel.name },
+      pipeline: { id: pipeline.id, name: pipeline.name },
       stage: { id: stage.id, name: stage.name },
     };
   }
@@ -2298,6 +2331,345 @@ export class CrmService {
   // CRM MASTERS & TAXONOMY
   // ==========================================
 
+  // ==========================================
+  // OUTREACH PLAYBOOK (30-DAY SOP STEPS)
+  // ==========================================
+
+  /**
+   * The workspace's outreach playbook, ordered by day: its own steps, or the
+   * default steps until it first changes one. Default steps carry ids of the
+   * form default-day-N so Masters can edit or remove them like any other.
+   */
+  async getCadenceSteps(tenantId: string): Promise<(CadenceStep & { id: string })[]> {
+    const rows = await this.prisma.rndtechnosoft_crm_sop_steps_master.findMany({
+      where: { tenant_id: tenantId },
+      orderBy: { day_number: 'asc' },
+    });
+    if (rows.length === 0) return CADENCE_STEPS_MASTER.map((step) => ({ ...step, id: `default-day-${step.dayNumber}` }));
+    return rows.map((row, index) => ({
+      id: row.id,
+      stepIndex: index,
+      dayNumber: row.day_number,
+      dayOffset: row.day_number - 1,
+      title: row.title,
+      goal: row.primary_objective,
+      channels: row.channels as CadenceChannel[],
+      timingGuide: row.timing_guide ?? '',
+      roleNote: row.role_note ?? '',
+      templates: row.templates as CadenceTemplate,
+    }));
+  }
+
+  /** A playbook step as CRM Masters lists and edits it. */
+  private toSopStepRow(step: CadenceStep & { id: string }) {
+    return {
+      id: step.id,
+      day_number: step.dayNumber,
+      day_offset: step.dayOffset,
+      title: step.title,
+      goal: step.goal,
+      channels: step.channels,
+      timing_guide: step.timingGuide,
+      role_note: step.roleNote,
+      templates: step.templates,
+      is_active: true,
+    };
+  }
+
+  /** Validates a step from the Masters editor into the columns it is saved in. */
+  private parseSopStep(body: any) {
+    const text = (value: unknown, label: string, max: number, required: boolean): string => {
+      const trimmed = typeof value === 'string' ? value.trim() : '';
+      if (value !== undefined && value !== null && typeof value !== 'string') throw new BadRequestException(`${label} must be text.`);
+      if (required && !trimmed) throw new BadRequestException(`Enter the ${label.toLowerCase()}.`);
+      if (trimmed.length > max) throw new BadRequestException(`${label} must be ${max.toLocaleString('en-IN')} characters or fewer.`);
+      return trimmed;
+    };
+    // Messages keep their line breaks and spacing as written.
+    const message = (value: unknown, label: string): string => {
+      if (value === undefined || value === null) return '';
+      if (typeof value !== 'string') throw new BadRequestException(`${label} must be text.`);
+      if (value.length > 10000) throw new BadRequestException(`${label} must be 10,000 characters or fewer.`);
+      return value;
+    };
+
+    const dayNumber = Number(body.day_number);
+    if (!Number.isInteger(dayNumber) || dayNumber < 1 || dayNumber > 60) {
+      throw new BadRequestException('The day number must be a whole number from 1 to 60.');
+    }
+    const allowedChannels: CadenceChannel[] = ['WHATSAPP', 'EMAIL', 'LINKEDIN', 'PHONE'];
+    const channels = Array.isArray(body.channels) ? allowedChannels.filter((channel) => body.channels.includes(channel)) : [];
+    if (channels.length === 0) throw new BadRequestException('Choose at least one channel for this step.');
+
+    const raw = body.templates && typeof body.templates === 'object' ? body.templates : {};
+    const templates: CadenceTemplate = {};
+    if (raw.whatsapp) templates.whatsapp = { message: message(raw.whatsapp.message, 'The WhatsApp message') };
+    if (raw.email) {
+      templates.email = { subject: message(raw.email.subject, 'The email subject'), body: message(raw.email.body, 'The email body') };
+    }
+    if (raw.linkedin) {
+      const actions = ['CONNECT', 'ENGAGE_POST', 'SHARE_POST', 'FAREWELL'] as const;
+      templates.linkedin = {
+        actionType: actions.find((action) => action === raw.linkedin.actionType) ?? 'CONNECT',
+        message: message(raw.linkedin.message, 'The LinkedIn message'),
+        actionNote: message(raw.linkedin.actionNote, 'The LinkedIn action note'),
+      };
+    }
+    if (raw.phone) {
+      templates.phone = {
+        pitchScript: message(raw.phone.pitchScript, 'The call script'),
+        afterCallTakenWhatsApp: message(raw.phone.afterCallTakenWhatsApp, 'The after-call WhatsApp message'),
+        missedCallWhatsApp: message(raw.phone.missedCallWhatsApp, 'The missed-call WhatsApp message'),
+      };
+    }
+
+    return {
+      day_number: dayNumber,
+      title: text(body.title, 'Step title', 160, true),
+      primary_objective: text(body.goal, 'Strategic goal', 500, true),
+      channels,
+      timing_guide: text(body.timing_guide, 'Timing guide', 255, false) || null,
+      role_note: text(body.role_note, 'Role note', 500, false) || null,
+      templates: templates as Prisma.InputJsonObject,
+    };
+  }
+
+  /**
+   * Locks the workspace's playbook for one change and, while it is still on
+   * the default steps, copies them in so the workspace owns them from now on.
+   * Returns the saved row id of the step named by stepId (a row id or a
+   * default step's id), or throws when there is no such step.
+   */
+  private async claimSopPlaybook(tx: Prisma.TransactionClient, tenantId: string, stepId?: unknown): Promise<string | undefined> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`crm-sop-steps:${tenantId}`}, 0))`;
+    if ((await tx.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: tenantId } })) === 0) {
+      await tx.rndtechnosoft_crm_sop_steps_master.createMany({
+        data: CADENCE_STEPS_MASTER.map((step) => ({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          day_number: step.dayNumber,
+          title: step.title,
+          primary_objective: step.goal,
+          channels: step.channels,
+          timing_guide: step.timingGuide,
+          role_note: step.roleNote,
+          templates: step.templates as Prisma.InputJsonObject,
+        })),
+      });
+    }
+    if (stepId === undefined) return undefined;
+
+    const gone = new NotFoundException('That step no longer exists. Reload the page to see the current playbook.');
+    const defaultDay = typeof stepId === 'string' ? /^default-day-(\d+)$/.exec(stepId) : null;
+    if (!defaultDay && (typeof stepId !== 'string' || !CrmService.UUID_PATTERN.test(stepId))) throw gone;
+    const row = await tx.rndtechnosoft_crm_sop_steps_master.findFirst({
+      where: defaultDay ? { tenant_id: tenantId, day_number: Number(defaultDay[1]) } : { tenant_id: tenantId, id: stepId as string },
+      select: { id: true },
+    });
+    if (!row) throw gone;
+    return row.id;
+  }
+
+  /** Adds a playbook step, or changes the one stepId names. One step per day. */
+  async saveSopStep(tenantId: string, body: any, memberId?: string, stepId?: unknown) {
+    const isUpdate = stepId !== undefined;
+    const input = this.parseSopStep(body);
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const rowId = await this.claimSopPlaybook(tx, tenantId, stepId);
+      const clash = await tx.rndtechnosoft_crm_sop_steps_master.findFirst({
+        where: { tenant_id: tenantId, day_number: input.day_number, ...(rowId ? { NOT: { id: rowId } } : {}) },
+        select: { title: true },
+      });
+      if (clash) {
+        throw new ConflictException(`Day ${input.day_number} already has a step ("${clash.title}"). Choose another day, or edit that step.`);
+      }
+      return rowId
+        ? tx.rndtechnosoft_crm_sop_steps_master.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: rowId } },
+            data: { ...input, updated_at: new Date() },
+          })
+        : tx.rndtechnosoft_crm_sop_steps_master.create({ data: { id: randomUUID(), tenant_id: tenantId, ...input } });
+    });
+
+    await this.logAudit(tenantId, isUpdate ? 'UPDATE' : 'CREATE', 'SOP_STEP', saved.id, { day_number: saved.day_number, title: saved.title }, memberId);
+    const step = (await this.getCadenceSteps(tenantId)).find((candidate) => candidate.id === saved.id);
+    return step ? this.toSopStepRow(step) : null;
+  }
+
+  /** Removes a playbook step. A playbook keeps at least one step. */
+  async deleteSopStep(tenantId: string, stepId: unknown, memberId?: string) {
+    const removed = await this.prisma.$transaction(async (tx) => {
+      const id = await this.claimSopPlaybook(tx, tenantId, stepId);
+      if ((await tx.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: tenantId } })) <= 1) {
+        throw new ConflictException('The outreach playbook needs at least one step. Add another step before removing this one.');
+      }
+      return tx.rndtechnosoft_crm_sop_steps_master.delete({ where: { tenant_id_id: { tenant_id: tenantId, id: id as string } } });
+    });
+    await this.logAudit(tenantId, 'DELETE', 'SOP_STEP', removed.id, { day_number: removed.day_number, title: removed.title }, memberId);
+  }
+
+  /**
+   * The workspace's objection strategies (reply branches) by key: its own, or
+   * the default strategies until it first changes one. Default strategies
+   * carry ids of the form default-branch-KEY so Masters can edit or remove them.
+   */
+  async getReplyBranches(tenantId: string): Promise<Record<string, ReplyBranch & { id: string }>> {
+    const rows = await this.prisma.rndtechnosoft_crm_sop_reply_branches_master.findMany({
+      where: { tenant_id: tenantId },
+      orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
+    });
+    if (rows.length === 0) {
+      return Object.fromEntries(Object.values(CADENCE_REPLY_BRANCHES).map((branch) => [branch.key, { ...branch, id: `default-branch-${branch.key}` }]));
+    }
+    return Object.fromEntries(
+      rows.map((row) => [
+        row.branch_key,
+        {
+          id: row.id,
+          key: row.branch_key,
+          label: row.label,
+          triggerCondition: row.trigger_condition,
+          nextLeadTemperature: row.next_lead_temperature as ReplyBranch['nextLeadTemperature'],
+          suggestedAction: row.suggested_action,
+          recommendedResponseScript: row.recommended_response_script,
+          whatsappMessage: row.whatsapp_message,
+          ...(row.email_subject || row.email_body ? { emailMessage: { subject: row.email_subject ?? '', body: row.email_body ?? '' } } : {}),
+        },
+      ]),
+    );
+  }
+
+  /** An objection strategy as CRM Masters lists and edits it. */
+  private toReplyBranchRow(branch: ReplyBranch & { id: string }) {
+    return {
+      id: branch.id,
+      branch_key: branch.key,
+      label: branch.label,
+      trigger_condition: branch.triggerCondition,
+      next_lead_temperature: branch.nextLeadTemperature,
+      suggested_action: branch.suggestedAction,
+      recommended_response_script: branch.recommendedResponseScript,
+      whatsapp_message: branch.whatsappMessage,
+      email_subject: branch.emailMessage?.subject ?? '',
+      email_body: branch.emailMessage?.body ?? '',
+      is_active: true,
+    };
+  }
+
+  /** Validates a strategy from the Masters editor into the columns it is saved in. */
+  private parseReplyBranch(body: any) {
+    const text = (value: unknown, label: string, max: number, required: boolean): string => {
+      if (value !== undefined && value !== null && typeof value !== 'string') throw new BadRequestException(`${label} must be text.`);
+      const trimmed = typeof value === 'string' ? value.trim() : '';
+      if (required && !trimmed) throw new BadRequestException(`Enter the ${label.toLowerCase()}.`);
+      if (trimmed.length > max) throw new BadRequestException(`${label} must be ${max.toLocaleString('en-IN')} characters or fewer.`);
+      return trimmed;
+    };
+    const temperatures = ['HOT', 'WARM', 'COLD', 'LOST'] as const;
+    const temperature = body.next_lead_temperature ?? 'WARM';
+    if (!temperatures.includes(temperature)) throw new BadRequestException('Choose the next lead temperature: HOT, WARM, COLD or LOST.');
+    const whatsappMessage = text(body.whatsapp_message, 'WhatsApp response script', 10000, true);
+    return {
+      label: text(body.label, 'Objection label', 120, true),
+      trigger_condition: text(body.trigger_condition, 'Trigger condition', 255, false),
+      suggested_action: text(body.suggested_action, 'Suggested SDR action', 255, false),
+      next_lead_temperature: temperature as string,
+      whatsapp_message: whatsappMessage,
+      // The script shown to the rep; the WhatsApp script unless one is given.
+      recommended_response_script: text(body.recommended_response_script, 'Recommended response script', 10000, false) || whatsappMessage,
+      email_subject: text(body.email_subject, 'Email subject', 255, false) || null,
+      email_body: text(body.email_body, 'Email body', 10000, false) || null,
+    };
+  }
+
+  /**
+   * Locks the workspace's objection strategies for one change and, while it is
+   * still on the defaults, copies them in. Returns the saved row id of the
+   * strategy named by branchId (a row id or a default strategy's id).
+   */
+  private async claimReplyBranches(tx: Prisma.TransactionClient, tenantId: string, branchId?: unknown): Promise<string | undefined> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`crm-sop-branches:${tenantId}`}, 0))`;
+    if ((await tx.rndtechnosoft_crm_sop_reply_branches_master.count({ where: { tenant_id: tenantId } })) === 0) {
+      await tx.rndtechnosoft_crm_sop_reply_branches_master.createMany({
+        data: Object.values(CADENCE_REPLY_BRANCHES).map((branch, index) => ({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          branch_key: branch.key,
+          label: branch.label,
+          trigger_condition: branch.triggerCondition,
+          suggested_action: branch.suggestedAction,
+          recommended_response_script: branch.recommendedResponseScript,
+          next_lead_temperature: branch.nextLeadTemperature,
+          whatsapp_message: branch.whatsappMessage,
+          email_subject: branch.emailMessage?.subject ?? null,
+          email_body: branch.emailMessage?.body ?? null,
+          sort_order: index,
+        })),
+      });
+    }
+    if (branchId === undefined) return undefined;
+
+    const gone = new NotFoundException('That objection strategy no longer exists. Reload the page to see the current list.');
+    const defaultKey = typeof branchId === 'string' ? /^default-branch-([a-z0-9_]+)$/.exec(branchId) : null;
+    if (!defaultKey && (typeof branchId !== 'string' || !CrmService.UUID_PATTERN.test(branchId))) throw gone;
+    const row = await tx.rndtechnosoft_crm_sop_reply_branches_master.findFirst({
+      where: defaultKey ? { tenant_id: tenantId, branch_key: defaultKey[1] } : { tenant_id: tenantId, id: branchId as string },
+      select: { id: true },
+    });
+    if (!row) throw gone;
+    return row.id;
+  }
+
+  /**
+   * Adds an objection strategy, or changes the one branchId names. A new
+   * strategy's key comes from its label; an existing key never changes,
+   * because leads' recorded replies refer to it.
+   */
+  async saveReplyBranch(tenantId: string, body: any, memberId?: string, branchId?: unknown) {
+    const isUpdate = branchId !== undefined;
+    const input = this.parseReplyBranch(body);
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const rowId = await this.claimReplyBranches(tx, tenantId, branchId);
+      if (rowId) {
+        return tx.rndtechnosoft_crm_sop_reply_branches_master.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: rowId } },
+          data: { ...input, updated_at: new Date() },
+        });
+      }
+      const existing = await tx.rndtechnosoft_crm_sop_reply_branches_master.findMany({
+        where: { tenant_id: tenantId },
+        select: { branch_key: true, sort_order: true },
+      });
+      const taken = new Set(existing.map((row) => row.branch_key));
+      const base = input.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 56) || 'strategy';
+      let key = base;
+      for (let n = 2; taken.has(key); n += 1) key = `${base}_${n}`;
+      return tx.rndtechnosoft_crm_sop_reply_branches_master.create({
+        data: { id: randomUUID(), tenant_id: tenantId, branch_key: key, sort_order: Math.max(-1, ...existing.map((row) => row.sort_order)) + 1, ...input },
+      });
+    });
+
+    await this.logAudit(tenantId, isUpdate ? 'UPDATE' : 'CREATE', 'SOP_BRANCH', saved.id, { branch_key: saved.branch_key, label: saved.label }, memberId);
+    return this.toReplyBranchRow((await this.getReplyBranches(tenantId))[saved.branch_key]);
+  }
+
+  /**
+   * Removes an objection strategy. Leads that already took it keep their
+   * recorded reply. A workspace keeps at least one strategy.
+   */
+  async deleteReplyBranch(tenantId: string, branchId: unknown, memberId?: string) {
+    const removed = await this.prisma.$transaction(async (tx) => {
+      const id = await this.claimReplyBranches(tx, tenantId, branchId);
+      if ((await tx.rndtechnosoft_crm_sop_reply_branches_master.count({ where: { tenant_id: tenantId } })) <= 1) {
+        throw new ConflictException('Keep at least one objection strategy. Add another before removing this one.');
+      }
+      return tx.rndtechnosoft_crm_sop_reply_branches_master.delete({ where: { tenant_id_id: { tenant_id: tenantId, id: id as string } } });
+    });
+    await this.logAudit(tenantId, 'DELETE', 'SOP_BRANCH', removed.id, { branch_key: removed.branch_key, label: removed.label }, memberId);
+  }
+
   async getMasters(tenantId: string, type?: string) {
     if (type === 'services') {
       return this.prisma.rndtechnosoft_crm_services_master.findMany({
@@ -2339,20 +2711,21 @@ export class CrmService {
     }
 
     if (type === 'sop-steps') {
-      return CADENCE_STEPS_MASTER;
+      return (await this.getCadenceSteps(tenantId)).map((step) => this.toSopStepRow(step));
     }
 
     if (type === 'sop-branches') {
-      return Object.values(CADENCE_REPLY_BRANCHES);
+      return Object.values(await this.getReplyBranches(tenantId)).map((branch) => this.toReplyBranchRow(branch));
     }
 
     // Default: bundle of active masters
-    const [services, stages, pipelines, sources, lostReasons] = await Promise.all([
+    const [services, stages, pipelines, sources, lostReasons, sopSteps] = await Promise.all([
       this.prisma.rndtechnosoft_crm_services_master.findMany({ where: { tenant_id: tenantId } }),
       this.prisma.rndtechnosoft_crm_stages.findMany({ where: { tenant_id: tenantId }, orderBy: { sort_order: 'asc' } }),
       this.prisma.rndtechnosoft_crm_pipelines.findMany({ where: { tenant_id: tenantId } }),
       this.prisma.rndtechnosoft_crm_lead_sources.findMany({ where: { tenant_id: tenantId } }),
       this.prisma.rndtechnosoft_crm_lost_reasons_master.findMany({ where: { tenant_id: tenantId } }),
+      this.getCadenceSteps(tenantId),
     ]);
 
     return {
@@ -2362,8 +2735,8 @@ export class CrmService {
       sources,
       lostReasons,
       industries: CADENCE_INDUSTRIES,
-      sopSteps: CADENCE_STEPS_MASTER,
-      replyBranches: Object.values(CADENCE_REPLY_BRANCHES),
+      sopSteps,
+      replyBranches: Object.values(await this.getReplyBranches(tenantId)),
     };
   }
 
@@ -2507,15 +2880,84 @@ export class CrmService {
     return { success: true };
   }
 
+  /**
+   * Deletes a master record. One still in use is refused, saying how many
+   * leads (or quotation lines) use it, so no lead is left pointing at nothing
+   * and nothing about those leads changes.
+   */
   async deleteMaster(tenantId: string, type: string, id: string) {
-    if (type === 'services') {
-      await this.prisma.rndtechnosoft_crm_services_master.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
-    } else if (type === 'stages') {
-      await this.prisma.rndtechnosoft_crm_stages.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
+    const gone = new NotFoundException('That record no longer exists. Reload the page.');
+    if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw gone;
+    const scope = { tenant_id: tenantId, id };
+    const leadCount = (where: Prisma.rndtechnosoft_crm_leadsWhereInput) => this.prisma.rndtechnosoft_crm_leads.count({ where: { tenant_id: tenantId, ...where } });
+    const leadsPhrase = (count: number) => `${count} lead${count === 1 ? '' : 's'}`;
+
+    let name: string;
+    let remove: () => Promise<unknown>;
+    if (type === 'stages') {
+      const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({ where: scope, select: { name: true } });
+      if (!stage) throw gone;
+      const count = await leadCount({ stage_id: id });
+      if (count > 0) {
+        throw new ConflictException(`${leadsPhrase(count)} ${count === 1 ? 'is' : 'are'} in "${stage.name}". Move them to another stage on the Sales Pipeline board, then delete it.`);
+      }
+      name = stage.name;
+      remove = () => this.prisma.rndtechnosoft_crm_stages.delete({ where: { tenant_id_id: scope } });
     } else if (type === 'pipelines') {
-      await this.prisma.rndtechnosoft_crm_pipelines.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
+      const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: scope, select: { name: true } });
+      if (!pipeline) throw gone;
+      const count = await leadCount({ pipeline_id: id });
+      if (count > 0) {
+        throw new ConflictException(`${leadsPhrase(count)} ${count === 1 ? 'is' : 'are'} in the "${pipeline.name}" pipeline. Move them to another pipeline, then delete it.`);
+      }
+      name = pipeline.name;
+      // Its stages go with it.
+      remove = () => this.prisma.rndtechnosoft_crm_pipelines.delete({ where: { tenant_id_id: scope } });
     } else if (type === 'sources') {
-      await this.prisma.rndtechnosoft_crm_lead_sources.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
+      const source = await this.prisma.rndtechnosoft_crm_lead_sources.findFirst({ where: scope, select: { name: true } });
+      if (!source) throw gone;
+      const count = await leadCount({ source_id: id });
+      if (count > 0) throw new ConflictException(`"${source.name}" is the source of ${leadsPhrase(count)}, so it can't be deleted. Change their source first.`);
+      name = source.name;
+      remove = () => this.prisma.rndtechnosoft_crm_lead_sources.delete({ where: { tenant_id_id: scope } });
+    } else if (type === 'services') {
+      const service = await this.prisma.rndtechnosoft_crm_services_master.findFirst({ where: scope, select: { name: true } });
+      if (!service) throw gone;
+      const [leads, lines] = await Promise.all([
+        leadCount({ primary_service_id: id }),
+        this.prisma.rndtechnosoft_crm_quotation_items.count({ where: { tenant_id: tenantId, service_id: id } }),
+      ]);
+      if (leads + lines > 0) {
+        const uses = [leads > 0 ? leadsPhrase(leads) : '', lines > 0 ? `${lines} quotation line${lines === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+        throw new ConflictException(`"${service.name}" is the service on ${uses}, so it can't be deleted. Change their service first.`);
+      }
+      name = service.name;
+      remove = () => this.prisma.rndtechnosoft_crm_services_master.delete({ where: { tenant_id_id: scope } });
+    } else if (type === 'lost-reasons') {
+      const reason = await this.prisma.rndtechnosoft_crm_lost_reasons_master.findFirst({ where: scope, select: { reason_name: true } });
+      if (!reason) throw gone;
+      const count = await leadCount({ lost_reason_id: id });
+      if (count > 0) throw new ConflictException(`"${reason.reason_name}" is the lost reason of ${leadsPhrase(count)}, so it can't be deleted.`);
+      name = reason.reason_name;
+      remove = () => this.prisma.rndtechnosoft_crm_lost_reasons_master.delete({ where: { tenant_id_id: scope } });
+    } else if (type === 'quotation-templates') {
+      // Quotations copy a template's lines, so nothing refers back to it.
+      const template = await this.prisma.rndtechnosoft_crm_quotation_templates.findFirst({ where: scope, select: { template_name: true } });
+      if (!template) throw gone;
+      name = template.template_name;
+      remove = () => this.prisma.rndtechnosoft_crm_quotation_templates.delete({ where: { tenant_id_id: scope } });
+    } else {
+      throw new BadRequestException('That kind of record cannot be deleted here.');
+    }
+
+    try {
+      await remove();
+    } catch (error) {
+      // Someone started using it between the check and the delete.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException(`"${name}" has just been put to use, so it can't be deleted. Reload the page to see where.`);
+      }
+      throw error;
     }
     return { success: true };
   }

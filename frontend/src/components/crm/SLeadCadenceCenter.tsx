@@ -30,7 +30,7 @@ import { ColdLeadImportModal } from './ColdLeadImportModal';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
-import { coldFunnelDestination } from './pipelineBoard';
+import { conversionDestination } from './pipelineBoard';
 import { ConvertDestination } from './ConvertDestination';
 interface SLeadCadenceCenterProps {
   onSelectLead360: (leadId: string) => void;
@@ -75,6 +75,8 @@ export default function SLeadCadenceCenter({
   const [selectedLeadForConvert, setSelectedLeadForConvert] = useState<any | null>(null);
   const [dealValue, setDealValue] = useState<string | number>('');
   const [leadTemperature, setLeadTemperature] = useState<'WARM' | 'HOT'>('HOT');
+  const [convertPipelineId, setConvertPipelineId] = useState('');
+  const [convertStageId, setConvertStageId] = useState('');
   const [conversionNotes, setConversionNotes] = useState<string>('');
   const [convertingOpp, setConvertingOpp] = useState<boolean>(false);
   // Set synchronously, so a second click before the next render cannot send a second request.
@@ -336,15 +338,17 @@ export default function SLeadCadenceCenter({
     // The lead's own budget if it has one; never an invented figure.
     setDealValue(Number(leadItem.budget_amount) > 0 ? Number(leadItem.budget_amount) : '');
     setLeadTemperature('HOT');
+    setConvertPipelineId('');
+    setConvertStageId('');
     setConversionNotes(`Prospect expressed strong interest in ${activeTenantName} services during Client Outreach Day ${leadItem.currentStep?.dayNumber || 1} outreach.`);
   };
 
   // Execute conversion to Opportunity
-  // Converted leads go to the Cold Funnel's first open stage; the server decides and checks this too.
-  const convertDestination = coldFunnelDestination(pipelines, stages);
+  // Converted leads go to the chosen pipeline and open stage; by default the Cold Funnel and its first open stage. The server checks this too.
+  const convertDestination = conversionDestination(pipelines, stages, { pipelineId: convertPipelineId, stageId: convertStageId });
 
   const handleExecuteConvertOpportunity = async () => {
-    if (!selectedLeadForConvert || convertInFlight.current || !convertDestination) return;
+    if (!selectedLeadForConvert || convertInFlight.current || !convertDestination.pipeline || !convertDestination.stage) return;
     convertInFlight.current = true;
     setConvertingOpp(true);
     try {
@@ -355,6 +359,8 @@ export default function SLeadCadenceCenter({
         body: JSON.stringify({
           action: 'CONVERT_OPPORTUNITY',
           leadId: selectedLeadForConvert.id,
+          pipelineId: convertDestination.pipeline.id,
+          stageId: convertDestination.stage.id,
           ...(dealValue !== '' ? { budgetAmount: Number(dealValue) } : {}),
           temperature: leadTemperature,
           notes: conversionNotes
@@ -1972,7 +1978,14 @@ export default function SLeadCadenceCenter({
               {/* Form Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
-                  <ConvertDestination destination={convertDestination} />
+                  <ConvertDestination
+                    destination={convertDestination}
+                    onPipelineChange={(pipelineId) => {
+                      setConvertPipelineId(pipelineId);
+                      setConvertStageId('');
+                    }}
+                    onStageChange={setConvertStageId}
+                  />
                 </div>
 
                 {/* Deal Value */}
@@ -2046,7 +2059,7 @@ export default function SLeadCadenceCenter({
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-[11px] leading-relaxed flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 <div>
-                  Converting takes this lead out of the outreach cadence and puts it on the <strong>Sales Pipeline</strong> board{convertDestination ? <> under <strong>{convertDestination.pipeline.name}</strong></> : null}. Its notes are kept on the lead's timeline.
+                  Converting takes this lead out of the outreach cadence and puts it on the <strong>Sales Pipeline</strong> board{convertDestination.pipeline ? <> under <strong>{convertDestination.pipeline.name}</strong></> : null}. Its notes are kept on the lead's timeline.
                 </div>
               </div>
             </div>
@@ -2062,7 +2075,7 @@ export default function SLeadCadenceCenter({
 
               <button
                 onClick={handleExecuteConvertOpportunity}
-                disabled={convertingOpp || !convertDestination}
+                disabled={convertingOpp || !convertDestination.stage}
                 className="px-6 py-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all hover:shadow-lg disabled:opacity-50"
               >
                 <Trophy className="w-4 h-4" />
