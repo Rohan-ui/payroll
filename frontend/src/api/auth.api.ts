@@ -1,70 +1,106 @@
 import { apiClient } from './client';
 
+export interface TenantMembership {
+  tenantId: string;
+  tenantCode: string;
+  legalName: string;
+  displayName: string;
+  roles: string[];
+}
+
+/** A workspace module code such as CRM, HRMS or FINANCE. Which modules exist comes from the server. */
+export type WorkspaceModule = string;
+
+/**
+ * A sidebar item the member may open, as decided by the server from their
+ * permissions. Its label, the group it sits under and its order come from the
+ * server too; the client only draws it.
+ */
+export interface NavigationEntry {
+  id: string;
+  label: string;
+  /** The group (a business module such as HRMS) this item sits under, or null at the top level. */
+  parent: string | null;
+  module: WorkspaceModule | null;
+  moduleName: string | null;
+  /** False when the workspace has switched the item's module off. */
+  moduleEnabled: boolean;
+}
+
+/**
+ * What the signed-in member may do in the active workspace. The UI uses it to
+ * hide what cannot be used; the server enforces the same rules on every request.
+ */
+export interface WorkspaceAccess {
+  permissions: string[];
+  modules: Record<WorkspaceModule, boolean>;
+  navigation: NavigationEntry[];
+}
+
+/**
+ * A session returned by the API.
+ *
+ * `activeTenant` is chosen by the server from the user's memberships and is
+ * pinned to the session. The client cannot change it by editing local state;
+ * switching workspaces requires a request the server re-authorizes.
+ */
 export interface UserSession {
-  token?: string;
+  token: string;
+  expiresAt: string;
   user: {
     id: string;
     email: string;
-    displayName: string;
+    displayName: string | null;
+    /** Signed in with a temporary password: the server allows nothing but replacing it. */
+    mustChangePassword: boolean;
   };
-  tenants: {
-    tenantMemberId: string;
-    tenantId: string;
-    tenantCode: string;
-    legalName: string;
-    displayName: string;
-    roles: string[];
-  }[];
+  activeTenant: TenantMembership;
+  availableTenants: TenantMembership[];
+  access: WorkspaceAccess;
+}
+
+export interface UserProfile {
+  user: UserSession['user'];
+  activeTenant: TenantMembership | null;
+  availableTenants: TenantMembership[];
+  roles: string[];
+  access: WorkspaceAccess;
 }
 
 export const authApi = {
-  login: async (email: string, password?: string): Promise<UserSession> => {
-    const res = await apiClient.post<any>('/auth/login', { email, password });
-    return {
-      token: res.token || `token-${res.user.id}-${Date.now()}`,
-      user: res.user,
-      tenants: res.tenants || [],
-    };
-  },
+  login: (email: string, password: string, tenantId?: string) =>
+    apiClient.post<UserSession>('/auth/login', { email, password, tenantId }),
 
-  registerTenant: async (data: {
+  /** Creates a workspace and returns a session for its first administrator. */
+  registerTenant: (data: {
     companyName: string;
     tenantCode: string;
     email: string;
-    password?: string;
+    password: string;
     adminName?: string;
-  }): Promise<UserSession> => {
-    // Step 1: Register User
-    const userRes = await apiClient.post<any>('/auth/register', {
-      email: data.email,
-      password: data.password || 'password123',
-      displayName: data.adminName || data.email.split('@')[0],
-    });
-
-    // Step 2: Create Tenant
-    const tenantRes = await apiClient.post<any>('/tenants', {
+    displayName?: string;
+  }) =>
+    apiClient.post<UserSession>('/auth/register-tenant', {
+      ...data,
       tenantCode: data.tenantCode.toUpperCase().trim(),
-      legalName: data.companyName,
-      displayName: data.companyName,
-    });
+    }),
 
-    // Step 3: Add Membership as ADMIN
-    await apiClient.post('/auth/membership', {
-      tenantId: tenantRes.id,
-      userId: userRes.id,
-      roleCode: 'ADMIN',
-    });
+  /** Identity comes from the session; there is no user id to pass. */
+  getMe: () => apiClient.get<UserProfile>('/auth/me'),
 
-    // Step 4: Login and return user session
-    return authApi.login(data.email, data.password || 'password123');
-  },
+  /** Re-checks membership server-side and returns a session for the new tenant. */
+  switchTenant: (tenantId: string) =>
+    apiClient.post<UserSession>('/auth/switch-tenant', { tenantId }),
 
-  seedDemo: async (): Promise<UserSession> => {
-    // Log in directly as the seeded Admin
-    return authApi.login('admin@rndtechnosoft.com', 'password123');
-  },
+  logout: () => apiClient.post<{ success: boolean }>('/auth/logout'),
 
-  getMe: async (userId: string): Promise<Omit<UserSession, 'token'>> => {
-    return apiClient.get<Omit<UserSession, 'token'>>(`/auth/me?userId=${encodeURIComponent(userId)}`);
-  },
+  /** `currentPassword` is left out when replacing a temporary password: the session proves it. */
+  changePassword: (newPassword: string, currentPassword?: string) =>
+    apiClient.post<{ success: boolean }>('/auth/change-password', {
+      newPassword,
+      ...(currentPassword !== undefined ? { currentPassword } : {}),
+    }),
+
+  revokeOtherSessions: () =>
+    apiClient.post<{ data: { revoked: number } }>('/auth/sessions/revoke-others'),
 };

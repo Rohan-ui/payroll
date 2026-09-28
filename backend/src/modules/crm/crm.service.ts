@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import {
@@ -13,8 +13,13 @@ import {
   CADENCE_STEPS_MASTER,
   CADENCE_REPLY_BRANCHES,
   CADENCE_INDUSTRIES,
+  CadenceChannel,
   CadenceState,
+  CadenceStep,
+  CadenceTemplate,
+  ReplyBranch,
   computeStepDueDate,
+  nextCadenceStep,
   evaluateStepDueStatus,
   interpolateText,
 } from './crm-cadence.helper';
@@ -112,9 +117,50 @@ export const BASELINE_INDUSTRIES = [
   },
 ];
 
+/**
+ * Loading sample outreach leads writes invented companies and people into the
+ * workspace, so it is allowed only where CRM_ALLOW_DEMO_SEED=true (a demo or
+ * sandbox deployment). Off by default.
+ */
+export const isCrmDemoSeedAllowed = () => process.env.CRM_ALLOW_DEMO_SEED === 'true';
+
+/**
+ * The pipeline that leads converted from Client Outreach enter: each
+ * workspace's pipeline with this code (codes are unique per workspace, set in
+ * CRM Masters → Pipelines). There is no fallback to another pipeline.
+ */
+export const COLD_FUNNEL_PIPELINE_CODE = 'COLD_FUNNEL';
+
+/** The related records a lead is listed with, on the board, in the list and in API answers. */
+const LEAD_LIST_INCLUDE = {
+  rndtechnosoft_crm_stages: true,
+  rndtechnosoft_crm_pipelines: true,
+  rndtechnosoft_crm_lead_sources: true,
+  rndtechnosoft_crm_services_master: true,
+  rndtechnosoft_tenant_members: {
+    include: { rndtechnosoft_users: true },
+  },
+} satisfies Prisma.rndtechnosoft_crm_leadsInclude;
+
+type LeadListRow = Prisma.rndtechnosoft_crm_leadsGetPayload<{ include: typeof LEAD_LIST_INCLUDE }>;
+
 @Injectable()
 export class CrmService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private pagination(requestedPage?: number, requestedLimit?: number) {
+    const page = Number.isInteger(requestedPage) && requestedPage! > 0 ? requestedPage! : 1;
+    const limit = Number.isInteger(requestedLimit) ? Math.min(100, Math.max(1, requestedLimit!)) : 25;
+    return { page, limit, skip: (page - 1) * limit };
+  }
+
+  private pageMeta(total: number, page: number, limit: number, itemCount = limit) {
+    return { total, page, limit, totalPages: Math.ceil(total / limit), hasMore: (page - 1) * limit + itemCount < total };
+  }
+
+  private pageResult<T>(items: T[], total: number, page: number, limit: number) {
+    return { items, ...this.pageMeta(total, page, limit, items.length) };
+  }
 
   // ==========================================
   // PIPELINES & STAGES
@@ -194,8 +240,12 @@ export class CrmService {
       search?: string;
       isWon?: boolean;
       isLost?: boolean;
+      page?: number;
+      limit?: number;
+      unpaginated?: boolean;
     },
   ) {
+    const { page, limit, skip } = this.pagination(query.page, query.limit);
     const where: any = { tenant_id: tenantId };
     if (query.pipelineId) where.pipeline_id = query.pipelineId;
     if (query.stageId) where.stage_id = query.stageId;
@@ -218,20 +268,15 @@ export class CrmService {
       ];
     }
 
-    const [rawLeads, stages, pipelines, sources, members, clients] = await Promise.all([
+    const [rawLeads, total, stages, pipelines, sources, members, clients] = await Promise.all([
       this.prisma.rndtechnosoft_crm_leads.findMany({
         where,
-        orderBy: [{ ai_score: 'desc' }, { created_at: 'desc' }],
-        include: {
-          rndtechnosoft_crm_stages: true,
-          rndtechnosoft_crm_pipelines: true,
-          rndtechnosoft_crm_lead_sources: true,
-          rndtechnosoft_crm_services_master: true,
-          rndtechnosoft_tenant_members: {
-            include: { rndtechnosoft_users: true },
-          },
-        },
+        // Newest first, so a lead just added is always on the first page.
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+        ...(query.unpaginated ? {} : { skip, take: limit }),
+        include: LEAD_LIST_INCLUDE,
       }),
+      this.prisma.rndtechnosoft_crm_leads.count({ where }),
       this.prisma.rndtechnosoft_crm_stages.findMany({
         where: { tenant_id: tenantId },
         orderBy: { sort_order: 'asc' },
@@ -251,6 +296,7 @@ export class CrmService {
       this.prisma.rndtechnosoft_crm_clients.findMany({
         where: { tenant_id: tenantId },
         orderBy: { company_name: 'asc' },
+        take: 100,
       }),
     ]);
 
@@ -267,36 +313,40 @@ export class CrmService {
       };
     });
 
-    const mappedLeads = rawLeads.map((l) => {
-      const assignedUser = l.rndtechnosoft_tenant_members?.rndtechnosoft_users;
-      const userParts = (assignedUser?.display_name || '').split(' ');
-      return {
-        ...l,
-        stage_name: l.rndtechnosoft_crm_stages?.name || 'New',
-        stage_color: l.rndtechnosoft_crm_stages?.color || '#2563eb',
-        stage_order: l.rndtechnosoft_crm_stages?.sort_order || 0,
-        is_won: l.rndtechnosoft_crm_stages?.is_won || l.is_won,
-        is_lost: l.rndtechnosoft_crm_stages?.is_lost || l.is_lost,
-        pipeline_name: l.rndtechnosoft_crm_pipelines?.name || 'Default Pipeline',
-        source_name: l.rndtechnosoft_crm_lead_sources?.name || 'Inbound',
-        assigned_user_id: l.assigned_tenant_member_id,
-        assigned_user_name: assignedUser?.display_name || 'Unassigned',
-        assigned_user_first_name: userParts[0] || 'Unassigned',
-        assigned_user_last_name: userParts.slice(1).join(' ') || '',
-        assigned_user_email: assignedUser?.email || '',
-        assigned_user_designation: 'Sales Representative',
-        existing_client_name: l.company_name,
-        existing_client_status: l.is_won ? 'ACTIVE' : 'PROSPECT',
-      };
-    });
+    const mappedLeads = rawLeads.map((l) => this.toLeadListItem(l));
 
     return {
       leads: mappedLeads,
+      pagination: this.pageMeta(total, page, limit, mappedLeads.length),
       stages,
       pipelines,
       sources,
       salesPersons,
       clients,
+    };
+  }
+
+  /** A lead as the board and the list show it. */
+  private toLeadListItem(l: LeadListRow) {
+    const assignedUser = l.rndtechnosoft_tenant_members?.rndtechnosoft_users;
+    const userParts = (assignedUser?.display_name || '').split(' ');
+    return {
+      ...l,
+      stage_name: l.rndtechnosoft_crm_stages?.name || 'New',
+      stage_color: l.rndtechnosoft_crm_stages?.color || '#2563eb',
+      stage_order: l.rndtechnosoft_crm_stages?.sort_order || 0,
+      is_won: l.rndtechnosoft_crm_stages?.is_won || l.is_won,
+      is_lost: l.rndtechnosoft_crm_stages?.is_lost || l.is_lost,
+      pipeline_name: l.rndtechnosoft_crm_pipelines?.name || 'Default Pipeline',
+      source_name: l.rndtechnosoft_crm_lead_sources?.name || 'Inbound',
+      assigned_user_id: l.assigned_tenant_member_id,
+      assigned_user_name: assignedUser?.display_name || 'Unassigned',
+      assigned_user_first_name: userParts[0] || 'Unassigned',
+      assigned_user_last_name: userParts.slice(1).join(' ') || '',
+      assigned_user_email: assignedUser?.email || '',
+      assigned_user_designation: 'Sales Representative',
+      existing_client_name: l.company_name,
+      existing_client_status: l.is_won ? 'ACTIVE' : 'PROSPECT',
     };
   }
 
@@ -361,27 +411,61 @@ export class CrmService {
     };
   }
 
+  /**
+   * The pipeline and stage a new lead goes into: those requested, when they are
+   * this workspace's and the stage is in that pipeline, or the default pipeline's
+   * first stage. A workspace without one is told how to fix it.
+   */
+  private async leadPlacement(tenantId: string, requestedPipelineId?: string, requestedStageId?: string) {
+    const pipeline = requestedPipelineId
+      ? await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId, id: requestedPipelineId }, select: { id: true } })
+      : await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId }, orderBy: { is_default: 'desc' }, select: { id: true } });
+    if (!pipeline) {
+      throw new BadRequestException(
+        requestedPipelineId ? 'That pipeline does not exist in this workspace.' : 'Create a sales pipeline with at least one stage (CRM Masters → Pipelines) before adding leads.',
+      );
+    }
+    const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
+      where: { tenant_id: tenantId, pipeline_id: pipeline.id, ...(requestedStageId ? { id: requestedStageId } : {}) },
+      orderBy: { sort_order: 'asc' },
+      select: { id: true },
+    });
+    if (!stage) {
+      throw new BadRequestException(requestedStageId ? 'That stage is not in the chosen pipeline.' : 'Add at least one stage to the pipeline before adding leads.');
+    }
+    return { pipelineId: pipeline.id, stageId: stage.id };
+  }
+
+  /**
+   * Creates a record with a free <prefix>-<year>-<number> code (lead, client,
+   * quotation), retrying if another record took the same number meanwhile.
+   */
+  private async withUniqueCode<T>(prefix: string, create: (code: string) => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+      const code = `${prefix}-${new Date().getFullYear()}-${randomInt(100000, 1000000)}`;
+      try {
+        return await create(code);
+      } catch (error) {
+        const isCodeClash =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002' &&
+          /lead_code|client_code|quotation_number|uq_crm_leads_code|uq_crm_clients_code|uq_crm_quotations_number/.test(JSON.stringify(error.meta?.target ?? ''));
+        if (!isCodeClash || attempt >= 4) throw error;
+      }
+    }
+  }
+
   async createLead(tenantId: string, data: any, memberId?: string) {
-    const leadCode = `LD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const leadId = randomUUID();
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
+    const companyName = text(data.companyName ?? data.company_name);
+    const firstName = text(data.firstName ?? data.first_name);
+    const email = text(data.email)?.toLowerCase() ?? null;
+    const missing = [!companyName && 'company name', !firstName && 'first name', !email && 'email'].filter(Boolean);
+    if (missing.length > 0) throw new BadRequestException(`A lead needs a ${missing.join(', ')}.`);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email!)) throw new BadRequestException('Enter a valid email address for the lead.');
 
-    let pipelineId = data.pipelineId || data.pipeline_id;
-    if (!pipelineId) {
-      const defaultPipe = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
-        where: { tenant_id: tenantId },
-        orderBy: { is_default: 'desc' },
-      });
-      pipelineId = defaultPipe?.id;
-    }
-
-    let stageId = data.stageId || data.stage_id;
-    if (!stageId && pipelineId) {
-      const defaultStage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
-        where: { tenant_id: tenantId, pipeline_id: pipelineId },
-        orderBy: { sort_order: 'asc' },
-      });
-      stageId = defaultStage?.id;
-    }
+    const { pipelineId, stageId } = await this.leadPlacement(tenantId, data.pipelineId || data.pipeline_id, data.stageId || data.stage_id);
 
     const temperature = data.temperature || 'WARM';
     let customAttributes = data.customAttributes || data.custom_attributes;
@@ -389,7 +473,7 @@ export class CrmService {
     // Auto-enroll COLD leads into 30-day cadence
     if (temperature === 'COLD' && (!customAttributes || !customAttributes.cadence)) {
       const now = new Date();
-      const firstStep = CADENCE_STEPS_MASTER[0];
+      const [firstStep] = await this.getCadenceSteps(tenantId);
       const dueDate = computeStepDueDate(now, firstStep?.dayOffset || 0);
       customAttributes = {
         ...(customAttributes || {}),
@@ -406,17 +490,17 @@ export class CrmService {
       };
     }
 
-    const lead = await this.prisma.rndtechnosoft_crm_leads.create({
+    const lead = await this.withUniqueCode('LD', (leadCode) => this.prisma.rndtechnosoft_crm_leads.create({
       data: {
         id: leadId,
         tenant_id: tenantId,
         lead_code: leadCode,
-        company_name: data.companyName || data.company_name || 'Untitled Organization',
-        first_name: data.firstName || data.first_name || 'Lead',
+        company_name: companyName!,
+        first_name: firstName!,
         last_name: data.lastName || data.last_name || null,
         designation: data.designation || null,
-        email: data.email || `contact_${leadId.slice(0, 8)}@lead.local`,
-        phone: data.phone || '+91 9800000000',
+        email: email!,
+        phone: text(data.phone),
         whatsapp_number: data.whatsappNumber || data.whatsapp_number || data.phone || null,
         alternate_email: data.alternateEmail || data.alternate_email || null,
         alternate_phone: data.alternatePhone || data.alternate_phone || null,
@@ -428,7 +512,7 @@ export class CrmService {
         address: data.address || null,
         postal_code: data.postalCode || data.postal_code || null,
         country_code: data.countryCode || data.country_code || 'IN',
-        industry: data.industry || 'Software & IT',
+        industry: text(data.industry),
         sub_industry: data.subIndustry || data.sub_industry || null,
         primary_service_id: data.primaryServiceId || data.primary_service_id || null,
         primary_service: data.primaryService || data.primary_service || null,
@@ -447,7 +531,7 @@ export class CrmService {
         custom_attributes: customAttributes || undefined,
         cadence_step: 1,
       },
-    });
+    }));
 
     // Record creation activity
     await this.logActivity(tenantId, lead.id, 'NOTE', 'Lead Created', `Lead account created via CRM Workspace`, memberId);
@@ -959,7 +1043,7 @@ export class CrmService {
   }
 
   async exportLeads(tenantId: string, filters: any): Promise<Buffer> {
-    const leadsResult = await this.getLeads(tenantId, filters);
+    const leadsResult = await this.getLeads(tenantId, { ...filters, unpaginated: true });
     const leads = Array.isArray(leadsResult) ? leadsResult : (leadsResult.leads || []);
 
     const workbook = new ExcelJS.Workbook();
@@ -1075,7 +1159,7 @@ export class CrmService {
 
   async importLeads(tenantId: string, leads: any[], memberId?: string) {
     if (!Array.isArray(leads) || leads.length === 0) {
-      return { importedCount: 0 };
+      return { importedCount: 0, successCount: 0, skipped: [] as { row: number; reason: string }[] };
     }
 
     const defaultPipe = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
@@ -1088,7 +1172,9 @@ export class CrmService {
     });
 
     let count = 0;
-    for (const item of leads) {
+    const skipped: { row: number; reason: string }[] = [];
+    for (const [index, item] of leads.entries()) {
+      const rowNumber = index + 1;
       const companyName = String(
         item.companyName || item['Company Name *'] || item['Company Name'] || item.company_name || ''
       ).trim();
@@ -1105,7 +1191,10 @@ export class CrmService {
         item.secondaryEmail || item['Secondary Email'] || item.secondary_email || item.alternate_email || ''
       ).trim();
 
-      if (!companyName && !firstName) continue;
+      if (!companyName || !firstName || !email) {
+        skipped.push({ row: rowNumber, reason: 'Company name, first name and email are required.' });
+        continue;
+      }
 
       const rawCountryCode = item.countryCode || item['Country Code *'] || item['Country Code'] || item.country_code || '+91';
       const dialCode = extractDialCode(rawCountryCode, '+91');
@@ -1126,7 +1215,7 @@ export class CrmService {
         whatsappNumber = phone;
       }
 
-      const industry = String(item.industry || item['Industry *'] || item['Industry'] || 'Manufacturing').trim();
+      const industry = String(item.industry || item['Industry *'] || item['Industry'] || '').trim();
       const subIndustry = String(item.subIndustry || item['Sub Industry'] || item.sub_industry || '').trim();
       const city = String(item.city || item['City'] || '').trim();
       const state = String(item.state || item['State'] || '').trim();
@@ -1136,38 +1225,44 @@ export class CrmService {
       const websiteStatus = String(item.websiteStatus || item['Website Status'] || item.website_status || 'ACTIVE').trim();
       const linkedinUrl = String(item.personalLinkedInUrl || item['Personal LinkedIn URL'] || item.linkedin_url || '').trim();
       const linkedinCompanyUrl = String(item.linkedinCompanyUrl || item['LinkedIn Company URL'] || item.linkedin_company_url || '').trim();
-      const designation = String(item.designation || item['Designation'] || 'Decision Maker').trim();
+      const designation = String(item.designation || item['Designation'] || '').trim();
       const internalNotes = String(item.internalNotes || item['Internal Notes'] || item.internal_notes || '').trim();
       const budgetAmount = Number(item.budgetAmount || item['Budget Amount'] || item.budget_amount) || 0;
 
-      await this.createLead(
+      try {
+        await this.createLead(
         tenantId,
         {
-          company_name: companyName || 'Imported Lead',
-          first_name: firstName || 'Lead',
+          company_name: companyName,
+          first_name: firstName,
           last_name: lastName || null,
-          email: email || `lead_${Date.now()}_${count}@import.local`,
-          phone: phone || '+91 9000000000',
-          whatsapp_number: whatsappNumber || phone,
-          designation,
+          email,
+          phone: phone || null,
+          whatsapp_number: whatsappNumber || phone || null,
+          designation: designation || null,
           city: city || null,
           state: state || null,
-          industry: industry || 'Manufacturing',
+          industry: industry || null,
           sub_industry: subIndustry || null,
           website_url: websiteUrl || null,
           linkedin_url: linkedinUrl || null,
           budget_amount: budgetAmount,
           temperature: (item.temperature || 'COLD') as any,
-          pipeline_id: item.pipeline_id || defaultPipe?.id,
-          stage_id: item.stage_id || defaultStage?.id,
+          pipeline_id: defaultPipe?.id,
+          stage_id: defaultStage?.id,
         },
         memberId,
-      );
-      count++;
+        );
+        count++;
+      } catch (error) {
+        // One bad row does not stop the import; it is reported instead.
+        if (!(error instanceof BadRequestException)) throw error;
+        skipped.push({ row: rowNumber, reason: error.message });
+      }
     }
 
-    await this.logAudit(tenantId, 'IMPORT_LEADS', 'LEAD', tenantId, { importedCount: count }, memberId);
-    return { importedCount: count, successCount: count };
+    await this.logAudit(tenantId, 'IMPORT_LEADS', 'LEAD', tenantId, { importedCount: count, skippedCount: skipped.length }, memberId);
+    return { importedCount: count, successCount: count, skipped };
   }
 
   async handleInboundWebhook(tenantId: string, payload: any) {
@@ -1180,11 +1275,12 @@ export class CrmService {
       orderBy: { sort_order: 'asc' },
     });
 
-    const companyName = payload.company_name || payload.company || payload.sender_company || 'Inbound Webhook Lead';
-    const firstName = payload.first_name || payload.name?.split(' ')[0] || payload.sender_name || 'Prospect';
+    // Only what the sender provided: a lead without a company, name or email is refused, not invented.
+    const companyName = payload.company_name || payload.company || payload.sender_company || null;
+    const firstName = payload.first_name || payload.name?.split(' ')[0] || payload.sender_name || null;
     const lastName = payload.last_name || payload.name?.split(' ').slice(1).join(' ') || '';
-    const email = payload.email || payload.sender_email || `inbound_${Date.now()}@lead.local`;
-    const phone = payload.phone || payload.mobile || payload.sender_mobile || '+91 9876543210';
+    const email = payload.email || payload.sender_email || null;
+    const phone = payload.phone || payload.mobile || payload.sender_mobile || null;
     const requirement = payload.requirement || payload.query || payload.message || payload.brief || '';
     const sourceName = payload.source || payload.channel || 'Inbound Webhook';
 
@@ -1197,7 +1293,7 @@ export class CrmService {
         email,
         phone,
         whatsapp_number: phone,
-        industry: payload.industry || 'Manufacturing',
+        industry: payload.industry || null,
         city: payload.city || null,
         state: payload.state || null,
         budget_amount: Number(payload.budget) || 0,
@@ -1221,10 +1317,10 @@ export class CrmService {
     let client = await this.prisma.rndtechnosoft_crm_clients.findFirst({
       where: { tenant_id: tenantId, company_name: lead.company_name },
     });
+    const clientCreated = !client;
 
     if (!client) {
-      const clientCode = `CL-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      client = await this.prisma.rndtechnosoft_crm_clients.create({
+      client = await this.withUniqueCode('CL', (clientCode) => this.prisma.rndtechnosoft_crm_clients.create({
         data: {
           id: randomUUID(),
           tenant_id: tenantId,
@@ -1233,13 +1329,13 @@ export class CrmService {
           contact_person: `${lead.first_name} ${lead.last_name || ''}`.trim(),
           email: lead.email,
           phone: lead.phone,
-          billing_address: lead.address || lead.city || 'India',
+          billing_address: lead.address || lead.city || null,
           gstin: lead.gstin,
           pan: lead.pan,
           client_status: 'ACTIVE',
           created_from_lead_id: lead.id,
         },
-      });
+      }));
     }
 
     // 2. Find WON stage if present
@@ -1259,15 +1355,14 @@ export class CrmService {
       },
     });
 
-    const projectCode = `PRJ-${Date.now().toString(36).toUpperCase()}`;
-    const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
+    // Only what actually happened: no project or invoice exists yet, so none is named.
+    const outcome = `client ${client.client_code} ${clientCreated ? 'created' : 'linked'}`;
     await this.logActivity(
       tenantId,
       lead.id,
       'STATUS_CHANGE',
-      '🏆 Deal Won & Client Provisioned',
-      `Client record created (${client.company_name}), Project Code: ${projectCode}, Invoice: ${invoiceNumber}`,
+      `Deal won — ${outcome}`,
+      `${client.company_name} (${client.client_code}) ${clientCreated ? 'was created as a client' : 'was already a client and is now linked to this deal'}.`,
       memberId,
     );
 
@@ -1276,14 +1371,14 @@ export class CrmService {
       'CONVERT_WON',
       'LEAD',
       lead.id,
-      { clientId: client.id, projectCode, invoiceNumber },
+      { clientId: client.id, clientCode: client.client_code, clientCreated },
       memberId,
     );
 
     return {
       clientId: client.id,
-      projectCode,
-      invoiceNumber,
+      clientCode: client.client_code,
+      clientCreated,
     };
   }
 
@@ -1304,12 +1399,13 @@ export class CrmService {
       return {
         lead,
         cadence: customAttr.cadence || null,
-        masterSteps: CADENCE_STEPS_MASTER,
-        replyBranches: CADENCE_REPLY_BRANCHES,
+        masterSteps: await this.getCadenceSteps(tenantId),
+        replyBranches: await this.getReplyBranches(tenantId),
         industries: CADENCE_INDUSTRIES,
       };
     }
 
+    const steps = await this.getCadenceSteps(tenantId);
     const leads = await this.prisma.rndtechnosoft_crm_leads.findMany({
       where: { tenant_id: tenantId },
       orderBy: { created_at: 'desc' },
@@ -1369,8 +1465,8 @@ export class CrmService {
       }
 
       totalEnrolled++;
-      const stepIndex = cadence.currentStepIndex ?? 0;
-      const currentMasterStep = CADENCE_STEPS_MASTER[stepIndex] || CADENCE_STEPS_MASTER[0];
+      // Where the lead is in this workspace's playbook; once past the last step, that step.
+      const currentMasterStep = nextCadenceStep(steps, cadence) ?? steps[steps.length - 1];
       const stepDueDate = cadence.nextDueAt ? new Date(cadence.nextDueAt) : new Date(lead.created_at);
       const dueStatus = cadence.status === 'ACTIVE' ? evaluateStepDueStatus(stepDueDate) : 'UPCOMING';
 
@@ -1379,7 +1475,7 @@ export class CrmService {
         lastName: lead.last_name || '',
         companyName: lead.company_name,
         industry: cadence.industry || 'general',
-        phone: lead.whatsapp_number || lead.phone,
+        phone: lead.whatsapp_number || lead.phone || undefined,
         email: lead.email,
       };
 
@@ -1473,9 +1569,11 @@ export class CrmService {
         branched: branchedList,
         converted: convertedList,
       },
-      masterSteps: CADENCE_STEPS_MASTER,
-      replyBranches: CADENCE_REPLY_BRANCHES,
+      masterSteps: steps,
+      replyBranches: await this.getReplyBranches(tenantId),
       industries: CADENCE_INDUSTRIES,
+      // Tells the screen whether to offer "load sample leads".
+      demoSeedAllowed: isCrmDemoSeedAllowed(),
     };
   }
 
@@ -1485,7 +1583,7 @@ export class CrmService {
 
     if (action === 'ENROLL') {
       const now = new Date();
-      const firstStep = CADENCE_STEPS_MASTER[0];
+      const [firstStep] = await this.getCadenceSteps(tenantId);
       const dueDate = computeStepDueDate(now, firstStep.dayOffset);
 
       for (const id of targetIds) {
@@ -1532,21 +1630,28 @@ export class CrmService {
         completedSteps: [],
       };
 
-      const currentIndex = cadence.currentStepIndex ?? 0;
-      const executedStep = CADENCE_STEPS_MASTER[currentIndex];
+      // The step due now in this workspace's playbook, found by day so playbook edits never skip or repeat one.
+      const steps = await this.getCadenceSteps(tenantId);
+      const executedStep = nextCadenceStep(steps, cadence);
+      const currentIndex = executedStep ? steps.indexOf(executedStep) : steps.length;
 
-      cadence.completedSteps.push({
-        stepIndex: currentIndex,
-        dayNumber: executedStep?.dayNumber || 1,
-        completedAt: new Date().toISOString(),
-        channelsUsed: channel ? [channel] : executedStep?.channels || ['WHATSAPP'],
-        notes: notes || 'Step executed successfully',
-      });
+      if (executedStep) {
+        cadence.completedSteps = [
+          ...(cadence.completedSteps ?? []),
+          {
+            stepIndex: currentIndex,
+            dayNumber: executedStep.dayNumber,
+            completedAt: new Date().toISOString(),
+            channelsUsed: channel ? [channel] : executedStep.channels,
+            notes: notes || 'Step executed successfully',
+          },
+        ];
+      }
 
       const nextIndex = currentIndex + 1;
-      if (nextIndex < CADENCE_STEPS_MASTER.length) {
+      const nextStep = steps[nextIndex];
+      if (nextStep) {
         cadence.currentStepIndex = nextIndex;
-        const nextStep = CADENCE_STEPS_MASTER[nextIndex];
         const nextDue = computeStepDueDate(new Date(), nextStep.dayOffset - (executedStep?.dayOffset || 0));
         cadence.nextDueAt = nextDue.toISOString();
       } else {
@@ -1555,7 +1660,8 @@ export class CrmService {
       }
 
       await this.prisma.rndtechnosoft_crm_leads.update({
-        where: { id: leadId },
+        // Composite [tenant_id, id] key keeps the write inside this tenant.
+        where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
         data: {
           cadence_step: nextIndex + 1,
           touchpoints_count: { increment: 1 },
@@ -1568,11 +1674,20 @@ export class CrmService {
       return { success: true, nextStepIndex: cadence.currentStepIndex, status: cadence.status };
     }
 
-    if (action === 'CHANGE_BRANCH' && leadId && branchKey) {
+    if (action === 'CONVERT_OPPORTUNITY') {
+      return this.convertOutreachLead(tenantId, body, memberId);
+    }
+
+    // The screens send BRANCH_REPLY (with feedbackNotes); CHANGE_BRANCH is the older name.
+    if ((action === 'CHANGE_BRANCH' || action === 'BRANCH_REPLY') && leadId && branchKey) {
+      const replyNotes: string | undefined = notes ?? body.feedbackNotes;
       const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
       if (!lead) throw new NotFoundException('Lead not found');
 
-      const branch = CADENCE_REPLY_BRANCHES[branchKey];
+      // One of this workspace's objection strategies; never a key that is not in its list.
+      const branches = await this.getReplyBranches(tenantId);
+      const branch = typeof branchKey === 'string' && Object.prototype.hasOwnProperty.call(branches, branchKey) ? branches[branchKey] : undefined;
+      if (!branch) throw new BadRequestException('That objection strategy no longer exists. Reload the page and choose one from the list.');
       const customAttr = (lead.custom_attributes as any) || {};
       const cadence: CadenceState = customAttr.cadence || ({} as any);
 
@@ -1580,51 +1695,191 @@ export class CrmService {
       cadence.branchReply = {
         branchKey,
         repliedAt: new Date().toISOString(),
-        leadFeedback: notes || '',
+        leadFeedback: replyNotes || '',
         actionTaken: branch?.suggestedAction || 'Branch Triggered',
       };
 
       await this.prisma.rndtechnosoft_crm_leads.update({
-        where: { id: leadId },
+        where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
         data: {
           temperature: branch?.nextLeadTemperature || 'WARM',
           custom_attributes: { ...customAttr, cadence },
         },
       });
 
-      await this.logActivity(tenantId, leadId, 'STATUS_CHANGE', `Branched to SOP: ${branch?.label || branchKey}`, notes, memberId);
+      await this.logActivity(tenantId, leadId, 'STATUS_CHANGE', `Branched to SOP: ${branch?.label || branchKey}`, replyNotes, memberId);
       return { success: true, branch: branchKey };
     }
 
-    return { success: true };
+    // An action this endpoint does not know, or one missing its lead, changes nothing, so it must not report success.
+    throw new BadRequestException('That outreach action is not recognised or is missing the lead it applies to.');
+  }
+
+  /**
+   * Converts a lead in the outreach cadence into a sales opportunity: the same
+   * lead record moves into the chosen pipeline and stage (by default the Cold
+   * Funnel and its first open stage) and its cadence is marked converted.
+   * Opportunities are leads in this schema, so nothing is duplicated. One
+   * transaction, with the lead row locked, so two clicks cannot both convert it
+   * and a failure leaves it untouched.
+   */
+  private async convertOutreachLead(tenantId: string, body: any, memberId?: string) {
+    const leadId: unknown = body.leadId;
+    if (typeof leadId !== 'string' || !leadId) throw new BadRequestException('Choose the outreach lead to convert.');
+    const optionalId = (value: unknown, message: string): string | undefined => {
+      if (value === undefined || value === null || value === '') return undefined;
+      if (typeof value !== 'string' || !CrmService.UUID_PATTERN.test(value)) throw new BadRequestException(message);
+      return value;
+    };
+    const chosenPipelineId = optionalId(body.pipelineId, 'Choose the pipeline the opportunity goes to.');
+    const chosenStageId = optionalId(body.stageId, 'Choose the stage the opportunity starts in.');
+
+    // The chosen active pipeline of this workspace; otherwise the Cold Funnel, never some other pipeline silently.
+    const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
+      where: chosenPipelineId
+        ? { tenant_id: tenantId, id: chosenPipelineId, is_active: true }
+        : // Case-insensitive: CRM Masters stores a code as typed.
+          { tenant_id: tenantId, code: { equals: COLD_FUNNEL_PIPELINE_CODE, mode: 'insensitive' }, is_active: true },
+      orderBy: { created_at: 'asc' },
+      select: { id: true, name: true },
+    });
+    if (!pipeline && chosenPipelineId) {
+      throw new BadRequestException('That pipeline is not an active pipeline in this workspace. Choose another pipeline and convert again.');
+    }
+    if (!pipeline) {
+      throw new BadRequestException(
+        `The Cold Funnel, where converted leads go by default, is not set up in this workspace. Choose a target pipeline, or in CRM Masters → Pipelines add a pipeline named "Cold Funnel" (its code becomes ${COLD_FUNNEL_PIPELINE_CODE}) with at least one stage, then convert again.`,
+      );
+    }
+    // The chosen stage, or the first open stage by the configured order; won and lost stages are where deals end, not start.
+    const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
+      where: { tenant_id: tenantId, pipeline_id: pipeline.id, is_won: false, is_lost: false, ...(chosenStageId ? { id: chosenStageId } : {}) },
+      orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
+      select: { id: true, name: true },
+    });
+    if (!stage && chosenStageId) {
+      throw new BadRequestException(`That stage is not an open stage of the ${pipeline.name} pipeline. Choose one of its open stages and convert again.`);
+    }
+    if (!stage) {
+      throw new BadRequestException(`The ${pipeline.name} pipeline has no open stage. Add one in CRM Masters → Pipeline Stages, or choose another pipeline, then convert again.`);
+    }
+
+    const temperature = body.temperature === 'HOT' || body.temperature === 'WARM' ? body.temperature : 'WARM';
+    const rawBudget = body.budgetAmount ?? body.budget_amount;
+    let budget: Prisma.Decimal | undefined;
+    if (rawBudget !== undefined && rawBudget !== null && rawBudget !== '') {
+      try {
+        budget = new Prisma.Decimal(rawBudget);
+      } catch {
+        throw new BadRequestException('Enter the deal value as a number.');
+      }
+      if (budget.isNegative()) throw new BadRequestException('The deal value cannot be negative.');
+    }
+    const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null;
+
+    const converted = await this.prisma.$transaction(async (tx) => {
+      // Locks the row: a second conversion of the same lead waits here, then sees it converted.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM rndtechnosoft_crm_leads WHERE tenant_id = ${tenantId}::uuid AND id = ${leadId}::uuid FOR UPDATE`;
+      if (locked.length === 0) throw new NotFoundException('Lead not found');
+
+      const lead = await tx.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
+      if (!lead) throw new NotFoundException('Lead not found');
+      const customAttr = (lead.custom_attributes as Record<string, any> | null) || {};
+      const cadence = customAttr.cadence as CadenceState | undefined;
+      if (!cadence) throw new BadRequestException(`${lead.company_name} is not in the outreach cadence, so there is nothing to convert.`);
+      if (cadence.status === 'CONVERTED' || cadence.convertedToOpportunity) {
+        throw new ConflictException(`${lead.company_name} was already converted and is in the Sales Pipeline.`);
+      }
+      if (lead.is_won || lead.is_lost) {
+        throw new ConflictException(`${lead.company_name} is already closed as ${lead.is_won ? 'won' : 'lost'}.`);
+      }
+
+      const now = new Date();
+      await tx.rndtechnosoft_crm_leads.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
+        data: {
+          pipeline_id: pipeline.id,
+          stage_id: stage.id,
+          stage_entered_at: now,
+          temperature,
+          ...(budget !== undefined ? { budget_amount: budget } : {}),
+          custom_attributes: {
+            ...customAttr,
+            cadence: { ...cadence, status: 'CONVERTED', convertedToOpportunity: true, convertedAt: now.toISOString(), nextDueAt: '' },
+          },
+        },
+      });
+      await tx.rndtechnosoft_crm_lead_activities.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          lead_id: leadId,
+          performed_by_tenant_member_id: memberId || null,
+          activity_type: 'STATUS_CHANGE',
+          title: `Converted from Client Outreach to ${pipeline.name} › ${stage.name}`,
+          description: notes,
+        },
+      });
+      return tx.rndtechnosoft_crm_leads.findFirstOrThrow({ where: { tenant_id: tenantId, id: leadId }, include: LEAD_LIST_INCLUDE });
+    });
+
+    await this.logAudit(
+      tenantId,
+      'CONVERT_OPPORTUNITY',
+      'LEAD',
+      leadId,
+      {
+        pipelineId: pipeline.id,
+        stageId: stage.id,
+        temperature,
+        ...(budget !== undefined ? { budgetAmount: budget.toString() } : {}),
+        ...(typeof body.conversionChannel === 'string' && body.conversionChannel ? { channel: body.conversionChannel.slice(0, 32) } : {}),
+      },
+      memberId,
+    );
+
+    return {
+      success: true,
+      message: `${converted.company_name} is now in ${pipeline.name} › ${stage.name}`,
+      lead: this.toLeadListItem(converted),
+      pipeline: { id: pipeline.id, name: pipeline.name },
+      stage: { id: stage.id, name: stage.name },
+    };
   }
 
   // ==========================================
   // ACTIVITIES, FOLLOWUPS & MEETINGS
   // ==========================================
 
-  async getActivities(tenantId: string, leadId?: string) {
+  async getActivities(tenantId: string, leadId?: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
     const where: any = { tenant_id: tenantId };
     if (leadId) where.lead_id = leadId;
 
-    const activities = await this.prisma.rndtechnosoft_crm_lead_activities.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      take: 100,
-      include: {
-        rndtechnosoft_crm_leads: { select: { company_name: true, lead_code: true } },
-        rndtechnosoft_tenant_members: {
-          include: { rndtechnosoft_users: true },
+    const [activities, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_lead_activities.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: { select: { company_name: true, lead_code: true } },
+          rndtechnosoft_tenant_members: {
+            include: { rndtechnosoft_users: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_lead_activities.count({ where }),
+    ]);
 
-    return activities.map((a) => ({
+    const items = activities.map((a) => ({
       ...a,
       lead_company_name: a.rndtechnosoft_crm_leads?.company_name,
       lead_code: a.rndtechnosoft_crm_leads?.lead_code,
       created_by_name: a.rndtechnosoft_tenant_members?.rndtechnosoft_users?.display_name || 'System',
     }));
+    return this.pageResult(items, total, page, limit);
   }
 
   async addActivity(
@@ -1654,7 +1909,7 @@ export class CrmService {
     });
 
     await this.prisma.rndtechnosoft_crm_leads.update({
-      where: { id: body.leadId },
+      where: { tenant_id_id: { tenant_id: tenantId, id: body.leadId } },
       data: {
         last_contacted_at: new Date(),
         touchpoints_count: { increment: 1 },
@@ -1689,18 +1944,25 @@ export class CrmService {
     }
   }
 
-  async getFollowups(tenantId: string) {
-    const followups = await this.prisma.rndtechnosoft_crm_lead_followups.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { scheduled_at: 'asc' },
-      include: {
-        rndtechnosoft_crm_leads: {
-          select: { id: true, company_name: true, first_name: true, last_name: true, phone: true, email: true },
+  async getFollowups(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [followups, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_lead_followups.findMany({
+        where,
+        orderBy: { scheduled_at: 'asc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: {
+            select: { id: true, company_name: true, first_name: true, last_name: true, phone: true, email: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_lead_followups.count({ where }),
+    ]);
 
-    return followups.map((f) => {
+    const items = followups.map((f) => {
       const isOverdue = f.status === 'PENDING' && new Date(f.scheduled_at) < new Date();
       return {
         ...f,
@@ -1711,6 +1973,7 @@ export class CrmService {
         is_overdue: isOverdue,
       };
     });
+    return this.pageResult(items, total, page, limit);
   }
 
   async createFollowup(
@@ -1739,7 +2002,7 @@ export class CrmService {
     });
 
     await this.prisma.rndtechnosoft_crm_leads.update({
-      where: { id: body.leadId },
+      where: { tenant_id_id: { tenant_id: tenantId, id: body.leadId } },
       data: { next_followup_at: new Date(body.scheduledAt) },
     });
 
@@ -1753,8 +2016,9 @@ export class CrmService {
     if (body.outcomeNote || body.outcome_note) updateData.outcome_note = body.outcomeNote || body.outcome_note;
     if (body.status === 'COMPLETED') updateData.completed_at = new Date();
 
+    // Composite [tenant_id, id] key: another tenant's follow-up id is a 404.
     const followup = await this.prisma.rndtechnosoft_crm_lead_followups.update({
-      where: { id },
+      where: { tenant_id_id: { tenant_id: tenantId, id } },
       data: updateData,
     });
 
@@ -1766,28 +2030,36 @@ export class CrmService {
   }
 
   async deleteFollowup(tenantId: string, id: string) {
-    await this.prisma.rndtechnosoft_crm_lead_followups.delete({ where: { id } });
+    await this.prisma.rndtechnosoft_crm_lead_followups.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     return { success: true };
   }
 
-  async getMeetings(tenantId: string) {
-    const meetings = await this.prisma.rndtechnosoft_crm_meetings.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { scheduled_at: 'desc' },
-      include: {
-        rndtechnosoft_crm_leads: {
-          select: { id: true, company_name: true, first_name: true, last_name: true, email: true, phone: true },
+  async getMeetings(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [meetings, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_meetings.findMany({
+        where,
+        orderBy: { scheduled_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: {
+            select: { id: true, company_name: true, first_name: true, last_name: true, email: true, phone: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_meetings.count({ where }),
+    ]);
 
-    return meetings.map((m) => ({
+    const items = meetings.map((m) => ({
       ...m,
       lead_company_name: m.rndtechnosoft_crm_leads?.company_name,
       contact_name: `${m.rndtechnosoft_crm_leads?.first_name || ''} ${m.rndtechnosoft_crm_leads?.last_name || ''}`.trim(),
       lead_email: m.rndtechnosoft_crm_leads?.email,
       lead_phone: m.rndtechnosoft_crm_leads?.phone,
     }));
+    return this.pageResult(items, total, page, limit);
   }
 
   async createMeeting(tenantId: string, body: any, memberId?: string) {
@@ -1816,7 +2088,7 @@ export class CrmService {
     if (body.status === 'COMPLETED') updateData.status = 'COMPLETED';
 
     const meeting = await this.prisma.rndtechnosoft_crm_meetings.update({
-      where: { id },
+      where: { tenant_id_id: { tenant_id: tenantId, id } },
       data: updateData,
     });
 
@@ -1828,7 +2100,7 @@ export class CrmService {
   }
 
   async deleteMeeting(tenantId: string, id: string) {
-    await this.prisma.rndtechnosoft_crm_meetings.delete({ where: { id } });
+    await this.prisma.rndtechnosoft_crm_meetings.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     return { success: true };
   }
 
@@ -1836,19 +2108,26 @@ export class CrmService {
   // GST QUOTATIONS
   // ==========================================
 
-  async getQuotations(tenantId: string) {
-    const quotations = await this.prisma.rndtechnosoft_crm_quotations.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { created_at: 'desc' },
-      include: {
-        rndtechnosoft_crm_leads: {
-          select: { id: true, company_name: true, first_name: true, last_name: true, email: true },
+  async getQuotations(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [quotations, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_quotations.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          rndtechnosoft_crm_leads: {
+            select: { id: true, company_name: true, first_name: true, last_name: true, email: true },
+          },
+          rndtechnosoft_crm_quotation_items: true,
         },
-        rndtechnosoft_crm_quotation_items: true,
-      },
-    });
+      }),
+      this.prisma.rndtechnosoft_crm_quotations.count({ where }),
+    ]);
 
-    return quotations.map((q) => ({
+    const items = quotations.map((q) => ({
       ...q,
       status: q.quotation_status,
       grand_total: Number(q.total_amount),
@@ -1857,6 +2136,7 @@ export class CrmService {
       contact_person: `${q.rndtechnosoft_crm_leads?.first_name || ''} ${q.rndtechnosoft_crm_leads?.last_name || ''}`.trim(),
       items: q.rndtechnosoft_crm_quotation_items,
     }));
+    return this.pageResult(items, total, page, limit);
   }
 
   async getQuotationById(tenantId: string, id: string) {
@@ -1877,89 +2157,185 @@ export class CrmService {
     };
   }
 
-  async createQuotation(tenantId: string, body: any, memberId?: string) {
-    const quoteNumber = `QT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const quoteId = randomUUID();
-
-    const items = body.items || [];
-    const subtotal = items.reduce((acc: number, item: any) => {
-      const qty = Number(item.quantity || 1);
-      const rate = Number(item.unitRate || item.unit_rate || 0);
-      return acc + qty * rate;
-    }, 0);
-
-    const taxMode = body.taxMode || 'INTRA_STATE';
-    let cgst = 0;
-    let sgst = 0;
-    let igst = 0;
-
-    if (taxMode === 'INTRA_STATE') {
-      cgst = Math.round(subtotal * 0.09 * 100) / 100;
-      sgst = Math.round(subtotal * 0.09 * 100) / 100;
-    } else {
-      igst = Math.round(subtotal * 0.18 * 100) / 100;
-    }
-
-    const totalTax = cgst + sgst + igst;
-    const grandTotal = subtotal + totalTax;
-
-    const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + Number(body.validDays || 30));
-
-    const quotation = await this.prisma.rndtechnosoft_crm_quotations.create({
-      data: {
-        id: quoteId,
-        tenant_id: tenantId,
-        quotation_number: quoteNumber,
-        lead_id: body.leadId || body.lead_id,
-        client_state: body.clientState || 'Maharashtra',
-        branch_state: body.branchState || 'Maharashtra',
-        tax_mode: taxMode,
-        subtotal: new Prisma.Decimal(subtotal),
-        cgst_amount: new Prisma.Decimal(cgst),
-        sgst_amount: new Prisma.Decimal(sgst),
-        igst_amount: new Prisma.Decimal(igst),
-        total_tax: new Prisma.Decimal(totalTax),
-        total_amount: new Prisma.Decimal(grandTotal),
-        valid_until: validUntil,
-        quotation_status: 'DRAFT',
-      },
+  /**
+   * Prices quotation lines and GST in decimal, never floating point, rounding
+   * each amount once to paise: a line is quantity × rate, and tax is 9% CGST +
+   * 9% SGST within the state or 18% IGST between states.
+   */
+  private priceQuotation(rawItems: unknown, rawTaxMode: unknown) {
+    const lines: any[] = Array.isArray(rawItems) ? rawItems : [];
+    if (lines.length === 0) throw new BadRequestException('Add at least one line item to the quotation.');
+    if (lines.length > 200) throw new BadRequestException('A quotation can have at most 200 lines.');
+    const decimal = (value: unknown, fallback: string, line: number, field: string) => {
+      try {
+        return new Prisma.Decimal(value === undefined || value === null || value === '' ? fallback : (value as Prisma.Decimal.Value));
+      } catch {
+        throw new BadRequestException(`Line ${line}: enter the ${field} as a number.`);
+      }
+    };
+    const items = lines.map((item, index) => {
+      const quantity = decimal(item.quantity, '1', index + 1, 'quantity');
+      const unitRate = decimal(item.unitRate ?? item.unit_rate, '0', index + 1, 'rate');
+      const description = typeof item.description === 'string' && item.description.trim() ? item.description.trim() : null;
+      if (!description) throw new BadRequestException(`Line ${index + 1} needs a description.`);
+      if (quantity.lte(0) || unitRate.lt(0)) throw new BadRequestException(`Line ${index + 1} needs a positive quantity and a rate of zero or more.`);
+      const serviceId = item.serviceId || item.service_id || null;
+      if (serviceId !== null && (typeof serviceId !== 'string' || !CrmService.UUID_PATTERN.test(serviceId))) {
+        throw new BadRequestException(`Line ${index + 1}: choose the service from the list.`);
+      }
+      const sacCode = typeof (item.sacCode ?? item.sac_code) === 'string' ? String(item.sacCode ?? item.sac_code).trim().slice(0, 32) || null : null;
+      return { description, quantity, unitRate, serviceId, sacCode, lineAmount: quantity.mul(unitRate).toDecimalPlaces(2) };
     });
 
-    for (let i = 0; i < items.length; i++) {
-      const itm = items[i];
-      const qty = Number(itm.quantity || 1);
-      const rate = Number(itm.unitRate || itm.unit_rate || 0);
-      await this.prisma.rndtechnosoft_crm_quotation_items.create({
-        data: {
-          id: randomUUID(),
-          tenant_id: tenantId,
-          quotation_id: quoteId,
-          service_id: itm.serviceId || itm.service_id || null,
-          description: itm.description || 'Professional Service',
-          sac_code: itm.sacCode || itm.sac_code || '998314',
-          quantity: new Prisma.Decimal(qty),
-          unit_rate: new Prisma.Decimal(rate),
-          line_amount: new Prisma.Decimal(qty * rate),
-          sort_order: i + 1,
-        },
-      });
-    }
+    const subtotal = items.reduce((sum, line) => sum.add(line.lineAmount), new Prisma.Decimal(0));
+    const taxMode = rawTaxMode === 'INTER_STATE' ? 'INTER_STATE' : 'INTRA_STATE';
+    const cgst = taxMode === 'INTRA_STATE' ? subtotal.mul('0.09').toDecimalPlaces(2) : new Prisma.Decimal(0);
+    const sgst = taxMode === 'INTRA_STATE' ? subtotal.mul('0.09').toDecimalPlaces(2) : new Prisma.Decimal(0);
+    const igst = taxMode === 'INTER_STATE' ? subtotal.mul('0.18').toDecimalPlaces(2) : new Prisma.Decimal(0);
+    const totalTax = cgst.add(sgst).add(igst);
+    return { items, taxMode, subtotal, cgst, sgst, igst, totalTax, grandTotal: subtotal.add(totalTax) };
+  }
 
-    await this.logActivity(tenantId, quotation.lead_id, 'QUOTATION', `Quotation Generated: ${quoteNumber}`, `Grand Total: ₹${grandTotal.toLocaleString('en-IN')}`, memberId);
+  /** The quotation's line rows, in order, for a transaction to write. */
+  private quotationLineRows(tenantId: string, quotationId: string, items: ReturnType<CrmService['priceQuotation']>['items']) {
+    return items.map((line, index) => ({
+      id: randomUUID(),
+      tenant_id: tenantId,
+      quotation_id: quotationId,
+      service_id: line.serviceId,
+      description: line.description,
+      sac_code: line.sacCode ?? undefined,
+      quantity: line.quantity,
+      unit_rate: line.unitRate,
+      line_amount: line.lineAmount,
+      sort_order: index + 1,
+    }));
+  }
+
+  /** Validity in days (1–365, 30 when not given) turned into the last valid date. */
+  private quotationValidUntil(validDays: unknown) {
+    const days = validDays === undefined || validDays === null || validDays === '' ? 30 : Number(validDays);
+    if (!Number.isInteger(days) || days < 1 || days > 365) throw new BadRequestException('The quotation must be valid for 1 to 365 days.');
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + days);
+    return validUntil;
+  }
+
+  private quotationNotes(notes: unknown) {
+    if (notes === undefined || notes === null) return null;
+    if (typeof notes !== 'string') throw new BadRequestException('The notes must be text.');
+    if (notes.trim().length > 2000) throw new BadRequestException('The notes must be 2,000 characters or fewer.');
+    return notes.trim() || null;
+  }
+
+  async createQuotation(tenantId: string, body: any, memberId?: string) {
+    const leadId = body.leadId || body.lead_id;
+    if (!leadId) throw new BadRequestException('Choose the lead this quotation is for.');
+    if (typeof leadId !== 'string' || !CrmService.UUID_PATTERN.test(leadId)) throw new NotFoundException('Lead not found');
+    const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId }, select: { id: true } });
+    if (!lead) throw new NotFoundException('Lead not found');
+
+    const priced = this.priceQuotation(body.items, body.taxMode);
+    const validUntil = this.quotationValidUntil(body.validDays);
+    const notes = this.quotationNotes(body.notes);
+    const quoteId = randomUUID();
+
+    // The quotation and its lines are written together or not at all.
+    const quotation = await this.withUniqueCode('QT', (quoteNumber) =>
+      this.prisma.$transaction(async (tx) => {
+        const created = await tx.rndtechnosoft_crm_quotations.create({
+          data: {
+            id: quoteId,
+            tenant_id: tenantId,
+            quotation_number: quoteNumber,
+            lead_id: lead.id,
+            client_state: body.clientState || null,
+            branch_state: body.branchState || null,
+            tax_mode: priced.taxMode,
+            subtotal: priced.subtotal,
+            cgst_amount: priced.cgst,
+            sgst_amount: priced.sgst,
+            igst_amount: priced.igst,
+            total_tax: priced.totalTax,
+            total_amount: priced.grandTotal,
+            valid_until: validUntil,
+            notes,
+            quotation_status: 'DRAFT',
+          },
+        });
+        await tx.rndtechnosoft_crm_quotation_items.createMany({ data: this.quotationLineRows(tenantId, quoteId, priced.items) });
+        return created;
+      }),
+    );
+
+    await this.logActivity(tenantId, quotation.lead_id, 'QUOTATION', `Quotation Generated: ${quotation.quotation_number}`, `Grand Total: ₹${priced.grandTotal.toFixed(2)}`, memberId);
     return quotation;
   }
 
+  /**
+   * Changes a quotation's status, or edits a draft: its lines, tax type, states,
+   * validity and notes. Lines and tax change only while the quotation is a
+   * draft, and every total is recalculated from the lines; a sent, accepted or
+   * rejected quotation keeps the amounts it was issued with.
+   */
   async updateQuotation(tenantId: string, id: string, body: any, memberId?: string) {
-    const updateData: any = {};
-    if (body.status) updateData.quotation_status = body.status;
-    if (body.taxMode) updateData.tax_mode = body.taxMode;
+    const statuses = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED'];
+    if (body.status !== undefined && !statuses.includes(body.status)) {
+      throw new BadRequestException('The status must be DRAFT, SENT, ACCEPTED or REJECTED.');
+    }
+    if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw new NotFoundException('Quotation not found');
+    const editsContent = body.items !== undefined || body.taxMode !== undefined;
 
-    const quote = await this.prisma.rndtechnosoft_crm_quotations.update({
-      where: { id },
-      data: updateData,
+    const quote = await this.prisma.$transaction(async (tx) => {
+      // Locked, so a status change and an edit cannot interleave.
+      const locked = await tx.$queryRaw<{ quotation_status: string; quotation_number: string }[]>`
+        SELECT quotation_status, quotation_number FROM rndtechnosoft_crm_quotations WHERE tenant_id = ${tenantId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+      if (locked.length === 0) throw new NotFoundException('Quotation not found');
+      const current = locked[0];
+
+      if (!editsContent) {
+        return tx.rndtechnosoft_crm_quotations.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id } },
+          data: { ...(body.status ? { quotation_status: body.status } : {}), updated_at: new Date() },
+        });
+      }
+
+      if (current.quotation_status !== 'DRAFT') {
+        throw new ConflictException(`Only draft quotations can be edited. ${current.quotation_number} is ${current.quotation_status.toLowerCase()}; change it back to draft first.`);
+      }
+      const existingLines = body.items === undefined
+        ? await tx.rndtechnosoft_crm_quotation_items.findMany({ where: { tenant_id: tenantId, quotation_id: id }, orderBy: { sort_order: 'asc' } })
+        : null;
+      const existing = await tx.rndtechnosoft_crm_quotations.findFirstOrThrow({ where: { tenant_id: tenantId, id }, select: { tax_mode: true } });
+      const priced = this.priceQuotation(
+        body.items ?? existingLines!.map((line) => ({ description: line.description, quantity: line.quantity, unitRate: line.unit_rate, serviceId: line.service_id, sacCode: line.sac_code })),
+        body.taxMode ?? existing.tax_mode,
+      );
+      await tx.rndtechnosoft_crm_quotation_items.deleteMany({ where: { tenant_id: tenantId, quotation_id: id } });
+      await tx.rndtechnosoft_crm_quotation_items.createMany({ data: this.quotationLineRows(tenantId, id, priced.items) });
+      return tx.rndtechnosoft_crm_quotations.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: {
+          tax_mode: priced.taxMode,
+          subtotal: priced.subtotal,
+          cgst_amount: priced.cgst,
+          sgst_amount: priced.sgst,
+          igst_amount: priced.igst,
+          total_tax: priced.totalTax,
+          total_amount: priced.grandTotal,
+          ...(body.clientState !== undefined ? { client_state: body.clientState || null } : {}),
+          ...(body.branchState !== undefined ? { branch_state: body.branchState || null } : {}),
+          ...(body.validDays !== undefined ? { valid_until: this.quotationValidUntil(body.validDays) } : {}),
+          ...(body.notes !== undefined ? { notes: this.quotationNotes(body.notes) } : {}),
+          ...(body.status ? { quotation_status: body.status } : {}),
+          updated_at: new Date(),
+        },
+      });
     });
 
+    if (editsContent) {
+      await this.logActivity(tenantId, quote.lead_id, 'QUOTATION', `Quotation ${quote.quotation_number} edited`, `Grand Total: ₹${quote.total_amount.toFixed(2)}`, memberId);
+    }
     if (body.status) {
       await this.logActivity(tenantId, quote.lead_id, 'STATUS_CHANGE', `Quotation ${quote.quotation_number} status: ${body.status}`, undefined, memberId);
     }
@@ -1968,8 +2344,10 @@ export class CrmService {
   }
 
   async deleteQuotation(tenantId: string, id: string) {
-    await this.prisma.rndtechnosoft_crm_quotation_items.deleteMany({ where: { quotation_id: id } });
-    await this.prisma.rndtechnosoft_crm_quotations.delete({ where: { id } });
+    await this.prisma.$transaction([
+      this.prisma.rndtechnosoft_crm_quotation_items.deleteMany({ where: { tenant_id: tenantId, quotation_id: id } }),
+      this.prisma.rndtechnosoft_crm_quotations.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } }),
+    ]);
     return { success: true };
   }
 
@@ -1984,42 +2362,408 @@ export class CrmService {
   // CLIENTS
   // ==========================================
 
-  async getClients(tenantId: string) {
-    return this.prisma.rndtechnosoft_crm_clients.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { company_name: 'asc' },
-    });
+  async getClients(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
+    const where = { tenant_id: tenantId };
+    const [items, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_clients.findMany({ where, orderBy: { company_name: 'asc' }, skip, take: limit }),
+      this.prisma.rndtechnosoft_crm_clients.count({ where }),
+    ]);
+    return this.pageResult(items, total, page, limit);
   }
 
   async createClient(tenantId: string, body: any) {
-    const clientCode = `CL-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    return this.prisma.rndtechnosoft_crm_clients.create({
-      data: {
-        id: randomUUID(),
-        tenant_id: tenantId,
-        client_code: clientCode,
-        company_name: body.company_name || body.companyName || 'Client Org',
-        contact_person: body.contact_person || body.contactPerson || 'Contact',
-        email: body.email || `client_${Date.now()}@domain.local`,
-        phone: body.phone || '+91 9000000000',
-        billing_address: body.address || body.billing_address || body.city || null,
-        gstin: body.gstin || null,
-        pan: body.pan_number || body.pan || null,
-        client_status: body.status || 'ACTIVE',
-      },
-    });
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
+    const companyName = text(body.company_name ?? body.companyName);
+    const contactPerson = text(body.contact_person ?? body.contactPerson);
+    const email = text(body.email)?.toLowerCase() ?? null;
+    const missing = [!companyName && 'company name', !contactPerson && 'contact person', !email && 'email'].filter(Boolean);
+    if (missing.length > 0) throw new BadRequestException(`A client needs a ${missing.join(', ')}.`);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email!)) throw new BadRequestException('Enter a valid email address for the client.');
+
+    return this.withUniqueCode('CL', (clientCode) =>
+      this.prisma.rndtechnosoft_crm_clients.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          client_code: clientCode,
+          company_name: companyName!,
+          contact_person: contactPerson!,
+          email: email!,
+          phone: text(body.phone),
+          billing_address: text(body.address ?? body.billing_address ?? body.city),
+          gstin: text(body.gstin),
+          pan: text(body.pan_number ?? body.pan),
+          client_status: text(body.status) ?? 'ACTIVE',
+        },
+      }),
+    );
   }
 
   async updateClient(tenantId: string, id: string, body: any) {
+    // Only client fields are writable; ids, codes and tenant ownership are not.
+    const pick = (...keys: string[]) => {
+      const key = keys.find((k) => body?.[k] !== undefined);
+      return key === undefined ? undefined : body[key];
+    };
     return this.prisma.rndtechnosoft_crm_clients.update({
-      where: { id },
-      data: body,
+      where: { tenant_id_id: { tenant_id: tenantId, id } },
+      data: {
+        company_name: pick('company_name', 'companyName'),
+        contact_person: pick('contact_person', 'contactPerson'),
+        email: pick('email'),
+        phone: pick('phone'),
+        billing_address: pick('billing_address', 'address'),
+        gstin: pick('gstin'),
+        pan: pick('pan', 'pan_number'),
+        client_status: pick('client_status', 'status'),
+        updated_at: new Date(),
+      },
     });
   }
 
   // ==========================================
   // CRM MASTERS & TAXONOMY
   // ==========================================
+
+  // ==========================================
+  // OUTREACH PLAYBOOK (30-DAY SOP STEPS)
+  // ==========================================
+
+  /**
+   * The workspace's outreach playbook, ordered by day: its own steps, or the
+   * default steps until it first changes one. Default steps carry ids of the
+   * form default-day-N so Masters can edit or remove them like any other.
+   */
+  async getCadenceSteps(tenantId: string): Promise<(CadenceStep & { id: string })[]> {
+    const rows = await this.prisma.rndtechnosoft_crm_sop_steps_master.findMany({
+      where: { tenant_id: tenantId },
+      orderBy: { day_number: 'asc' },
+    });
+    if (rows.length === 0) return CADENCE_STEPS_MASTER.map((step) => ({ ...step, id: `default-day-${step.dayNumber}` }));
+    return rows.map((row, index) => ({
+      id: row.id,
+      stepIndex: index,
+      dayNumber: row.day_number,
+      dayOffset: row.day_number - 1,
+      title: row.title,
+      goal: row.primary_objective,
+      channels: row.channels as CadenceChannel[],
+      timingGuide: row.timing_guide ?? '',
+      roleNote: row.role_note ?? '',
+      templates: row.templates as CadenceTemplate,
+    }));
+  }
+
+  /** A playbook step as CRM Masters lists and edits it. */
+  private toSopStepRow(step: CadenceStep & { id: string }) {
+    return {
+      id: step.id,
+      day_number: step.dayNumber,
+      day_offset: step.dayOffset,
+      title: step.title,
+      goal: step.goal,
+      channels: step.channels,
+      timing_guide: step.timingGuide,
+      role_note: step.roleNote,
+      templates: step.templates,
+      is_active: true,
+    };
+  }
+
+  /** Validates a step from the Masters editor into the columns it is saved in. */
+  private parseSopStep(body: any) {
+    const text = (value: unknown, label: string, max: number, required: boolean): string => {
+      const trimmed = typeof value === 'string' ? value.trim() : '';
+      if (value !== undefined && value !== null && typeof value !== 'string') throw new BadRequestException(`${label} must be text.`);
+      if (required && !trimmed) throw new BadRequestException(`Enter the ${label.toLowerCase()}.`);
+      if (trimmed.length > max) throw new BadRequestException(`${label} must be ${max.toLocaleString('en-IN')} characters or fewer.`);
+      return trimmed;
+    };
+    // Messages keep their line breaks and spacing as written.
+    const message = (value: unknown, label: string): string => {
+      if (value === undefined || value === null) return '';
+      if (typeof value !== 'string') throw new BadRequestException(`${label} must be text.`);
+      if (value.length > 10000) throw new BadRequestException(`${label} must be 10,000 characters or fewer.`);
+      return value;
+    };
+
+    const dayNumber = Number(body.day_number);
+    if (!Number.isInteger(dayNumber) || dayNumber < 1 || dayNumber > 60) {
+      throw new BadRequestException('The day number must be a whole number from 1 to 60.');
+    }
+    const allowedChannels: CadenceChannel[] = ['WHATSAPP', 'EMAIL', 'LINKEDIN', 'PHONE'];
+    const channels = Array.isArray(body.channels) ? allowedChannels.filter((channel) => body.channels.includes(channel)) : [];
+    if (channels.length === 0) throw new BadRequestException('Choose at least one channel for this step.');
+
+    const raw = body.templates && typeof body.templates === 'object' ? body.templates : {};
+    const templates: CadenceTemplate = {};
+    if (raw.whatsapp) templates.whatsapp = { message: message(raw.whatsapp.message, 'The WhatsApp message') };
+    if (raw.email) {
+      templates.email = { subject: message(raw.email.subject, 'The email subject'), body: message(raw.email.body, 'The email body') };
+    }
+    if (raw.linkedin) {
+      const actions = ['CONNECT', 'ENGAGE_POST', 'SHARE_POST', 'FAREWELL'] as const;
+      templates.linkedin = {
+        actionType: actions.find((action) => action === raw.linkedin.actionType) ?? 'CONNECT',
+        message: message(raw.linkedin.message, 'The LinkedIn message'),
+        actionNote: message(raw.linkedin.actionNote, 'The LinkedIn action note'),
+      };
+    }
+    if (raw.phone) {
+      templates.phone = {
+        pitchScript: message(raw.phone.pitchScript, 'The call script'),
+        afterCallTakenWhatsApp: message(raw.phone.afterCallTakenWhatsApp, 'The after-call WhatsApp message'),
+        missedCallWhatsApp: message(raw.phone.missedCallWhatsApp, 'The missed-call WhatsApp message'),
+      };
+    }
+
+    return {
+      day_number: dayNumber,
+      title: text(body.title, 'Step title', 160, true),
+      primary_objective: text(body.goal, 'Strategic goal', 500, true),
+      channels,
+      timing_guide: text(body.timing_guide, 'Timing guide', 255, false) || null,
+      role_note: text(body.role_note, 'Role note', 500, false) || null,
+      templates: templates as Prisma.InputJsonObject,
+    };
+  }
+
+  /**
+   * Locks the workspace's playbook for one change and, while it is still on
+   * the default steps, copies them in so the workspace owns them from now on.
+   * Returns the saved row id of the step named by stepId (a row id or a
+   * default step's id), or throws when there is no such step.
+   */
+  private async claimSopPlaybook(tx: Prisma.TransactionClient, tenantId: string, stepId?: unknown): Promise<string | undefined> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`crm-sop-steps:${tenantId}`}, 0))`;
+    if ((await tx.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: tenantId } })) === 0) {
+      await tx.rndtechnosoft_crm_sop_steps_master.createMany({
+        data: CADENCE_STEPS_MASTER.map((step) => ({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          day_number: step.dayNumber,
+          title: step.title,
+          primary_objective: step.goal,
+          channels: step.channels,
+          timing_guide: step.timingGuide,
+          role_note: step.roleNote,
+          templates: step.templates as Prisma.InputJsonObject,
+        })),
+      });
+    }
+    if (stepId === undefined) return undefined;
+
+    const gone = new NotFoundException('That step no longer exists. Reload the page to see the current playbook.');
+    const defaultDay = typeof stepId === 'string' ? /^default-day-(\d+)$/.exec(stepId) : null;
+    if (!defaultDay && (typeof stepId !== 'string' || !CrmService.UUID_PATTERN.test(stepId))) throw gone;
+    const row = await tx.rndtechnosoft_crm_sop_steps_master.findFirst({
+      where: defaultDay ? { tenant_id: tenantId, day_number: Number(defaultDay[1]) } : { tenant_id: tenantId, id: stepId as string },
+      select: { id: true },
+    });
+    if (!row) throw gone;
+    return row.id;
+  }
+
+  /** Adds a playbook step, or changes the one stepId names. One step per day. */
+  async saveSopStep(tenantId: string, body: any, memberId?: string, stepId?: unknown) {
+    const isUpdate = stepId !== undefined;
+    const input = this.parseSopStep(body);
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const rowId = await this.claimSopPlaybook(tx, tenantId, stepId);
+      const clash = await tx.rndtechnosoft_crm_sop_steps_master.findFirst({
+        where: { tenant_id: tenantId, day_number: input.day_number, ...(rowId ? { NOT: { id: rowId } } : {}) },
+        select: { title: true },
+      });
+      if (clash) {
+        throw new ConflictException(`Day ${input.day_number} already has a step ("${clash.title}"). Choose another day, or edit that step.`);
+      }
+      return rowId
+        ? tx.rndtechnosoft_crm_sop_steps_master.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: rowId } },
+            data: { ...input, updated_at: new Date() },
+          })
+        : tx.rndtechnosoft_crm_sop_steps_master.create({ data: { id: randomUUID(), tenant_id: tenantId, ...input } });
+    });
+
+    await this.logAudit(tenantId, isUpdate ? 'UPDATE' : 'CREATE', 'SOP_STEP', saved.id, { day_number: saved.day_number, title: saved.title }, memberId);
+    const step = (await this.getCadenceSteps(tenantId)).find((candidate) => candidate.id === saved.id);
+    return step ? this.toSopStepRow(step) : null;
+  }
+
+  /** Removes a playbook step. A playbook keeps at least one step. */
+  async deleteSopStep(tenantId: string, stepId: unknown, memberId?: string) {
+    const removed = await this.prisma.$transaction(async (tx) => {
+      const id = await this.claimSopPlaybook(tx, tenantId, stepId);
+      if ((await tx.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: tenantId } })) <= 1) {
+        throw new ConflictException('The outreach playbook needs at least one step. Add another step before removing this one.');
+      }
+      return tx.rndtechnosoft_crm_sop_steps_master.delete({ where: { tenant_id_id: { tenant_id: tenantId, id: id as string } } });
+    });
+    await this.logAudit(tenantId, 'DELETE', 'SOP_STEP', removed.id, { day_number: removed.day_number, title: removed.title }, memberId);
+  }
+
+  /**
+   * The workspace's objection strategies (reply branches) by key: its own, or
+   * the default strategies until it first changes one. Default strategies
+   * carry ids of the form default-branch-KEY so Masters can edit or remove them.
+   */
+  async getReplyBranches(tenantId: string): Promise<Record<string, ReplyBranch & { id: string }>> {
+    const rows = await this.prisma.rndtechnosoft_crm_sop_reply_branches_master.findMany({
+      where: { tenant_id: tenantId },
+      orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
+    });
+    if (rows.length === 0) {
+      return Object.fromEntries(Object.values(CADENCE_REPLY_BRANCHES).map((branch) => [branch.key, { ...branch, id: `default-branch-${branch.key}` }]));
+    }
+    return Object.fromEntries(
+      rows.map((row) => [
+        row.branch_key,
+        {
+          id: row.id,
+          key: row.branch_key,
+          label: row.label,
+          triggerCondition: row.trigger_condition,
+          nextLeadTemperature: row.next_lead_temperature as ReplyBranch['nextLeadTemperature'],
+          suggestedAction: row.suggested_action,
+          recommendedResponseScript: row.recommended_response_script,
+          whatsappMessage: row.whatsapp_message,
+          ...(row.email_subject || row.email_body ? { emailMessage: { subject: row.email_subject ?? '', body: row.email_body ?? '' } } : {}),
+        },
+      ]),
+    );
+  }
+
+  /** An objection strategy as CRM Masters lists and edits it. */
+  private toReplyBranchRow(branch: ReplyBranch & { id: string }) {
+    return {
+      id: branch.id,
+      branch_key: branch.key,
+      label: branch.label,
+      trigger_condition: branch.triggerCondition,
+      next_lead_temperature: branch.nextLeadTemperature,
+      suggested_action: branch.suggestedAction,
+      recommended_response_script: branch.recommendedResponseScript,
+      whatsapp_message: branch.whatsappMessage,
+      email_subject: branch.emailMessage?.subject ?? '',
+      email_body: branch.emailMessage?.body ?? '',
+      is_active: true,
+    };
+  }
+
+  /** Validates a strategy from the Masters editor into the columns it is saved in. */
+  private parseReplyBranch(body: any) {
+    const text = (value: unknown, label: string, max: number, required: boolean): string => {
+      if (value !== undefined && value !== null && typeof value !== 'string') throw new BadRequestException(`${label} must be text.`);
+      const trimmed = typeof value === 'string' ? value.trim() : '';
+      if (required && !trimmed) throw new BadRequestException(`Enter the ${label.toLowerCase()}.`);
+      if (trimmed.length > max) throw new BadRequestException(`${label} must be ${max.toLocaleString('en-IN')} characters or fewer.`);
+      return trimmed;
+    };
+    const temperatures = ['HOT', 'WARM', 'COLD', 'LOST'] as const;
+    const temperature = body.next_lead_temperature ?? 'WARM';
+    if (!temperatures.includes(temperature)) throw new BadRequestException('Choose the next lead temperature: HOT, WARM, COLD or LOST.');
+    const whatsappMessage = text(body.whatsapp_message, 'WhatsApp response script', 10000, true);
+    return {
+      label: text(body.label, 'Objection label', 120, true),
+      trigger_condition: text(body.trigger_condition, 'Trigger condition', 255, false),
+      suggested_action: text(body.suggested_action, 'Suggested SDR action', 255, false),
+      next_lead_temperature: temperature as string,
+      whatsapp_message: whatsappMessage,
+      // The script shown to the rep; the WhatsApp script unless one is given.
+      recommended_response_script: text(body.recommended_response_script, 'Recommended response script', 10000, false) || whatsappMessage,
+      email_subject: text(body.email_subject, 'Email subject', 255, false) || null,
+      email_body: text(body.email_body, 'Email body', 10000, false) || null,
+    };
+  }
+
+  /**
+   * Locks the workspace's objection strategies for one change and, while it is
+   * still on the defaults, copies them in. Returns the saved row id of the
+   * strategy named by branchId (a row id or a default strategy's id).
+   */
+  private async claimReplyBranches(tx: Prisma.TransactionClient, tenantId: string, branchId?: unknown): Promise<string | undefined> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`crm-sop-branches:${tenantId}`}, 0))`;
+    if ((await tx.rndtechnosoft_crm_sop_reply_branches_master.count({ where: { tenant_id: tenantId } })) === 0) {
+      await tx.rndtechnosoft_crm_sop_reply_branches_master.createMany({
+        data: Object.values(CADENCE_REPLY_BRANCHES).map((branch, index) => ({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          branch_key: branch.key,
+          label: branch.label,
+          trigger_condition: branch.triggerCondition,
+          suggested_action: branch.suggestedAction,
+          recommended_response_script: branch.recommendedResponseScript,
+          next_lead_temperature: branch.nextLeadTemperature,
+          whatsapp_message: branch.whatsappMessage,
+          email_subject: branch.emailMessage?.subject ?? null,
+          email_body: branch.emailMessage?.body ?? null,
+          sort_order: index,
+        })),
+      });
+    }
+    if (branchId === undefined) return undefined;
+
+    const gone = new NotFoundException('That objection strategy no longer exists. Reload the page to see the current list.');
+    const defaultKey = typeof branchId === 'string' ? /^default-branch-([a-z0-9_]+)$/.exec(branchId) : null;
+    if (!defaultKey && (typeof branchId !== 'string' || !CrmService.UUID_PATTERN.test(branchId))) throw gone;
+    const row = await tx.rndtechnosoft_crm_sop_reply_branches_master.findFirst({
+      where: defaultKey ? { tenant_id: tenantId, branch_key: defaultKey[1] } : { tenant_id: tenantId, id: branchId as string },
+      select: { id: true },
+    });
+    if (!row) throw gone;
+    return row.id;
+  }
+
+  /**
+   * Adds an objection strategy, or changes the one branchId names. A new
+   * strategy's key comes from its label; an existing key never changes,
+   * because leads' recorded replies refer to it.
+   */
+  async saveReplyBranch(tenantId: string, body: any, memberId?: string, branchId?: unknown) {
+    const isUpdate = branchId !== undefined;
+    const input = this.parseReplyBranch(body);
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const rowId = await this.claimReplyBranches(tx, tenantId, branchId);
+      if (rowId) {
+        return tx.rndtechnosoft_crm_sop_reply_branches_master.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: rowId } },
+          data: { ...input, updated_at: new Date() },
+        });
+      }
+      const existing = await tx.rndtechnosoft_crm_sop_reply_branches_master.findMany({
+        where: { tenant_id: tenantId },
+        select: { branch_key: true, sort_order: true },
+      });
+      const taken = new Set(existing.map((row) => row.branch_key));
+      const base = input.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 56) || 'strategy';
+      let key = base;
+      for (let n = 2; taken.has(key); n += 1) key = `${base}_${n}`;
+      return tx.rndtechnosoft_crm_sop_reply_branches_master.create({
+        data: { id: randomUUID(), tenant_id: tenantId, branch_key: key, sort_order: Math.max(-1, ...existing.map((row) => row.sort_order)) + 1, ...input },
+      });
+    });
+
+    await this.logAudit(tenantId, isUpdate ? 'UPDATE' : 'CREATE', 'SOP_BRANCH', saved.id, { branch_key: saved.branch_key, label: saved.label }, memberId);
+    return this.toReplyBranchRow((await this.getReplyBranches(tenantId))[saved.branch_key]);
+  }
+
+  /**
+   * Removes an objection strategy. Leads that already took it keep their
+   * recorded reply. A workspace keeps at least one strategy.
+   */
+  async deleteReplyBranch(tenantId: string, branchId: unknown, memberId?: string) {
+    const removed = await this.prisma.$transaction(async (tx) => {
+      const id = await this.claimReplyBranches(tx, tenantId, branchId);
+      if ((await tx.rndtechnosoft_crm_sop_reply_branches_master.count({ where: { tenant_id: tenantId } })) <= 1) {
+        throw new ConflictException('Keep at least one objection strategy. Add another before removing this one.');
+      }
+      return tx.rndtechnosoft_crm_sop_reply_branches_master.delete({ where: { tenant_id_id: { tenant_id: tenantId, id: id as string } } });
+    });
+    await this.logAudit(tenantId, 'DELETE', 'SOP_BRANCH', removed.id, { branch_key: removed.branch_key, label: removed.label }, memberId);
+  }
 
   async getMasters(tenantId: string, type?: string) {
     if (type === 'services') {
@@ -2037,10 +2781,17 @@ export class CrmService {
     }
 
     if (type === 'pipelines') {
-      return this.prisma.rndtechnosoft_crm_pipelines.findMany({
+      // With how many stages and deals each has, for the Masters list.
+      const pipelines = await this.prisma.rndtechnosoft_crm_pipelines.findMany({
         where: { tenant_id: tenantId },
         orderBy: { sort_order: 'asc' },
+        include: { _count: { select: { rndtechnosoft_crm_stages: true, rndtechnosoft_crm_leads: true } } },
       });
+      return pipelines.map(({ _count, ...pipeline }) => ({
+        ...pipeline,
+        stages_count: _count.rndtechnosoft_crm_stages,
+        leads_count: _count.rndtechnosoft_crm_leads,
+      }));
     }
 
     if (type === 'sources') {
@@ -2062,20 +2813,21 @@ export class CrmService {
     }
 
     if (type === 'sop-steps') {
-      return CADENCE_STEPS_MASTER;
+      return (await this.getCadenceSteps(tenantId)).map((step) => this.toSopStepRow(step));
     }
 
     if (type === 'sop-branches') {
-      return Object.values(CADENCE_REPLY_BRANCHES);
+      return Object.values(await this.getReplyBranches(tenantId)).map((branch) => this.toReplyBranchRow(branch));
     }
 
     // Default: bundle of active masters
-    const [services, stages, pipelines, sources, lostReasons] = await Promise.all([
+    const [services, stages, pipelines, sources, lostReasons, sopSteps] = await Promise.all([
       this.prisma.rndtechnosoft_crm_services_master.findMany({ where: { tenant_id: tenantId } }),
       this.prisma.rndtechnosoft_crm_stages.findMany({ where: { tenant_id: tenantId }, orderBy: { sort_order: 'asc' } }),
       this.prisma.rndtechnosoft_crm_pipelines.findMany({ where: { tenant_id: tenantId } }),
       this.prisma.rndtechnosoft_crm_lead_sources.findMany({ where: { tenant_id: tenantId } }),
       this.prisma.rndtechnosoft_crm_lost_reasons_master.findMany({ where: { tenant_id: tenantId } }),
+      this.getCadenceSteps(tenantId),
     ]);
 
     return {
@@ -2085,9 +2837,52 @@ export class CrmService {
       sources,
       lostReasons,
       industries: CADENCE_INDUSTRIES,
-      sopSteps: CADENCE_STEPS_MASTER,
-      replyBranches: Object.values(CADENCE_REPLY_BRANCHES),
+      sopSteps,
+      replyBranches: Object.values(await this.getReplyBranches(tenantId)),
     };
+  }
+
+  /** Matches a canonical UUID, the format every identifier column expects. */
+  private static readonly UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  /**
+   * Resolves a pipeline referenced by a request, inside the caller's tenant.
+   *
+   * The composite [tenant_id, pipeline_id] foreign key already prevents a
+   * cross-tenant reference, but it reports that as a constraint violation.
+   * Checking here turns a malformed or foreign identifier into a clear
+   * message naming what the caller should do.
+   */
+  private async resolvePipelineForTenant(
+    tenantId: string,
+    pipelineId: unknown,
+  ): Promise<string> {
+    if (typeof pipelineId !== 'string' || pipelineId.trim().length === 0) {
+      throw new BadRequestException(
+        'Choose a pipeline for this stage. Create a pipeline first if none exists.',
+      );
+    }
+
+    const candidate = pipelineId.trim();
+
+    if (!CrmService.UUID_PATTERN.test(candidate)) {
+      throw new BadRequestException(
+        'The selected pipeline is not valid. Reload the page and choose a pipeline from the list.',
+      );
+    }
+
+    const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
+      where: { id: candidate, tenant_id: tenantId },
+      select: { id: true },
+    });
+
+    if (!pipeline) {
+      // Same answer whether it belongs to another tenant or does not exist.
+      throw new NotFoundException('That pipeline was not found in this workspace.');
+    }
+
+    return pipeline.id;
   }
 
   async createMaster(tenantId: string, type: string, body: any) {
@@ -2107,11 +2902,16 @@ export class CrmService {
     }
 
     if (type === 'stages') {
+      const pipelineId = await this.resolvePipelineForTenant(
+        tenantId,
+        body.pipeline_id ?? body.pipelineId,
+      );
+
       return this.prisma.rndtechnosoft_crm_stages.create({
         data: {
           id: randomUUID(),
           tenant_id: tenantId,
-          pipeline_id: body.pipeline_id || body.pipelineId,
+          pipeline_id: pipelineId,
           name: body.name,
           color: body.color || '#2563eb',
           stage_probability: Number(body.stage_probability || body.stageProbability || 20),
@@ -2147,13 +2947,27 @@ export class CrmService {
       });
     }
 
+    if (type === 'lost-reasons') {
+      const reasonName = typeof body.reason_name === 'string' ? body.reason_name.trim() : '';
+      if (!reasonName) throw new BadRequestException('Enter the lost reason.');
+      if (reasonName.length > 160) throw new BadRequestException('The lost reason must be 160 characters or fewer.');
+      return this.prisma.rndtechnosoft_crm_lost_reasons_master.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          reason_name: reasonName,
+          is_active: body.is_active !== undefined ? Boolean(Number(body.is_active)) : true,
+        },
+      });
+    }
+
     return { success: true };
   }
 
   async updateMaster(tenantId: string, type: string, id: string, body: any) {
     if (type === 'services') {
       return this.prisma.rndtechnosoft_crm_services_master.update({
-        where: { id },
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
         data: {
           name: body.name,
           category: body.category,
@@ -2165,9 +2979,29 @@ export class CrmService {
     }
 
     if (type === 'stages') {
+      // A stage can move to another pipeline only while no lead is in it; otherwise those leads
+      // would sit in one pipeline with a stage of another.
+      let pipelineId: string | undefined;
+      if (body.pipeline_id !== undefined && body.pipeline_id !== null && body.pipeline_id !== '') {
+        const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
+          where: { tenant_id: tenantId, id },
+          select: { name: true, pipeline_id: true },
+        });
+        if (!stage) throw new NotFoundException('That stage no longer exists. Reload the page.');
+        if (body.pipeline_id !== stage.pipeline_id) {
+          pipelineId = await this.resolvePipelineForTenant(tenantId, body.pipeline_id);
+          const leads = await this.prisma.rndtechnosoft_crm_leads.count({ where: { tenant_id: tenantId, stage_id: id } });
+          if (leads > 0) {
+            throw new ConflictException(
+              `${leads} lead${leads === 1 ? ' is' : 's are'} in "${stage.name}", so it can't move to another pipeline. Move them to another stage on the Sales Pipeline board first.`,
+            );
+          }
+        }
+      }
       return this.prisma.rndtechnosoft_crm_stages.update({
-        where: { id },
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
         data: {
+          ...(pipelineId ? { pipeline_id: pipelineId } : {}),
           name: body.name,
           color: body.color,
           stage_probability: body.stage_probability !== undefined ? Number(body.stage_probability) : undefined,
@@ -2179,18 +3013,163 @@ export class CrmService {
       });
     }
 
+    if (type === 'pipelines') {
+      return this.updatePipeline(tenantId, id, body);
+    }
+
+    if (type === 'lost-reasons') {
+      // Leads refer to a lost reason by id, so renaming one keeps it on every lead that has it.
+      const gone = new NotFoundException('That lost reason no longer exists. Reload the page.');
+      if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw gone;
+      const reasonName = typeof body.reason_name === 'string' ? body.reason_name.trim() : '';
+      if (!reasonName) throw new BadRequestException('Enter the lost reason.');
+      if (reasonName.length > 160) throw new BadRequestException('The lost reason must be 160 characters or fewer.');
+      const reason = await this.prisma.rndtechnosoft_crm_lost_reasons_master.findFirst({ where: { tenant_id: tenantId, id }, select: { id: true } });
+      if (!reason) throw gone;
+      return this.prisma.rndtechnosoft_crm_lost_reasons_master.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: { reason_name: reasonName, ...(body.is_active !== undefined ? { is_active: Boolean(Number(body.is_active)) } : {}) },
+      });
+    }
+
+    if (type === 'sources') {
+      // Leads refer to a source by id, so renaming one keeps it on every lead that has it.
+      if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw new NotFoundException('That lead source no longer exists. Reload the page.');
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) throw new BadRequestException('Enter the source name.');
+      if (name.length > 100) throw new BadRequestException('The source name must be 100 characters or fewer.');
+      const channel = typeof body.channel === 'string' && body.channel.trim() ? body.channel.trim() : 'DIRECT';
+      if (channel.length > 64) throw new BadRequestException('The channel group must be 64 characters or fewer.');
+      const source = await this.prisma.rndtechnosoft_crm_lead_sources.findFirst({ where: { tenant_id: tenantId, id }, select: { id: true } });
+      if (!source) throw new NotFoundException('That lead source no longer exists. Reload the page.');
+      return this.prisma.rndtechnosoft_crm_lead_sources.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: { name, channel, ...(body.is_active !== undefined ? { is_active: Boolean(Number(body.is_active)) } : {}) },
+      });
+    }
+
     return { success: true };
   }
 
+  /**
+   * Renames a pipeline or changes its code, default flag or active flag. Codes
+   * are unique in a workspace regardless of case (the Cold Funnel is found by
+   * code that way), and one pipeline at most is the default.
+   */
+  private async updatePipeline(tenantId: string, id: unknown, body: any) {
+    const gone = new NotFoundException('That pipeline no longer exists. Reload the page.');
+    if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw gone;
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name) throw new BadRequestException('Enter the pipeline name.');
+    if (name.length > 120) throw new BadRequestException('The pipeline name must be 120 characters or fewer.');
+    const typedCode = typeof body.code === 'string' ? body.code.trim() : '';
+    const code = typedCode || name.toUpperCase().replace(/\s+/g, '_');
+    if (code.length > 64) throw new BadRequestException('The pipeline code must be 64 characters or fewer.');
+
+    return this.prisma.$transaction(async (tx) => {
+      const pipeline = await tx.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId, id }, select: { id: true } });
+      if (!pipeline) throw gone;
+      const clash = await tx.rndtechnosoft_crm_pipelines.findFirst({
+        where: { tenant_id: tenantId, code: { equals: code, mode: 'insensitive' }, NOT: { id } },
+        select: { name: true },
+      });
+      if (clash) throw new ConflictException(`The "${clash.name}" pipeline already uses the code ${code}. Choose another code.`);
+
+      const isDefault = body.is_default !== undefined ? Boolean(Number(body.is_default)) : undefined;
+      if (isDefault) {
+        await tx.rndtechnosoft_crm_pipelines.updateMany({ where: { tenant_id: tenantId, is_default: true, NOT: { id } }, data: { is_default: false } });
+      }
+      return tx.rndtechnosoft_crm_pipelines.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: {
+          name,
+          code,
+          ...(isDefault !== undefined ? { is_default: isDefault } : {}),
+          ...(body.is_active !== undefined ? { is_active: Boolean(Number(body.is_active)) } : {}),
+          updated_at: new Date(),
+        },
+      });
+    });
+  }
+
+  /**
+   * Deletes a master record. One still in use is refused, saying how many
+   * leads (or quotation lines) use it, so no lead is left pointing at nothing
+   * and nothing about those leads changes.
+   */
   async deleteMaster(tenantId: string, type: string, id: string) {
-    if (type === 'services') {
-      await this.prisma.rndtechnosoft_crm_services_master.delete({ where: { id } });
-    } else if (type === 'stages') {
-      await this.prisma.rndtechnosoft_crm_stages.delete({ where: { id } });
+    const gone = new NotFoundException('That record no longer exists. Reload the page.');
+    if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw gone;
+    const scope = { tenant_id: tenantId, id };
+    const leadCount = (where: Prisma.rndtechnosoft_crm_leadsWhereInput) => this.prisma.rndtechnosoft_crm_leads.count({ where: { tenant_id: tenantId, ...where } });
+    const leadsPhrase = (count: number) => `${count} lead${count === 1 ? '' : 's'}`;
+
+    let name: string;
+    let remove: () => Promise<unknown>;
+    if (type === 'stages') {
+      const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({ where: scope, select: { name: true } });
+      if (!stage) throw gone;
+      const count = await leadCount({ stage_id: id });
+      if (count > 0) {
+        throw new ConflictException(`${leadsPhrase(count)} ${count === 1 ? 'is' : 'are'} in "${stage.name}". Move them to another stage on the Sales Pipeline board, then delete it.`);
+      }
+      name = stage.name;
+      remove = () => this.prisma.rndtechnosoft_crm_stages.delete({ where: { tenant_id_id: scope } });
     } else if (type === 'pipelines') {
-      await this.prisma.rndtechnosoft_crm_pipelines.delete({ where: { id } });
+      const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: scope, select: { name: true } });
+      if (!pipeline) throw gone;
+      const count = await leadCount({ pipeline_id: id });
+      if (count > 0) {
+        throw new ConflictException(`${leadsPhrase(count)} ${count === 1 ? 'is' : 'are'} in the "${pipeline.name}" pipeline. Move them to another pipeline, then delete it.`);
+      }
+      name = pipeline.name;
+      // Its stages go with it.
+      remove = () => this.prisma.rndtechnosoft_crm_pipelines.delete({ where: { tenant_id_id: scope } });
     } else if (type === 'sources') {
-      await this.prisma.rndtechnosoft_crm_lead_sources.delete({ where: { id } });
+      const source = await this.prisma.rndtechnosoft_crm_lead_sources.findFirst({ where: scope, select: { name: true } });
+      if (!source) throw gone;
+      const count = await leadCount({ source_id: id });
+      if (count > 0) throw new ConflictException(`"${source.name}" is the source of ${leadsPhrase(count)}, so it can't be deleted. Change their source first.`);
+      name = source.name;
+      remove = () => this.prisma.rndtechnosoft_crm_lead_sources.delete({ where: { tenant_id_id: scope } });
+    } else if (type === 'services') {
+      const service = await this.prisma.rndtechnosoft_crm_services_master.findFirst({ where: scope, select: { name: true } });
+      if (!service) throw gone;
+      const [leads, lines] = await Promise.all([
+        leadCount({ primary_service_id: id }),
+        this.prisma.rndtechnosoft_crm_quotation_items.count({ where: { tenant_id: tenantId, service_id: id } }),
+      ]);
+      if (leads + lines > 0) {
+        const uses = [leads > 0 ? leadsPhrase(leads) : '', lines > 0 ? `${lines} quotation line${lines === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+        throw new ConflictException(`"${service.name}" is the service on ${uses}, so it can't be deleted. Change their service first.`);
+      }
+      name = service.name;
+      remove = () => this.prisma.rndtechnosoft_crm_services_master.delete({ where: { tenant_id_id: scope } });
+    } else if (type === 'lost-reasons') {
+      const reason = await this.prisma.rndtechnosoft_crm_lost_reasons_master.findFirst({ where: scope, select: { reason_name: true } });
+      if (!reason) throw gone;
+      const count = await leadCount({ lost_reason_id: id });
+      if (count > 0) throw new ConflictException(`"${reason.reason_name}" is the lost reason of ${leadsPhrase(count)}, so it can't be deleted.`);
+      name = reason.reason_name;
+      remove = () => this.prisma.rndtechnosoft_crm_lost_reasons_master.delete({ where: { tenant_id_id: scope } });
+    } else if (type === 'quotation-templates') {
+      // Quotations copy a template's lines, so nothing refers back to it.
+      const template = await this.prisma.rndtechnosoft_crm_quotation_templates.findFirst({ where: scope, select: { template_name: true } });
+      if (!template) throw gone;
+      name = template.template_name;
+      remove = () => this.prisma.rndtechnosoft_crm_quotation_templates.delete({ where: { tenant_id_id: scope } });
+    } else {
+      throw new BadRequestException('That kind of record cannot be deleted here.');
+    }
+
+    try {
+      await remove();
+    } catch (error) {
+      // Someone started using it between the check and the delete.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException(`"${name}" has just been put to use, so it can't be deleted. Reload the page to see where.`);
+      }
+      throw error;
     }
     return { success: true };
   }
@@ -2200,8 +3179,9 @@ export class CrmService {
     if (Array.isArray(items)) {
       for (const item of items) {
         if (type === 'stages' && item.id) {
-          await this.prisma.rndtechnosoft_crm_stages.update({
-            where: { id: item.id },
+          // Ids outside this tenant match nothing and are left untouched.
+          await this.prisma.rndtechnosoft_crm_stages.updateMany({
+            where: { tenant_id: tenantId, id: item.id },
             data: { sort_order: item.sort_order ?? item.sortOrder ?? 0 },
           });
         }
@@ -2214,15 +3194,34 @@ export class CrmService {
   // AUDIT LOGS
   // ==========================================
 
-  async getAuditLogs(tenantId: string, query?: { limit?: number; leadId?: string }) {
+  async getAuditLogs(tenantId: string, query?: {
+    page?: number;
+    limit?: number;
+    leadId?: string;
+    actionType?: string;
+    actorId?: string;
+    entityType?: string;
+    search?: string;
+  }) {
+    const { page, limit, skip } = this.pagination(query?.page, query?.limit);
     const where: any = { tenant_id: tenantId };
     if (query?.leadId) where.entity_id = query.leadId;
+    if (query?.actionType) where.action_type = query.actionType;
+    if (query?.actorId) where.actor_id = query.actorId;
+    if (query?.entityType) where.entity_type = query.entityType;
+    if (query?.search) {
+      where.OR = [
+        { actor_name: { contains: query.search.trim(), mode: 'insensitive' } },
+        { action_type: { contains: query.search.trim(), mode: 'insensitive' } },
+        { entity_type: { contains: query.search.trim(), mode: 'insensitive' } },
+      ];
+    }
 
-    return this.prisma.rndtechnosoft_crm_audit_logs.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      take: query?.limit || 100,
-    });
+    const [items, total] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_audit_logs.findMany({ where, orderBy: { created_at: 'desc' }, skip, take: limit }),
+      this.prisma.rndtechnosoft_crm_audit_logs.count({ where }),
+    ]);
+    return this.pageResult(items, total, page, limit);
   }
 
   async logAudit(
@@ -2250,31 +3249,14 @@ export class CrmService {
     }
   }
 
-  async getSalesPersons(tenantId: string) {
-    const members = await this.prisma.rndtechnosoft_tenant_members.findMany({
-      where: { tenant_id: tenantId, membership_status: 'ACTIVE' },
-      include: { rndtechnosoft_users: true },
-    });
-
-    return members.map((m) => {
-      const parts = (m.rndtechnosoft_users.display_name || 'Sales Rep').split(' ');
-      return {
-        id: m.id,
-        user_id: m.user_id,
-        first_name: parts[0] || 'User',
-        last_name: parts.slice(1).join(' ') || '',
-        name: m.rndtechnosoft_users.display_name,
-        email: m.rndtechnosoft_users.email,
-        designation: 'Sales Representative',
-      };
-    });
-  }
-
   // ==========================================
   // SEED CADENCE DEMO LEADS
   // ==========================================
 
   async seedCadenceDemoLeads(tenantId: string) {
+    if (!isCrmDemoSeedAllowed()) {
+      throw new ForbiddenException('Sample leads can only be loaded in a demo or sandbox workspace.');
+    }
     const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
       where: { tenant_id: tenantId, is_active: true },
       orderBy: [{ is_default: 'desc' }, { sort_order: 'asc' }],
@@ -2701,16 +3683,27 @@ export class CrmService {
     let industries: any[] = settingsJson.industries;
 
     if (!industries || !Array.isArray(industries) || industries.length === 0) {
-      industries = BASELINE_INDUSTRIES;
-      settingsJson.industries = industries;
-      await this.prisma.rndtechnosoft_tenant_settings.upsert({
-        where: { tenant_id: tenantId },
-        update: { settings: settingsJson },
-        create: { id: randomUUID(), tenant_id: tenantId, settings: settingsJson },
-      });
+      // A deep copy: the built-in list is shared by every workspace and must never be mutated.
+      industries = JSON.parse(JSON.stringify(BASELINE_INDUSTRIES));
+      await this.saveIndustries(tenantId, industries);
     }
 
     return industries;
+  }
+
+  /**
+   * Replaces only `settings.industries`, in one statement, so a concurrent save
+   * of another settings section (SMTP, modules, profile) is never overwritten.
+   */
+  private async saveIndustries(tenantId: string, industries: unknown[]) {
+    const patch = JSON.stringify({ industries });
+    await this.prisma.$executeRaw`
+      INSERT INTO rndtechnosoft_tenant_settings (id, tenant_id, settings, created_at, updated_at)
+      VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${patch}::jsonb, now(), now())
+      ON CONFLICT (tenant_id) DO UPDATE
+      SET settings = rndtechnosoft_tenant_settings.settings || EXCLUDED.settings,
+          updated_at = now()
+    `;
   }
 
   async createIndustry(tenantId: string, name: string) {
@@ -2723,15 +3716,7 @@ export class CrmService {
     };
     industries.push(newInd);
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return newInd;
   }
@@ -2743,15 +3728,7 @@ export class CrmService {
     if (!ind) throw new NotFoundException('Industry not found');
     ind.name = name.trim();
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return ind;
   }
@@ -2761,15 +3738,7 @@ export class CrmService {
     let industries = await this.getIndustriesMaster(tenantId);
     industries = industries.filter((i: any) => i.id !== id);
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return { success: true };
   }
@@ -2788,15 +3757,7 @@ export class CrmService {
     };
     ind.sub_industries.push(newSub);
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return newSub;
   }
@@ -2817,15 +3778,7 @@ export class CrmService {
     }
     if (!foundSub) throw new NotFoundException('Sub-industry not found');
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return foundSub;
   }
@@ -2839,15 +3792,7 @@ export class CrmService {
       }
     }
 
-    const tenantSetting = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
-      where: { tenant_id: tenantId },
-    });
-    const settingsJson: any = (tenantSetting?.settings as any) || {};
-    settingsJson.industries = industries;
-    await this.prisma.rndtechnosoft_tenant_settings.update({
-      where: { tenant_id: tenantId },
-      data: { settings: settingsJson },
-    });
+    await this.saveIndustries(tenantId, industries);
 
     return { success: true };
   }

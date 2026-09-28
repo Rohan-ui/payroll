@@ -15,7 +15,7 @@ description: >
 - **Product**: RNDTechnosoft Payroll + HRMS — a **multi-tenant SaaS** serving multiple companies on a shared PostgreSQL database.
 - **Brand/Namespace**: `rndtechnosoft_` (all physical table names carry this prefix).
 - **Active branch**: `ravishah` (personal dev branch). Merge with care; production data is real.
-- **Earlier Voogyo Codebase**: When asked to look into the earlier Voogyo product or codebase, look directly in `/Users/ravishah/git folder/voogyo-erp` (under `/Users/ravishah/git folder`).
+- **Earlier Voogyo Codebase**: When asked to look into the earlier Voogyo product or codebase, look directly in `/home/bhavin-pathak/project/voogyo-erp/voogyo-erp` (under `/home/bhavin-pathak/project/voogyo-erp`).
 
 ### Repository Layout
 ```

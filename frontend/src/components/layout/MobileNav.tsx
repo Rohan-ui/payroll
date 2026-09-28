@@ -1,25 +1,30 @@
 import React from 'react';
 import { LayoutDashboard, Users, Banknote, FileText, MoreHorizontal, Target, Mail } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
+import { useAuth } from '../../context/AuthContext';
 import type { AppView } from '../../types/payroll.types';
 import { cn } from '../../utils/cn';
 
 interface TabItem {
   id: AppView;
+  /** The server's navigation id; the tab shows only if the member may open it. */
+  nav: string;
   label: string;
   icon: React.ElementType;
 }
 
 const TABS: TabItem[] = [
-  { id: 'dashboard', label: 'Home',     icon: LayoutDashboard },
-  { id: 'crm',       label: 'CRM',      icon: Target },
-  { id: 'emails',    label: 'Emails',   icon: Mail },
-  { id: 'payroll',   label: 'Payroll',  icon: Banknote },
-  { id: 'people',    label: 'People',   icon: Users },
+  { id: 'dashboard', nav: 'dashboard', label: 'Home',     icon: LayoutDashboard },
+  { id: 'crm',       nav: 'crm',       label: 'CRM',      icon: Target },
+  { id: 'emails',    nav: 'crm.emails', label: 'Emails',  icon: Mail },
+  { id: 'payroll',   nav: 'payroll',   label: 'Payroll',  icon: Banknote },
+  { id: 'people',    nav: 'people',    label: 'People',   icon: Users },
 ];
 
 export const MobileNav: React.FC = () => {
   const { currentView, setCurrentView } = usePayroll();
+  const { canOpen } = useAuth();
+  const tabs = TABS.filter((tab) => canOpen(tab.nav));
 
   return (
     <nav
@@ -27,7 +32,7 @@ export const MobileNav: React.FC = () => {
       aria-label="Bottom navigation"
     >
       <ul className="flex" role="list">
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const isActive = currentView === tab.id || (tab.id === 'people' && currentView === 'employee-detail');
           return (
             <li key={tab.id} className="flex-1">

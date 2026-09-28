@@ -112,7 +112,9 @@ export class LeaveService {
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.rndtechnosoft_leave_requests.update({
-        where: { id: requestId },
+        // Composite [tenant_id, id] key: the database refuses a write against
+        // another tenant's record even if the id is guessed.
+        where: { tenant_id_id: { tenant_id: tenantId, id: requestId } },
         data: {
           request_status: 'APPROVED',
           final_decision_at: new Date(),

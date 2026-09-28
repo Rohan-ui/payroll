@@ -1,43 +1,162 @@
-import { Controller, Post, Get, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
-import { AuthService, RegisterUserInput, RegisterTenantInput, LoginInput } from './auth.service';
+import {
+  Controller,
+  ForbiddenException,
+  Post,
+  Get,
+  Body,
+  Query,
+  Req,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { Request } from 'express';
+import { AuthService, RegisterUserInput } from './auth.service';
+import { TenantSessionService } from './session/tenant-session.service';
+import { TenantDomainsService, platformBaseDomain } from '@/modules/tenancy/tenant-domains.service';
+import { AllowsPasswordChangePending, PublicRoute, CurrentUser } from '@/common/decorators/auth.decorators';
+import { RequirePermissions } from '@/common/decorators/access.decorators';
+import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
+import {
+  LoginDto,
+  RegisterTenantDto,
+  SwitchTenantDto,
+  ChangePasswordDto,
+  AddMembershipDto,
+  SubdomainAvailabilityQueryDto,
+} from './dto/auth.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly sessionService: TenantSessionService,
+    private readonly domains: TenantDomainsService,
+  ) {}
+
+  /** The caller's address; X-Forwarded-For counts only from a trusted proxy (see main.ts). */
+  private clientIp(req: Request): string | undefined {
+    return req.ip;
+  }
 
   @Post('register')
+  @PublicRoute()
   async register(@Body() body: RegisterUserInput) {
     return this.authService.registerUser(body);
   }
 
+  /**
+   * Creates a workspace and signs its first administrator in. A password is
+   * required: an account without one could never sign in, since sign-in now
+   * refuses accounts that have no password set.
+   */
   @Post('register-tenant')
-  async registerTenant(@Body() body: RegisterTenantInput) {
-    return this.authService.registerTenant(body);
+  @PublicRoute()
+  async registerTenant(@Body() body: RegisterTenantDto, @Req() req: Request) {
+    this.domains.assertCanRegisterHere(await this.domains.resolveHost(req.headers.host));
+    const created = await this.authService.registerTenant(body);
+
+    return this.sessionService.login(
+      created.email,
+      body.password,
+      { ipAddress: this.clientIp(req), userAgent: req.headers['user-agent'] },
+      created.tenantId,
+    );
   }
 
   @Post('login')
+  @PublicRoute()
   @HttpCode(HttpStatus.OK)
-  async login(@Body() body: LoginInput) {
-    return this.authService.login(body);
+  async login(@Body() body: LoginDto, @Req() req: Request) {
+    // On a workspace's address, sign-in opens that workspace and nothing else;
+    // the account must still be one of its members.
+    const tenantId = this.domains.tenantForSignIn(await this.domains.resolveHost(req.headers.host), body.tenantId);
+    return this.sessionService.login(
+      body.email,
+      body.password,
+      { ipAddress: this.clientIp(req), userAgent: req.headers['user-agent'] },
+      tenantId,
+    );
   }
 
+  /** What this address is: the base domain, and the workspace it belongs to, if any. */
+  @Get('host')
+  @PublicRoute()
+  async getHost(@Req() req: Request) {
+    const host = await this.domains.resolveHost(req.headers.host);
+    const workspace = host.kind === 'tenant' ? await this.authService.workspaceSummary(host.tenantId) : null;
+    return { baseDomain: platformBaseDomain(), kind: host.kind, workspace };
+  }
+
+  /** Whether a workspace address can be used, for the sign-up form. The server checks again on submit. */
+  @Get('subdomain-availability')
+  @PublicRoute()
+  async subdomainAvailability(@Query() query: SubdomainAvailabilityQueryDto) {
+    return this.domains.availability(query.subdomain);
+  }
+
+  @Post('logout')
+  @AllowsPasswordChangePending()
+  @HttpCode(HttpStatus.OK)
+  async logout(@CurrentUser() user: AuthenticatedTenantUser) {
+    await this.sessionService.logout(user);
+    return { success: true, message: 'Signed out.' };
+  }
+
+  /** Identity comes from the session; there is no user id parameter to forge. */
   @Get('me')
-  async getMe(@Query('userId') userId: string) {
-    return this.authService.getMe(userId);
+  @AllowsPasswordChangePending()
+  async getMe(@CurrentUser() user: AuthenticatedTenantUser) {
+    return this.sessionService.getProfile(user);
   }
 
-  @Post('membership')
-  async addMembership(
-    @Body('tenantId') tenantId: string,
-    @Body('userId') userId: string,
-    @Body('roleCode') roleCode?: string,
-  ) {
-    return this.authService.addMemberToTenant(tenantId, userId, roleCode);
-  }
-
-  @Post('seed-demo')
+  /** Re-checks membership and issues a session pinned to the new tenant. */
+  @Post('switch-tenant')
   @HttpCode(HttpStatus.OK)
-  async seedDemo() {
-    return this.authService.seedDemoData();
+  async switchTenant(
+    @Body() body: SwitchTenantDto,
+    @CurrentUser() user: AuthenticatedTenantUser,
+    @Req() req: Request,
+  ) {
+    const host = await this.domains.resolveHost(req.headers.host);
+    if (host.kind === 'tenant' && host.tenantId !== body.tenantId) {
+      throw new ForbiddenException('Open that workspace at its own address to switch to it.');
+    }
+    return this.sessionService.switchTenant(user, body.tenantId, {
+      ipAddress: this.clientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+  }
+
+  /** Also the one route that replaces a temporary password (AllowsPasswordChangePending). */
+  @Post('change-password')
+  @AllowsPasswordChangePending()
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @Body() body: ChangePasswordDto,
+    @CurrentUser() user: AuthenticatedTenantUser,
+  ) {
+    await this.sessionService.changePassword(user, body.currentPassword, body.newPassword);
+    return { success: true, message: 'Password updated. Other sessions were signed out.' };
+  }
+
+  @Post('sessions/revoke-others')
+  @HttpCode(HttpStatus.OK)
+  async revokeOtherSessions(@CurrentUser() user: AuthenticatedTenantUser) {
+    const revoked = await this.sessionService.revokeOtherSessions(user);
+    return { success: true, data: { revoked } };
+  }
+
+  /**
+   * Adds a user to the caller's own tenant. The tenant is taken from the
+   * session, so a member cannot add people to a tenant they do not belong to.
+   */
+  @Post('membership')
+  @RequirePermissions('users.create')
+  @HttpCode(HttpStatus.CREATED)
+  async addMembership(
+    @Body() body: AddMembershipDto,
+    @CurrentUser() user: AuthenticatedTenantUser,
+  ) {
+    return this.authService.addMemberToTenant(user, body.userId, body.roleCode);
   }
 }

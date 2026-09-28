@@ -1,12 +1,14 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { PrismaService } from '@/prisma/prisma.service';
+import { PublicRoute } from '@/common/decorators/auth.decorators';
 
 @Controller('health')
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
+  @PublicRoute()
   async check(@Res() res: Response): Promise<Response> {
     const startedAt = Date.now();
     try {

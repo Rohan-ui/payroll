@@ -1,21 +1,20 @@
 'use client';
 
 import React, { useState } from 'react';
+
+import { toast } from '../../lib/toast';
 import { 
   Video, Globe, MessageSquare, CheckCircle2, Copy, Check,
-  AlertCircle, RefreshCw, ExternalLink, ShieldCheck, Zap,
-  Save, Play, Smartphone, Store, ShoppingBag
+  AlertCircle, ExternalLink, ShieldCheck, Zap,
+  Play, Smartphone, Store, ShoppingBag
 } from 'lucide-react';
 
 export default function LeadIntegrationsCenter() {
   const [activeTab, setActiveTab] = useState<'google_meet' | 'indiamart' | 'tradeindia' | 'gmb' | 'justdial' | 'inbound_api'>('google_meet');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToast({ text, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -28,7 +27,7 @@ export default function LeadIntegrationsCenter() {
   const [meetConfig, setMeetConfig] = useState({
     enabled: true,
     defaultRoomType: 'instant', // 'instant' | 'custom_room'
-    customRoomUrl: 'https://meet.google.com/rnd-voogyo-sync',
+    customRoomUrl: '',
     defaultDuration: 30,
     sendReminderEmail: true,
     inviteTemplate: 'Hi {{ClientName}},\n\nHere are the details for our scheduled video call:\nDate & Time: {{MeetingTime}}\nGoogle Meet Link: {{MeetLink}}\n\nLooking forward to speaking with you!'
@@ -67,30 +66,12 @@ export default function LeadIntegrationsCenter() {
     apiKey: ''
   });
 
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = () => {
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      showToast('Integration settings updated successfully!');
-    }, 600);
-  };
-
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://erp.voogyo.com';
-  const genericWebhookUrl = `${baseUrl}/api/v1/crm/leads/webhook?tenant_id=demo_tenant`;
+  // The workspace comes from the caller's session; no tenant id belongs in the URL.
+  const genericWebhookUrl = `${baseUrl}/api/v1/crm/leads/webhook`;
 
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-5 ${
-          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
-        }`}>
-          {toast.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-          <span>{toast.text}</span>
-        </div>
-      )}
 
       {/* Top Banner */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
@@ -100,9 +81,8 @@ export default function LeadIntegrationsCenter() {
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider">
                 API & Lead Channel Hub
               </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live Sync Ready
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                Not connected yet
               </span>
             </div>
             <h2 className="text-xl font-bold text-slate-900 mt-1.5 flex items-center gap-2">
@@ -114,14 +94,9 @@ export default function LeadIntegrationsCenter() {
             </p>
           </div>
 
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-          >
-            {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>{saving ? 'Saving...' : 'Save Settings'}</span>
-          </button>
+          <p className="text-xs text-slate-500 max-w-xs">
+            These channel connections are not available yet, so settings on this page are not saved.
+          </p>
         </div>
 
         {/* Channel Navigation Pills */}
@@ -636,8 +611,8 @@ export default function LeadIntegrationsCenter() {
                 <p className="text-xs text-slate-500">Connect your website contact form, WordPress, Elementor, Webflow, or Zapier to create leads automatically.</p>
               </div>
             </div>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              24/7 Active
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+              Signed-in users only
             </span>
           </div>
 

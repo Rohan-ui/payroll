@@ -1,3 +1,4 @@
+import { apiFetch } from '../api/client';
 export interface SalesHeadProfile {
   id: string;
   name: string;
@@ -16,7 +17,7 @@ export const DEFAULT_SALES_HEAD_DESIGNATION = 'Director of Sales & Business Deve
  */
 export async function getSalesTeamHead(_tenantId?: string): Promise<SalesHeadProfile> {
   try {
-    const res = await fetch('/api/v1/users');
+    const res = await apiFetch('/api/v1/users');
     const data = await res.json();
     if (data && data.success && Array.isArray(data.data) && data.data.length > 0) {
       const u = data.data[0];

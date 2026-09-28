@@ -1,23 +1,21 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-const Link = ({ href, children, className, target, rel, ...props }: any) => (
-  <a href={href} className={className} target={target} rel={rel} {...props}>{children}</a>
-);
-const useRouter = () => ({
-  push: (url: string) => { window.location.href = url; },
-  replace: (url: string) => { window.location.replace(url); },
-});
 import { 
   FileText, Plus, Trash2, CheckCircle2, RefreshCw, Trophy,
   Printer, X, ChevronRight, ArrowUpRight, Calculator, IndianRupee,
   MoreVertical, ChevronLeft, Eye, Check, AlertCircle, Sparkles,
-  Calendar, Users, ExternalLink, LayoutTemplate, UploadCloud, Image as ImageIcon,
+  Calendar, Users, LayoutTemplate, UploadCloud, Image as ImageIcon,
   Edit3
 } from 'lucide-react';
 import WordDocumentEditor from './WordDocumentEditor';
 import { DEFAULT_HEADER_SVG, DEFAULT_FOOTER_SVG } from '@/lib/letterheadDefaults';
 
+import { sanitizedHtmlProps } from '../../utils/sanitize-html';
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
+import { dealWonMessage } from './pipelineBoard';
+import QuotationBuilder from './QuotationBuilder';
 interface QuotationsManagerProps {
   leads: any[];
   services: any[];
@@ -39,7 +37,6 @@ export default function QuotationsManager({
   onSelectLead360,
   onScheduleMeeting
 }: QuotationsManagerProps) {
-  const router = useRouter();
   const [quotations, setQuotations] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +44,8 @@ export default function QuotationsManager({
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Three-dot action menu
   const [openActionId, setOpenActionId] = useState<string | null>(null);
@@ -55,24 +54,27 @@ export default function QuotationsManager({
   const [selectedQuoteForPreview, setSelectedQuoteForPreview] = useState<any>(null);
   const [deleteConfirmQuote, setDeleteConfirmQuote] = useState<any | null>(null);
   const [dealWonConfirmQuote, setDealWonConfirmQuote] = useState<any | null>(null);
+  // The create / edit page, shown in place of the list.
+  const [builder, setBuilder] = useState<{ leadId: string | null; quotation: any | null } | null>(null);
 
   // In-app toast
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const fetchQuotationsAndTemplates = async () => {
     setLoading(true);
     try {
       const [qRes, tRes] = await Promise.all([
-        fetch('/api/v1/crm/quotations'),
-        fetch('/api/v1/crm/quotation-templates')
+        apiFetch(`/api/v1/crm/quotations?page=${currentPage}&limit=${pageSize}`),
+        apiFetch('/api/v1/crm/quotation-templates')
       ]);
       const qJson = await qRes.json();
       const tJson = await tRes.json();
-      if (qJson.success) setQuotations(qJson.data || []);
+      if (qJson.success) {
+        setQuotations(qJson.data || []);
+        setTotalItems(qJson.pagination?.total || 0);
+        setTotalPages(Math.max(1, qJson.pagination?.totalPages || 1));
+      }
       if (tJson.success) setTemplates(tJson.data || []);
     } catch (err) {
       console.error(err);
@@ -83,93 +85,100 @@ export default function QuotationsManager({
 
   useEffect(() => {
     fetchQuotationsAndTemplates();
-  }, []);
+  }, [currentPage, pageSize]);
 
+  // Opened from elsewhere (the + button, the sidebar, a lead): show the create page for that lead.
   useEffect(() => {
     if (autoOpenCreate) {
-      router.push(initialLeadId ? `/crm/quotations/new?leadId=${initialLeadId}` : '/crm/quotations/new');
+      setBuilder({ leadId: initialLeadId ?? null, quotation: null });
       onCloseCreate?.();
     }
-  }, [initialLeadId, autoOpenCreate, router, onCloseCreate]);
+  }, [initialLeadId, autoOpenCreate, onCloseCreate]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
-      maximumFractionDigits: 0
+      // Quotation amounts are exact to the paisa.
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
     }).format(val || 0);
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteConfirmQuote) return;
     try {
-      const res = await fetch(`/api/v1/crm/quotations/${deleteConfirmQuote.id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/crm/quotations/${deleteConfirmQuote.id}`, { method: 'DELETE', feedback: { success: false } });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast(`Quotation ${deleteConfirmQuote.quotation_number} deleted.`);
         setDeleteConfirmQuote(null);
         fetchQuotationsAndTemplates();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     }
   };
 
-  const handleUpdateStatus = async (id: string, newStatus: string) => {
+  /** Changes a quotation's status; true only when the server saved it. */
+  const handleUpdateStatus = async (id: string, newStatus: string): Promise<boolean> => {
     try {
-      await fetch(`/api/v1/crm/quotations/${id}`, {
+      const res = await apiFetch(`/api/v1/crm/quotations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ status: newStatus }),
+        feedback: { success: `Quotation marked ${newStatus.toLowerCase()}` },
       });
-      showToast(`Status updated to ${newStatus}`);
-      fetchQuotationsAndTemplates();
-    } catch (err) {
-      console.error(err);
+      if (res.ok) fetchQuotationsAndTemplates();
+      return res.ok;
+    } catch {
+      return false; // Reported by the API client.
     }
   };
 
   const handleConfirmConvertWon = async () => {
     if (!dealWonConfirmQuote) return;
     try {
-      // 1. Mark quote accepted
-      await handleUpdateStatus(dealWonConfirmQuote.id, 'ACCEPTED');
+      // 1. Mark the quote accepted; stop if that did not save.
+      if (!(await handleUpdateStatus(dealWonConfirmQuote.id, 'ACCEPTED'))) return;
 
-      // 2. Trigger deal won
-      const res = await fetch(`/api/v1/crm/leads/${dealWonConfirmQuote.lead_id}/convert-won`, { method: 'POST' });
+      // 2. Then mark the deal won.
+      const res = await apiFetch(`/api/v1/crm/leads/${dealWonConfirmQuote.lead_id}/convert-won`, { method: 'POST', feedback: { success: false } });
       const data = await res.json();
-      if (data.success) {
-        showToast(`🏆 Deal Won! Client created, Project: ${data.data.projectCode}, Invoice: ${data.data.invoiceNumber}`);
+      if (res.ok && data.success) {
+        showToast(dealWonMessage(data.data));
         setDealWonConfirmQuote(null);
         fetchQuotationsAndTemplates();
         onRefreshParent();
       }
-    } catch (err: any) {
-      showToast('Conversion failed: ' + err.message);
+    } catch {
+      // Reported by the API client.
     }
   };
 
   // Pagination
-  const totalItems = quotations.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
   const startIndex = (currentPage - 1) * pageSize;
-  const paginatedQuotes = quotations.slice(startIndex, startIndex + pageSize);
+  const paginatedQuotes = quotations;
+
+  if (builder) {
+    return (
+      <QuotationBuilder
+        services={services}
+        templates={templates}
+        initialLeadId={builder.leadId}
+        quotation={builder.quotation}
+        onCancel={() => setBuilder(null)}
+        onSaved={() => {
+          setBuilder(null);
+          fetchQuotationsAndTemplates();
+          onRefreshParent();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4 relative">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 text-white text-xs font-semibold rounded-xl shadow-xl flex items-center gap-2 animate-in slide-in-from-top duration-200 ${
-          toastMessage.type === 'success' ? 'bg-slate-900' : 'bg-rose-600'
-        }`}>
-          {toastMessage.type === 'success' ? (
-            <Check className="w-4 h-4 text-emerald-400" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-white" />
-          )}
-          <span>{toastMessage.text}</span>
-        </div>
-      )}
 
       {/* Top Action Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -189,13 +198,14 @@ export default function QuotationsManager({
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          <Link
-            href="/crm/quotations/new"
+          <button
+            type="button"
+            onClick={() => setBuilder({ leadId: initialLeadId ?? null, quotation: null })}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Create Quotation</span>
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -207,7 +217,7 @@ export default function QuotationsManager({
               <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <th className="py-3 px-4">Quote #</th>
                 <th className="py-3 px-4">Company / Lead</th>
-                <th className="py-3 px-4">Subject</th>
+                <th className="py-3 px-4">Valid Until</th>
                 <th className="py-3 px-4">Tax Type</th>
                 <th className="py-3 px-4">Subtotal</th>
                 <th className="py-3 px-4">GST Tax</th>
@@ -220,28 +230,29 @@ export default function QuotationsManager({
               {paginatedQuotes.map((q) => (
                 <tr key={q.id} className="hover:bg-slate-50/70 transition-colors">
                   <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
-                    <Link
-                      href={`/crm/quotations/${encodeURIComponent(q.quotation_number)}`}
-                      className="hover:text-blue-900 hover:underline inline-flex items-center gap-1.5 group"
-                      title={`Open quotation detail page for ${q.quotation_number}`}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedQuoteForPreview(q)}
+                      className="hover:text-blue-900 hover:underline inline-flex items-center gap-1.5"
+                      title={`Preview quotation ${q.quotation_number}`}
                     >
                       <span>{q.quotation_number}</span>
-                      <ExternalLink className="w-3 h-3 text-blue-500 opacity-60 group-hover:opacity-100 transition-opacity" />
-                    </Link>
+                      <Eye className="w-3 h-3 text-blue-500 opacity-60" aria-hidden="true" />
+                    </button>
                   </td>
 
                   <td className="py-3.5 px-4">
-                    <span className="font-bold text-slate-900 block">{q.company_name}</span>
-                    <span className="text-[11px] text-slate-400">{q.first_name} {q.last_name}</span>
+                    <span className="font-bold text-slate-900 block">{q.lead_company_name || '—'}</span>
+                    <span className="text-[11px] text-slate-400">{q.contact_person}</span>
                   </td>
 
-                  <td className="py-3.5 px-4 text-slate-700 font-medium max-w-xs truncate">
-                    {q.subject}
+                  <td className="py-3.5 px-4 text-slate-700 font-medium whitespace-nowrap">
+                    {q.valid_until ? new Date(q.valid_until).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                   </td>
 
                   <td className="py-3.5 px-4">
                     <span className="text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded">
-                      {q.tax_type === 'INTER_STATE' ? 'IGST (18%)' : 'CGST+SGST (9%+9%)'}
+                      {q.tax_mode === 'INTER_STATE' ? 'IGST (18%)' : 'CGST+SGST (9%+9%)'}
                     </span>
                   </td>
 
@@ -250,7 +261,7 @@ export default function QuotationsManager({
                   </td>
 
                   <td className="py-3.5 px-4 text-slate-500">
-                    {formatCurrency(Number(q.cgst_amount || 0) + Number(q.sgst_amount || 0) + Number(q.igst_amount || 0))}
+                    {formatCurrency(q.total_tax)}
                   </td>
 
                   <td className="py-3.5 px-4 font-bold text-slate-900">
@@ -287,25 +298,16 @@ export default function QuotationsManager({
 
                     {openActionId === q.id && (
                       <div className="absolute right-4 top-10 z-40 bg-white w-48 rounded-xl shadow-xl border border-slate-200 py-1.5 text-left text-xs animate-in fade-in-50 duration-150">
-                        {/* Open Quotation Detail Page */}
-                        <Link
-                          href={`/crm/quotations/${encodeURIComponent(q.quotation_number)}`}
-                          onClick={() => setOpenActionId(null)}
-                          className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Open Quotation Page</span>
-                        </Link>
-
-                        {/* Edit Proposal Page */}
-                        <Link
-                          href={`/crm/quotations/${q.id}/edit`}
-                          onClick={() => setOpenActionId(null)}
-                          className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>Edit Proposal</span>
-                        </Link>
+                        {/* Only drafts can be edited: a sent quotation keeps the amounts it was issued with. */}
+                        {q.status === 'DRAFT' && (
+                          <button
+                            onClick={() => { setOpenActionId(null); setBuilder({ leadId: q.lead_id, quotation: q }); }}
+                            className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Edit Quotation</span>
+                          </button>
+                        )}
 
                         {/* View Preview */}
                         <button
@@ -380,7 +382,7 @@ export default function QuotationsManager({
               {paginatedQuotes.length === 0 && (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-slate-400">
-                    No proposals created yet. Click "Create Proposal" to generate a GST quote.
+                    No quotations yet. Click "Create Quotation" to build a GST quotation for a lead.
                   </td>
                 </tr>
               )}
@@ -454,11 +456,11 @@ export default function QuotationsManager({
             <div className="flex justify-between items-start border-b pb-3">
               <div>
                 <span className="text-xs font-bold text-blue-700">{selectedQuoteForPreview.quotation_number}</span>
-                <h3 className="text-lg font-black text-slate-900">{selectedQuoteForPreview.company_name}</h3>
-                <p className="text-xs text-slate-500">{selectedQuoteForPreview.subject}</p>
+                <h3 className="text-lg font-black text-slate-900">{selectedQuoteForPreview.lead_company_name}</h3>
+                <p className="text-xs text-slate-500">{selectedQuoteForPreview.contact_person}</p>
               </div>
-              <button onClick={() => setSelectedQuoteForPreview(null)}>
-                <X className="w-5 h-5 text-slate-500" />
+              <button type="button" onClick={() => setSelectedQuoteForPreview(null)} aria-label="Close preview">
+                <X className="w-5 h-5 text-slate-500" aria-hidden="true" />
               </button>
             </div>
 
@@ -474,7 +476,7 @@ export default function QuotationsManager({
             {/* Scope Content preview */}
             {selectedQuoteForPreview.content_body && (
               <div className="p-4 bg-slate-50 border rounded-xl prose prose-xs max-w-none text-xs text-slate-800">
-                <div dangerouslySetInnerHTML={{ __html: selectedQuoteForPreview.content_body }} />
+                <div {...sanitizedHtmlProps(selectedQuoteForPreview.content_body)} />
               </div>
             )}
 
@@ -492,13 +494,13 @@ export default function QuotationsManager({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {selectedQuoteForPreview.items.map((it: any) => (
+                    {[...selectedQuoteForPreview.items].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((it: any) => (
                       <tr key={it.id}>
                         <td className="p-2.5 font-semibold text-slate-800">{it.description}</td>
                         <td className="p-2.5 font-mono text-slate-500">{it.sac_code}</td>
                         <td className="p-2.5 text-center">{it.quantity}</td>
                         <td className="p-2.5 text-right">{formatCurrency(it.unit_rate)}</td>
-                        <td className="p-2.5 text-right font-bold">{formatCurrency(it.amount)}</td>
+                        <td className="p-2.5 text-right font-bold">{formatCurrency(it.line_amount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -511,10 +513,10 @@ export default function QuotationsManager({
               <span className="font-bold text-base text-slate-900">{formatCurrency(selectedQuoteForPreview.total_amount)}</span>
             </div>
 
-            {selectedQuoteForPreview.terms_and_conditions && (
-              <div className="text-[11px] text-slate-600 whitespace-pre-wrap font-mono bg-slate-50 p-3 rounded-lg">
-                <strong>Commercial Terms:</strong><br />
-                {selectedQuoteForPreview.terms_and_conditions}
+            {selectedQuoteForPreview.notes && (
+              <div className="text-[11px] text-slate-600 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg">
+                <strong>Notes:</strong><br />
+                {selectedQuoteForPreview.notes}
               </div>
             )}
 
@@ -527,14 +529,7 @@ export default function QuotationsManager({
               />
             </div>
 
-            <div className="pt-3 border-t flex justify-between items-center">
-              <Link
-                href={`/crm/quotations/${encodeURIComponent(selectedQuoteForPreview.quotation_number)}`}
-                className="px-4 py-2 text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl flex items-center gap-1.5 transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Open Full Quotation Page</span>
-              </Link>
+            <div className="pt-3 border-t flex justify-end items-center">
 
               <button
                 onClick={() => setSelectedQuoteForPreview(null)}
@@ -595,12 +590,12 @@ export default function QuotationsManager({
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900">Accept Proposal & Deal WON</h3>
-                <p className="text-xs text-slate-500">Auto-convert to Client, Project & Invoice</p>
+                <p className="text-xs text-slate-500">Marks the deal won and creates or links its client</p>
               </div>
             </div>
 
             <p className="text-xs text-slate-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
-              Accept quotation <strong className="text-slate-900">"{dealWonConfirmQuote.quotation_number}"</strong> for {dealWonConfirmQuote.company_name} (₹{dealWonConfirmQuote.total_amount?.toLocaleString('en-IN')}) and trigger automatic Client Account, Project workspace, and Tax Invoice generation?
+              Accept quotation <strong className="text-slate-900">"{dealWonConfirmQuote.quotation_number}"</strong> for {dealWonConfirmQuote.lead_company_name} ({formatCurrency(dealWonConfirmQuote.total_amount)}), mark the deal won, and create its client account (or link the existing one)?
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2">

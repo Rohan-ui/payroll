@@ -116,8 +116,8 @@ export const externalApiClient = {
   /**
    * Get all active COSEC users.
    */
-  async getUsers(): Promise<{ total: number; data: CosecUser[] }> {
-    return apiClient.get<{ total: number; data: CosecUser[] }>('/external-api/cosec/users');
+  async getUsers(page = 1, limit = 25): Promise<{ total: number; page: number; limit: number; totalPages: number; hasMore: boolean; data: CosecUser[] }> {
+    return apiClient.get(`/external-api/cosec/users?page=${page}&limit=${limit}`);
   },
 
   /**
@@ -128,14 +128,18 @@ export const externalApiClient = {
     month: string,
     range = 'all',
     rangeId?: string,
-  ): Promise<{ month: string; total: number; data: CosecMonthlyAttendance[] }> {
+    page = 1,
+    limit = 25,
+  ): Promise<{ month: string; total: number; page: number; limit: number; totalPages: number; hasMore: boolean; data: CosecMonthlyAttendance[] }> {
     const query = new URLSearchParams();
     query.append('month', month);
     query.append('range', range);
     if (rangeId) query.append('rangeId', rangeId);
+    query.append('page', String(page));
+    query.append('limit', String(limit));
 
     const qs = query.toString();
-    return apiClient.get<{ month: string; total: number; data: CosecMonthlyAttendance[] }>(
+    return apiClient.get<{ month: string; total: number; page: number; limit: number; totalPages: number; hasMore: boolean; data: CosecMonthlyAttendance[] }>(
       `/external-api/cosec/attendance-monthly${qs ? `?${qs}` : ''}`,
     );
   },
@@ -148,15 +152,19 @@ export const externalApiClient = {
     endDate?: string,
     range = 'all',
     rangeId?: string,
-  ): Promise<{ total: number; data: CosecDailyAttendance[] }> {
+    page = 1,
+    limit = 25,
+  ): Promise<{ total: number; page: number; limit: number; totalPages: number; hasMore: boolean; data: CosecDailyAttendance[] }> {
     const query = new URLSearchParams();
     if (startDate) query.append('startDate', startDate);
     if (endDate) query.append('endDate', endDate);
     query.append('range', range);
     if (rangeId) query.append('rangeId', rangeId);
+    query.append('page', String(page));
+    query.append('limit', String(limit));
 
     const qs = query.toString();
-    return apiClient.get<{ total: number; data: CosecDailyAttendance[] }>(
+    return apiClient.get<{ total: number; page: number; limit: number; totalPages: number; hasMore: boolean; data: CosecDailyAttendance[] }>(
       `/external-api/cosec/attendance-daily${qs ? `?${qs}` : ''}`,
     );
   },

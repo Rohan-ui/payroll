@@ -450,7 +450,7 @@ export class ExternalApiService {
       action: 'get',
       'date-range': dRange,
       range,
-      'field-name': 'userid,username,punch1_date,punch1_time,punch2_time,punch3_time,punch4_time,punch5_time,punch6_time,punch7_time,outpunch_time,firsthalf,secondhalf,worktime_hhmm,shiftstart',
+      'field-name': 'userid,username,punch1_date,punch1_time,punch2_time,punch3_time,punch4_time,punch5_time,punch6_time,punch7_time,punch8_time,punch9_time,punch10_time,punch11_time,punch12_time,outpunch_time,firsthalf,secondhalf,worktime_hhmm,shiftstart,shiftend,scheduleshift,workingshift',
     };
     if (range !== 'all' && rangeId) {
       params['id'] = rangeId;
@@ -506,6 +506,16 @@ export class ExternalApiService {
         return new Date(`${dateStr}T${normalized}+05:30`);
       };
 
+      // Postgres TIME columns: Prisma represents them as a Date on 1970-01-01 UTC
+      const toTimeOfDay = (hhmm: string | null): Date | null =>
+        hhmm ? new Date(`1970-01-01T${hhmm}:00.000Z`) : null;
+      const scheduledShift = {
+        scheduled_shift_code: item.scheduledShiftCode,
+        working_shift_code: item.workingShiftCode,
+        scheduled_shift_start_time: toTimeOfDay(item.shiftStart),
+        scheduled_shift_end_time: toTimeOfDay(item.shiftEnd),
+      };
+
       const firstCheckInAt: Date | null = parseLocalTime(item.date, item.firstCheckInTime);
       let lastCheckOutAt: Date | null = null;
       if (item.lastCheckOutTime && !item.isCurrentlyInside) {
@@ -528,6 +538,7 @@ export class ExternalApiService {
           worked_minutes: item.workedMinutes > 0 ? item.workedMinutes : (item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0)),
           payable_minutes: item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0),
           source: 'COSEC_SYNC',
+          ...scheduledShift,
         },
         create: {
           id: randomUUID(),
@@ -540,6 +551,7 @@ export class ExternalApiService {
           worked_minutes: item.workedMinutes > 0 ? item.workedMinutes : (item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0)),
           payable_minutes: item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0),
           source: 'COSEC_SYNC',
+          ...scheduledShift,
         },
       });
       syncedRecords++;

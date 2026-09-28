@@ -33,15 +33,18 @@ export interface EmployeeListResponse {
   total: number;
   page: number;
   limit: number;
+  totalPages: number;
+  hasMore: boolean;
   items: BackendEmployee[];
 }
 
 export const employeesApi = {
-  list: async (page = 1, limit = 50, search = ''): Promise<EmployeeListResponse> => {
+  list: async (page = 1, limit = 20, search = '', department = ''): Promise<EmployeeListResponse> => {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
       ...(search ? { search } : {}),
+      ...(department ? { department } : {}),
     });
     return apiClient.get<EmployeeListResponse>(`/employees?${params.toString()}`);
   },

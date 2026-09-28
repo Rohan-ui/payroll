@@ -8,7 +8,6 @@ import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Avatar } from '../components/ui/Avatar';
-import { StatRing } from '../components/ui/StatRing';
 import { MOCK_PAYROLL_RUNS, MOCK_COMPLIANCE } from '../mock/data';
 
 /* ── Helpers ──────────────────────────────────────────────── */
@@ -44,7 +43,7 @@ const RUN_STATUS_BADGE: Record<string, 'success' | 'warning' | 'neutral' | 'info
 };
 
 export const DashboardView: React.FC = () => {
-  const { employees, payrollRun, role, setCurrentView } = usePayroll();
+  const { employees, payrollRun, setCurrentView } = usePayroll();
 
   const activeEmps = employees.filter((e) => e.status === 'ACTIVE').length;
   const totalNetPay = employees.reduce((s, e) => s + e.salary.grossMonthly, 0);
@@ -60,66 +59,6 @@ export const DashboardView: React.FC = () => {
   const upcomingCompliance = MOCK_COMPLIANCE.filter((c) => c.status === 'PENDING').slice(0, 4);
   const overdueCompliance = MOCK_COMPLIANCE.filter((c) => c.status === 'OVERDUE');
   const recentRuns = MOCK_PAYROLL_RUNS.slice(0, 3);
-
-  /* Employee view */
-  if (role === 'EMPLOYEE') {
-    const me = employees[0];
-    return (
-      <div className="space-y-5 max-w-xl">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800 dark:text-white">My Dashboard</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">September 2026</p>
-        </div>
-
-        {/* Net pay card */}
-        <Card highlight className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">September Net Pay</p>
-            <p className="text-3xl font-bold text-[#0E5A47] dark:text-teal-400">
-              {me ? fmt(me.salary.grossMonthly * 0.84) : '₹—'}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">Credited on 30 Sep</p>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => setCurrentView('payslips')}>
-            View Payslip
-          </Button>
-        </Card>
-
-        {/* Leave rings */}
-        {me && (
-          <Card>
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4">Leave Balance</h2>
-            <div className="flex justify-around">
-              <StatRing label="Earned Leave" total={me.leaveBalance.earned} used={me.leaveBalance.usedEarned} color="teal" />
-              <StatRing label="Sick Leave"   total={me.leaveBalance.sick}   used={me.leaveBalance.usedSick}   color="amber" />
-              <StatRing label="Casual Leave" total={me.leaveBalance.casual} used={me.leaveBalance.usedCasual} color="violet" />
-            </div>
-          </Card>
-        )}
-
-        {/* Attendance card */}
-        <Card className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 flex items-center justify-center">
-              <CalendarCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">My Attendance & Shifts</p>
-              <p className="text-xs text-slate-400">View daily clock-in records & calendar</p>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setCurrentView('attendance')}>
-            View Attendance
-          </Button>
-        </Card>
-
-        {/* Download payslip */}
-        <Button variant="ghost" onClick={() => setCurrentView('payslips')} className="gap-2 dark:text-slate-300 dark:hover:bg-white/5">
-          <IndianRupee className="w-4 h-4" /> View all payslips
-        </Button>
-      </div>
-    );
-  }
 
   /* Admin / HR view */
   return (

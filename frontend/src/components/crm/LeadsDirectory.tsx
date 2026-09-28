@@ -19,6 +19,9 @@ import {
 } from '@/lib/industryTaxonomy';
 import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
+import { dealWonMessage, isInOutreach } from './pipelineBoard';
 interface LeadsDirectoryProps {
   leads: any[];
   stages: any[];
@@ -36,6 +39,8 @@ interface LeadsDirectoryProps {
   onReassignSalesPerson?: (lead: any) => void;
   initialFilterStageId?: string | null;
   autoOpenAdd?: boolean;
+  /** Called with a lead created from this list's own Add form, so the workspace can say where it went. */
+  onLeadCreated?: (lead: any) => void;
   viewMode?: 'kanban' | 'list';
   onViewModeChange?: (mode: 'kanban' | 'list') => void;
 }
@@ -50,6 +55,7 @@ export default function LeadsDirectory({
   clients = [],
   loading,
   onRefresh,
+  onLeadCreated,
   onSelectLead360,
   onCreateQuotation,
   onScheduleMeeting,
@@ -74,20 +80,10 @@ export default function LeadsDirectory({
     return getSubIndustries(filterIndustry);
   }, [filterIndustry]);
 
-  // Cold Lead Isolation: isolate prospects currently in Cold Funnel cadence until converted
-  const [includeColdFunnelLeads, setIncludeColdFunnelLeads] = useState(false);
+  // Leads in the 30-day outreach cadence are listed (with an "In outreach" badge) unless the user excludes them.
+  const [includeColdFunnelLeads, setIncludeColdFunnelLeads] = useState(true);
 
-  const isolatedColdCount = useMemo(() => {
-    return leads.filter((l: any) => {
-      try {
-        if (l.custom_attributes) {
-          const parsed = typeof l.custom_attributes === 'string' ? JSON.parse(l.custom_attributes) : l.custom_attributes;
-          return parsed?.cadence && parsed.cadence.status !== 'CONVERTED' && !parsed.cadence.convertedToOpportunity;
-        }
-      } catch (e) {}
-      return false;
-    }).length;
-  }, [leads]);
+  const isolatedColdCount = useMemo(() => leads.filter(isInOutreach).length, [leads]);
 
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -121,14 +117,6 @@ export default function LeadsDirectory({
   const [deleteConfirmLead, setDeleteConfirmLead] = useState<any | null>(null);
   const [dealWonConfirmLead, setDealWonConfirmLead] = useState<any | null>(null);
 
-  // In-app Toast notification state
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 3500);
-  };
-
   // Export & Import states
   const [isExporting, setIsExporting] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -136,9 +124,8 @@ export default function LeadsDirectory({
   const handleExportLeads = async () => {
     try {
       setIsExporting(true);
-      showToast('Generating smart CRM leads export with dynamic masters...', 'success');
-      const res = await fetch('/api/v1/crm/leads/export', { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to generate export file from server');
+      const res = await apiFetch('/api/v1/crm/leads/export', { cache: 'no-store' });
+      if (!res.ok) return; // The failure is reported by the API client.
       
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -149,10 +136,9 @@ export default function LeadsDirectory({
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      showToast('Exported complete CRM leads to Excel successfully!', 'success');
-    } catch (err: any) {
-      console.error('Error exporting leads:', err);
-      showToast('Failed to export leads: ' + err.message, 'error');
+      toast.success('Leads exported to Excel');
+    } catch {
+      // A network failure is reported by the API client.
     } finally {
       setIsExporting(false);
     }
@@ -167,23 +153,23 @@ export default function LeadsDirectory({
   // Form State
   const [formData, setFormData] = useState({
     companyName: '',
-    industry: 'general',
+    industry: '',
     sub_industry: '',
     firstName: '',
     lastName: '',
     designation: 'Director / Founder',
     email: '',
     phone: '',
-    city: 'Mumbai',
-    state: 'Maharashtra',
+    city: '',
+    state: '',
     gstin: '',
     panNumber: '',
-    sourceId: sources[0]?.id || 'src_web',
-    primaryService: services[0]?.name || 'Enterprise Web App Development',
-    budgetAmount: 350000,
-    pipelineId: pipelines[0]?.id || 'pipe_rnd_main',
-    stageId: stages[0]?.id || 'stage_1',
-    assignedUserId: 'user_saloni',
+    sourceId: sources[0]?.id || '',
+    primaryService: services[0]?.name || '',
+    budgetAmount: 0,
+    pipelineId: pipelines[0]?.id || '',
+    stageId: stages[0]?.id || '',
+    assignedUserId: '',
     temperature: 'WARM',
     urgency: 'MEDIUM',
     requirementBrief: '',
@@ -194,12 +180,11 @@ export default function LeadsDirectory({
   const defaultSalesHeadId = useMemo(() => {
     const head = salesPersons.find(
       (sp: any) =>
-        sp.id === 'user_saloni' ||
         sp.designation?.toLowerCase().includes('director of sales') ||
         sp.designation?.toLowerCase().includes('sales head') ||
         sp.designation?.toLowerCase().includes('sales lead')
     );
-    return head?.id || salesPersons[0]?.id || 'user_saloni';
+    return head?.id || salesPersons[0]?.id || '';
   }, [salesPersons]);
 
   const formatCurrency = (val: number) => {
@@ -215,22 +200,22 @@ export default function LeadsDirectory({
     if (defaultIsExistingClient && firstClient) {
       setFormData({
         companyName: firstClient.company_name,
-        industry: firstClient.industry || 'information_technology',
-        sub_industry: firstClient.sub_industry || 'saas_cloud',
+        industry: firstClient.industry || '',
+        sub_industry: firstClient.sub_industry || '',
         firstName: firstClient.contact_person?.split(' ')[0] || firstClient.company_name,
         lastName: firstClient.contact_person?.split(' ').slice(1).join(' ') || '',
         designation: 'Director / Founder',
         email: firstClient.email || '',
         phone: firstClient.phone || '',
-        city: firstClient.city || 'Mumbai',
-        state: firstClient.state || 'Maharashtra',
+        city: firstClient.city || '',
+        state: firstClient.state || '',
         gstin: firstClient.gstin || '',
         panNumber: firstClient.pan_number || '',
-        sourceId: sources.find(s => s.id === 'src_existing_client')?.id || sources[0]?.id || 'src_ref',
-        primaryService: services[0]?.name || 'Enterprise Web App Development',
-        budgetAmount: 450000,
-        pipelineId: pipelines[0]?.id || 'pipe_rnd_main',
-        stageId: stages[0]?.id || 'stage_1',
+        sourceId: sources[0]?.id || '',
+        primaryService: services[0]?.name || '',
+        budgetAmount: 0,
+        pipelineId: pipelines[0]?.id || '',
+        stageId: stages[0]?.id || '',
         assignedUserId: defaultSalesHeadId,
         temperature: 'HOT',
         urgency: 'HIGH',
@@ -241,22 +226,22 @@ export default function LeadsDirectory({
     } else {
       setFormData({
         companyName: '',
-        industry: 'information_technology',
-        sub_industry: 'saas_cloud',
+        industry: '',
+        sub_industry: '',
         firstName: '',
         lastName: '',
         designation: 'Director / Founder',
         email: '',
         phone: '',
-        city: 'Mumbai',
-        state: 'Maharashtra',
+        city: '',
+        state: '',
         gstin: '',
         panNumber: '',
-        sourceId: sources[0]?.id || 'src_web',
-        primaryService: services[0]?.name || 'Enterprise Web App Development',
-        budgetAmount: 350000,
-        pipelineId: pipelines[0]?.id || 'pipe_rnd_main',
-        stageId: stages[0]?.id || 'stage_1',
+        sourceId: sources[0]?.id || '',
+        primaryService: services[0]?.name || '',
+        budgetAmount: 0,
+        pipelineId: pipelines[0]?.id || '',
+        stageId: stages[0]?.id || '',
         assignedUserId: defaultSalesHeadId,
         temperature: 'WARM',
         urgency: 'MEDIUM',
@@ -272,15 +257,15 @@ export default function LeadsDirectory({
     setSelectedLeadForEdit(lead);
     setFormData({
       companyName: lead.company_name || '',
-      industry: lead.industry || 'information_technology',
-      sub_industry: lead.sub_industry || 'saas_cloud',
+      industry: lead.industry || '',
+      sub_industry: lead.sub_industry || '',
       firstName: lead.first_name || '',
       lastName: lead.last_name || '',
       designation: lead.designation || '',
       email: lead.email || '',
       phone: lead.phone || '',
-      city: lead.city || 'Mumbai',
-      state: lead.state || 'Maharashtra',
+      city: lead.city || '',
+      state: lead.state || '',
       gstin: lead.gstin || '',
       panNumber: lead.pan_number || '',
       sourceId: lead.source_id || sources[0]?.id || '',
@@ -288,7 +273,7 @@ export default function LeadsDirectory({
       budgetAmount: Number(lead.budget_amount) || 0,
       pipelineId: lead.pipeline_id || pipelines[0]?.id || '',
       stageId: lead.stage_id || stages[0]?.id || '',
-      assignedUserId: lead.assigned_user_id || salesPersons[0]?.id || 'user_ravi',
+      assignedUserId: lead.assigned_user_id || salesPersons[0]?.id || '',
       temperature: lead.temperature || 'WARM',
       urgency: lead.urgency || 'MEDIUM',
       requirementBrief: lead.requirement_brief || '',
@@ -302,26 +287,25 @@ export default function LeadsDirectory({
   const handleCreateLead = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.companyName || !formData.firstName || !formData.email) {
-      showToast('Company Name, Contact Person, and Email are required!', 'error');
+      toast.error('Company name, contact person and email are required.');
       return;
     }
     setSubmitting(true);
     try {
-      const res = await fetch('/api/v1/crm/leads', {
+      const res = await apiFetch('/api/v1/crm/leads', {
+        ...(onLeadCreated ? { feedback: { success: false as const } } : {}),
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.ok) {
         setShowAddModal(false);
-        showToast(`Lead for "${formData.companyName}" qualified and created successfully!`);
+        const json = await res.json().catch(() => null);
+        if (json?.data) onLeadCreated?.(json.data);
         onRefresh();
-      } else {
-        showToast('Error: ' + data.error, 'error');
       }
-    } catch (err: any) {
-      showToast('Failed to save lead: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setSubmitting(false);
     }
@@ -332,7 +316,7 @@ export default function LeadsDirectory({
     if (!selectedLeadForEdit) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${selectedLeadForEdit.id}`, {
+      const res = await apiFetch(`/api/v1/crm/leads/${selectedLeadForEdit.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -361,17 +345,13 @@ export default function LeadsDirectory({
           is_existing_client: formData.isExistingClient ? 1 : 0
         })
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.ok) {
         setShowEditModal(false);
         setSelectedLeadForEdit(null);
-        showToast('Lead updated successfully!');
         onRefresh();
-      } else {
-        showToast('Error: ' + data.error, 'error');
       }
-    } catch (err: any) {
-      showToast('Failed to update lead: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setSubmitting(false);
     }
@@ -380,17 +360,13 @@ export default function LeadsDirectory({
   const handleConfirmDelete = async () => {
     if (!deleteConfirmLead) return;
     try {
-      const res = await fetch(`/api/v1/crm/leads/${deleteConfirmLead.id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`Lead "${deleteConfirmLead.company_name}" has been deleted.`);
+      const res = await apiFetch(`/api/v1/crm/leads/${deleteConfirmLead.id}`, { method: 'DELETE' });
+      if (res.ok) {
         setDeleteConfirmLead(null);
         onRefresh();
-      } else {
-        showToast('Delete failed: ' + data.error, 'error');
       }
-    } catch (err: any) {
-      showToast('Error deleting lead: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -402,34 +378,34 @@ export default function LeadsDirectory({
     const nextStageId = stageIds[currentIndex + 1];
 
     try {
-      await fetch(`/api/v1/crm/leads/${lead.id}`, {
-        method: 'PATCH',
+      // The API updates leads with PUT; the stage change is only reported once it is saved.
+      const res = await apiFetch(`/api/v1/crm/leads/${lead.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stageId: nextStageId })
+        body: JSON.stringify({ stageId: nextStageId }),
+        feedback: { success: 'Lead moved to the next stage' },
       });
-      showToast(`Lead advanced to next stage.`);
-      onRefresh();
-    } catch (err) {
-      console.error('Failed to advance stage', err);
+      if (res.ok) onRefresh();
+    } catch {
+      // Reported by the API client.
     }
   };
 
   const handleConfirmConvertWon = async () => {
     if (!dealWonConfirmLead) return;
     try {
-      const res = await fetch(`/api/v1/crm/leads/${dealWonConfirmLead.id}/convert-won`, {
-        method: 'POST'
+      const res = await apiFetch(`/api/v1/crm/leads/${dealWonConfirmLead.id}/convert-won`, {
+        method: 'POST',
+        feedback: { success: false },
       });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`🏆 Deal Won! Client created, Project: ${data.data.projectCode}, Invoice: ${data.data.invoiceNumber}`);
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(dealWonMessage(data.data));
         setDealWonConfirmLead(null);
         onRefresh();
-      } else {
-        showToast('Conversion failed: ' + data.error, 'error');
       }
-    } catch (err: any) {
-      showToast('Error converting deal: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -437,25 +413,21 @@ export default function LeadsDirectory({
     if (selectedLeadIds.length === 0) return;
     setBulkLoading(true);
     try {
-      const res = await fetch('/api/v1/crm/leads/bulk', {
+      const res = await apiFetch('/api/v1/crm/leads/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // The workspace comes from the session; the client never names it.
         body: JSON.stringify({
-          tenantId: 'tenant_rnd_001',
           leadIds: selectedLeadIds,
           ...payload
         })
       });
-      const data = await res.json();
-      if (data.success) {
-        showToast(data.message || 'Bulk operation completed successfully!', 'success');
+      if (res.ok) {
         setSelectedLeadIds([]);
         onRefresh();
-      } else {
-        showToast(data.error || 'Bulk operation failed', 'error');
       }
-    } catch (err: any) {
-      showToast('Failed to execute bulk action: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setBulkLoading(false);
     }
@@ -564,19 +536,9 @@ export default function LeadsDirectory({
       return false;
     }
 
-    // Cold Funnel Isolation filter: exclude leads currently in cold cadence unless converted or toggle enabled
-    if (!includeColdFunnelLeads) {
-      try {
-        if (lead.custom_attributes) {
-          const parsed = typeof lead.custom_attributes === 'string'
-            ? JSON.parse(lead.custom_attributes)
-            : lead.custom_attributes;
-          const cadence = parsed?.cadence;
-          if (cadence && cadence.status !== 'CONVERTED' && !cadence.convertedToOpportunity) {
-            return false;
-          }
-        }
-      } catch (e) {}
+    // Optional filter: leave out leads still in the outreach cadence.
+    if (!includeColdFunnelLeads && isInOutreach(lead)) {
+      return false;
     }
 
     return true;
@@ -590,21 +552,6 @@ export default function LeadsDirectory({
 
   return (
     <div className="space-y-4 relative">
-      {/* Toast Notification Banner */}
-      {toastMessage && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg border text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-top duration-200 ${
-          toastMessage.type === 'success' 
-            ? 'bg-emerald-600 text-white border-emerald-700' 
-            : 'bg-red-600 text-white border-red-700'
-        }`}>
-          {toastMessage.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-          <span>{toastMessage.text}</span>
-          <button onClick={() => setToastMessage(null)} className="ml-2 hover:opacity-80">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Search & Actions Toolbar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Search Input */}
@@ -723,15 +670,16 @@ export default function LeadsDirectory({
             <button
               type="button"
               onClick={() => setIncludeColdFunnelLeads(!includeColdFunnelLeads)}
+              aria-pressed={!includeColdFunnelLeads}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
                 includeColdFunnelLeads
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                  ? 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                  : 'bg-indigo-600 text-white shadow-xs'
               }`}
-              title={includeColdFunnelLeads ? 'Hide active cold funnel prospects' : 'Show active cold funnel prospects'}
+              title={includeColdFunnelLeads ? 'Leave out leads that are still in the 30-day outreach cadence' : 'Include leads that are in the 30-day outreach cadence'}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>{isolatedColdCount} Cold In Cadence ({includeColdFunnelLeads ? 'Shown' : 'Isolated'})</span>
+              <span>{includeColdFunnelLeads ? `Exclude ${isolatedColdCount} in outreach` : `${isolatedColdCount} in outreach excluded · Show`}</span>
             </button>
           )}
 
@@ -872,6 +820,14 @@ export default function LeadsDirectory({
                         >
                           {lead.company_name}
                         </button>
+                        {isInOutreach(lead) && (
+                          <span
+                            className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-bold rounded-md"
+                            title="Being worked in the 30-day Client Outreach cadence; not on the pipeline board yet"
+                          >
+                            In outreach
+                          </span>
+                        )}
                         {(lead.is_existing_client || lead.client_id) && (
                           <span 
                             className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5"
@@ -1602,14 +1558,14 @@ export default function LeadsDirectory({
                           lastName: targetClient.contact_person?.split(' ').slice(1).join(' ') || '',
                           email: targetClient.email || '',
                           phone: targetClient.phone || '',
-                          city: targetClient.city || 'Mumbai',
-                          state: targetClient.state || 'Maharashtra',
+                          city: targetClient.city || '',
+                          state: targetClient.state || '',
                           gstin: targetClient.gstin || '',
                           panNumber: targetClient.pan_number || '',
                           temperature: 'HOT',
                           urgency: 'HIGH',
                           requirementBrief: formData.requirementBrief || 'Repeat business / expansion project for existing client',
-                          sourceId: sources.find(s => s.id === 'src_existing_client')?.id || formData.sourceId
+                          sourceId: formData.sourceId
                         });
                       } else {
                         setFormData({
@@ -1651,8 +1607,8 @@ export default function LeadsDirectory({
                             lastName: selected.contact_person?.split(' ').slice(1).join(' ') || '',
                             email: selected.email || '',
                             phone: selected.phone || '',
-                            city: selected.city || 'Mumbai',
-                            state: selected.state || 'Maharashtra',
+                            city: selected.city || '',
+                            state: selected.state || '',
                             gstin: selected.gstin || '',
                             panNumber: selected.pan_number || '',
                             temperature: 'HOT'
@@ -1786,7 +1742,7 @@ export default function LeadsDirectory({
                   >
                     {salesPersons.map((sp) => (
                       <option key={sp.id} value={sp.id}>
-                        {sp.first_name} {sp.last_name} {sp.id === 'user_saloni' ? '👑 (Sales Head)' : ''}
+                        {sp.first_name} {sp.last_name}
                       </option>
                     ))}
                   </select>
@@ -1969,10 +1925,7 @@ export default function LeadsDirectory({
       <ColdLeadImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onSuccess={() => {
-          onRefresh();
-          showToast('Leads imported successfully from Excel!');
-        }}
+        onSuccess={() => onRefresh()}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
 import { 
   Users, Kanban, Clock, FileText, Settings2, Plus,
   RefreshCw, TrendingUp, Trophy, AlertTriangle, Sparkles, Building2,
@@ -6,8 +6,11 @@ import {
   List, Calendar, Mail
 } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
+import { useAuth } from '../../context/AuthContext';
 import LeadsDirectory from '../../components/crm/LeadsDirectory';
-import PipelineKanban from '../../components/crm/PipelineKanban';
+import PipelineKanban, { BoardFocusRequest } from '../../components/crm/PipelineKanban';
+import WonDealsView from '../../components/crm/WonDealsView';
+import { dealWonMessage, isInOutreach } from '../../components/crm/pipelineBoard';
 import FollowupsAndMeetings from '../../components/crm/FollowupsAndMeetings';
 import QuotationsManager from '../../components/crm/QuotationsManager';
 import CRMAnalytics from '../../components/crm/CRMAnalytics';
@@ -17,6 +20,8 @@ import CreateLeadModal from '../../components/crm/CreateLeadModal';
 import SLeadCadenceCenter from '../../components/crm/SLeadCadenceCenter';
 import CrmAuditTrailView from '../../components/crm/CrmAuditTrailView';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
   'cold-funnel': {
     title: 'Client Outreach',
@@ -48,12 +53,19 @@ const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
   }
 };
 
-type CrmTab = 'cold-funnel' | 'pipeline' | 'activities' | 'proposals' | 'reports' | 'masters' | 'audit-trail';
+type CrmTab = 'cold-funnel' | 'pipeline' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters';
 
 function CRMEnterpriseContent() {
   const { crmTab, setCrmTab, navigateTo } = usePayroll();
-  const [activeTab, setActiveTab] = useState<CrmTab>(crmTab || 'cold-funnel');
-  const [pipelineView, setPipelineView] = useState<'kanban' | 'list'>('kanban');
+  const { canOpen } = useAuth();
+  const [activeTab, setActiveTab] = useState<CrmTab>(crmTab || 'pipeline');
+  const [pipelineView, setPipelineView] = useState<'kanban' | 'list' | 'won'>('kanban');
+  // "Show on board" for a lead just created: the board selects its pipeline and highlights it.
+  const [boardFocus, setBoardFocus] = useState<BoardFocusRequest | null>(null);
+  const clearBoardFocus = useCallback(() => setBoardFocus(null), []);
+  // Leads converted from Client Outreach in this visit. The workspace loads only the newest 100
+  // leads, so an older lead that was just converted is kept on the board until the next reload.
+  const [convertedLeads, setConvertedLeads] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
   const [stages, setStages] = useState<any[]>([]);
   const [pipelines, setPipelines] = useState<any[]>([]);
@@ -98,12 +110,9 @@ function CRMEnterpriseContent() {
   const [convertingWon, setConvertingWon] = useState(false);
 
   // Toast feedback
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const handleTabChange = (tab: CrmTab) => {
     setActiveTab(tab);
@@ -190,13 +199,13 @@ function CRMEnterpriseContent() {
     setLoading(true);
     try {
       const [leadsRes, srvRes, fupRes, meetRes, quotesRes, authRes, cadenceRes] = await Promise.all([
-        fetch('/api/v1/crm/leads'),
-        fetch('/api/v1/crm/masters/services'),
-        fetch('/api/v1/crm/followups'),
-        fetch('/api/v1/crm/meetings'),
-        fetch('/api/v1/crm/quotations'),
-        fetch('/api/v1/auth/me'),
-        fetch('/api/v1/crm/cadence')
+        apiFetch('/api/v1/crm/leads?page=1&limit=100'),
+        apiFetch('/api/v1/crm/masters/services'),
+        apiFetch('/api/v1/crm/followups?page=1&limit=100'),
+        apiFetch('/api/v1/crm/meetings?page=1&limit=100'),
+        apiFetch('/api/v1/crm/quotations?page=1&limit=100'),
+        apiFetch('/api/v1/auth/me'),
+        apiFetch('/api/v1/crm/cadence')
       ]);
 
       const leadsJson = await leadsRes.json().catch(() => ({}));
@@ -269,6 +278,51 @@ function CRMEnterpriseContent() {
     fetchCRMData();
   }, []);
 
+  const boardLeads = useMemo(() => {
+    const loaded = new Set(leads.map((l) => l.id));
+    return [...convertedLeads.filter((l) => !loaded.has(l.id)), ...leads];
+  }, [leads, convertedLeads]);
+
+  const showOnBoard = (leadId: string, pipelineId: string | null) => {
+    setPipelineView('kanban');
+    handleTabChange('pipeline');
+    setBoardFocus({ leadId, pipelineId, nonce: Date.now() });
+  };
+
+  /** After the server confirms a conversion: keep the lead visible and say where it went. */
+  const handleLeadConverted = (result: any) => {
+    const lead = result?.lead;
+    if (!lead?.id) return;
+    setConvertedLeads((current) => [lead, ...current.filter((l) => l.id !== lead.id)]);
+    toast.success(result.message || `${lead.company_name} is now in the Sales Pipeline`, {
+      actions: [
+        { label: 'Open lead', onClick: () => setSelectedLead360Id(lead.id) },
+        { label: 'Show in pipeline', onClick: () => showOnBoard(lead.id, result.pipeline?.id ?? lead.pipeline_id ?? null) },
+      ],
+    });
+    fetchCRMData();
+  };
+
+  /** Says where a lead just created went, with a way to open it or see it there. */
+  const announceNewLead = (lead: any) => {
+    if (!lead?.id) return;
+    const openLead = { label: 'Open lead', onClick: () => setSelectedLead360Id(lead.id) };
+    if (isInOutreach(lead)) {
+      toast.success(`Lead ${lead.lead_code} created and enrolled in Client Outreach`, {
+        actions: [openLead, { label: 'Show in Outreach', onClick: () => handleTabChange('cold-funnel') }],
+      });
+      return;
+    }
+    const pipeline = pipelines.find((p) => p.id === lead.pipeline_id);
+    const stage = stages.find((s) => s.id === lead.stage_id);
+    toast.success(`Lead ${lead.lead_code} created in ${pipeline?.name ?? 'the pipeline'} › ${stage?.name ?? 'its first stage'}`, {
+      actions: [
+        openLead,
+        { label: 'Show on board', onClick: () => showOnBoard(lead.id, lead.pipeline_id ?? null) },
+      ],
+    });
+  };
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -305,7 +359,8 @@ function CRMEnterpriseContent() {
     if (!reassignLeadTarget || !reassignSelectedUserId) return;
     setReassignLoading(true);
     try {
-      const res = await fetch('/api/v1/crm/leads/bulk', {
+      const res = await apiFetch('/api/v1/crm/leads/bulk', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -315,15 +370,13 @@ function CRMEnterpriseContent() {
         })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast(`Lead reassigned to new sales representative!`, 'success');
         setReassignLeadTarget(null);
         fetchCRMData();
-      } else {
-        showToast(data.error || 'Failed to reassign lead', 'error');
       }
-    } catch (err: any) {
-      showToast('Error reassigning lead: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setReassignLoading(false);
     }
@@ -333,20 +386,19 @@ function CRMEnterpriseContent() {
     if (!selectedWonLeadId) return;
     setConvertingWon(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${selectedWonLeadId}/convert-won`, {
+      const res = await apiFetch(`/api/v1/crm/leads/${selectedWonLeadId}/convert-won`, {
+        feedback: { success: false },
         method: 'POST'
       });
       const data = await res.json();
-      if (data.success) {
-        showToast(`🏆 Deal Won! Client created, Project: ${data.data?.projectCode || 'Created'}, Invoice: ${data.data?.invoiceNumber || 'Created'}`);
+      if (res.ok && data.success) {
+        showToast(dealWonMessage(data.data));
         setGlobalDealWonModalOpen(false);
         setSelectedWonLeadId('');
         fetchCRMData();
-      } else {
-        showToast('Conversion failed: ' + (data.error || 'Server error'), 'error');
       }
-    } catch (err: any) {
-      showToast('Error converting deal: ' + err.message, 'error');
+    } catch {
+      // Reported by the API client.
     } finally {
       setConvertingWon(false);
     }
@@ -409,22 +461,20 @@ function CRMEnterpriseContent() {
   // Active unconverted leads for 1-Click Convert
   const unconvertedLeads = leads.filter(l => !l.is_won && l.temperature !== 'WON');
 
+  // Each CRM area is its own sidebar item; the server decides which ones this member may open.
+  if (!canOpen(`crm.${activeTab}`)) {
+    return (
+      <div role="status" className="max-w-xl mx-auto mt-10 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+        <h1 className="text-lg font-bold text-slate-900">You don't have access to this part of the CRM</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Your role doesn't include it. Choose another CRM item from the menu, or ask a workspace administrator for access.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 relative p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-top duration-200 ${
-          toastMessage.type === 'success' 
-            ? 'bg-emerald-600 text-white border-emerald-700' 
-            : 'bg-red-600 text-white border-red-700'
-        }`}>
-          {toastMessage.type === 'success' ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-          <span>{toastMessage.text}</span>
-          <button onClick={() => setToastMessage(null)} className="ml-2 hover:opacity-80">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {/* Module Title & Top Controls Header */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
@@ -507,10 +557,15 @@ function CRMEnterpriseContent() {
                   <span className="font-bold text-blue-900">{formatCurrency(weightedForecast)}</span>
                 </div>
 
-                <div className="px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Deals Won</span>
+                <button
+                  type="button"
+                  onClick={() => setPipelineView('won')}
+                  title="See every won deal"
+                  className="px-3 py-1.5 bg-emerald-50/80 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                >
+                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Deals Won · View</span>
                   <span className="font-bold text-emerald-900">{wonCount} ({formatCurrency(wonRevenue)})</span>
-                </div>
+                </button>
               </>
             )}
 
@@ -659,13 +714,14 @@ function CRMEnterpriseContent() {
           stages={stages}
           onNavigateToPipeline={() => handleTabChange('pipeline')}
           tenantName={tenantName}
+          onLeadConverted={handleLeadConverted}
         />
       )}
 
       {/* SUB-MODULE 1: SALES PIPELINES (KANBAN OR LIST VIEW) */}
       {activeTab === 'pipeline' && pipelineView === 'list' && (
         <LeadsDirectory
-          leads={leads}
+          leads={boardLeads}
           stages={stages}
           pipelines={pipelines}
           sources={sources}
@@ -683,12 +739,17 @@ function CRMEnterpriseContent() {
           autoOpenAdd={leadsAutoOpenAdd}
           viewMode={pipelineView}
           onViewModeChange={(m) => setPipelineView(m)}
+          onLeadCreated={announceNewLead}
         />
+      )}
+
+      {activeTab === 'pipeline' && pipelineView === 'won' && (
+        <WonDealsView onBack={() => setPipelineView('kanban')} onSelectLead360={(leadId) => setSelectedLead360Id(leadId)} />
       )}
 
       {activeTab === 'pipeline' && pipelineView === 'kanban' && (
         <PipelineKanban
-          leads={leads}
+          leads={boardLeads}
           stages={stages}
           pipelines={pipelines}
           salesPersons={salesPersons}
@@ -702,6 +763,9 @@ function CRMEnterpriseContent() {
           onReassignSalesPerson={handleReassignSalesPerson}
           viewMode={pipelineView}
           onViewModeChange={(m) => setPipelineView(m)}
+          focusRequest={boardFocus}
+          onFocusHandled={clearBoardFocus}
+          onOpenOutreach={() => handleTabChange('cold-funnel')}
         />
       )}
 
@@ -765,12 +829,19 @@ function CRMEnterpriseContent() {
           leadId={selectedLead360Id}
           onClose={() => setSelectedLead360Id(null)}
           onRefreshParent={fetchCRMData}
+          pipelines={pipelines}
+          stages={stages}
+          onLeadConverted={handleLeadConverted}
+          onCreateQuotation={(leadId) => {
+            setSelectedLead360Id(null);
+            handleCreateQuotation(leadId);
+          }}
         />
       )}
 
       {/* Central Reassign Assignee Modal */}
       {reassignLeadTarget && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -833,7 +904,7 @@ function CRMEnterpriseContent() {
 
       {/* Central 1-Click Convert Won Modal */}
       {globalDealWonModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -909,9 +980,9 @@ function CRMEnterpriseContent() {
       <CreateLeadModal
         isOpen={isAddLeadOpen}
         onClose={() => setIsAddLeadOpen(false)}
-        onSuccess={() => {
+        onSuccess={(lead) => {
           setIsAddLeadOpen(false);
-          showToast('Lead created and qualified successfully!');
+          announceNewLead(lead);
           fetchCRMData();
         }}
         sources={sources}

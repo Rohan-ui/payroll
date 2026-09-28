@@ -1,21 +1,21 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Response, NextFunction } from 'express';
-import { RequestWithTenant } from '../interfaces/request-with-tenant.interface';
+import { RequestWithUser } from '../interfaces/authenticated-user.interface';
 
+/**
+ * Clears any tenant hint the caller supplied.
+ *
+ * This middleware used to derive the tenant from an `x-tenant-id` header with
+ * a hardcoded fallback, which let anyone read any tenant's records without
+ * credentials. Tenant scope is now set by TenantAuthGuard from the stored
+ * session. This runs before the guard and exists to guarantee that nothing
+ * downstream can observe a caller-supplied value.
+ */
 @Injectable()
 export class TenantContextMiddleware implements NestMiddleware {
-  use(req: RequestWithTenant, _res: Response, next: NextFunction): void {
-    // 1. First priority: tenant from authenticated token/session if already decoded
-    const authTenantId = req.user?.tenantMemberId ? req.tenantId : undefined;
-
-    // 2. Second priority (dev/direct API client): x-tenant-id header
-    let headerTenantId = req.headers['x-tenant-id'] as string | undefined;
-    if (headerTenantId === 'tenant_rnd_001' || headerTenantId === 'RND' || headerTenantId === 'e813544d-5b1a-412b-b310-64f21efaf4a9') {
-      headerTenantId = 'cd1e0cac-3656-41e8-bfc4-5fb8d7bfa6fb';
-    }
-
-    req.tenantId = authTenantId || headerTenantId || 'cd1e0cac-3656-41e8-bfc4-5fb8d7bfa6fb';
-
+  use(req: RequestWithUser, _res: Response, next: NextFunction): void {
+    req.tenantId = undefined;
+    req.user = undefined;
     next();
   }
 }

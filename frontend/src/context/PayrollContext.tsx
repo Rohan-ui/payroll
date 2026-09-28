@@ -29,7 +29,6 @@ const VALID_VIEWS: AppView[] = [
   'dashboard',
   'crm',
   'emails',
-  'super-admin',
   'payroll',
   'people',
   'employee-detail',
@@ -46,6 +45,9 @@ const VALID_VIEWS: AppView[] = [
   'help',
 ];
 
+/** The CRM opens on Sales Pipelines unless a deep link (?tab=…) names another tab. */
+const DEFAULT_CRM_TAB: CrmTab = 'pipeline';
+
 const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
   try {
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
@@ -53,7 +55,7 @@ const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
     const tabParam = params.get('tab') as any;
     const viewParam = params.get('view') as AppView | null;
 
-    let crmTab: CrmTab = 'cold-funnel';
+    let crmTab: CrmTab = DEFAULT_CRM_TAB;
     if (tabParam && VALID_CRM_TABS.includes(tabParam)) {
       crmTab = tabParam;
     }
@@ -88,9 +90,9 @@ const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
       return { view: viewParam, crmTab };
     }
 
-    return { view: 'dashboard', crmTab: 'cold-funnel' };
+    return { view: 'dashboard', crmTab: DEFAULT_CRM_TAB };
   } catch {
-    return { view: 'dashboard', crmTab: 'cold-funnel' };
+    return { view: 'dashboard', crmTab: DEFAULT_CRM_TAB };
   }
 };
 
@@ -135,6 +137,7 @@ interface PayrollContextType {
   role: UserRole;
   setRole: (role: UserRole) => void;
   employees: Employee[];
+  rememberEmployee: (employee: Employee) => void;
   addEmployee: (emp: Partial<Employee>) => Promise<void>;
   updateEmployee: (id: string, emp: Partial<Employee> & { bankAccountNumber?: string }) => Promise<void>;
   currentPeriod: string;
@@ -166,7 +169,8 @@ const PayrollContext = createContext<PayrollContextType | undefined>(undefined);
 export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { activeTenant, activeRole } = useAuth();
 
-  const [role, setRole] = useState<UserRole>((activeRole as UserRole) || 'ADMIN');
+  // Display label only; what a member may do comes from access.permissions.
+  const [role, setRole] = useState<UserRole>((activeRole as UserRole) || 'EMPLOYEE');
   
   const initialUrlState = parseUrlState();
   const [currentView, setCurrentViewInternal] = useState<AppView>(initialUrlState.view);
@@ -292,8 +296,13 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 1. Fetch real employees from PostgreSQL
       let mappedEmployees: Employee[] = [];
       try {
-        const empRes = await employeesApi.list(1, 100);
-        mappedEmployees = (empRes.items || []).map(mapBackendEmployeeToUi);
+        const firstPage = await employeesApi.list(1, 50);
+        const pages = [firstPage];
+        // ponytail: the shared payroll prototype needs all employees; move calculations server-side before very large tenants.
+        for (let page = 2; page <= firstPage.totalPages; page += 1) {
+          pages.push(await employeesApi.list(page, 50));
+        }
+        mappedEmployees = pages.flatMap((response) => response.items).map(mapBackendEmployeeToUi);
       } catch (err) {
         console.warn('Could not fetch employees from backend:', err);
         mappedEmployees = [];
@@ -624,12 +633,17 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentView(view, tab);
   }, [setCurrentView]);
 
+  const rememberEmployee = useCallback((employee: Employee) => {
+    setEmployees((current) => [employee, ...current.filter((item) => item.id !== employee.id)]);
+  }, []);
+
   return (
     <PayrollContext.Provider
       value={{
         role,
         setRole,
         employees,
+        rememberEmployee,
         addEmployee,
         updateEmployee,
         currentPeriod: 'October 2026',

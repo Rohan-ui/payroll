@@ -14,6 +14,7 @@ import {
 import { attendanceApi, AttendanceStatus, EmployeeMonthDayRecord } from '../../../api/attendance.api';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
+import { formatShiftClock, shiftDisplayName } from '../shared/shift';
 
 export interface RegularizeModalProps {
   isOpen: boolean;
@@ -256,10 +257,10 @@ export const RegularizeModal: React.FC<RegularizeModalProps> = ({
                 <Building className="w-4 h-4 text-slate-500" />
                 <div>
                   <span className="font-semibold text-slate-800 block">
-                    {dayRecord?.shift?.name || 'General Day Shift'}
+                    {shiftDisplayName(dayRecord?.shift)}
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    Standard: {dayRecord?.shift?.startTime || '09:30 AM'} – {dayRecord?.shift?.endTime || '06:30 PM'} (8.0h target)
+                    Standard: {formatShiftClock(dayRecord?.shift?.startTime)} – {formatShiftClock(dayRecord?.shift?.endTime)} (8.0h target)
                   </span>
                 </div>
               </div>

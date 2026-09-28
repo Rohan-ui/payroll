@@ -1,0 +1,266 @@
+-- Role-based access for every sidebar module.
+--
+-- Generated from src/common/access/access-catalog.ts, the single source of
+-- truth; test/organization-settings.spec.ts fails if the database drifts from it.
+--
+-- 1. Upsert the full permission catalog. module_code records the sidebar
+--    section each permission belongs to.
+-- 2. Workspace owner (ADMIN) roles hold every permission.
+-- 3. Existing built-in roles receive their starting grants. Grants are only
+--    added, never removed, so nobody loses access an administrator gave them.
+
+INSERT INTO rndtechnosoft_permissions (id, permission_code, module_code, permission_name)
+VALUES
+  (gen_random_uuid(), 'dashboard.view', 'DASHBOARD', 'View the dashboard'),
+  (gen_random_uuid(), 'outreach.view', 'CRM', 'View outreach cadences'),
+  (gen_random_uuid(), 'outreach.create', 'CRM', 'Enroll leads in outreach and load sample leads'),
+  (gen_random_uuid(), 'outreach.update', 'CRM', 'Complete outreach steps and change reply branches'),
+  (gen_random_uuid(), 'pipelines.view', 'CRM', 'View pipelines and stages'),
+  (gen_random_uuid(), 'pipelines.create', 'CRM', 'Create pipelines'),
+  (gen_random_uuid(), 'pipelines.update', 'CRM', 'Add, edit, reorder and remove pipeline stages'),
+  (gen_random_uuid(), 'pipelines.delete', 'CRM', 'Delete pipelines'),
+  (gen_random_uuid(), 'leads.view', 'CRM', 'View leads and their activity'),
+  (gen_random_uuid(), 'leads.create', 'CRM', 'Create and import leads'),
+  (gen_random_uuid(), 'leads.update', 'CRM', 'Edit leads, log activity and mark deals won'),
+  (gen_random_uuid(), 'leads.delete', 'CRM', 'Delete leads'),
+  (gen_random_uuid(), 'leads.export', 'CRM', 'Export leads'),
+  (gen_random_uuid(), 'marketing.view', 'CRM', 'Open Email & Marketing'),
+  (gen_random_uuid(), 'followups.view', 'CRM', 'View follow-ups'),
+  (gen_random_uuid(), 'followups.create', 'CRM', 'Schedule follow-ups'),
+  (gen_random_uuid(), 'followups.update', 'CRM', 'Update and complete follow-ups'),
+  (gen_random_uuid(), 'followups.delete', 'CRM', 'Delete follow-ups'),
+  (gen_random_uuid(), 'meetings.view', 'CRM', 'View meetings'),
+  (gen_random_uuid(), 'meetings.create', 'CRM', 'Schedule meetings'),
+  (gen_random_uuid(), 'meetings.update', 'CRM', 'Update meetings and record minutes'),
+  (gen_random_uuid(), 'meetings.delete', 'CRM', 'Delete meetings'),
+  (gen_random_uuid(), 'quotations.view', 'CRM', 'View quotations and templates'),
+  (gen_random_uuid(), 'quotations.create', 'CRM', 'Create quotations'),
+  (gen_random_uuid(), 'quotations.update', 'CRM', 'Edit quotations and change their status'),
+  (gen_random_uuid(), 'quotations.delete', 'CRM', 'Delete quotations'),
+  (gen_random_uuid(), 'clients.view', 'CRM', 'View clients'),
+  (gen_random_uuid(), 'clients.create', 'CRM', 'Create clients'),
+  (gen_random_uuid(), 'clients.update', 'CRM', 'Edit clients'),
+  (gen_random_uuid(), 'analytics.view', 'CRM', 'View CRM reports and analytics'),
+  (gen_random_uuid(), 'masters.services.view', 'CRM', 'View services'),
+  (gen_random_uuid(), 'masters.services.create', 'CRM', 'Create services'),
+  (gen_random_uuid(), 'masters.services.update', 'CRM', 'Edit services'),
+  (gen_random_uuid(), 'masters.services.delete', 'CRM', 'Delete services'),
+  (gen_random_uuid(), 'masters.sources.view', 'CRM', 'View lead sources'),
+  (gen_random_uuid(), 'masters.sources.create', 'CRM', 'Create lead sources'),
+  (gen_random_uuid(), 'masters.sources.delete', 'CRM', 'Delete lead sources'),
+  (gen_random_uuid(), 'masters.lost_reasons.view', 'CRM', 'View lost reasons'),
+  (gen_random_uuid(), 'masters.industries.view', 'CRM', 'View industries'),
+  (gen_random_uuid(), 'masters.industries.create', 'CRM', 'Create industries and sub-industries'),
+  (gen_random_uuid(), 'masters.industries.update', 'CRM', 'Edit industries and sub-industries'),
+  (gen_random_uuid(), 'masters.industries.delete', 'CRM', 'Delete industries and sub-industries'),
+  (gen_random_uuid(), 'masters.sop.view', 'CRM', 'View the outreach playbook (steps and reply branches)'),
+  (gen_random_uuid(), 'audit.view', 'CRM', 'View the CRM audit trail'),
+  (gen_random_uuid(), 'organization.view', 'ORGANIZATION', 'View organization settings'),
+  (gen_random_uuid(), 'organization.update', 'ORGANIZATION', 'Edit organization profile, SMTP and WhatsApp settings'),
+  (gen_random_uuid(), 'users.view', 'ORGANIZATION', 'View team members'),
+  (gen_random_uuid(), 'users.create', 'ORGANIZATION', 'Add team members'),
+  (gen_random_uuid(), 'users.update', 'ORGANIZATION', 'Edit team members, their roles and status'),
+  (gen_random_uuid(), 'users.delete', 'ORGANIZATION', 'Remove team members'),
+  (gen_random_uuid(), 'roles.view', 'ORGANIZATION', 'View roles'),
+  (gen_random_uuid(), 'roles.create', 'ORGANIZATION', 'Create roles'),
+  (gen_random_uuid(), 'roles.update', 'ORGANIZATION', 'Edit roles and the permissions they grant'),
+  (gen_random_uuid(), 'roles.delete', 'ORGANIZATION', 'Delete roles'),
+  (gen_random_uuid(), 'permissions.view', 'ORGANIZATION', 'View the permission catalog'),
+  (gen_random_uuid(), 'modules.view', 'ORGANIZATION', 'View workspace modules'),
+  (gen_random_uuid(), 'modules.update', 'ORGANIZATION', 'Turn workspace modules on or off'),
+  (gen_random_uuid(), 'people.view', 'PEOPLE', 'View employees'),
+  (gen_random_uuid(), 'people.create', 'PEOPLE', 'Add employees'),
+  (gen_random_uuid(), 'people.update', 'PEOPLE', 'Edit employees'),
+  (gen_random_uuid(), 'people.bank.update', 'PEOPLE', 'Add or change employee bank details'),
+  (gen_random_uuid(), 'payroll.view', 'PAYROLL', 'View payroll periods and runs'),
+  (gen_random_uuid(), 'payroll.create', 'PAYROLL', 'Create payroll periods and runs'),
+  (gen_random_uuid(), 'payroll.process', 'PAYROLL', 'Calculate payroll runs'),
+  (gen_random_uuid(), 'payroll.approve', 'PAYROLL', 'Approve payroll runs'),
+  (gen_random_uuid(), 'payroll.finalize', 'PAYROLL', 'Finalize payroll runs (irreversible)'),
+  (gen_random_uuid(), 'salary.view', 'PAYROLL', 'View salary components, structures and employee salaries'),
+  (gen_random_uuid(), 'salary.configure', 'PAYROLL', 'Create salary components and structures'),
+  (gen_random_uuid(), 'salary.assign', 'PAYROLL', 'Assign salaries to employees'),
+  (gen_random_uuid(), 'attendance.view', 'ATTENDANCE', 'View attendance'),
+  (gen_random_uuid(), 'attendance.create', 'ATTENDANCE', 'Record clock-in and clock-out punches'),
+  (gen_random_uuid(), 'attendance.update', 'ATTENDANCE', 'Request attendance corrections'),
+  (gen_random_uuid(), 'attendance.adjust', 'ATTENDANCE', 'Enter, edit or bulk-mark attendance and approve corrections'),
+  (gen_random_uuid(), 'attendance.delete', 'ATTENDANCE', 'Delete attendance records'),
+  (gen_random_uuid(), 'leave.view', 'ATTENDANCE', 'View leave types and balances'),
+  (gen_random_uuid(), 'leave.create', 'ATTENDANCE', 'Submit leave requests'),
+  (gen_random_uuid(), 'leave.approve', 'ATTENDANCE', 'Approve leave requests'),
+  (gen_random_uuid(), 'leave.configure', 'ATTENDANCE', 'Create leave types'),
+  (gen_random_uuid(), 'attendance.integration.view', 'ATTENDANCE', 'View biometric device (COSEC) settings and data'),
+  (gen_random_uuid(), 'attendance.integration.update', 'ATTENDANCE', 'Change and test biometric device (COSEC) settings'),
+  (gen_random_uuid(), 'attendance.sync', 'ATTENDANCE', 'Sync attendance from the biometric device'),
+  (gen_random_uuid(), 'payslips.view', 'PAYSLIPS', 'View payslips'),
+  (gen_random_uuid(), 'bookkeeping.financial_years.view', 'BOOKKEEPING', 'View financial years'),
+  (gen_random_uuid(), 'bookkeeping.financial_years.create', 'BOOKKEEPING', 'Create financial years'),
+  (gen_random_uuid(), 'bookkeeping.financial_years.close', 'BOOKKEEPING', 'Close financial years'),
+  (gen_random_uuid(), 'bookkeeping.ledgers.view', 'BOOKKEEPING', 'View ledgers and the trial balance'),
+  (gen_random_uuid(), 'bookkeeping.entries.view', 'BOOKKEEPING', 'View journal entries'),
+  (gen_random_uuid(), 'bookkeeping.entries.post', 'BOOKKEEPING', 'Post payroll accounting entries'),
+  (gen_random_uuid(), 'reports.view', 'REPORTS', 'View reports'),
+  (gen_random_uuid(), 'compliance.view', 'SETTINGS', 'View compliance'),
+  (gen_random_uuid(), 'help.view', 'HELP', 'View help')
+ON CONFLICT (permission_code) DO UPDATE
+SET module_code = EXCLUDED.module_code,
+    permission_name = EXCLUDED.permission_name;
+
+INSERT INTO rndtechnosoft_role_permissions (id, tenant_id, role_id, permission_id)
+SELECT gen_random_uuid(), r.tenant_id, r.id, p.id
+FROM rndtechnosoft_roles r
+JOIN rndtechnosoft_permissions p ON p.permission_code IN (
+  'dashboard.view',
+  'outreach.view',
+  'outreach.create',
+  'outreach.update',
+  'pipelines.view',
+  'pipelines.create',
+  'pipelines.update',
+  'pipelines.delete',
+  'leads.view',
+  'leads.create',
+  'leads.update',
+  'leads.delete',
+  'leads.export',
+  'marketing.view',
+  'followups.view',
+  'followups.create',
+  'followups.update',
+  'followups.delete',
+  'meetings.view',
+  'meetings.create',
+  'meetings.update',
+  'meetings.delete',
+  'quotations.view',
+  'quotations.create',
+  'quotations.update',
+  'quotations.delete',
+  'clients.view',
+  'clients.create',
+  'clients.update',
+  'analytics.view',
+  'masters.services.view',
+  'masters.services.create',
+  'masters.services.update',
+  'masters.services.delete',
+  'masters.sources.view',
+  'masters.sources.create',
+  'masters.sources.delete',
+  'masters.lost_reasons.view',
+  'masters.industries.view',
+  'masters.industries.create',
+  'masters.industries.update',
+  'masters.industries.delete',
+  'masters.sop.view',
+  'audit.view',
+  'organization.view',
+  'organization.update',
+  'users.view',
+  'users.create',
+  'users.update',
+  'users.delete',
+  'roles.view',
+  'roles.create',
+  'roles.update',
+  'roles.delete',
+  'permissions.view',
+  'modules.view',
+  'modules.update',
+  'people.view',
+  'people.create',
+  'people.update',
+  'people.bank.update',
+  'payroll.view',
+  'payroll.create',
+  'payroll.process',
+  'payroll.approve',
+  'payroll.finalize',
+  'salary.view',
+  'salary.configure',
+  'salary.assign',
+  'attendance.view',
+  'attendance.create',
+  'attendance.update',
+  'attendance.adjust',
+  'attendance.delete',
+  'leave.view',
+  'leave.create',
+  'leave.approve',
+  'leave.configure',
+  'attendance.integration.view',
+  'attendance.integration.update',
+  'attendance.sync',
+  'payslips.view',
+  'bookkeeping.financial_years.view',
+  'bookkeeping.financial_years.create',
+  'bookkeeping.financial_years.close',
+  'bookkeeping.ledgers.view',
+  'bookkeeping.entries.view',
+  'bookkeeping.entries.post',
+  'reports.view',
+  'compliance.view',
+  'help.view'
+)
+WHERE r.role_code = 'ADMIN'
+ON CONFLICT (tenant_id, role_id, permission_id) DO NOTHING;
+
+INSERT INTO rndtechnosoft_role_permissions (id, tenant_id, role_id, permission_id)
+SELECT gen_random_uuid(), r.tenant_id, r.id, p.id
+FROM rndtechnosoft_roles r
+JOIN rndtechnosoft_permissions p ON p.permission_code IN (
+  'dashboard.view',
+  'help.view',
+  'organization.view',
+  'users.view',
+  'roles.view',
+  'permissions.view',
+  'modules.view',
+  'people.view',
+  'people.create',
+  'people.update',
+  'attendance.view',
+  'attendance.update',
+  'payroll.view',
+  'payroll.process',
+  'payslips.view'
+)
+WHERE r.role_code = 'HR_ACCOUNTANT'
+ON CONFLICT (tenant_id, role_id, permission_id) DO NOTHING;
+
+INSERT INTO rndtechnosoft_role_permissions (id, tenant_id, role_id, permission_id)
+SELECT gen_random_uuid(), r.tenant_id, r.id, p.id
+FROM rndtechnosoft_roles r
+JOIN rndtechnosoft_permissions p ON p.permission_code IN (
+  'dashboard.view',
+  'help.view',
+  'organization.view',
+  'users.view',
+  'roles.view',
+  'permissions.view',
+  'modules.view',
+  'pipelines.view',
+  'pipelines.create',
+  'pipelines.update',
+  'leads.view',
+  'leads.create',
+  'leads.update',
+  'quotations.view',
+  'quotations.create',
+  'quotations.update',
+  'analytics.view',
+  'masters.services.view',
+  'masters.sources.view'
+)
+WHERE r.role_code = 'MANAGER'
+ON CONFLICT (tenant_id, role_id, permission_id) DO NOTHING;
+
+INSERT INTO rndtechnosoft_role_permissions (id, tenant_id, role_id, permission_id)
+SELECT gen_random_uuid(), r.tenant_id, r.id, p.id
+FROM rndtechnosoft_roles r
+JOIN rndtechnosoft_permissions p ON p.permission_code IN (
+  'dashboard.view',
+  'help.view'
+)
+WHERE r.role_code = 'EMPLOYEE'
+ON CONFLICT (tenant_id, role_id, permission_id) DO NOTHING;

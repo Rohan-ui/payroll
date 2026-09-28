@@ -1,5 +1,8 @@
 const { PrismaClient } = require('@prisma/client');
 const crypto = require('crypto');
+// Role default permissions are defined once, in TypeScript; load that definition rather than copy it.
+require('ts-node').register({ transpileOnly: true, compilerOptions: { module: 'commonjs' } });
+const { grantDefaultRolePermissions } = require('../src/common/access/role-defaults');
 
 const prisma = new PrismaClient();
 
@@ -115,6 +118,8 @@ async function main() {
         },
       });
     }
+    // Permissions come only from role_permissions rows, so seeded roles need their grants too.
+    await grantDefaultRolePermissions(prisma, tenantId, existingRole.id, r.code);
     roleMap[r.code] = existingRole.id;
   }
 

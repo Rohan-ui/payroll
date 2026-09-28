@@ -8,8 +8,9 @@ import {
   Body,
   Query,
   Param,
-  UseGuards,
   ParseUUIDPipe,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   AttendanceService,
@@ -20,10 +21,11 @@ import {
   RequestAdjustmentDto,
 } from './attendance.service';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
-import { TenantGuard } from '@/common/guards/tenant.guard';
+import { CurrentUser } from '@/common/decorators/auth.decorators';
+import { RequirePermissions } from '@/common/decorators/access.decorators';
+import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 
 @Controller('attendance')
-@UseGuards(TenantGuard)
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
@@ -32,6 +34,7 @@ export class AttendanceController {
    * POST /attendance/records
    */
   @Post('records')
+  @RequirePermissions('attendance.adjust')
   async saveRecord(
     @CurrentTenant() tenantId: string,
     @Body() body: SaveAttendanceRecordDto,
@@ -44,6 +47,7 @@ export class AttendanceController {
    * GET /attendance/records?employeeId=&startDate=&endDate=&status=&page=&limit=
    */
   @Get('records')
+  @RequirePermissions('attendance.view')
   async getRecords(
     @CurrentTenant() tenantId: string,
     @Query('employeeId') employeeId?: string,
@@ -69,6 +73,7 @@ export class AttendanceController {
    * GET /attendance/summary?month=2026-10&employeeId=
    */
   @Get('summary')
+  @RequirePermissions('attendance.view')
   async getSummary(
     @CurrentTenant() tenantId: string,
     @Query('month') month?: string,
@@ -83,6 +88,7 @@ export class AttendanceController {
    * GET /attendance/department-summary?date=2026-10-15
    */
   @Get('department-summary')
+  @RequirePermissions('attendance.view')
   async getDepartmentSummary(
     @CurrentTenant() tenantId: string,
     @Query('date') date?: string,
@@ -96,6 +102,7 @@ export class AttendanceController {
    * GET /attendance/employee-day-list?date=2026-10-15&departmentId=&search=&page=1&limit=50
    */
   @Get('employee-day-list')
+  @RequirePermissions('attendance.view')
   async getEmployeeDayList(
     @CurrentTenant() tenantId: string,
     @Query('date') date?: string,
@@ -120,6 +127,7 @@ export class AttendanceController {
    * GET /attendance/roster-matrix?month=2026-10&departmentId=&search=&selectedDate=2026-10-15
    */
   @Get('roster-matrix')
+  @RequirePermissions('attendance.view')
   async getRosterMatrix(
     @CurrentTenant() tenantId: string,
     @Query('month') month?: string,
@@ -142,6 +150,7 @@ export class AttendanceController {
    * GET /attendance/employee-month?employeeId=...&month=2026-10
    */
   @Get('employee-month')
+  @RequirePermissions('attendance.view')
   async getEmployeeMonth(
     @CurrentTenant() tenantId: string,
     @Query('employeeId') employeeId: string,
@@ -156,6 +165,7 @@ export class AttendanceController {
    * GET /attendance/employee-year?employeeId=...&year=2026
    */
   @Get('employee-year')
+  @RequirePermissions('attendance.view')
   async getEmployeeYear(
     @CurrentTenant() tenantId: string,
     @Query('employeeId') employeeId: string,
@@ -170,6 +180,7 @@ export class AttendanceController {
    * GET /attendance/shifts
    */
   @Get('shifts')
+  @RequirePermissions('attendance.view')
   async getShifts(@CurrentTenant() tenantId: string) {
     return this.attendanceService.getShifts(tenantId);
   }
@@ -179,6 +190,7 @@ export class AttendanceController {
    * GET /attendance/records/:id
    */
   @Get('records/:id')
+  @RequirePermissions('attendance.view')
   async getRecordById(
     @CurrentTenant() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -191,6 +203,7 @@ export class AttendanceController {
    * PUT / PATCH /attendance/records/:id
    */
   @Put('records/:id')
+  @RequirePermissions('attendance.adjust')
   async updateRecord(
     @CurrentTenant() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -200,6 +213,7 @@ export class AttendanceController {
   }
 
   @Patch('records/:id')
+  @RequirePermissions('attendance.adjust')
   async patchRecord(
     @CurrentTenant() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -213,6 +227,7 @@ export class AttendanceController {
    * DELETE /attendance/records/:id
    */
   @Delete('records/:id')
+  @RequirePermissions('attendance.delete')
   async deleteRecord(
     @CurrentTenant() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -225,6 +240,7 @@ export class AttendanceController {
    * POST /attendance/bulk-mark
    */
   @Post('bulk-mark')
+  @RequirePermissions('attendance.adjust')
   async bulkMark(
     @CurrentTenant() tenantId: string,
     @Body() body: BulkMarkMonthDto,
@@ -237,6 +253,7 @@ export class AttendanceController {
    * POST /attendance/punch
    */
   @Post('punch')
+  @RequirePermissions('attendance.create')
   async punch(
     @CurrentTenant() tenantId: string,
     @Body() body: RecordPunchInput,
@@ -249,12 +266,15 @@ export class AttendanceController {
    * GET /attendance/punches?employeeId=&date=
    */
   @Get('punches')
+  @RequirePermissions('attendance.view')
   async getPunches(
     @CurrentTenant() tenantId: string,
     @Query('employeeId') employeeId?: string,
     @Query('date') date?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit?: number,
   ) {
-    return this.attendanceService.getPunches(tenantId, employeeId, date);
+    return this.attendanceService.getPunches(tenantId, employeeId, date, page, limit);
   }
 
   /**
@@ -262,11 +282,17 @@ export class AttendanceController {
    * POST /attendance/adjustments
    */
   @Post('adjustments')
+  @RequirePermissions('attendance.update')
   async requestAdjustment(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
     @Body() body: RequestAdjustmentDto,
   ) {
-    return this.attendanceService.requestAdjustment(tenantId, body);
+    // The requester is whoever is signed in; a member id in the body is ignored.
+    return this.attendanceService.requestAdjustment(tenantId, {
+      ...body,
+      requestedByTenantMemberId: actor.tenantMemberId,
+    });
   }
 
   /**
@@ -274,12 +300,14 @@ export class AttendanceController {
    * POST /attendance/adjustments/:id/approve
    */
   @Post('adjustments/:id/approve')
+  @RequirePermissions('attendance.approve')
   async approveAdjustment(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body('approverTenantMemberId') approverTenantMemberId: string,
   ) {
-    return this.attendanceService.approveAdjustment(tenantId, id, approverTenantMemberId);
+    // The approval is recorded against the signed-in member, never a member id from the body.
+    return this.attendanceService.approveAdjustment(tenantId, id, actor.tenantMemberId);
   }
 
   /**
@@ -287,6 +315,7 @@ export class AttendanceController {
    * POST /attendance/seed
    */
   @Post('seed')
+  @RequirePermissions('attendance.adjust', 'attendance.delete')
   async seed(
     @CurrentTenant() tenantId: string,
     @Body('month') month?: string,

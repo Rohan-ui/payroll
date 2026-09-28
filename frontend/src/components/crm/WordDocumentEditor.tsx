@@ -8,6 +8,7 @@ import {
   Sparkles, Check
 } from 'lucide-react';
 
+import { sanitizeRichText } from '../../utils/sanitize-html';
 interface WordDocumentEditorProps {
   label?: string;
   value: string;
@@ -33,15 +34,22 @@ export default function WordDocumentEditor({
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
 
-  // Sync content when value changes externally
+  // Sync content when value changes externally.
+  // Both sides are sanitised before comparing so routine normalisation does not
+  // rewrite the DOM and move the caret while someone is typing.
   useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value || '';
+    const safeValue = sanitizeRichText(value);
+
+    if (editorRef.current && sanitizeRichText(editorRef.current.innerHTML) !== safeValue) {
+      editorRef.current.innerHTML = safeValue;
     }
-    if (fullscreenEditorRef.current && fullscreenEditorRef.current.innerHTML !== value) {
-      fullscreenEditorRef.current.innerHTML = value || '';
+    if (
+      fullscreenEditorRef.current &&
+      sanitizeRichText(fullscreenEditorRef.current.innerHTML) !== safeValue
+    ) {
+      fullscreenEditorRef.current.innerHTML = safeValue;
     }
-    updateStats(value || '');
+    updateStats(safeValue);
   }, [value]);
 
   const updateStats = (html: string) => {
@@ -55,7 +63,7 @@ export default function WordDocumentEditor({
     document.execCommand(command, false, arg);
     const activeRef = isFullscreen ? fullscreenEditorRef.current : editorRef.current;
     if (activeRef) {
-      const html = activeRef.innerHTML;
+      const html = sanitizeRichText(activeRef.innerHTML);
       onChange(html);
       updateStats(html);
       activeRef.focus();
@@ -63,9 +71,34 @@ export default function WordDocumentEditor({
   };
 
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const html = e.currentTarget.innerHTML;
+    const html = sanitizeRichText(e.currentTarget.innerHTML);
     onChange(html);
     updateStats(html);
+  };
+
+  /**
+   * Pasted markup reaches a contentEditable through the browser, not through
+   * React, so an inline handler in the pasted HTML would run before any render
+   * path could clean it. This intercepts the paste and inserts sanitised markup.
+   */
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+
+    const pastedHtml = e.clipboardData.getData('text/html');
+    const pastedText = e.clipboardData.getData('text/plain');
+
+    if (pastedHtml) {
+      document.execCommand('insertHTML', false, sanitizeRichText(pastedHtml));
+    } else if (pastedText) {
+      document.execCommand('insertText', false, pastedText);
+    }
+
+    const activeRef = isFullscreen ? fullscreenEditorRef.current : editorRef.current;
+    if (activeRef) {
+      const html = sanitizeRichText(activeRef.innerHTML);
+      onChange(html);
+      updateStats(html);
+    }
   };
 
   const renderToolbar = (isFull: boolean = false) => (
@@ -289,8 +322,9 @@ export default function WordDocumentEditor({
         <div
           ref={editorRef}
           contentEditable
-          dangerouslySetInnerHTML={{ __html: value }}
+          dangerouslySetInnerHTML={{ __html: sanitizeRichText(value) }}
           onInput={handleInput}
+          onPaste={handlePaste}
           data-placeholder={placeholder}
           style={{ minHeight, maxHeight }}
           className="p-4 overflow-y-auto text-xs text-slate-800 focus:outline-none prose prose-xs max-w-none leading-relaxed empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400"
@@ -342,8 +376,9 @@ export default function WordDocumentEditor({
               <div
                 ref={fullscreenEditorRef}
                 contentEditable
-                dangerouslySetInnerHTML={{ __html: value }}
+                dangerouslySetInnerHTML={{ __html: sanitizeRichText(value) }}
                 onInput={handleInput}
+                onPaste={handlePaste}
                 data-placeholder={placeholder}
                 className="flex-1 text-sm text-slate-800 focus:outline-none prose prose-slate max-w-none leading-relaxed empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400"
               />

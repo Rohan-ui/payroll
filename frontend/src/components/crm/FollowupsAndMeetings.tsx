@@ -7,6 +7,8 @@ import {
   ChevronLeft, ChevronRight, Copy, ExternalLink, Sparkles, User
 } from 'lucide-react';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
 interface FollowupsAndMeetingsProps {
   leads: any[];
   initialLeadId?: string | null;
@@ -35,7 +37,14 @@ export default function FollowupsAndMeetings({
   const [activeTab, setActiveTab] = useState<'calendar' | 'followups' | 'meetings'>('calendar');
   const [followups, setFollowups] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
+  const [followupPage, setFollowupPage] = useState(1);
+  const [followupTotal, setFollowupTotal] = useState(0);
+  const [followupTotalPages, setFollowupTotalPages] = useState(1);
+  const [meetingPage, setMeetingPage] = useState(1);
+  const [meetingTotal, setMeetingTotal] = useState(0);
+  const [meetingTotalPages, setMeetingTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const pageSize = 25;
 
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -85,24 +94,29 @@ export default function FollowupsAndMeetings({
 
   // In-app Delete Confirmation state (Zero browser dialogs)
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; type: 'followup' | 'meeting'; title: string } | null>(null);
-  const [toastText, setToastText] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastText(msg);
-    setTimeout(() => setToastText(null), 3000);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const [fRes, mRes] = await Promise.all([
-        fetch('/api/v1/crm/followups'),
-        fetch('/api/v1/crm/meetings')
+        apiFetch(`/api/v1/crm/followups?page=${followupPage}&limit=${pageSize}`),
+        apiFetch(`/api/v1/crm/meetings?page=${meetingPage}&limit=${pageSize}`)
       ]);
       const fJson = await fRes.json();
       const mJson = await mRes.json();
-      if (fJson.success) setFollowups(fJson.data || []);
-      if (mJson.success) setMeetings(mJson.data || []);
+      if (fJson.success) {
+        setFollowups(fJson.data || []);
+        setFollowupTotal(fJson.pagination?.total || 0);
+        setFollowupTotalPages(Math.max(1, fJson.pagination?.totalPages || 1));
+      }
+      if (mJson.success) {
+        setMeetings(mJson.data || []);
+        setMeetingTotal(mJson.pagination?.total || 0);
+        setMeetingTotalPages(Math.max(1, mJson.pagination?.totalPages || 1));
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -122,7 +136,7 @@ export default function FollowupsAndMeetings({
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [followupPage, meetingPage]);
 
   useEffect(() => {
     if (isScheduleFollowupOpen) {
@@ -162,7 +176,8 @@ export default function FollowupsAndMeetings({
     if (!targetLeadId || !fupDate) return;
     setSubmitting(true);
     try {
-      const res = await fetch('/api/v1/crm/followups', {
+      const res = await apiFetch('/api/v1/crm/followups', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,8 +194,8 @@ export default function FollowupsAndMeetings({
         onRefreshParent();
         showToast('Follow-up reminder set successfully!');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     } finally {
       setSubmitting(false);
     }
@@ -191,7 +206,8 @@ export default function FollowupsAndMeetings({
     if (!targetLeadId || !meetDate || !meetTitle) return;
     setSubmitting(true);
     try {
-      const res = await fetch('/api/v1/crm/meetings', {
+      const res = await apiFetch('/api/v1/crm/meetings', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -209,8 +225,8 @@ export default function FollowupsAndMeetings({
         onRefreshParent();
         showToast('Meeting scheduled successfully!');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     } finally {
       setSubmitting(false);
     }
@@ -218,10 +234,11 @@ export default function FollowupsAndMeetings({
 
   const handleCompleteFollowup = async (id: string) => {
     try {
-      await fetch(`/api/v1/crm/followups/${id}`, {
+      await apiFetch(`/api/v1/crm/followups/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'COMPLETED' })
+        body: JSON.stringify({ status: 'COMPLETED' }),
+        feedback: { success: 'Follow-up completed' },
       });
       fetchData();
       onRefreshParent();
@@ -236,14 +253,14 @@ export default function FollowupsAndMeetings({
       const endpoint = deleteConfirmTarget.type === 'followup' 
         ? `/api/v1/crm/followups/${deleteConfirmTarget.id}` 
         : `/api/v1/crm/meetings/${deleteConfirmTarget.id}`;
-      await fetch(endpoint, { method: 'DELETE' });
-      showToast(`${deleteConfirmTarget.type === 'followup' ? 'Follow-up' : 'Meeting'} deleted successfully`);
-      setDeleteConfirmTarget(null);
-      fetchData();
-      onRefreshParent();
-    } catch (err: any) {
-      console.error(err);
-      showToast('Delete failed: ' + err.message);
+      const res = await apiFetch(endpoint, { method: 'DELETE' });
+      if (res.ok) {
+        setDeleteConfirmTarget(null);
+        fetchData();
+        onRefreshParent();
+      }
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -258,7 +275,7 @@ export default function FollowupsAndMeetings({
     if (!selectedMeetingForMOM) return;
     setSubmitting(true);
     try {
-      await fetch(`/api/v1/crm/meetings/${selectedMeetingForMOM.id}`, {
+      await apiFetch(`/api/v1/crm/meetings/${selectedMeetingForMOM.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -336,13 +353,6 @@ export default function FollowupsAndMeetings({
 
   return (
     <div className="space-y-4 relative">
-      {/* Toast */}
-      {toastText && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-3 bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-xl flex items-center gap-2 animate-in slide-in-from-top duration-200">
-          <Check className="w-4 h-4 text-emerald-400" />
-          <span>{toastText}</span>
-        </div>
-      )}
 
       {/* Top Tabs & Actions */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -356,7 +366,7 @@ export default function FollowupsAndMeetings({
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            <span>Calendar Schedule ({followups.length + meetings.length})</span>
+            <span>Calendar Schedule ({followupTotal + meetingTotal})</span>
           </button>
           <button
             onClick={() => setActiveTab('followups')}
@@ -367,7 +377,7 @@ export default function FollowupsAndMeetings({
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
-            <span>Follow-up Queue ({followups.length})</span>
+            <span>Follow-up Queue ({followupTotal})</span>
           </button>
           <button
             onClick={() => setActiveTab('meetings')}
@@ -378,7 +388,7 @@ export default function FollowupsAndMeetings({
             }`}
           >
             <Video className="w-3.5 h-3.5" />
-            <span>Client Meetings ({meetings.length})</span>
+            <span>Client Meetings ({meetingTotal})</span>
           </button>
         </div>
 
@@ -682,6 +692,14 @@ export default function FollowupsAndMeetings({
                 )}
               </tbody>
             </table>
+            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+              <span>{followupTotal === 0 ? 0 : (followupPage - 1) * pageSize + 1}–{Math.min(followupPage * pageSize, followupTotal)} of {followupTotal}</span>
+              <div className="flex items-center gap-2">
+                <button type="button" disabled={followupPage <= 1 || loading} onClick={() => setFollowupPage((value) => value - 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Previous</button>
+                <span>Page {followupPage} of {followupTotalPages}</span>
+                <button type="button" disabled={followupPage >= followupTotalPages || loading} onClick={() => setFollowupPage((value) => value + 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Next</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -788,6 +806,14 @@ export default function FollowupsAndMeetings({
                 No meetings scheduled.
               </div>
             )}
+          </div>
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            <span>{meetingTotal === 0 ? 0 : (meetingPage - 1) * pageSize + 1}–{Math.min(meetingPage * pageSize, meetingTotal)} of {meetingTotal}</span>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={meetingPage <= 1 || loading} onClick={() => setMeetingPage((value) => value - 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Previous</button>
+              <span>Page {meetingPage} of {meetingTotalPages}</span>
+              <button type="button" disabled={meetingPage >= meetingTotalPages || loading} onClick={() => setMeetingPage((value) => value + 1)} className="rounded border border-slate-200 bg-white px-2.5 py-1 disabled:opacity-40">Next</button>
+            </div>
           </div>
         </div>
       )}
@@ -1211,13 +1237,6 @@ export default function FollowupsAndMeetings({
         </div>
       )}
 
-      {/* FLOATING TOAST NOTIFICATION */}
-      {toastText && (
-        <div className="fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl bg-slate-900 text-white text-xs font-semibold animate-in slide-in-from-top">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span>{toastText}</span>
-        </div>
-      )}
     </div>
   );
 }

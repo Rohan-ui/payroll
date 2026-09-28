@@ -237,10 +237,12 @@ export const attendanceApi = {
   /**
    * Get punch history
    */
-  getPunches: async (employeeId?: string, date?: string) => {
+  getPunches: async (employeeId?: string, date?: string, page = 1, limit = 50) => {
     const query = new URLSearchParams();
     if (employeeId) query.append('employeeId', employeeId);
     if (date) query.append('date', date);
+    query.append('page', String(page));
+    query.append('limit', String(limit));
 
     const qs = query.toString();
     return apiClient.get(`/attendance/punches${qs ? `?${qs}` : ''}`);
@@ -485,9 +487,14 @@ export interface EmployeeMonthDayRecord {
   leaveType?: string;
   holidayName?: string;
   shift: {
-    name: string;
-    startTime: string;
-    endTime: string;
+    /** Configured shift name; null when the attendance device reported the shift. */
+    name: string | null;
+    /** Shift code the attendance device scheduled for this date (COSEC SCHEDULESHIFT). */
+    scheduledCode: string | null;
+    /** Shift code the attendance device evaluated the day against (COSEC WORKINGSHIFT). */
+    workingCode: string | null;
+    startTime: string | null; // "HH:MM" 24h
+    endTime: string | null; // "HH:MM" 24h
     graceMinutes: number;
     standardMinutes: number;
     breakMinutes: number;
@@ -548,5 +555,4 @@ export interface EmployeeYearResponse {
     }>;
   }>;
 }
-
 

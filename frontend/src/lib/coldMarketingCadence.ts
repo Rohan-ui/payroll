@@ -726,8 +726,9 @@ export function interpolateText(text: string, vars: InterpolationVariables): str
   const industryConfig = CADENCE_INDUSTRIES[industryKey] || CADENCE_INDUSTRIES.general;
   const industryName = industryConfig ? industryConfig.name : 'Business';
   const portfolioLink = vars.portfolioLink || DEFAULT_PORTFOLIO_LINK;
-  const assigneeName = (vars.assigneeName || vars.senderName || 'Saloni Shah').trim();
-  const senderDesignation = (vars.senderDesignation || 'Director of Sales & Business Development').trim();
+  // Signed by the lead's own sales rep; never by a made-up name.
+  const assigneeName = (vars.assigneeName || vars.senderName || '').trim();
+  const senderDesignation = (vars.senderDesignation || '').trim();
 
   return text
     .replace(/\{\{First Name\}\}/gi, firstName)

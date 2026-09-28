@@ -1,104 +1,183 @@
-import { Controller, Post, Get, Put, Body, UseGuards } from '@nestjs/common';
-import { TenantsService, CreateTenantInput } from './tenants.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  NotImplementedException,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
-import { TenantGuard } from '@/common/guards/tenant.guard';
+import { CurrentUser } from '@/common/decorators/auth.decorators';
+import { RequirePermissions } from '@/common/decorators/access.decorators';
+import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
+import { OrganizationSettingsService } from './organization-settings.service';
+import { TenantRolesService } from './tenant-roles.service';
+import {
+  SaveSmtpSettingsDto,
+  SaveWhatsAppSettingsDto,
+  SetModuleStateDto,
+  TestSmtpSettingsDto,
+  TestWhatsAppSettingsDto,
+  UpdateOrganizationProfileDto,
+} from './dto/organization-settings.dto';
+import { CreateRoleDto, SetRolePermissionDto, UpdateRoleDto } from './dto/access-management.dto';
 
+/**
+ * Settings of the workspace the session is pinned to. No route takes a tenant
+ * id: it always comes from the session via @CurrentTenant().
+ */
 @Controller(['tenant', 'tenants'])
-@UseGuards(TenantGuard)
 export class TenantsController {
-  constructor(private readonly tenantsService: TenantsService) {}
-
-  @Post()
-  async create(@Body() body: CreateTenantInput) {
-    return this.tenantsService.createTenant(body);
-  }
+  constructor(
+    private readonly settingsService: OrganizationSettingsService,
+    private readonly rolesService: TenantRolesService,
+  ) {}
 
   @Get('current')
   async getCurrent(@CurrentTenant() tenantId: string) {
-    return this.tenantsService.getTenantById(tenantId);
+    return this.settingsService.getCurrentTenant(tenantId);
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // 1. SETTINGS & PROFILE
-  // ════════════════════════════════════════════════════════════════
+  // ── Organization profile, SMTP and WhatsApp ───────────────────
 
   @Get('settings')
+  @RequirePermissions('organization.view')
   async getSettings(@CurrentTenant() tenantId: string) {
-    const data = await this.tenantsService.getTenantSettings(tenantId);
-    return { success: true, data };
+    return { success: true, data: await this.settingsService.getSettings(tenantId) };
   }
 
-  @Post('settings')
-  async handleSettingsAction(
+  @Put('settings/profile')
+  @RequirePermissions('organization.update')
+  async updateProfile(
     @CurrentTenant() tenantId: string,
-    @Body() body: any,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: UpdateOrganizationProfileDto,
   ) {
-    return this.tenantsService.handleSettingsAction(tenantId, body);
+    return this.settingsService.updateProfile(tenantId, body, actor);
   }
 
-  @Put('settings')
-  async updateSettings(
+  @Put('settings/smtp')
+  @RequirePermissions('organization.update')
+  async saveSmtp(
     @CurrentTenant() tenantId: string,
-    @Body('settings') settings: Record<string, unknown>,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: SaveSmtpSettingsDto,
   ) {
-    return this.tenantsService.updateSettings(tenantId, settings);
+    return this.settingsService.saveSmtp(tenantId, body, actor);
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // 2. MODULE LICENSING
-  // ════════════════════════════════════════════════════════════════
+  @Post('settings/smtp/test')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('organization.update')
+  async testSmtp(@CurrentTenant() tenantId: string, @Body() body: TestSmtpSettingsDto) {
+    return this.settingsService.testSmtp(tenantId, body);
+  }
+
+  @Put('settings/whatsapp')
+  @RequirePermissions('organization.update')
+  async saveWhatsApp(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: SaveWhatsAppSettingsDto,
+  ) {
+    return this.settingsService.saveWhatsApp(tenantId, body, actor);
+  }
+
+  @Post('settings/whatsapp/test')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('organization.update')
+  async testWhatsApp(@CurrentTenant() tenantId: string, @Body() body: TestWhatsAppSettingsDto) {
+    return this.settingsService.testWhatsApp(tenantId, body);
+  }
+
+  // ── Modules ──────────────────────────────────────────────────
 
   @Get('modules')
+  @RequirePermissions('modules.view')
   async getModules(@CurrentTenant() tenantId: string) {
-    const data = await this.tenantsService.getModules(tenantId);
-    return { success: true, data };
+    return { success: true, data: await this.settingsService.getModules(tenantId) };
   }
 
-  @Post('modules')
-  async toggleModule(
+  @Put('modules/:moduleCode')
+  @RequirePermissions('modules.update')
+  async setModuleState(
     @CurrentTenant() tenantId: string,
-    @Body() body: { moduleId: string; isEnabled: boolean },
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('moduleCode') moduleCode: string,
+    @Body() body: SetModuleStateDto,
   ) {
-    return this.tenantsService.toggleModule(tenantId, body.moduleId, body.isEnabled);
+    return this.settingsService.setModuleEnabled(tenantId, moduleCode, body.enabled, actor);
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // 3. ROLES & RBAC MATRIX
-  // ════════════════════════════════════════════════════════════════
+  // ── Roles and permissions ────────────────────────────────────
 
   @Get('roles')
+  @RequirePermissions('roles.view')
   async getRoles(@CurrentTenant() tenantId: string) {
-    const data = await this.tenantsService.getRoles(tenantId);
-    return { success: true, data };
+    return { success: true, data: { roles: await this.rolesService.listRoles(tenantId) } };
   }
 
   @Post('roles')
+  @RequirePermissions('roles.create')
   async createRole(
     @CurrentTenant() tenantId: string,
-    @Body() body: { name: string; code?: string; description?: string },
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: CreateRoleDto,
   ) {
-    return this.tenantsService.createRole(tenantId, body);
+    return this.rolesService.createRole(tenantId, body, actor);
   }
 
-  @Put('roles')
-  async updateRolePermission(
+  @Patch('roles/:roleId')
+  @RequirePermissions('roles.update')
+  async updateRole(
     @CurrentTenant() tenantId: string,
-    @Body() body: { roleId: string; moduleId: string; action: string; isAllowed: boolean },
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+    @Body() body: UpdateRoleDto,
   ) {
-    return this.tenantsService.updateRolePermission(tenantId, body);
+    return this.rolesService.updateRole(tenantId, roleId, body, actor);
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // 4. CHANNELS / DISPATCH
-  // ════════════════════════════════════════════════════════════════
+  @Delete('roles/:roleId')
+  @RequirePermissions('roles.delete')
+  async deleteRole(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+  ) {
+    return this.rolesService.deleteRole(tenantId, roleId, actor);
+  }
 
+  @Put('roles/:roleId/permissions')
+  @RequirePermissions('roles.update')
+  async setRolePermission(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+    @Body() body: SetRolePermissionDto,
+  ) {
+    return this.rolesService.setRolePermission(tenantId, roleId, body, actor);
+  }
+
+  // ── Outbound dispatch ────────────────────────────────────────
+
+  /**
+   * Sending is not built yet. These used to answer "queued" without sending
+   * anything, which told users their message had gone when it had not.
+   */
   @Post('whatsapp/send')
-  async sendWhatsApp(@Body() body: any) {
-    return { success: true, message: 'WhatsApp message queued for dispatch' };
+  sendWhatsApp() {
+    throw new NotImplementedException('Sending WhatsApp messages from the CRM is not available yet. Nothing was sent.');
   }
 
   @Post('email/send')
-  async sendEmail(@Body() body: any) {
-    return { success: true, message: 'Email queued for dispatch' };
+  sendEmail() {
+    throw new NotImplementedException('Sending email from the CRM is not available yet. Nothing was sent.');
   }
 }

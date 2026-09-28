@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Search,
@@ -28,6 +28,7 @@ import {
   Sparkles
 } from 'lucide-react';
 
+import { apiFetch } from '../../api/client';
 interface AuditLogItem {
   id: string;
   tenant_id: string;
@@ -74,20 +75,24 @@ export default function CrmAuditTrailView({
   const [selectedLogForDetails, setSelectedLogForDetails] = useState<AuditLogItem | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 25;
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const fetchAuditLogs = async () => {
+  const fetchAuditLogs = async (targetPage = page) => {
     try {
       setLoading(true);
-      let url = `/api/v1/crm/audit-logs?limit=250`;
+      let url = `/api/v1/crm/audit-logs?page=${targetPage}&limit=${pageSize}`;
       if (selectedAction !== 'ALL') url += `&actionType=${encodeURIComponent(selectedAction)}`;
       if (selectedActor !== 'ALL') url += `&actorId=${encodeURIComponent(selectedActor)}`;
       if (selectedEntity !== 'ALL') url += `&entityType=${encodeURIComponent(selectedEntity)}`;
       if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`;
 
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await apiFetch(url, { cache: 'no-store' });
       const json = await res.json();
       if (json.success) {
         setLogs(json.data || []);
+        setTotal(json.pagination?.total || 0);
+        setTotalPages(Math.max(1, json.pagination?.totalPages || 1));
         if (json.metrics) {
           setMetrics(json.metrics);
         }
@@ -101,33 +106,14 @@ export default function CrmAuditTrailView({
 
   useEffect(() => {
     fetchAuditLogs();
-  }, [selectedAction, selectedActor, selectedEntity]);
+  }, [page, selectedAction, selectedActor, selectedEntity]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchAuditLogs();
+    if (page === 1) fetchAuditLogs(1);
+    else setPage(1);
   };
-
-  // Filtered & Paginated Logs
-  const filteredLogs = useMemo(() => {
-    if (!searchQuery.trim()) return logs;
-    const q = searchQuery.toLowerCase();
-    return logs.filter(
-      l =>
-        l.actor_name?.toLowerCase().includes(q) ||
-        l.actor_email?.toLowerCase().includes(q) ||
-        l.entity_name?.toLowerCase().includes(q) ||
-        l.title?.toLowerCase().includes(q) ||
-        l.description?.toLowerCase().includes(q)
-    );
-  }, [logs, searchQuery]);
-
-  const paginatedLogs = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filteredLogs.slice(start, start + pageSize);
-  }, [filteredLogs, page]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  const paginatedLogs = logs;
 
   // Export Audit Trail to CSV
   const handleExportCsv = () => {
@@ -252,7 +238,7 @@ export default function CrmAuditTrailView({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchAuditLogs}
+            onClick={() => void fetchAuditLogs()}
             disabled={loading}
             className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
             title="Refresh Audit Logs"
@@ -495,8 +481,8 @@ export default function CrmAuditTrailView({
         {/* Pagination Bar */}
         <div className="p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
           <div>
-            Showing <span className="font-bold text-slate-800">{paginatedLogs.length}</span> of{' '}
-            <span className="font-bold text-slate-800">{filteredLogs.length}</span> recorded events
+            Showing <span className="font-bold text-slate-800">{total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)}</span> of{' '}
+            <span className="font-bold text-slate-800">{total}</span> recorded events
           </div>
 
           <div className="flex items-center gap-2">

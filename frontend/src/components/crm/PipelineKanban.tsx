@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Sparkles, ArrowRight, ArrowLeft, Building2, Trophy, Clock,
   Eye, Filter, Plus, ChevronDown, CheckCircle2, TrendingUp,
@@ -17,6 +17,18 @@ import {
 } from '@/lib/industryTaxonomy';
 import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 
+import { apiFetch } from '../../api/client';
+import { toast } from '../../lib/toast';
+import { useAuth } from '../../context/AuthContext';
+import { dealWonMessage, isInOutreach, readRememberedPipeline, rememberPipeline, resolveBoardPipeline } from './pipelineBoard';
+
+/** Asks the board to show one lead: select its pipeline, clear filters, and highlight the card. */
+export interface BoardFocusRequest {
+  leadId: string;
+  pipelineId: string | null;
+  /** Changes on every request, so asking twice for the same lead works. */
+  nonce: number;
+}
 interface PipelineKanbanProps {
   leads: any[];
   stages: any[];
@@ -33,7 +45,14 @@ interface PipelineKanbanProps {
   onReassignSalesPerson?: (lead: any) => void;
   viewMode?: 'kanban' | 'list';
   onViewModeChange?: (mode: 'kanban' | 'list') => void;
+  focusRequest?: BoardFocusRequest | null;
+  /** Called once a focus request has been applied, so it is not replayed when the board remounts. */
+  onFocusHandled?: () => void;
+  /** Opens Client Outreach, where leads in the 30-day cadence are worked. */
+  onOpenOutreach?: () => void;
 }
+
+const HIGHLIGHT_MS = 4000;
 
 export default function PipelineKanban({
   leads,
@@ -50,17 +69,50 @@ export default function PipelineKanban({
   onScheduleFollowup,
   onReassignSalesPerson,
   viewMode = 'kanban',
-  onViewModeChange
+  onViewModeChange,
+  focusRequest = null,
+  onFocusHandled,
+  onOpenOutreach
 }: PipelineKanbanProps) {
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string>(
-    pipelines[0]?.id || 'pipe_rnd_main'
-  );
+  // The board shows the user's chosen pipeline while it exists, else the default one. This is
+  // derived on every render, so pipelines that arrive after the board mounts are picked up.
+  const { activeTenant } = useAuth();
+  const tenantId = activeTenant?.tenantId ?? null;
+  const [chosenPipelineId, setChosenPipelineId] = useState<string | null>(() => readRememberedPipeline(tenantId));
+  const selectedPipelineId = resolveBoardPipeline(pipelines, chosenPipelineId);
+  const choosePipeline = (pipelineId: string) => {
+    setChosenPipelineId(pipelineId);
+    rememberPipeline(tenantId, pipelineId);
+  };
+  const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
   const [selectedSalesPerson, setSelectedSalesPerson] = useState<string>('ALL');
   const [selectedOrigin, setSelectedOrigin] = useState<'ALL' | 'EXISTING' | 'NEW'>('ALL');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('ALL');
   const [selectedSubIndustry, setSelectedSubIndustry] = useState<string>('ALL');
 
+
+  // "Show on board": select the lead's pipeline and clear filters so its card is visible.
+  useEffect(() => {
+    if (!focusRequest) return;
+    if (focusRequest.pipelineId) setChosenPipelineId(focusRequest.pipelineId);
+    setSelectedSalesPerson('ALL');
+    setSelectedOrigin('ALL');
+    setSelectedIndustry('ALL');
+    setSelectedSubIndustry('ALL');
+    setHighlightedLeadId(focusRequest.leadId);
+    onFocusHandled?.();
+  }, [focusRequest, onFocusHandled]);
+
+  // Once the highlighted card is on the board (the lead list may still be reloading), bring it
+  // into view and let the highlight fade after a few seconds.
+  const highlightedOnBoard = highlightedLeadId !== null && leads.some((l) => l.id === highlightedLeadId);
+  useEffect(() => {
+    if (!highlightedOnBoard || !highlightedLeadId) return;
+    document.querySelector(`[data-lead-card="${highlightedLeadId}"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+    const timer = window.setTimeout(() => setHighlightedLeadId(null), HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [highlightedOnBoard, highlightedLeadId]);
 
   // Drag state
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
@@ -78,7 +130,6 @@ export default function PipelineKanban({
 
   // In-app deal won modal
   const [dealWonConfirmLead, setDealWonConfirmLead] = useState<any | null>(null);
-  const [toastText, setToastText] = useState<string | null>(null);
 
   // Quick Edit Lead Modal State
   const [editingLead, setEditingLead] = useState<any | null>(null);
@@ -109,7 +160,7 @@ export default function PipelineKanban({
       email: lead.email || '',
       phone: lead.phone || lead.whatsapp_number || '',
       budget_amount: Number(lead.budget_amount) || 0,
-      assigned_user_id: lead.assigned_user_id || 'user_saloni',
+      assigned_user_id: lead.assigned_user_id || '',
       stage_id: lead.stage_id || stages[0]?.id || ''
     });
   };
@@ -119,30 +170,26 @@ export default function PipelineKanban({
     if (!editingLead) return;
     setSavingLead(true);
     try {
-      const res = await fetch(`/api/v1/crm/leads/${editingLead.id}`, {
+      const res = await apiFetch(`/api/v1/crm/leads/${editingLead.id}`, {
+        feedback: { success: false },
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editFormData)
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.ok) {
         showToast('Lead details updated successfully!');
         setEditingLead(null);
         onRefresh();
-      } else {
-        showToast(data.error || 'Failed to update lead');
       }
-    } catch (err: any) {
-      showToast('Error updating lead: ' + err.message);
+    } catch {
+      // Reported by the API client.
     } finally {
       setSavingLead(false);
     }
   };
 
-  const showToast = (msg: string) => {
-    setToastText(msg);
-    setTimeout(() => setToastText(null), 3000);
-  };
+  const showToast = (text: string, type: 'success' | 'error' = 'success') =>
+    type === 'error' ? toast.error(text) : toast.success(text);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -227,19 +274,13 @@ export default function PipelineKanban({
     };
   };
 
-  // Filter leads by pipeline, sales person, origin, and cold cadence isolation
+  // Leads still in the 30-day outreach cadence are worked in Client Outreach, not on the board;
+  // the link above the board says how many there are.
+  const outreachCount = leads.filter(isInOutreach).length;
+
+  // Filter leads by pipeline, sales person, origin and industry
   const pipelineLeads = leads.filter(l => {
-    // Isolate unconverted cold marketing leads from active sales pipeline (permanently hidden)
-    if (l.custom_attributes) {
-      try {
-        const parsed = typeof l.custom_attributes === 'string' ? JSON.parse(l.custom_attributes) : l.custom_attributes;
-        if (parsed?.cadence && parsed.cadence.status !== 'CONVERTED' && !parsed.cadence.convertedToOpportunity) {
-          return false; // Keep sales pipeline clean and isolated from cold marketing cadence
-        }
-      } catch {
-        // ignore
-      }
-    }
+    if (isInOutreach(l)) return false;
 
     const matchesPipe = !l.pipeline_id || l.pipeline_id === selectedPipelineId;
     const matchesSales = selectedSalesPerson === 'ALL' || l.assigned_user_id === selectedSalesPerson;
@@ -288,16 +329,17 @@ export default function PipelineKanban({
     if (lead && lead.stage_id === targetStageId) return;
 
     try {
-      await fetch(`/api/v1/crm/leads/${leadId}`, {
-        method: 'PATCH',
+      // Leads are updated with PUT; the move is announced only once it is saved.
+      const stage = stages.find(s => s.id === targetStageId);
+      const res = await apiFetch(`/api/v1/crm/leads/${leadId}`, {
+        feedback: { success: `Lead moved to ${stage?.name ?? 'the new stage'}` },
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stageId: targetStageId }),
       });
-      const stage = stages.find(s => s.id === targetStageId);
-      showToast(`Lead moved to stage: ${stage?.name || 'Updated'}`);
-      onRefresh();
-    } catch (err) {
-      console.error('Failed to move stage via drop', err);
+      if (res.ok) onRefresh();
+    } catch {
+      // Reported by the API client.
     } finally {
       setDraggedLeadId(null);
     }
@@ -309,7 +351,8 @@ export default function PipelineKanban({
     if (!stageFormData.name) return;
 
     try {
-      const res = await fetch('/api/v1/crm/masters/stages', {
+      const res = await apiFetch('/api/v1/crm/masters/stages', {
+        feedback: { success: false },
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -322,14 +365,14 @@ export default function PipelineKanban({
         })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setShowAddStageModal(false);
         setStageFormData({ name: '', color: '#2563eb', stage_probability: 30, sla_duration_hours: 48 });
         showToast('Stage added to pipeline!');
         onRefresh();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     }
   };
 
@@ -338,7 +381,8 @@ export default function PipelineKanban({
     if (!editingStage) return;
 
     try {
-      const res = await fetch('/api/v1/crm/masters/stages', {
+      const res = await apiFetch('/api/v1/crm/masters/stages', {
+        feedback: { success: false },
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -350,59 +394,52 @@ export default function PipelineKanban({
         })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setEditingStage(null);
         showToast('Stage updated successfully!');
         onRefresh();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     }
   };
 
   const handleDeleteStage = async (stageId: string, stageName: string) => {
     const stageLeads = pipelineLeads.filter(l => l.stage_id === stageId);
     if (stageLeads.length > 0) {
-      showToast(`Cannot delete stage: Move ${stageLeads.length} deals out first.`);
+      showToast(`Cannot delete this stage: move its ${stageLeads.length} deals out first.`, 'error');
       return;
     }
 
     try {
-      const res = await fetch(`/api/v1/crm/masters/stages?id=${stageId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/crm/masters/stages?id=${stageId}`, { method: 'DELETE', feedback: { success: false } });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         showToast(`Stage "${stageName}" deleted.`);
         onRefresh();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     }
   };
 
   const handleConfirmConvertWon = async () => {
     if (!dealWonConfirmLead) return;
     try {
-      const res = await fetch(`/api/v1/crm/leads/${dealWonConfirmLead.id}/convert-won`, { method: 'POST' });
+      const res = await apiFetch(`/api/v1/crm/leads/${dealWonConfirmLead.id}/convert-won`, { method: 'POST', feedback: { success: false } });
       const data = await res.json();
-      if (data.success) {
-        showToast(`🏆 Deal Won! Project: ${data.data.projectCode}, Invoice: ${data.data.invoiceNumber}`);
+      if (res.ok && data.success) {
+        showToast(dealWonMessage(data.data));
         setDealWonConfirmLead(null);
         onRefresh();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Reported by the API client.
     }
   };
 
   return (
     <div className="space-y-4 relative">
-      {/* Toast Notification */}
-      {toastText && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-3 bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-xl flex items-center gap-2 animate-in slide-in-from-top duration-200">
-          <Check className="w-4 h-4 text-emerald-400" />
-          <span>{toastText}</span>
-        </div>
-      )}
 
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-4">
         {/* Pipeline & Sales Person Selectors */}
@@ -411,7 +448,7 @@ export default function PipelineKanban({
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sales Pipeline</label>
             <select
               value={selectedPipelineId}
-              onChange={(e) => setSelectedPipelineId(e.target.value)}
+              onChange={(e) => choosePipeline(e.target.value)}
               className="mt-0.5 px-3 py-1.5 bg-slate-50 text-xs font-bold text-slate-800 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
             >
               {pipelines.map((p) => (
@@ -510,9 +547,24 @@ export default function PipelineKanban({
         )}
       </div>
 
+      {outreachCount > 0 && (
+        <p className="text-xs text-slate-600">
+          <button
+            type="button"
+            onClick={onOpenOutreach}
+            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+          >
+            {outreachCount} lead{outreachCount === 1 ? '' : 's'} in outreach
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+            Client Outreach
+          </button>
+          <span className="text-slate-400"> · not shown on the board until they move into the pipeline</span>
+        </p>
+      )}
+
       {/* DRAGGABLE KANBAN BOARD */}
       <div className="flex gap-4 overflow-x-auto pb-4 items-start min-h-[600px]">
-        {stages.map((stage) => {
+        {stages.filter((stage) => stage.pipeline_id === selectedPipelineId).map((stage) => {
           const stageLeads = pipelineLeads.filter(l => l.stage_id === stage.id);
           const stageValue = stageLeads.reduce((acc, l) => acc + Number(l.budget_amount || 0), 0);
           const isOver = dragOverStageId === stage.id;
@@ -582,9 +634,12 @@ export default function PipelineKanban({
                 {stageLeads.map((lead) => (
                   <div
                     key={lead.id}
+                    data-lead-card={lead.id}
                     draggable={true}
                     onDragStart={(e) => handleDragStart(e, lead.id)}
-                    className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs hover:shadow-md transition-all space-y-2.5 group cursor-grab active:cursor-grabbing relative"
+                    className={`bg-white p-3.5 rounded-xl border shadow-2xs hover:shadow-md transition-all space-y-2.5 group cursor-grab active:cursor-grabbing relative ${
+                      lead.id === highlightedLeadId ? 'border-blue-500 ring-2 ring-blue-400' : 'border-slate-200'
+                    }`}
                   >
                     {/* Grip & Value & AI Score */}
                     <div className="flex items-center justify-between">
@@ -673,7 +728,7 @@ export default function PipelineKanban({
                       >
                         <span>👤</span>
                         <span className="hover:underline">
-                          {lead.assigned_user_name || 'Saloni Shah'}
+                          {lead.assigned_user_name || 'Unassigned'}
                         </span>
                       </button>
                     </div>
@@ -1098,7 +1153,7 @@ export default function PipelineKanban({
                   >
                     {salesPersons.map((sp) => (
                       <option key={sp.id} value={sp.id}>
-                        {sp.first_name} {sp.last_name} {sp.id === 'user_saloni' ? '👑 (Sales Head)' : ''}
+                        {sp.first_name} {sp.last_name}
                       </option>
                     ))}
                   </select>

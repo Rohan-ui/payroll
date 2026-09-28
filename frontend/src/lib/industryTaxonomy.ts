@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
+import { apiFetch } from '../api/client';
 export interface SubIndustryItem {
   key: string;
   name: string;
@@ -166,7 +167,7 @@ export function convertDynamicToItem(ind: DynamicIndustry): IndustryTaxonomyItem
 // Fetch dynamic industries for current tenant from API
 export async function fetchTenantIndustries(): Promise<IndustryTaxonomyItem[]> {
   try {
-    const res = await fetch('/api/v1/crm/masters/industries');
+    const res = await apiFetch('/api/v1/crm/masters/industries');
     const json = await res.json();
     if (json.success && Array.isArray(json.data) && json.data.length > 0) {
       const items = json.data.map(convertDynamicToItem);
