@@ -2004,7 +2004,7 @@ async function main() {
   console.log(`   Lead Sources:        ${leadSources.length}`);
   console.log(`   Services Master:     ${services.length}`);
   console.log(`   Lost Reasons:        ${lostReasons.length}`);
-  console.log(`   Industry Verticals:  ${industries.length}`);
+  // console.log(`   Industry Verticals:  ${industries.length}`);
   // console.log(`   Leads:               ${Object.keys(leadIdMap).length}`);
   // console.log(`   Activities:          ${additionalActivities.length + Object.keys(leadIdMap).length}`);
   // console.log(`   Follow-ups:          ${followups.length}`);

@@ -832,6 +832,10 @@ function CRMEnterpriseContent() {
           pipelines={pipelines}
           stages={stages}
           onLeadConverted={handleLeadConverted}
+          onCreateQuotation={(leadId) => {
+            setSelectedLead360Id(null);
+            handleCreateQuotation(leadId);
+          }}
         />
       )}
 

@@ -1,9 +1,6 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-const Link = ({ href, children, className, target, rel, ...props }: any) => (
-  <a href={href} className={className} target={target} rel={rel} {...props}>{children}</a>
-);
 import { 
   X, Sparkles, Building2, Phone, Mail, MapPin, Calendar, Clock,
   CheckCircle2, FileText, Trophy, ArrowRight, Plus, RefreshCw,
@@ -41,9 +38,11 @@ interface Lead360DrawerProps {
   stages?: { id: string; name: string; pipeline_id: string; stage_probability?: number; sort_order?: number | null; is_won?: boolean | null; is_lost?: boolean | null }[];
   /** Receives the server's answer after the lead is converted into an opportunity. */
   onLeadConverted?: (result: any) => void;
+  /** Opens the create-quotation page for this lead. */
+  onCreateQuotation?: (leadId: string) => void;
 }
 
-export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipelines = [], stages = [], onLeadConverted }: Lead360DrawerProps) {
+export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipelines = [], stages = [], onLeadConverted, onCreateQuotation }: Lead360DrawerProps) {
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -1617,26 +1616,22 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold text-slate-700 uppercase">Quotations</h3>
-                    <Link
-                      href={`/crm/quotations/new?leadId=${data?.lead?.id || leadId}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Create Quotation</span>
-                    </Link>
+                    {onCreateQuotation && (
+                      <button
+                        type="button"
+                        onClick={() => onCreateQuotation(data?.lead?.id || leadId)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Create Quotation</span>
+                      </button>
+                    )}
                   </div>
                   <div className="space-y-3">
                     {data?.quotations?.map((q: any) => (
                       <div key={q.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-2">
                         <div className="flex items-center justify-between">
-                          <Link 
-                            href={`/crm/quotations/${encodeURIComponent(q.quotation_number)}`}
-                            className="font-mono font-bold text-xs text-blue-700 hover:text-blue-900 hover:underline flex items-center gap-1.5 group"
-                            title={`Open quotation detail page for ${q.quotation_number}`}
-                          >
-                            <span>{q.quotation_number}</span>
-                            <ExternalLink className="w-3 h-3 text-blue-500 opacity-70 group-hover:opacity-100 transition-opacity" />
-                          </Link>
+                          <span className="font-mono font-bold text-xs text-blue-700">{q.quotation_number}</span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                             q.status === 'ACCEPTED' ? 'bg-emerald-100 text-emerald-800' :
                             q.status === 'SENT' ? 'bg-blue-100 text-blue-800' :

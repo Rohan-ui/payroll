@@ -26,11 +26,11 @@ interface CRMMastersManagerProps {
 const MASTER_ACTIONS: Record<string, { create: boolean; update: boolean; delete: boolean }> = {
   stages: { create: true, update: true, delete: true },
   services: { create: true, update: true, delete: true },
-  sources: { create: true, update: false, delete: true },
-  pipelines: { create: true, update: false, delete: true },
+  sources: { create: true, update: true, delete: true },
+  pipelines: { create: true, update: true, delete: true },
   sop_steps: { create: true, update: true, delete: true },
   sop_branches: { create: true, update: true, delete: true },
-  lost_reasons: { create: false, update: false, delete: true },
+  lost_reasons: { create: true, update: true, delete: true },
   templates: { create: false, update: false, delete: true },
 };
 const canChange = (tab: string, action: 'create' | 'update' | 'delete') => MASTER_ACTIONS[tab]?.[action] ?? false;
@@ -309,7 +309,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
         is_active: 1
       });
     } else if (activeMasterTab === 'pipelines') {
-      setFormData({ name: '', code: '', description: '', is_default: 0, is_active: 1 });
+      setFormData({ name: '', code: '', is_default: 0, is_active: 1 });
     } else if (activeMasterTab === 'services') {
       setFormData({ name: '', category: 'IT & Software', sac_code: '998314', default_rate: 250000, is_active: 1 });
     } else if (activeMasterTab === 'lost_reasons') {
@@ -2169,24 +2169,28 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
               {/* STAGES FORM */}
               {activeMasterTab === 'stages' && (
                 <>
-                  {/* A stage belongs to one pipeline. It is chosen when the stage is created and cannot move later,
-                      because leads already in the stage would be left in another pipeline. */}
+                  {/* A stage belongs to one pipeline. It can move to another only while no lead is in it;
+                      the server refuses otherwise and says how many leads are there. */}
                   <div>
                     <label htmlFor="stage-pipeline" className="block text-xs font-bold text-slate-700 mb-1">Pipeline *</label>
                     <select
                       id="stage-pipeline"
                       required
-                      disabled={!showAddModal}
                       value={formData.pipeline_id || ''}
                       onChange={(e) => setFormData({ ...formData, pipeline_id: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border rounded-lg bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                      aria-describedby={!showAddModal ? 'stage-pipeline-hint' : undefined}
+                      className="w-full px-3 py-2 text-xs border rounded-lg bg-white"
                     >
                       <option value="" disabled>Choose a pipeline</option>
                       {pipelines.map((p) => (
                         <option key={p.id} value={p.id}>{p.name}{p.code ? ` (${p.code})` : ''}</option>
                       ))}
                     </select>
-                    {!showAddModal && <p className="mt-1 text-[11px] text-slate-500">A stage stays in the pipeline it was created in.</p>}
+                    {!showAddModal && (
+                      <p id="stage-pipeline-hint" className="mt-1 text-[11px] text-slate-500">
+                        A stage can move to another pipeline only while no leads are in it.
+                      </p>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -2289,15 +2293,30 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
-                    <textarea
-                      rows={2}
-                      value={formData.description || ''}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      placeholder="Pipeline for high ticket B2B contracts"
-                      className="w-full px-3 py-2 text-xs border rounded-lg"
+                    <label htmlFor="pipeline-code" className="block text-xs font-bold text-slate-700 mb-1">Code</label>
+                    <input
+                      id="pipeline-code"
+                      type="text"
+                      maxLength={64}
+                      value={formData.code || ''}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                      placeholder="Left empty, it is made from the name"
+                      aria-describedby="pipeline-code-hint"
+                      className="w-full px-3 py-2 text-xs border rounded-lg font-mono"
                     />
+                    <p id="pipeline-code-hint" className="mt-1 text-[11px] text-slate-500">
+                      Leads converted from Client Outreach go to the pipeline with code <span className="font-mono">COLD_FUNNEL</span> by default.
+                    </p>
                   </div>
+                  <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(Number(formData.is_default ?? 0))}
+                      onChange={(e) => setFormData({ ...formData, is_default: e.target.checked ? 1 : 0 })}
+                      className="rounded text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Default pipeline (new leads start here; only one pipeline can be the default)</span>
+                  </label>
                 </>
               )}
 

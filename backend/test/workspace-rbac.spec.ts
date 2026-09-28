@@ -478,8 +478,8 @@ describe('Workspace role-based access control', () => {
           ['get', '/crm/masters/lost-reasons'],
           ['get', '/crm/masters/sop-steps'],
           ['get', '/crm/masters/quotation-categories'],
-          ['put', '/crm/masters/sources', { id: randomUUID(), name: 'x' }],
-          ['post', '/crm/masters/lost-reasons', { reason_name: 'x' }],
+          ['put', '/crm/masters/quotation-categories', { id: randomUUID(), name: 'x' }],
+          ['post', '/crm/masters/quotation-categories', { name: 'x' }],
         ]),
       ).toEqual([
         ['GET /crm/masters/services', 200],
@@ -487,8 +487,8 @@ describe('Workspace role-based access control', () => {
         ['GET /crm/masters/lost-reasons', 200],
         ['GET /crm/masters/sop-steps', 200],
         ['GET /crm/masters/quotation-categories', 404],
-        ['PUT /crm/masters/sources', 404],
-        ['POST /crm/masters/lost-reasons', 404],
+        ['PUT /crm/masters/quotation-categories', 404],
+        ['POST /crm/masters/quotation-categories', 404],
       ]);
     });
   });

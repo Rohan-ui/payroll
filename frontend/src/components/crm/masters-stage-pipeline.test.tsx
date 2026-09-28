@@ -64,3 +64,58 @@ it('adds a stage to the chosen pipeline and lists each stage under its real pipe
   container.remove();
   vi.unstubAllGlobals();
 });
+
+it('edits a pipeline (name, code, default) and moves a stage to another pipeline', async () => {
+  const saves: { method: string; url: string; body: any }[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      const method = init.method ?? 'GET';
+      if (method !== 'GET') {
+        saves.push({ method, url, body: JSON.parse(String(init.body)) });
+        return new Response(JSON.stringify({ success: true, data: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const data = url.endsWith('/masters/pipelines') ? PIPELINES : url.endsWith('/masters/stages') ? STAGES : [];
+      return new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }),
+  );
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(<CRMMastersManager onRefreshParent={() => undefined} />));
+  await act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  });
+  const button = (text: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(text)) as HTMLButtonElement;
+  const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string, event: string) =>
+    act(() => {
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set?.call(el, value);
+      el.dispatchEvent(new Event(event, { bubbles: true }));
+    });
+  const submit = () => act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+
+  // Pipelines: the Edit button is offered, and the form saves name, code and the default flag.
+  act(() => button('Pipelines (')?.click());
+  const salesRow = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('Sales'))!;
+  act(() => (salesRow.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
+  setValue(container.querySelector('input[placeholder="e.g. Enterprise Software Retainers"]') as HTMLInputElement, 'Enterprise sales', 'input');
+  setValue(container.querySelector('#pipeline-code') as HTMLInputElement, 'ENTERPRISE', 'input');
+  act(() => (container.querySelector('input[type=checkbox]') as HTMLInputElement).click());
+  await submit();
+  expect(saves[0]).toMatchObject({ method: 'PUT', url: '/api/v1/crm/masters/pipelines', body: { id: 'p-sales', name: 'Enterprise sales', code: 'ENTERPRISE', is_default: 1 } });
+
+  // Stages: the pipeline can be changed while editing.
+  act(() => button('Pipeline Stages')?.click());
+  const stageRow = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('New'))!;
+  act(() => (stageRow.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
+  const select = container.querySelector('#stage-pipeline') as HTMLSelectElement;
+  expect(select.disabled).toBe(false);
+  expect(container.querySelector('#stage-pipeline-hint')?.textContent).toContain('only while no leads are in it');
+  setValue(select, 'p-cold', 'change');
+  await submit();
+  expect(saves[1]).toMatchObject({ method: 'PUT', url: '/api/v1/crm/masters/stages', body: { id: 's-new', pipeline_id: 'p-cold' } });
+
+  act(() => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+});

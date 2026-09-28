@@ -230,6 +230,50 @@ describe('CRM & Sales in a tenant workspace', () => {
       expect((await asA('get', '/crm/quotation-templates')).status).toBe(200);
     });
 
+    it('edits a draft quotation with totals recalculated, and keeps issued ones as they were (Quotations)', async () => {
+      // Bad input is refused clearly instead of failing inside the server.
+      expect((await asA('post', '/crm/quotations', { leadId: ids.lead, items: [{ description: 'X', quantity: 'two', unitRate: 10 }] })).body.message).toBe('Line 1: enter the quantity as a number.');
+      expect((await asA('post', '/crm/quotations', { leadId: ids.lead, validDays: 0, items: [{ description: 'X', quantity: 1, unitRate: 10 }] })).status).toBe(400);
+
+      const draft = await asA('post', '/crm/quotations', {
+        leadId: ids.lead,
+        validDays: 15,
+        notes: 'Phase 1 only',
+        items: [{ description: 'Audit', quantity: 1, unitRate: '500' }],
+      });
+      expect(draft.status).toBe(201);
+      const id = draft.body.data.id as string;
+      expect(await prisma.rndtechnosoft_crm_quotations.findUniqueOrThrow({ where: { id } })).toMatchObject({ notes: 'Phase 1 only', quotation_status: 'DRAFT' });
+
+      // New lines and inter-state tax: 3 × 250.50 = 751.50; IGST 18 % = 135.27; total 886.77.
+      const edited = await asA('put', `/crm/quotations/${id}`, {
+        taxMode: 'INTER_STATE',
+        items: [{ description: 'Audit and report', quantity: '3', unitRate: '250.50', sacCode: '998314' }],
+      });
+      expect(edited.status).toBe(200);
+      const stored = await prisma.rndtechnosoft_crm_quotations.findUniqueOrThrow({ where: { id } });
+      expect([stored.tax_mode, stored.subtotal.toFixed(2), stored.cgst_amount.toFixed(2), stored.igst_amount.toFixed(2), stored.total_amount.toFixed(2)]).toEqual([
+        'INTER_STATE', '751.50', '0.00', '135.27', '886.77',
+      ]);
+      const lines = await prisma.rndtechnosoft_crm_quotation_items.findMany({ where: { quotation_id: id } });
+      expect(lines.map((line) => [line.description, line.line_amount.toFixed(2), line.sac_code])).toEqual([['Audit and report', '751.50', '998314']]);
+
+      // Changing only the tax type recalculates from the saved lines.
+      await asA('put', `/crm/quotations/${id}`, { taxMode: 'INTRA_STATE' });
+      const back = await prisma.rndtechnosoft_crm_quotations.findUniqueOrThrow({ where: { id } });
+      expect([back.cgst_amount.toFixed(2), back.sgst_amount.toFixed(2), back.igst_amount.toFixed(2), back.total_amount.toFixed(2)]).toEqual(['67.64', '67.64', '0.00', '886.78']);
+
+      expect((await asA('put', `/crm/quotations/${id}`, { status: 'LOST' })).status).toBe(400);
+      expect((await asB('put', `/crm/quotations/${id}`, { items: [{ description: 'Hijacked', quantity: 1, unitRate: 1 }] })).status).toBe(404);
+
+      // Once sent, its lines and amounts stay as issued.
+      expect((await asA('put', `/crm/quotations/${id}`, { status: 'SENT' })).status).toBe(200);
+      const locked = await asA('put', `/crm/quotations/${id}`, { items: [{ description: 'Changed', quantity: 1, unitRate: 1 }] });
+      expect([locked.status, locked.body.message]).toEqual([409, `Only draft quotations can be edited. ${stored.quotation_number} is sent; change it back to draft first.`]);
+      expect((await prisma.rndtechnosoft_crm_quotations.findUniqueOrThrow({ where: { id } })).total_amount.toFixed(2)).toBe('886.78');
+      expect((await asA('delete', `/crm/quotations/${id}`)).status).toBe(200);
+    });
+
     it('creates and updates clients, and converts a won lead (Clients)', async () => {
       expect((await asA('post', '/crm/clients', { companyName: 'No Contact Ltd' })).status).toBe(400);
       const client = await asA('post', '/crm/clients', { companyName: `Client ${SUFFIX}`, contactPerson: 'Bo', email: 'bo@client.test' });
@@ -761,11 +805,26 @@ describe('CRM & Sales in a tenant workspace', () => {
       expect(service.status).toBe(409);
       expect(service.body.message).toMatch(new RegExp(`^"Audit\\+ ${SUFFIX}" is the service on 1 lead( and \\d+ quotation lines?)?, so it can't be deleted\\. Change their service first\\.$`));
 
-      const reason = await prisma.rndtechnosoft_crm_lost_reasons_master.create({ data: { id: randomUUID(), tenant_id: a.tenantId, reason_name: 'Went with a competitor' } });
+      // Added from Masters, only by members allowed to.
+      expect((await call('post', '/crm/masters/lost-reasons', restricted.token, { reason_name: 'x' })).status).toBe(403);
+      expect((await asA('post', '/crm/masters/lost-reasons', { reason_name: '  ' })).status).toBe(400);
+      const added = await asA('post', '/crm/masters/lost-reasons', { reason_name: '  Went with a competitor ', is_active: 1 });
+      expect([added.status, added.body.message]).toEqual([201, 'Lost reason added']);
+      const reason = await prisma.rndtechnosoft_crm_lost_reasons_master.findUniqueOrThrow({ where: { id: added.body.data.id } });
+      expect(reason).toMatchObject({ tenant_id: a.tenantId, reason_name: 'Went with a competitor', is_active: true });
       await prisma.rndtechnosoft_crm_leads.update({ where: { id: lead.body.data.id }, data: { lost_reason_id: reason.id } });
       expect((await call('delete', `/crm/masters/lost-reasons?id=${reason.id}`, restricted.token)).status).toBe(403);
       const inUse = await asA('delete', `/crm/masters/lost-reasons?id=${reason.id}`);
       expect([inUse.status, inUse.body.message]).toEqual([409, `"Went with a competitor" is the lost reason of 1 lead, so it can't be deleted.`]);
+
+      // Renaming one keeps it on the lead; only members allowed to, and only in its workspace.
+      const renamed = await asA('put', '/crm/masters/lost-reasons', { id: reason.id, reason_name: 'Chose a competitor', is_active: 0 });
+      expect([renamed.status, renamed.body.message]).toEqual([200, 'Lost reason updated']);
+      expect(await prisma.rndtechnosoft_crm_lost_reasons_master.findUniqueOrThrow({ where: { id: reason.id } })).toMatchObject({ reason_name: 'Chose a competitor', is_active: false });
+      expect(await prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id: lead.body.data.id } })).toMatchObject({ lost_reason_id: reason.id });
+      expect((await asA('put', '/crm/masters/lost-reasons', { id: reason.id, reason_name: '' })).status).toBe(400);
+      expect((await call('put', '/crm/masters/lost-reasons', restricted.token, { id: reason.id, reason_name: 'x' })).status).toBe(403);
+      expect((await asB('put', '/crm/masters/lost-reasons', { id: reason.id, reason_name: 'Hijacked' })).status).toBe(404);
 
       // Once nothing uses them, they go.
       expect((await asA('delete', `/crm/leads/${lead.body.data.id}`)).status).toBe(200);
@@ -778,6 +837,71 @@ describe('CRM & Sales in a tenant workspace', () => {
       expect((await asA('delete', `/crm/quotation-templates?id=${template.id}`)).status).toBe(200);
       expect((await asA('delete', `/crm/quotation-templates?id=${template.id}`)).status).toBe(404);
       expect((await asA('delete', '/crm/masters/stages?id=not-an-id')).status).toBe(404);
+    });
+  });
+
+  describe('editing pipelines and moving stages', () => {
+    const edit: Ids = {};
+
+    it('renames a pipeline, changes its code, and makes it the only default', async () => {
+      const created = await asA('post', '/crm/masters/pipelines', { name: 'Retainers' });
+      edit.pipeline = created.body.data.id;
+      const updated = await asA('put', '/crm/masters/pipelines', { id: edit.pipeline, name: 'Monthly retainers', code: 'RETAINERS', is_default: 1, is_active: 1 });
+      expect(updated.status).toBe(200);
+      expect(updated.body.data).toMatchObject({ name: 'Monthly retainers', code: 'RETAINERS', is_default: true });
+      const defaults = await prisma.rndtechnosoft_crm_pipelines.findMany({ where: { tenant_id: a.tenantId, is_default: true }, select: { id: true } });
+      expect(defaults).toEqual([{ id: edit.pipeline }]);
+    });
+
+    it('refuses a code another pipeline uses in any case, a blank name, and another workspace', async () => {
+      const clash = await asA('put', '/crm/masters/pipelines', { id: edit.pipeline, name: 'Monthly retainers', code: 'cold_funnel' });
+      expect([clash.status, clash.body.message]).toEqual([409, 'The "Cold Funnel" pipeline already uses the code cold_funnel. Choose another code.']);
+      expect((await asA('put', '/crm/masters/pipelines', { id: edit.pipeline, name: '  ' })).status).toBe(400);
+      expect((await asB('put', '/crm/masters/pipelines', { id: edit.pipeline, name: 'Hijacked' })).status).toBe(404);
+      expect(await prisma.rndtechnosoft_crm_pipelines.findUniqueOrThrow({ where: { id: edit.pipeline } })).toMatchObject({ name: 'Monthly retainers', code: 'RETAINERS' });
+    });
+
+    it('moves an empty stage to another pipeline, but not one with leads in it', async () => {
+      const inUse = await asA('put', '/crm/masters/stages', { id: ids.stage, name: 'Fresh', pipeline_id: edit.pipeline });
+      expect(inUse.status).toBe(409);
+      expect(inUse.body.message).toMatch(/leads? (is|are) in "Fresh", so it can't move to another pipeline\. Move them to another stage on the Sales Pipeline board first\.$/);
+      expect(await prisma.rndtechnosoft_crm_stages.findUniqueOrThrow({ where: { id: ids.stage } })).toMatchObject({ pipeline_id: ids.pipeline });
+
+      const empty = await asA('post', '/crm/masters/stages', { pipeline_id: ids.pipeline, name: 'Proposal', sort_order: 5 });
+      const moved = await asA('put', '/crm/masters/stages', { id: empty.body.data.id, name: 'Proposal sent', pipeline_id: edit.pipeline });
+      expect(moved.status).toBe(200);
+      expect(await prisma.rndtechnosoft_crm_stages.findUniqueOrThrow({ where: { id: empty.body.data.id } })).toMatchObject({ pipeline_id: edit.pipeline, name: 'Proposal sent' });
+
+      const bPipeline = await prisma.rndtechnosoft_crm_pipelines.findFirstOrThrow({ where: { tenant_id: b.tenantId } });
+      expect((await asA('put', '/crm/masters/stages', { id: empty.body.data.id, name: 'Proposal sent', pipeline_id: bPipeline.id })).status).toBe(404);
+      expect(await prisma.rndtechnosoft_crm_stages.findUniqueOrThrow({ where: { id: empty.body.data.id } })).toMatchObject({ pipeline_id: edit.pipeline });
+    });
+
+    it('lists each pipeline with its real number of stages and deals', async () => {
+      const listed = (await asA('get', '/crm/masters/pipelines')).body.data as { id: string; stages_count: number; leads_count: number }[];
+      expect(listed.find((p) => p.id === edit.pipeline)).toMatchObject({ stages_count: 1, leads_count: 0 });
+      const sales = listed.find((p) => p.id === ids.pipeline);
+      expect(sales).toMatchObject({
+        stages_count: await prisma.rndtechnosoft_crm_stages.count({ where: { pipeline_id: ids.pipeline } }),
+        leads_count: await prisma.rndtechnosoft_crm_leads.count({ where: { pipeline_id: ids.pipeline } }),
+      });
+      expect(sales!.leads_count).toBeGreaterThan(0);
+    });
+  });
+
+  describe('editing lead sources', () => {
+    it('renames a source and changes its channel and status, only for members allowed to and only in its workspace', async () => {
+      const updated = await asA('put', '/crm/masters/sources', { id: ids.source, name: `Partner referral ${SUFFIX}`, channel: 'Referral', is_active: 0 });
+      expect([updated.status, updated.body.message]).toEqual([200, 'Lead source updated']);
+      expect(await prisma.rndtechnosoft_crm_lead_sources.findUniqueOrThrow({ where: { id: ids.source } })).toMatchObject({
+        name: `Partner referral ${SUFFIX}`, channel: 'Referral', is_active: false,
+      });
+
+      expect((await asA('put', '/crm/masters/sources', { id: ids.source, name: ' ' })).status).toBe(400);
+      expect((await call('put', '/crm/masters/sources', restricted.token, { id: ids.source, name: 'x' })).status).toBe(403);
+      expect((await asB('put', '/crm/masters/sources', { id: ids.source, name: 'Hijacked' })).status).toBe(404);
+      expect((await asA('put', '/crm/masters/sources', { id: randomUUID(), name: 'Nobody' })).status).toBe(404);
+      expect(await prisma.rndtechnosoft_crm_lead_sources.findUniqueOrThrow({ where: { id: ids.source } })).toMatchObject({ name: `Partner referral ${SUFFIX}` });
     });
   });
 

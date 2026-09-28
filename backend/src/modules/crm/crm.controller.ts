@@ -627,6 +627,13 @@ export class CrmController {
     return { success: true, data, message: 'Pipeline created' };
   }
 
+  @Put('masters/pipelines')
+  @RequirePermissions('pipelines.update')
+  async updatePipelineMaster(@CurrentTenant() tenantId: string, @Body() body: any) {
+    const data = await this.crmService.updateMaster(tenantId, 'pipelines', body.id, body);
+    return { success: true, data, message: 'Pipeline updated' };
+  }
+
   @Delete('masters/pipelines')
   @RequirePermissions('pipelines.delete')
   async deletePipeline(@CurrentTenant() tenantId: string, @Query('id') id: string) {
@@ -647,6 +654,13 @@ export class CrmController {
     return { success: true, data, message: 'Lead source created' };
   }
 
+  @Put('masters/sources')
+  @RequirePermissions('masters.sources.update')
+  async updateSource(@CurrentTenant() tenantId: string, @Body() body: any) {
+    const data = await this.crmService.updateMaster(tenantId, 'sources', body.id, body);
+    return { success: true, data, message: 'Lead source updated' };
+  }
+
   @Delete('masters/sources')
   @RequirePermissions('masters.sources.delete')
   async deleteSource(@CurrentTenant() tenantId: string, @Query('id') id: string) {
@@ -658,6 +672,20 @@ export class CrmController {
   @RequirePermissions('masters.lost_reasons.view')
   async getLostReasonsMaster(@CurrentTenant() tenantId: string) {
     return { success: true, data: await this.crmService.getMasters(tenantId, 'lost-reasons') };
+  }
+
+  @Post('masters/lost-reasons')
+  @RequirePermissions('masters.lost_reasons.create')
+  async createLostReason(@CurrentTenant() tenantId: string, @Body() body: any) {
+    const data = await this.crmService.createMaster(tenantId, 'lost-reasons', body);
+    return { success: true, data, message: 'Lost reason added' };
+  }
+
+  @Put('masters/lost-reasons')
+  @RequirePermissions('masters.lost_reasons.update')
+  async updateLostReason(@CurrentTenant() tenantId: string, @Body() body: any) {
+    const data = await this.crmService.updateMaster(tenantId, 'lost-reasons', body.id, body);
+    return { success: true, data, message: 'Lost reason updated' };
   }
 
   @Delete('masters/lost-reasons')

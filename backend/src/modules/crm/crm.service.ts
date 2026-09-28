@@ -2157,34 +2157,87 @@ export class CrmService {
     };
   }
 
-  async createQuotation(tenantId: string, body: any, memberId?: string) {
-    const leadId = body.leadId || body.lead_id;
-    if (!leadId) throw new BadRequestException('Choose the lead this quotation is for.');
-    const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId }, select: { id: true } });
-    if (!lead) throw new NotFoundException('Lead not found');
-
-    const rawItems: any[] = Array.isArray(body.items) ? body.items : [];
-    if (rawItems.length === 0) throw new BadRequestException('Add at least one line item to the quotation.');
-    // Money is computed in decimal, never in floating point, and rounded once per amount.
-    const items = rawItems.map((item, index) => {
-      const quantity = new Prisma.Decimal(item.quantity ?? 1);
-      const unitRate = new Prisma.Decimal(item.unitRate ?? item.unit_rate ?? 0);
+  /**
+   * Prices quotation lines and GST in decimal, never floating point, rounding
+   * each amount once to paise: a line is quantity × rate, and tax is 9% CGST +
+   * 9% SGST within the state or 18% IGST between states.
+   */
+  private priceQuotation(rawItems: unknown, rawTaxMode: unknown) {
+    const lines: any[] = Array.isArray(rawItems) ? rawItems : [];
+    if (lines.length === 0) throw new BadRequestException('Add at least one line item to the quotation.');
+    if (lines.length > 200) throw new BadRequestException('A quotation can have at most 200 lines.');
+    const decimal = (value: unknown, fallback: string, line: number, field: string) => {
+      try {
+        return new Prisma.Decimal(value === undefined || value === null || value === '' ? fallback : (value as Prisma.Decimal.Value));
+      } catch {
+        throw new BadRequestException(`Line ${line}: enter the ${field} as a number.`);
+      }
+    };
+    const items = lines.map((item, index) => {
+      const quantity = decimal(item.quantity, '1', index + 1, 'quantity');
+      const unitRate = decimal(item.unitRate ?? item.unit_rate, '0', index + 1, 'rate');
       const description = typeof item.description === 'string' && item.description.trim() ? item.description.trim() : null;
       if (!description) throw new BadRequestException(`Line ${index + 1} needs a description.`);
       if (quantity.lte(0) || unitRate.lt(0)) throw new BadRequestException(`Line ${index + 1} needs a positive quantity and a rate of zero or more.`);
-      return { item, description, quantity, unitRate, lineAmount: quantity.mul(unitRate).toDecimalPlaces(2) };
+      const serviceId = item.serviceId || item.service_id || null;
+      if (serviceId !== null && (typeof serviceId !== 'string' || !CrmService.UUID_PATTERN.test(serviceId))) {
+        throw new BadRequestException(`Line ${index + 1}: choose the service from the list.`);
+      }
+      const sacCode = typeof (item.sacCode ?? item.sac_code) === 'string' ? String(item.sacCode ?? item.sac_code).trim().slice(0, 32) || null : null;
+      return { description, quantity, unitRate, serviceId, sacCode, lineAmount: quantity.mul(unitRate).toDecimalPlaces(2) };
     });
 
     const subtotal = items.reduce((sum, line) => sum.add(line.lineAmount), new Prisma.Decimal(0));
-    const taxMode = body.taxMode === 'INTER_STATE' ? 'INTER_STATE' : 'INTRA_STATE';
+    const taxMode = rawTaxMode === 'INTER_STATE' ? 'INTER_STATE' : 'INTRA_STATE';
     const cgst = taxMode === 'INTRA_STATE' ? subtotal.mul('0.09').toDecimalPlaces(2) : new Prisma.Decimal(0);
     const sgst = taxMode === 'INTRA_STATE' ? subtotal.mul('0.09').toDecimalPlaces(2) : new Prisma.Decimal(0);
     const igst = taxMode === 'INTER_STATE' ? subtotal.mul('0.18').toDecimalPlaces(2) : new Prisma.Decimal(0);
     const totalTax = cgst.add(sgst).add(igst);
-    const grandTotal = subtotal.add(totalTax);
+    return { items, taxMode, subtotal, cgst, sgst, igst, totalTax, grandTotal: subtotal.add(totalTax) };
+  }
 
+  /** The quotation's line rows, in order, for a transaction to write. */
+  private quotationLineRows(tenantId: string, quotationId: string, items: ReturnType<CrmService['priceQuotation']>['items']) {
+    return items.map((line, index) => ({
+      id: randomUUID(),
+      tenant_id: tenantId,
+      quotation_id: quotationId,
+      service_id: line.serviceId,
+      description: line.description,
+      sac_code: line.sacCode ?? undefined,
+      quantity: line.quantity,
+      unit_rate: line.unitRate,
+      line_amount: line.lineAmount,
+      sort_order: index + 1,
+    }));
+  }
+
+  /** Validity in days (1–365, 30 when not given) turned into the last valid date. */
+  private quotationValidUntil(validDays: unknown) {
+    const days = validDays === undefined || validDays === null || validDays === '' ? 30 : Number(validDays);
+    if (!Number.isInteger(days) || days < 1 || days > 365) throw new BadRequestException('The quotation must be valid for 1 to 365 days.');
     const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + Number(body.validDays || 30));
+    validUntil.setDate(validUntil.getDate() + days);
+    return validUntil;
+  }
+
+  private quotationNotes(notes: unknown) {
+    if (notes === undefined || notes === null) return null;
+    if (typeof notes !== 'string') throw new BadRequestException('The notes must be text.');
+    if (notes.trim().length > 2000) throw new BadRequestException('The notes must be 2,000 characters or fewer.');
+    return notes.trim() || null;
+  }
+
+  async createQuotation(tenantId: string, body: any, memberId?: string) {
+    const leadId = body.leadId || body.lead_id;
+    if (!leadId) throw new BadRequestException('Choose the lead this quotation is for.');
+    if (typeof leadId !== 'string' || !CrmService.UUID_PATTERN.test(leadId)) throw new NotFoundException('Lead not found');
+    const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId }, select: { id: true } });
+    if (!lead) throw new NotFoundException('Lead not found');
+
+    const priced = this.priceQuotation(body.items, body.taxMode);
+    const validUntil = this.quotationValidUntil(body.validDays);
+    const notes = this.quotationNotes(body.notes);
     const quoteId = randomUUID();
 
     // The quotation and its lines are written together or not at all.
@@ -2198,49 +2251,91 @@ export class CrmService {
             lead_id: lead.id,
             client_state: body.clientState || null,
             branch_state: body.branchState || null,
-            tax_mode: taxMode,
-            subtotal,
-            cgst_amount: cgst,
-            sgst_amount: sgst,
-            igst_amount: igst,
-            total_tax: totalTax,
-            total_amount: grandTotal,
+            tax_mode: priced.taxMode,
+            subtotal: priced.subtotal,
+            cgst_amount: priced.cgst,
+            sgst_amount: priced.sgst,
+            igst_amount: priced.igst,
+            total_tax: priced.totalTax,
+            total_amount: priced.grandTotal,
             valid_until: validUntil,
+            notes,
             quotation_status: 'DRAFT',
           },
         });
-        await tx.rndtechnosoft_crm_quotation_items.createMany({
-          data: items.map((line, index) => ({
-            id: randomUUID(),
-            tenant_id: tenantId,
-            quotation_id: quoteId,
-            service_id: line.item.serviceId || line.item.service_id || null,
-            description: line.description,
-            sac_code: line.item.sacCode || line.item.sac_code || undefined,
-            quantity: line.quantity,
-            unit_rate: line.unitRate,
-            line_amount: line.lineAmount,
-            sort_order: index + 1,
-          })),
-        });
+        await tx.rndtechnosoft_crm_quotation_items.createMany({ data: this.quotationLineRows(tenantId, quoteId, priced.items) });
         return created;
       }),
     );
 
-    await this.logActivity(tenantId, quotation.lead_id, 'QUOTATION', `Quotation Generated: ${quotation.quotation_number}`, `Grand Total: ₹${grandTotal.toFixed(2)}`, memberId);
+    await this.logActivity(tenantId, quotation.lead_id, 'QUOTATION', `Quotation Generated: ${quotation.quotation_number}`, `Grand Total: ₹${priced.grandTotal.toFixed(2)}`, memberId);
     return quotation;
   }
 
+  /**
+   * Changes a quotation's status, or edits a draft: its lines, tax type, states,
+   * validity and notes. Lines and tax change only while the quotation is a
+   * draft, and every total is recalculated from the lines; a sent, accepted or
+   * rejected quotation keeps the amounts it was issued with.
+   */
   async updateQuotation(tenantId: string, id: string, body: any, memberId?: string) {
-    const updateData: any = {};
-    if (body.status) updateData.quotation_status = body.status;
-    if (body.taxMode) updateData.tax_mode = body.taxMode;
+    const statuses = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED'];
+    if (body.status !== undefined && !statuses.includes(body.status)) {
+      throw new BadRequestException('The status must be DRAFT, SENT, ACCEPTED or REJECTED.');
+    }
+    if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw new NotFoundException('Quotation not found');
+    const editsContent = body.items !== undefined || body.taxMode !== undefined;
 
-    const quote = await this.prisma.rndtechnosoft_crm_quotations.update({
-      where: { tenant_id_id: { tenant_id: tenantId, id } },
-      data: updateData,
+    const quote = await this.prisma.$transaction(async (tx) => {
+      // Locked, so a status change and an edit cannot interleave.
+      const locked = await tx.$queryRaw<{ quotation_status: string; quotation_number: string }[]>`
+        SELECT quotation_status, quotation_number FROM rndtechnosoft_crm_quotations WHERE tenant_id = ${tenantId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+      if (locked.length === 0) throw new NotFoundException('Quotation not found');
+      const current = locked[0];
+
+      if (!editsContent) {
+        return tx.rndtechnosoft_crm_quotations.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id } },
+          data: { ...(body.status ? { quotation_status: body.status } : {}), updated_at: new Date() },
+        });
+      }
+
+      if (current.quotation_status !== 'DRAFT') {
+        throw new ConflictException(`Only draft quotations can be edited. ${current.quotation_number} is ${current.quotation_status.toLowerCase()}; change it back to draft first.`);
+      }
+      const existingLines = body.items === undefined
+        ? await tx.rndtechnosoft_crm_quotation_items.findMany({ where: { tenant_id: tenantId, quotation_id: id }, orderBy: { sort_order: 'asc' } })
+        : null;
+      const existing = await tx.rndtechnosoft_crm_quotations.findFirstOrThrow({ where: { tenant_id: tenantId, id }, select: { tax_mode: true } });
+      const priced = this.priceQuotation(
+        body.items ?? existingLines!.map((line) => ({ description: line.description, quantity: line.quantity, unitRate: line.unit_rate, serviceId: line.service_id, sacCode: line.sac_code })),
+        body.taxMode ?? existing.tax_mode,
+      );
+      await tx.rndtechnosoft_crm_quotation_items.deleteMany({ where: { tenant_id: tenantId, quotation_id: id } });
+      await tx.rndtechnosoft_crm_quotation_items.createMany({ data: this.quotationLineRows(tenantId, id, priced.items) });
+      return tx.rndtechnosoft_crm_quotations.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: {
+          tax_mode: priced.taxMode,
+          subtotal: priced.subtotal,
+          cgst_amount: priced.cgst,
+          sgst_amount: priced.sgst,
+          igst_amount: priced.igst,
+          total_tax: priced.totalTax,
+          total_amount: priced.grandTotal,
+          ...(body.clientState !== undefined ? { client_state: body.clientState || null } : {}),
+          ...(body.branchState !== undefined ? { branch_state: body.branchState || null } : {}),
+          ...(body.validDays !== undefined ? { valid_until: this.quotationValidUntil(body.validDays) } : {}),
+          ...(body.notes !== undefined ? { notes: this.quotationNotes(body.notes) } : {}),
+          ...(body.status ? { quotation_status: body.status } : {}),
+          updated_at: new Date(),
+        },
+      });
     });
 
+    if (editsContent) {
+      await this.logActivity(tenantId, quote.lead_id, 'QUOTATION', `Quotation ${quote.quotation_number} edited`, `Grand Total: ₹${quote.total_amount.toFixed(2)}`, memberId);
+    }
     if (body.status) {
       await this.logActivity(tenantId, quote.lead_id, 'STATUS_CHANGE', `Quotation ${quote.quotation_number} status: ${body.status}`, undefined, memberId);
     }
@@ -2686,10 +2781,17 @@ export class CrmService {
     }
 
     if (type === 'pipelines') {
-      return this.prisma.rndtechnosoft_crm_pipelines.findMany({
+      // With how many stages and deals each has, for the Masters list.
+      const pipelines = await this.prisma.rndtechnosoft_crm_pipelines.findMany({
         where: { tenant_id: tenantId },
         orderBy: { sort_order: 'asc' },
+        include: { _count: { select: { rndtechnosoft_crm_stages: true, rndtechnosoft_crm_leads: true } } },
       });
+      return pipelines.map(({ _count, ...pipeline }) => ({
+        ...pipeline,
+        stages_count: _count.rndtechnosoft_crm_stages,
+        leads_count: _count.rndtechnosoft_crm_leads,
+      }));
     }
 
     if (type === 'sources') {
@@ -2845,6 +2947,20 @@ export class CrmService {
       });
     }
 
+    if (type === 'lost-reasons') {
+      const reasonName = typeof body.reason_name === 'string' ? body.reason_name.trim() : '';
+      if (!reasonName) throw new BadRequestException('Enter the lost reason.');
+      if (reasonName.length > 160) throw new BadRequestException('The lost reason must be 160 characters or fewer.');
+      return this.prisma.rndtechnosoft_crm_lost_reasons_master.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          reason_name: reasonName,
+          is_active: body.is_active !== undefined ? Boolean(Number(body.is_active)) : true,
+        },
+      });
+    }
+
     return { success: true };
   }
 
@@ -2863,9 +2979,29 @@ export class CrmService {
     }
 
     if (type === 'stages') {
+      // A stage can move to another pipeline only while no lead is in it; otherwise those leads
+      // would sit in one pipeline with a stage of another.
+      let pipelineId: string | undefined;
+      if (body.pipeline_id !== undefined && body.pipeline_id !== null && body.pipeline_id !== '') {
+        const stage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
+          where: { tenant_id: tenantId, id },
+          select: { name: true, pipeline_id: true },
+        });
+        if (!stage) throw new NotFoundException('That stage no longer exists. Reload the page.');
+        if (body.pipeline_id !== stage.pipeline_id) {
+          pipelineId = await this.resolvePipelineForTenant(tenantId, body.pipeline_id);
+          const leads = await this.prisma.rndtechnosoft_crm_leads.count({ where: { tenant_id: tenantId, stage_id: id } });
+          if (leads > 0) {
+            throw new ConflictException(
+              `${leads} lead${leads === 1 ? ' is' : 's are'} in "${stage.name}", so it can't move to another pipeline. Move them to another stage on the Sales Pipeline board first.`,
+            );
+          }
+        }
+      }
       return this.prisma.rndtechnosoft_crm_stages.update({
         where: { tenant_id_id: { tenant_id: tenantId, id } },
         data: {
+          ...(pipelineId ? { pipeline_id: pipelineId } : {}),
           name: body.name,
           color: body.color,
           stage_probability: body.stage_probability !== undefined ? Number(body.stage_probability) : undefined,
@@ -2877,7 +3013,83 @@ export class CrmService {
       });
     }
 
+    if (type === 'pipelines') {
+      return this.updatePipeline(tenantId, id, body);
+    }
+
+    if (type === 'lost-reasons') {
+      // Leads refer to a lost reason by id, so renaming one keeps it on every lead that has it.
+      const gone = new NotFoundException('That lost reason no longer exists. Reload the page.');
+      if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw gone;
+      const reasonName = typeof body.reason_name === 'string' ? body.reason_name.trim() : '';
+      if (!reasonName) throw new BadRequestException('Enter the lost reason.');
+      if (reasonName.length > 160) throw new BadRequestException('The lost reason must be 160 characters or fewer.');
+      const reason = await this.prisma.rndtechnosoft_crm_lost_reasons_master.findFirst({ where: { tenant_id: tenantId, id }, select: { id: true } });
+      if (!reason) throw gone;
+      return this.prisma.rndtechnosoft_crm_lost_reasons_master.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: { reason_name: reasonName, ...(body.is_active !== undefined ? { is_active: Boolean(Number(body.is_active)) } : {}) },
+      });
+    }
+
+    if (type === 'sources') {
+      // Leads refer to a source by id, so renaming one keeps it on every lead that has it.
+      if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw new NotFoundException('That lead source no longer exists. Reload the page.');
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) throw new BadRequestException('Enter the source name.');
+      if (name.length > 100) throw new BadRequestException('The source name must be 100 characters or fewer.');
+      const channel = typeof body.channel === 'string' && body.channel.trim() ? body.channel.trim() : 'DIRECT';
+      if (channel.length > 64) throw new BadRequestException('The channel group must be 64 characters or fewer.');
+      const source = await this.prisma.rndtechnosoft_crm_lead_sources.findFirst({ where: { tenant_id: tenantId, id }, select: { id: true } });
+      if (!source) throw new NotFoundException('That lead source no longer exists. Reload the page.');
+      return this.prisma.rndtechnosoft_crm_lead_sources.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: { name, channel, ...(body.is_active !== undefined ? { is_active: Boolean(Number(body.is_active)) } : {}) },
+      });
+    }
+
     return { success: true };
+  }
+
+  /**
+   * Renames a pipeline or changes its code, default flag or active flag. Codes
+   * are unique in a workspace regardless of case (the Cold Funnel is found by
+   * code that way), and one pipeline at most is the default.
+   */
+  private async updatePipeline(tenantId: string, id: unknown, body: any) {
+    const gone = new NotFoundException('That pipeline no longer exists. Reload the page.');
+    if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw gone;
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name) throw new BadRequestException('Enter the pipeline name.');
+    if (name.length > 120) throw new BadRequestException('The pipeline name must be 120 characters or fewer.');
+    const typedCode = typeof body.code === 'string' ? body.code.trim() : '';
+    const code = typedCode || name.toUpperCase().replace(/\s+/g, '_');
+    if (code.length > 64) throw new BadRequestException('The pipeline code must be 64 characters or fewer.');
+
+    return this.prisma.$transaction(async (tx) => {
+      const pipeline = await tx.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId, id }, select: { id: true } });
+      if (!pipeline) throw gone;
+      const clash = await tx.rndtechnosoft_crm_pipelines.findFirst({
+        where: { tenant_id: tenantId, code: { equals: code, mode: 'insensitive' }, NOT: { id } },
+        select: { name: true },
+      });
+      if (clash) throw new ConflictException(`The "${clash.name}" pipeline already uses the code ${code}. Choose another code.`);
+
+      const isDefault = body.is_default !== undefined ? Boolean(Number(body.is_default)) : undefined;
+      if (isDefault) {
+        await tx.rndtechnosoft_crm_pipelines.updateMany({ where: { tenant_id: tenantId, is_default: true, NOT: { id } }, data: { is_default: false } });
+      }
+      return tx.rndtechnosoft_crm_pipelines.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id } },
+        data: {
+          name,
+          code,
+          ...(isDefault !== undefined ? { is_default: isDefault } : {}),
+          ...(body.is_active !== undefined ? { is_active: Boolean(Number(body.is_active)) } : {}),
+          updated_at: new Date(),
+        },
+      });
+    });
   }
 
   /**

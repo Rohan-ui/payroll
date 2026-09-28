@@ -33,10 +33,13 @@ beforeEach(async () => {
       const method = init.method ?? 'GET';
       calls.push({ url, method, body: init.body ? JSON.parse(String(init.body)) : null });
       if (method === 'DELETE') return deleteReply();
+      if (method === 'PUT') return json({ success: true, data: {}, message: 'Updated' });
       if (method === 'POST') return json({ success: true, data: { label: 'Pricing too high' }, message: 'Objection strategy "Pricing too high" added' }, 201);
       if (url.endsWith('/masters/pipelines')) return json({ success: true, data: PIPELINES });
       if (url.endsWith('/masters/stages')) return json({ success: true, data: STAGES });
       if (url.endsWith('/masters/sop-branches')) return json({ success: true, data: BRANCHES });
+      if (url.endsWith('/masters/lost-reasons')) return json({ success: true, data: [{ id: 'lr-1', reason_name: 'Budget too low', is_active: true }] });
+      if (url.endsWith('/masters/sources')) return json({ success: true, data: [{ id: 'src-1', name: 'Google Ads', channel: 'Paid Search', is_active: true }] });
       return json({ success: true, data: [] });
     }),
   );
@@ -118,4 +121,63 @@ it('shows an objection strategy in full from its eye button, and closes with Esc
   act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(container.querySelector('[role=dialog]')).toBeNull();
   expect(document.activeElement).toBe(eye);
+});
+
+it('edits a lead source from its Edit button', async () => {
+  act(() => button('Lead Sources')?.click());
+  const row = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('Google Ads'))!;
+  act(() => (row.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
+  const type = (selector: string, value: string) =>
+    act(() => {
+      const el = container.querySelector(selector) as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  expect((container.querySelector('input[placeholder="e.g. Google Ads, LinkedIn Campaign"]') as HTMLInputElement).value).toBe('Google Ads');
+  type('input[placeholder="e.g. Google Ads, LinkedIn Campaign"]', 'Google Ads (Search)');
+  type('input[placeholder="e.g. Paid Search, Social Media"]', 'Paid');
+  await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+  await flush();
+
+  const puts = calls.filter((c) => c.method === 'PUT');
+  expect(puts.map((c) => c.url)).toEqual(['/api/v1/crm/masters/sources']);
+  expect(puts[0].body).toMatchObject({ id: 'src-1', name: 'Google Ads (Search)', channel: 'Paid' });
+  expect(container.querySelector('form')).toBeNull();
+});
+
+it('edits a lost reason from its Edit button', async () => {
+  act(() => button('Lost Reasons')?.click());
+  const row = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('Budget too low'))!;
+  act(() => (row.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
+  const input = container.querySelector('input[placeholder="e.g. Competitor provided cheaper rate"]') as HTMLInputElement;
+  expect(input.value).toBe('Budget too low');
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'Budget cut this quarter');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+  await flush();
+
+  const puts = calls.filter((c) => c.method === 'PUT');
+  expect(puts.map((c) => c.url)).toEqual(['/api/v1/crm/masters/lost-reasons']);
+  expect(puts[0].body).toMatchObject({ id: 'lr-1', reason_name: 'Budget cut this quarter' });
+  expect(container.querySelector('form')).toBeNull();
+});
+
+it('adds a lost reason from Add to Master', async () => {
+  act(() => button('Lost Reasons')?.click());
+  act(() => button('Add to Master')?.click());
+  const input = container.querySelector('input[placeholder="e.g. Competitor provided cheaper rate"]') as HTMLInputElement;
+  expect(input.value).toBe('');
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'No budget this year');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+  await flush();
+
+  const posts = calls.filter((c) => c.method === 'POST');
+  expect(posts.map((c) => c.url)).toEqual(['/api/v1/crm/masters/lost-reasons']);
+  expect(posts[0].body).toMatchObject({ reason_name: 'No budget this year', is_active: 1 });
+  expect(container.querySelector('form')).toBeNull();
 });
