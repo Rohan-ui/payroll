@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { encode } from 'uqr';
 import {
   ShieldCheck,
   ShieldAlert,
@@ -34,6 +35,38 @@ const Panel: React.FC<{
     {children}
   </section>
 );
+
+/**
+ * The authenticator setup link as a QR code, drawn here in the browser: the
+ * link holds the MFA secret, so it is never sent to a QR service. Always dark
+ * on white with a 4-module margin, which authenticator cameras expect.
+ */
+const SetupQrCode: React.FC<{ uri: string }> = ({ uri }) => {
+  const qr = useMemo(() => {
+    try {
+      return encode(uri, { ecc: 'M', border: 4 });
+    } catch {
+      return null;
+    }
+  }, [uri]);
+  if (!qr) return null;
+
+  const path = qr.data
+    .flatMap((row, y) => row.map((dark, x) => (dark ? `M${x} ${y}h1v1h-1z` : '')))
+    .join('');
+  return (
+    <svg
+      role="img"
+      aria-label="QR code for setting up two-factor authentication"
+      viewBox={`0 0 ${qr.size} ${qr.size}`}
+      shapeRendering="crispEdges"
+      className="w-44 h-44 shrink-0 rounded-lg border border-hq-border"
+    >
+      <rect width={qr.size} height={qr.size} fill="#ffffff" />
+      <path d={path} fill="#000000" />
+    </svg>
+  );
+};
 
 const RecoveryCodeList: React.FC<{ codes: string[]; onDone: () => void }> = ({ codes, onDone }) => {
   const [copied, setCopied] = useState(false);
@@ -275,44 +308,49 @@ export const PlatformAccountSecurityView: React.FC = () => {
             <div className="space-y-4">
               <ol className="text-xs text-hq-foreground/90 space-y-2 list-decimal list-inside leading-relaxed">
                 <li>Open your authenticator app and add a new account.</li>
-                <li>Paste the setup link below, or type the secret manually.</li>
+                <li>Scan the QR code, or paste the setup link or type the secret manually.</li>
                 <li>Enter the 6-digit code the app shows to confirm.</li>
               </ol>
 
-              <div>
-                <p className="text-[11px] font-semibold text-hq-muted-foreground mb-1.5">Secret</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 px-3 py-2.5 rounded-lg bg-hq-background border border-hq-border text-hq-link font-mono text-xs break-all">
-                    {enrollment.secretFormatted}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(enrollment.secret);
-                        setSecretCopied(true);
-                        window.setTimeout(() => setSecretCopied(false), 2000);
-                      } catch {
-                        setSecretCopied(false);
-                      }
-                    }}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 h-9 rounded-lg border border-hq-border text-hq-foreground hover:bg-hq-accent text-[11px] font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hq-ring"
-                  >
-                    {secretCopied ? (
-                      <Check className="w-3.5 h-3.5 text-hq-success" aria-hidden="true" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" aria-hidden="true" />
-                    )}
-                    {secretCopied ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-              </div>
+              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                <SetupQrCode uri={enrollment.otpauthUri} />
+                <div className="flex-1 min-w-0 space-y-4">
+                  <div>
+                    <p className="text-[11px] font-semibold text-hq-muted-foreground mb-1.5">Secret</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-3 py-2.5 rounded-lg bg-hq-background border border-hq-border text-hq-link font-mono text-xs break-all">
+                        {enrollment.secretFormatted}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(enrollment.secret);
+                            setSecretCopied(true);
+                            window.setTimeout(() => setSecretCopied(false), 2000);
+                          } catch {
+                            setSecretCopied(false);
+                          }
+                        }}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-2.5 h-9 rounded-lg border border-hq-border text-hq-foreground hover:bg-hq-accent text-[11px] font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hq-ring"
+                      >
+                        {secretCopied ? (
+                          <Check className="w-3.5 h-3.5 text-hq-success" aria-hidden="true" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                        )}
+                        {secretCopied ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
 
-              <div>
-                <p className="text-[11px] font-semibold text-hq-muted-foreground mb-1.5">Setup link</p>
-                <code className="block px-3 py-2.5 rounded-lg bg-hq-background border border-hq-border text-hq-muted-foreground font-mono text-[10px] break-all">
-                  {enrollment.otpauthUri}
-                </code>
+                  <div>
+                    <p className="text-[11px] font-semibold text-hq-muted-foreground mb-1.5">Setup link</p>
+                    <code className="block px-3 py-2.5 rounded-lg bg-hq-background border border-hq-border text-hq-muted-foreground font-mono text-[10px] break-all">
+                      {enrollment.otpauthUri}
+                    </code>
+                  </div>
+                </div>
               </div>
 
               <form
