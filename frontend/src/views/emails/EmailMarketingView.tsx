@@ -1713,7 +1713,7 @@ export const EmailMarketingView: React.FC = () => {
                     <th className="py-3 px-4 text-right">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                {/* <tbody className="divide-y divide-slate-100">
                   {AUDIENCE_CONTACTS.map((c) => (
                     <tr key={c.id} className="hover:bg-slate-50/60">
                       <td className="py-3 px-4">
@@ -1736,7 +1736,7 @@ export const EmailMarketingView: React.FC = () => {
                       </td>
                     </tr>
                   ))}
-                </tbody>
+                </tbody> */}
               </table>
             </div>
           </div>
