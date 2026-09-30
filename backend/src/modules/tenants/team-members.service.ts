@@ -37,13 +37,22 @@ export class TeamMembersService {
   ) {}
 
   async listMembers(tenantId: string) {
-    const members = await this.prisma.rndtechnosoft_tenant_members.findMany({
-      where: { tenant_id: tenantId, membership_status: { in: LISTED_STATUSES } },
-      include: memberInclude,
-      orderBy: [{ joined_at: 'asc' }, { created_at: 'asc' }],
-    });
+    const [members, leadCounts] = await Promise.all([
+      this.prisma.rndtechnosoft_tenant_members.findMany({
+        where: { tenant_id: tenantId, membership_status: { in: LISTED_STATUSES } },
+        include: memberInclude,
+        orderBy: [{ joined_at: 'asc' }, { created_at: 'asc' }],
+      }),
+      // Leads each member owns now (the lead's assigned member), one grouped query for everyone.
+      this.prisma.rndtechnosoft_crm_leads.groupBy({
+        by: ['assigned_tenant_member_id'],
+        where: { tenant_id: tenantId, assigned_tenant_member_id: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
+    const counts = new Map(leadCounts.map((row) => [row.assigned_tenant_member_id, row._count._all]));
 
-    return members.map((member) => this.toResponse(member));
+    return members.map((member) => ({ ...this.toResponse(member), leads_count: counts.get(member.id) ?? 0 }));
   }
 
   async createMember(tenantId: string, input: CreateTeamMemberDto, actor: AuthenticatedTenantUser) {

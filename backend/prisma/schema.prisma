@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL_REAL")
 }
 
 model rndtechnosoft_attendance_adjustments {
@@ -165,6 +165,8 @@ model rndtechnosoft_departments {
   other_rndtechnosoft_departments    rndtechnosoft_departments[]          @relation("rndtechnosoft_departmentsTorndtechnosoft_departments")
   rndtechnosoft_employee_employments rndtechnosoft_employee_employments[]
   rndtechnosoft_teams                rndtechnosoft_teams[]
+  rndtechnosoft_candidates           rndtechnosoft_candidates[]
+  rndtechnosoft_offers               rndtechnosoft_offers[]
 
   @@unique([tenant_id, department_code], map: "uq_departments_1")
   @@unique([tenant_id, id], map: "uq_departments_tenant_id")
@@ -183,6 +185,8 @@ model rndtechnosoft_designations {
   updated_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_tenants              rndtechnosoft_tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_designations_1")
   rndtechnosoft_employee_employments rndtechnosoft_employee_employments[]
+  rndtechnosoft_candidates           rndtechnosoft_candidates[]
+  rndtechnosoft_offers               rndtechnosoft_offers[]
 
   @@unique([tenant_id, designation_code], map: "uq_designations_1")
   @@unique([tenant_id, id], map: "uq_designations_tenant_id")
@@ -569,6 +573,8 @@ model rndtechnosoft_employees {
   rndtechnosoft_payslips                                                                                                               rndtechnosoft_payslips[]
   rndtechnosoft_reimbursement_claims                                                                                                   rndtechnosoft_reimbursement_claims[]
   rndtechnosoft_statutory_deductions                                                                                                   rndtechnosoft_statutory_deductions[]
+  rndtechnosoft_candidates                                                                                                             rndtechnosoft_candidates?
+  managed_offers                                                                                                                       rndtechnosoft_offers[]                            @relation("offer_reporting_manager")
 
   @@unique([tenant_id, employee_code], map: "uq_employees_1")
   @@unique([tenant_id, user_id], map: "uq_employees_2")
@@ -587,6 +593,8 @@ model rndtechnosoft_employment_types {
   updated_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_employee_employments rndtechnosoft_employee_employments[]
   rndtechnosoft_tenants              rndtechnosoft_tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employment_types_1")
+  rndtechnosoft_candidates           rndtechnosoft_candidates[]
+  rndtechnosoft_offers               rndtechnosoft_offers[]
 
   @@unique([tenant_id, employment_type_code], map: "uq_employment_types_1")
   @@unique([tenant_id, id], map: "uq_employment_types_tenant_id")
@@ -1389,24 +1397,24 @@ model rndtechnosoft_tenant_member_roles {
 }
 
 model rndtechnosoft_tenant_members {
-  id                                                                                                                                              String                                  @id @db.Uuid
-  tenant_id                                                                                                                                       String                                  @db.Uuid
-  user_id                                                                                                                                         String                                  @db.Uuid
-  membership_status                                                                                                                               String                                  @default("ACTIVE") @db.VarChar(32)
-  invited_at                                                                                                                                      DateTime?                               @db.Timestamptz(6)
-  joined_at                                                                                                                                       DateTime?                               @db.Timestamptz(6)
-  archived_at                                                                                                                                     DateTime?                               @db.Timestamptz(6)
-  created_at                                                                                                                                      DateTime                                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                                                                                                                                      DateTime                                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_attendance_adjustments_rndtechnosoft_attendance_adjustments_tenant_id_requested_by_tenant_member_idTorndtechnosoft_tenant_members rndtechnosoft_attendance_adjustments[]  @relation("rndtechnosoft_attendance_adjustments_tenant_id_requested_by_tenant_member_idTorndtechnosoft_tenant_members")
-  rndtechnosoft_attendance_adjustments_rndtechnosoft_attendance_adjustments_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members  rndtechnosoft_attendance_adjustments[]  @relation("rndtechnosoft_attendance_adjustments_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members")
+  id                                                                                                                                              String                                      @id @db.Uuid
+  tenant_id                                                                                                                                       String                                      @db.Uuid
+  user_id                                                                                                                                         String                                      @db.Uuid
+  membership_status                                                                                                                               String                                      @default("ACTIVE") @db.VarChar(32)
+  invited_at                                                                                                                                      DateTime?                                   @db.Timestamptz(6)
+  joined_at                                                                                                                                       DateTime?                                   @db.Timestamptz(6)
+  archived_at                                                                                                                                     DateTime?                                   @db.Timestamptz(6)
+  created_at                                                                                                                                      DateTime                                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                                                                                                                                      DateTime                                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_attendance_adjustments_rndtechnosoft_attendance_adjustments_tenant_id_requested_by_tenant_member_idTorndtechnosoft_tenant_members rndtechnosoft_attendance_adjustments[]      @relation("rndtechnosoft_attendance_adjustments_tenant_id_requested_by_tenant_member_idTorndtechnosoft_tenant_members")
+  rndtechnosoft_attendance_adjustments_rndtechnosoft_attendance_adjustments_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members  rndtechnosoft_attendance_adjustments[]      @relation("rndtechnosoft_attendance_adjustments_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members")
   rndtechnosoft_audit_logs                                                                                                                        rndtechnosoft_audit_logs[]
   rndtechnosoft_employee_documents                                                                                                                rndtechnosoft_employee_documents[]
   rndtechnosoft_leave_approvals                                                                                                                   rndtechnosoft_leave_approvals[]
   rndtechnosoft_payroll_inputs                                                                                                                    rndtechnosoft_payroll_inputs[]
-  rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members                       rndtechnosoft_payroll_runs[]            @relation("rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members")
-  rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members                      rndtechnosoft_payroll_runs[]            @relation("rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members")
-  rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members                     rndtechnosoft_payroll_runs[]            @relation("rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members")
+  rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members                       rndtechnosoft_payroll_runs[]                @relation("rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members")
+  rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members                      rndtechnosoft_payroll_runs[]                @relation("rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members")
+  rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members                     rndtechnosoft_payroll_runs[]                @relation("rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members")
   rndtechnosoft_reimbursement_approvals                                                                                                           rndtechnosoft_reimbursement_approvals[]
   rndtechnosoft_tenant_member_roles                                                                                                               rndtechnosoft_tenant_member_roles[]
   rndtechnosoft_user_sessions                                                                                                                     rndtechnosoft_user_sessions[]
@@ -1414,8 +1422,26 @@ model rndtechnosoft_tenant_members {
   rndtechnosoft_crm_lead_activities                                                                                                               rndtechnosoft_crm_lead_activities[]
   rndtechnosoft_crm_lead_followups                                                                                                                rndtechnosoft_crm_lead_followups[]
   rndtechnosoft_gmail_connections                                                                                                                 rndtechnosoft_gmail_connections[]
-  rndtechnosoft_tenants                                                                                                                           rndtechnosoft_tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_1")
-  rndtechnosoft_users                                                                                                                             rndtechnosoft_users                     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_2")
+  rndtechnosoft_user_mail_accounts                                                                                                                rndtechnosoft_user_mail_accounts[]
+  initiated_onboarding_notifications                                                                                                              rndtechnosoft_onboarding_notifications[]    @relation("onboarding_notification_initiated_by")
+  rndtechnosoft_tenants                                                                                                                           rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_1")
+  rndtechnosoft_users                                                                                                                             rndtechnosoft_users                         @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_members_2")
+  recruited_candidates                                                                                                                            rndtechnosoft_candidates[]                  @relation("candidate_recruiter")
+  created_candidates                                                                                                                              rndtechnosoft_candidates[]                  @relation("candidate_created_by")
+  decided_interviews                                                                                                                              rndtechnosoft_interviews[]                  @relation("interview_decided_by")
+  created_interviews                                                                                                                              rndtechnosoft_interviews[]                  @relation("interview_created_by")
+  rndtechnosoft_candidate_events                                                                                                                  rndtechnosoft_candidate_events[]
+  rndtechnosoft_interview_panelists                                                                                                               rndtechnosoft_interview_panelists[]
+  created_document_templates                                                                                                                      rndtechnosoft_document_templates[]          @relation("document_template_created_by")
+  created_template_versions                                                                                                                       rndtechnosoft_document_template_versions[]  @relation("template_version_created_by")
+  approved_template_versions                                                                                                                      rndtechnosoft_document_template_versions[]  @relation("template_version_approved_by")
+  sent_offers                                                                                                                                     rndtechnosoft_offers[]                      @relation("offer_sent_by")
+  created_offers                                                                                                                                  rndtechnosoft_offers[]                      @relation("offer_created_by")
+  rndtechnosoft_offer_approvals                                                                                                                   rndtechnosoft_offer_approvals[]
+  requested_candidate_documents                                                                                                                   rndtechnosoft_candidate_document_requests[] @relation("candidate_document_request_created_by")
+  created_letterheads                                                                                                                             rndtechnosoft_letterheads[]                 @relation("letterhead_created_by")
+  uploaded_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_uploaded_by")
+  reviewed_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_reviewed_by")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
@@ -1566,6 +1592,10 @@ model rndtechnosoft_tenants {
   rndtechnosoft_email_deliveries               rndtechnosoft_email_deliveries[]
   rndtechnosoft_email_templates                rndtechnosoft_email_templates[]
   rndtechnosoft_tenant_onboardings             rndtechnosoft_tenant_onboardings?
+  rndtechnosoft_candidates                     rndtechnosoft_candidates[]
+  rndtechnosoft_onboarding_notifications       rndtechnosoft_onboarding_notifications[]
+  rndtechnosoft_document_templates             rndtechnosoft_document_templates[]
+  rndtechnosoft_letterheads                    rndtechnosoft_letterheads[]
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
@@ -2361,4 +2391,417 @@ model rndtechnosoft_role_template_permissions {
 
   @@unique([role_template_id, permission_id], map: "uq_role_template_permissions")
   @@index([permission_id], map: "ix_role_template_permissions_permission")
+}
+
+/// A person going through hiring and onboarding, before (and linked after) they become an employee.
+model rndtechnosoft_candidates {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  candidate_code              String    @db.VarChar(64)
+  full_name                   String    @db.VarChar(200)
+  email                       String    @db.VarChar(320)
+  phone                       String?   @db.VarChar(32)
+  address                     String?   @db.Text
+  applied_position            String    @db.VarChar(160)
+  department_id               String?   @db.Uuid
+  designation_id              String?   @db.Uuid
+  employment_type_id          String?   @db.Uuid
+  hiring_source               String?   @db.VarChar(64)
+  expected_salary             Decimal?  @db.Decimal(14, 2)
+  experience_years            Decimal?  @db.Decimal(4, 1)
+  expected_joining_date       DateTime? @db.Date
+  recruiter_tenant_member_id  String?   @db.Uuid
+  candidate_status            String    @default("NEW") @db.VarChar(32)
+  notes                       String?   @db.Text
+  employee_id                 String?   @db.Uuid
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_by_tenant_member_id String?   @db.Uuid
+  /// The candidate's document upload link: only its SHA-256 is kept. Each link sent gets the next number.
+  document_token_hash         String?   @unique(map: "uq_candidates_document_token") @db.Char(64)
+  document_link_number        Int       @default(0)
+  document_link_sent_at       DateTime? @db.Timestamptz(6)
+  document_link_expires_at    DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                     rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_tenant")
+  rndtechnosoft_departments                 rndtechnosoft_departments?                  @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_department")
+  rndtechnosoft_designations                rndtechnosoft_designations?                 @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_designation")
+  rndtechnosoft_employment_types            rndtechnosoft_employment_types?             @relation(fields: [tenant_id, employment_type_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_employment_type")
+  recruiter                                 rndtechnosoft_tenant_members?               @relation("candidate_recruiter", fields: [tenant_id, recruiter_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_recruiter")
+  created_by                                rndtechnosoft_tenant_members?               @relation("candidate_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_created_by")
+  rndtechnosoft_employees                   rndtechnosoft_employees?                    @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_employee")
+  rndtechnosoft_candidate_events            rndtechnosoft_candidate_events[]
+  rndtechnosoft_interviews                  rndtechnosoft_interviews[]
+  rndtechnosoft_offers                      rndtechnosoft_offers[]
+  rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests[]
+
+  @@unique([tenant_id, id], map: "uq_candidates_tenant_id")
+  @@unique([tenant_id, candidate_code], map: "uq_candidates_code")
+  @@unique([tenant_id, employee_id], map: "uq_candidates_employee")
+  @@index([tenant_id, candidate_status], map: "ix_candidates_status")
+  @@index([tenant_id, created_at(sort: Desc)], map: "ix_candidates_created")
+}
+
+/// The candidate's timeline: every status change (with who, when and why), edit, note and interview event.
+model rndtechnosoft_candidate_events {
+  id                     String   @id @db.Uuid
+  tenant_id              String   @db.Uuid
+  candidate_id           String   @db.Uuid
+  event_type             String   @db.VarChar(48)
+  from_status            String?  @db.VarChar(32)
+  to_status              String?  @db.VarChar(32)
+  is_override            Boolean  @default(false)
+  summary                String   @db.VarChar(300)
+  notes                  String?  @db.Text
+  actor_tenant_member_id String?  @db.Uuid
+  metadata               Json?
+  created_at             DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates     rndtechnosoft_candidates      @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_events_candidate")
+  rndtechnosoft_tenant_members rndtechnosoft_tenant_members? @relation(fields: [tenant_id, actor_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_events_actor")
+
+  @@index([tenant_id, candidate_id, created_at], map: "ix_candidate_events_candidate")
+}
+
+/// One interview round with a candidate. Rescheduling changes this row; cancelling keeps it.
+model rndtechnosoft_interviews {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  candidate_id                String    @db.Uuid
+  round_number                Int
+  round_name                  String?   @db.VarChar(120)
+  interview_type              String    @db.VarChar(16)
+  scheduled_start             DateTime  @db.Timestamptz(6)
+  duration_minutes            Int
+  timezone                    String    @db.VarChar(64)
+  location                    String?   @db.VarChar(300)
+  meeting_link                String?   @db.VarChar(500)
+  instructions                String?   @db.Text
+  interview_status            String    @default("SCHEDULED") @db.VarChar(16)
+  cancel_reason               String?   @db.VarChar(500)
+  decision                    String?   @db.VarChar(16)
+  decision_notes              String?   @db.Text
+  decided_by_tenant_member_id String?   @db.Uuid
+  decided_at                  DateTime? @db.Timestamptz(6)
+  created_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates          rndtechnosoft_candidates            @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interviews_candidate")
+  decided_by                        rndtechnosoft_tenant_members?       @relation("interview_decided_by", fields: [tenant_id, decided_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interviews_decided_by")
+  created_by                        rndtechnosoft_tenant_members?       @relation("interview_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interviews_created_by")
+  rndtechnosoft_interview_panelists rndtechnosoft_interview_panelists[]
+
+  @@unique([tenant_id, id], map: "uq_interviews_tenant_id")
+  @@index([tenant_id, scheduled_start], map: "ix_interviews_start")
+  @@index([tenant_id, candidate_id], map: "ix_interviews_candidate")
+}
+
+/// An interviewer on an interview, with their own feedback.
+model rndtechnosoft_interview_panelists {
+  id                      String    @id @db.Uuid
+  tenant_id               String    @db.Uuid
+  interview_id            String    @db.Uuid
+  tenant_member_id        String    @db.Uuid
+  feedback_rating         Int?      @db.SmallInt
+  feedback_recommendation String?   @db.VarChar(16)
+  feedback_notes          String?   @db.Text
+  feedback_submitted_at   DateTime? @db.Timestamptz(6)
+  created_at              DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_interviews     rndtechnosoft_interviews     @relation(fields: [tenant_id, interview_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_interview_panelists_interview")
+  rndtechnosoft_tenant_members rndtechnosoft_tenant_members @relation(fields: [tenant_id, tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interview_panelists_member")
+
+  @@unique([tenant_id, interview_id, tenant_member_id], map: "uq_interview_panelists")
+  @@index([tenant_id, tenant_member_id], map: "ix_interview_panelists_member")
+}
+
+/// An onboarding email, once per idempotency key, so a retried request never sends it twice.
+model rndtechnosoft_onboarding_notifications {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  idempotency_key               String    @db.VarChar(200)
+  template_code                 String    @db.VarChar(64)
+  recipient_email               String    @db.VarChar(320)
+  candidate_id                  String?   @db.Uuid
+  interview_id                  String?   @db.Uuid
+  delivery_status               String    @db.VarChar(32)
+  error_message                 String?   @db.VarChar(500)
+  sent_at                       DateTime? @db.Timestamptz(6)
+  /// Which account sent it (PERSONAL, GMAIL or ORGANIZATION) and its address, and who started it; null for automatic emails.
+  sender_kind                   String?   @db.VarChar(16)
+  sender_email                  String?   @db.VarChar(320)
+  initiated_by_tenant_member_id String?   @db.Uuid
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants rndtechnosoft_tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_notifications_tenant")
+  initiated_by          rndtechnosoft_tenant_members? @relation("onboarding_notification_initiated_by", fields: [tenant_id, initiated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_notifications_initiated_by")
+
+  @@unique([tenant_id, idempotency_key], map: "uq_onboarding_notifications_key")
+  @@index([tenant_id, candidate_id], map: "ix_onboarding_notifications_candidate")
+}
+
+/// A letter or certificate template of the workspace. Its text lives in versions; only an approved version is used.
+model rndtechnosoft_document_templates {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  template_kind               String   @db.VarChar(32)
+  template_name               String   @db.VarChar(160)
+  is_archived                 Boolean  @default(false)
+  created_by_tenant_member_id String?  @db.Uuid
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_templates_tenant")
+  created_by                               rndtechnosoft_tenant_members?              @relation("document_template_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_templates_created_by")
+  rndtechnosoft_document_template_versions rndtechnosoft_document_template_versions[]
+
+  @@unique([tenant_id, id], map: "uq_document_templates_tenant_id")
+  @@unique([tenant_id, template_kind, template_name], map: "uq_document_templates_name")
+}
+
+/// One version of a template's wording. Drafts are edited; an approved version is fixed and is what documents use.
+model rndtechnosoft_document_template_versions {
+  id                           String    @id @db.Uuid
+  tenant_id                    String    @db.Uuid
+  template_id                  String    @db.Uuid
+  version_number               Int
+  title                        String    @db.VarChar(200)
+  body                         String    @db.Text
+  version_status               String    @default("DRAFT") @db.VarChar(16)
+  created_by_tenant_member_id  String?   @db.Uuid
+  approved_by_tenant_member_id String?   @db.Uuid
+  approved_at                  DateTime? @db.Timestamptz(6)
+  /// Page layout, fixed with the wording when the version is approved. No letterhead: a plain page.
+  letterhead_id                String?   @db.Uuid
+  page_size                    String    @default("A4") @db.VarChar(8)
+  margin_mm                    Int       @default(20)
+  show_page_numbers            Boolean   @default(false)
+  created_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_letterheads        rndtechnosoft_letterheads?       @relation(fields: [tenant_id, letterhead_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_template_versions_letterhead")
+  rndtechnosoft_document_templates rndtechnosoft_document_templates @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_template_versions_template")
+  created_by                       rndtechnosoft_tenant_members?    @relation("template_version_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_template_versions_created_by")
+  approved_by                      rndtechnosoft_tenant_members?    @relation("template_version_approved_by", fields: [tenant_id, approved_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_template_versions_approved_by")
+  rndtechnosoft_offers             rndtechnosoft_offers[]
+
+  @@unique([tenant_id, id], map: "uq_template_versions_tenant_id")
+  @@unique([tenant_id, template_id, version_number], map: "uq_template_versions_number")
+}
+
+/// A job offer to a candidate: its terms, approval, the letter as sent, and the candidate's response.
+model rndtechnosoft_offers {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  candidate_id                  String    @db.Uuid
+  offer_code                    String    @db.VarChar(64)
+  template_version_id           String    @db.Uuid
+  job_title                     String    @db.VarChar(160)
+  department_id                 String?   @db.Uuid
+  designation_id                String?   @db.Uuid
+  employment_type_id            String?   @db.Uuid
+  reporting_manager_employee_id String?   @db.Uuid
+  work_location                 String?   @db.VarChar(200)
+  annual_ctc                    Decimal   @db.Decimal(14, 2)
+  currency_code                 String    @default("INR") @db.Char(3)
+  probation_months              Int?
+  joining_date                  DateTime  @db.Date
+  expires_on                    DateTime  @db.Date
+  special_terms                 String?   @db.Text
+  offer_status                  String    @default("DRAFT") @db.VarChar(24)
+  submission_number             Int       @default(0)
+  rendered_title                String?   @db.VarChar(200)
+  rendered_body                 String?   @db.Text
+  pdf_storage_key               String?   @db.VarChar(500)
+  pdf_sha256                    String?   @db.Char(64)
+  response_token_hash           String?   @unique(map: "uq_offers_response_token") @db.Char(64)
+  submitted_at                  DateTime? @db.Timestamptz(6)
+  approved_at                   DateTime? @db.Timestamptz(6)
+  sent_at                       DateTime? @db.Timestamptz(6)
+  sent_by_tenant_member_id      String?   @db.Uuid
+  responded_at                  DateTime? @db.Timestamptz(6)
+  response_ip                   String?   @db.VarChar(64)
+  response_user_agent           String?   @db.VarChar(300)
+  accepted_name                 String?   @db.VarChar(200)
+  decline_reason                String?   @db.Text
+  withdrawn_reason              String?   @db.Text
+  created_by_tenant_member_id   String?   @db.Uuid
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates                 rndtechnosoft_candidates                 @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_candidate")
+  rndtechnosoft_document_template_versions rndtechnosoft_document_template_versions @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_template_version")
+  rndtechnosoft_departments                rndtechnosoft_departments?               @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_department")
+  rndtechnosoft_designations               rndtechnosoft_designations?              @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_designation")
+  rndtechnosoft_employment_types           rndtechnosoft_employment_types?          @relation(fields: [tenant_id, employment_type_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_employment_type")
+  reporting_manager                        rndtechnosoft_employees?                 @relation("offer_reporting_manager", fields: [tenant_id, reporting_manager_employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_reporting_manager")
+  sent_by                                  rndtechnosoft_tenant_members?            @relation("offer_sent_by", fields: [tenant_id, sent_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_sent_by")
+  created_by                               rndtechnosoft_tenant_members?            @relation("offer_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_created_by")
+  rndtechnosoft_offer_components           rndtechnosoft_offer_components[]
+  rndtechnosoft_offer_approvals            rndtechnosoft_offer_approvals[]
+
+  @@unique([tenant_id, id], map: "uq_offers_tenant_id")
+  @@unique([tenant_id, offer_code], map: "uq_offers_code")
+  @@index([tenant_id, offer_status], map: "ix_offers_status")
+  @@index([tenant_id, candidate_id], map: "ix_offers_candidate")
+}
+
+/// A line of the offered pay, per year.
+model rndtechnosoft_offer_components {
+  id              String  @id @db.Uuid
+  tenant_id       String  @db.Uuid
+  offer_id        String  @db.Uuid
+  component_label String  @db.VarChar(120)
+  annual_amount   Decimal @db.Decimal(14, 2)
+  sort_order      Int
+
+  rndtechnosoft_offers rndtechnosoft_offers @relation(fields: [tenant_id, offer_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_offer_components_offer")
+
+  @@index([tenant_id, offer_id], map: "ix_offer_components_offer")
+}
+
+/// One step of an offer's approval chain, per submission, so earlier rounds stay on record.
+model rndtechnosoft_offer_approvals {
+  id                        String    @id @db.Uuid
+  tenant_id                 String    @db.Uuid
+  offer_id                  String    @db.Uuid
+  submission_number         Int
+  step_number               Int
+  approver_tenant_member_id String    @db.Uuid
+  approval_status           String    @default("PENDING") @db.VarChar(16)
+  approval_comment          String?   @db.Text
+  decided_at                DateTime? @db.Timestamptz(6)
+  created_at                DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_offers         rndtechnosoft_offers         @relation(fields: [tenant_id, offer_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_offer_approvals_offer")
+  rndtechnosoft_tenant_members rndtechnosoft_tenant_members @relation(fields: [tenant_id, approver_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offer_approvals_approver")
+
+  @@unique([tenant_id, offer_id, submission_number, step_number], map: "uq_offer_approvals_step")
+  @@index([tenant_id, approver_tenant_member_id, approval_status], map: "ix_offer_approvals_approver")
+}
+
+/// A document asked of a candidate (PAN card, degree certificate, ...). Its uploads are kept as numbered versions.
+model rndtechnosoft_candidate_document_requests {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  candidate_id                String   @db.Uuid
+  document_type               String   @db.VarChar(40)
+  document_label              String   @db.VarChar(120)
+  is_required                 Boolean  @default(true)
+  created_by_tenant_member_id String?  @db.Uuid
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates               rndtechnosoft_candidates                 @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_requests_candidate")
+  created_by                             rndtechnosoft_tenant_members?            @relation("candidate_document_request_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_requests_created_by")
+  rndtechnosoft_candidate_document_files rndtechnosoft_candidate_document_files[]
+
+  @@unique([tenant_id, id], map: "uq_document_requests_tenant_id")
+  @@unique([tenant_id, candidate_id, id], map: "uq_document_requests_candidate_id")
+  @@index([tenant_id, candidate_id], map: "ix_document_requests_candidate")
+}
+
+/// One uploaded version of a requested document, stored privately, with its review.
+model rndtechnosoft_candidate_document_files {
+  id                           String    @id @db.Uuid
+  tenant_id                    String    @db.Uuid
+  candidate_id                 String    @db.Uuid
+  request_id                   String    @db.Uuid
+  version_number               Int
+  original_filename            String    @db.VarChar(255)
+  content_type                 String    @db.VarChar(64)
+  file_size_bytes              Int
+  storage_key                  String    @db.VarChar(500)
+  file_sha256                  String    @db.Char(64)
+  uploaded_via                 String    @db.VarChar(16)
+  uploaded_by_tenant_member_id String?   @db.Uuid
+  uploader_ip                  String?   @db.VarChar(64)
+  review_status                String    @default("PENDING_REVIEW") @db.VarChar(24)
+  reviewed_by_tenant_member_id String?   @db.Uuid
+  reviewed_at                  DateTime? @db.Timestamptz(6)
+  rejection_reason             String?   @db.Text
+  created_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests @relation(fields: [tenant_id, candidate_id, request_id], references: [tenant_id, candidate_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_files_request")
+  uploaded_by                               rndtechnosoft_tenant_members?             @relation("candidate_document_uploaded_by", fields: [tenant_id, uploaded_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_files_uploaded_by")
+  reviewed_by                               rndtechnosoft_tenant_members?             @relation("candidate_document_reviewed_by", fields: [tenant_id, reviewed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_files_reviewed_by")
+
+  @@unique([tenant_id, request_id, version_number], map: "uq_document_files_version")
+  @@index([tenant_id, candidate_id], map: "ix_document_files_candidate")
+  @@index([tenant_id, review_status], map: "ix_document_files_review")
+}
+
+/// A company letterhead for generated documents: the company's details, logo, and optional header and footer artwork (stored privately).
+model rndtechnosoft_letterheads {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  letterhead_name             String   @db.VarChar(120)
+  company_name                String   @db.VarChar(200)
+  address_text                String?  @db.VarChar(500)
+  phone                       String?  @db.VarChar(64)
+  email                       String?  @db.VarChar(320)
+  website                     String?  @db.VarChar(200)
+  registration_text           String?  @db.VarChar(300)
+  footer_text                 String?  @db.VarChar(500)
+  logo_position               String   @default("LEFT") @db.VarChar(8)
+  logo_storage_key            String?  @db.VarChar(500)
+  header_image_storage_key    String?  @db.VarChar(500)
+  footer_image_storage_key    String?  @db.VarChar(500)
+  header_height_mm            Int      @default(30)
+  footer_height_mm            Int      @default(16)
+  is_default                  Boolean  @default(false)
+  is_archived                 Boolean  @default(false)
+  created_by_tenant_member_id String?  @db.Uuid
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_letterheads_tenant")
+  created_by                               rndtechnosoft_tenant_members?              @relation("letterhead_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_letterheads_created_by")
+  rndtechnosoft_document_template_versions rndtechnosoft_document_template_versions[]
+
+  @@unique([tenant_id, id], map: "uq_letterheads_tenant_id")
+}
+
+/// A member's own mail account in a workspace: SMTP to send as them, and optionally IMAP to read their inbox. Passwords are encrypted; one account per member per workspace.
+model rndtechnosoft_user_mail_accounts {
+  id                      String    @id @db.Uuid
+  tenant_id               String    @db.Uuid
+  user_id                 String    @db.Uuid
+  provider                String    @db.VarChar(24)
+  smtp_host               String    @db.VarChar(253)
+  smtp_port               Int
+  smtp_security           String    @db.VarChar(16)
+  smtp_username           String    @db.VarChar(320)
+  smtp_password_encrypted String?   @db.Text
+  sender_email            String    @db.VarChar(320)
+  sender_name             String?   @db.VarChar(160)
+  reply_to_email          String?   @db.VarChar(320)
+  imap_enabled            Boolean   @default(false)
+  imap_host               String?   @db.VarChar(253)
+  imap_port               Int?
+  imap_security           String?   @db.VarChar(16)
+  imap_username           String?   @db.VarChar(320)
+  /// Null while IMAP signs in with the SMTP password.
+  imap_password_encrypted String?   @db.Text
+  is_enabled              Boolean   @default(true)
+  /// Goes up with every change of settings or credentials.
+  credential_version      Int       @default(1)
+  smtp_status             String    @default("UNTESTED") @db.VarChar(16)
+  smtp_last_tested_at     DateTime? @db.Timestamptz(6)
+  smtp_last_success_at    DateTime? @db.Timestamptz(6)
+  smtp_last_error         String?   @db.VarChar(500)
+  imap_status             String    @default("UNTESTED") @db.VarChar(16)
+  imap_last_tested_at     DateTime? @db.Timestamptz(6)
+  imap_last_success_at    DateTime? @db.Timestamptz(6)
+  imap_last_error         String?   @db.VarChar(500)
+  created_at              DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at              DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenant_members rndtechnosoft_tenant_members @relation(fields: [tenant_id, user_id], references: [tenant_id, user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user_mail_accounts_member")
+
+  @@unique([tenant_id, user_id], map: "uq_user_mail_accounts_tenant_user")
+  @@index([tenant_id, smtp_status], map: "ix_user_mail_accounts_status")
 }

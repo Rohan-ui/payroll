@@ -18,8 +18,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "platform:admin": "ts-node -P tsconfig.json src/scripts/platform-admin.ts",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch"
+    "test": "NODE_OPTIONS=--experimental-vm-modules NODE_EXTRA_CA_CERTS=test/support/tls/localhost.crt jest",
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules NODE_EXTRA_CA_CERTS=test/support/tls/localhost.crt jest --watch"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.0",
@@ -34,6 +34,7 @@
     "imapflow": "^2.0.6",
     "mailparser": "^3.9.28",
     "nodemailer": "^10.0.10",
+    "pdfkit": "^0.20.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -45,6 +46,7 @@
     "@types/jest": "^30.0.0",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^20.14.14",
+    "@types/pdfkit": "^0.17.6",
     "@types/supertest": "^7.2.1",
     "jest": "^30.5.2",
     "prisma": "^5.22.0",

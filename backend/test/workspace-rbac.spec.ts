@@ -202,6 +202,7 @@ describe('Workspace role-based access control', () => {
       expect(sections.find((s) => s.section === 'HRMS')?.groups.map((g) => g.group)).toEqual([
         'People',
         'Attendance',
+        'Onboarding',
         'Leave',
         'Biometric device (COSEC)',
       ]);
@@ -435,6 +436,7 @@ describe('Workspace role-based access control', () => {
           ['hrms', null, false],
           ['people', 'hrms', false],
           ['attendance', 'hrms', false],
+          ['onboarding', 'hrms', false],
           ['settings', null, false],
         ]);
         // Workspace administration never depends on a module.

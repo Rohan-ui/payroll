@@ -263,17 +263,17 @@ const INITIAL_DRIP_STEPS: DripStep[] = [
   },
 ];
 
-const AUDIENCE_CONTACTS = [
-  { id: '1', name: 'Arjun Mehta', email: 'arjun@zenithtech.io', company: 'Zenith Tech', stage: 'Prospect', score: 94, status: 'Active' },
-  { id: '2', name: 'Priya Sharma', email: 'priya@cloudcraft.in', company: 'CloudCraft Solutions', stage: 'Proposal Sent', score: 88, status: 'Active' },
-  { id: '3', name: 'Rajesh Nair', email: 'rajesh@nexushub.co', company: 'NexusHub Enterprise', stage: 'Meeting Booked', score: 91, status: 'Active' },
-  { id: '4', name: 'Sneha Patel', email: 'sneha@finflow.io', company: 'FinFlow Global', stage: 'Cold Qualified', score: 76, status: 'Active' },
-  { id: '5', name: 'Vikram Singh', email: 'vikram@apexretail.in', company: 'Apex Retail Brands', stage: 'Active Client', score: 99, status: 'Active' },
-  { id: '6', name: 'Ananya Verma', email: 'ananya@scaleup.agency', company: 'ScaleUp Creative', stage: 'Cold Outreach', score: 68, status: 'Active' },
-];
+// const AUDIENCE_CONTACTS = [
+//   { id: '1', name: 'Arjun Mehta', email: 'arjun@zenithtech.io', company: 'Zenith Tech', stage: 'Prospect', score: 94, status: 'Active' },
+//   { id: '2', name: 'Priya Sharma', email: 'priya@cloudcraft.in', company: 'CloudCraft Solutions', stage: 'Proposal Sent', score: 88, status: 'Active' },
+//   { id: '3', name: 'Rajesh Nair', email: 'rajesh@nexushub.co', company: 'NexusHub Enterprise', stage: 'Meeting Booked', score: 91, status: 'Active' },
+//   { id: '4', name: 'Sneha Patel', email: 'sneha@finflow.io', company: 'FinFlow Global', stage: 'Cold Qualified', score: 76, status: 'Active' },
+//   { id: '5', name: 'Vikram Singh', email: 'vikram@apexretail.in', company: 'Apex Retail Brands', stage: 'Active Client', score: 99, status: 'Active' },
+//   { id: '6', name: 'Ananya Verma', email: 'ananya@scaleup.agency', company: 'ScaleUp Creative', stage: 'Cold Outreach', score: 68, status: 'Active' },
+// ];
 
 export const EmailMarketingView: React.FC = () => {
-  const { navigateTo } = usePayroll();
+  const { navigateTo, setCurrentView } = usePayroll();
   const { can } = useAuth();
   const canManageEmail = can('marketing.manage');
   
@@ -611,7 +611,7 @@ export const EmailMarketingView: React.FC = () => {
     setComposeSending(true);
     setComposeError(null);
     try {
-      await gmailApi.sendMessage({
+      const sent = await gmailApi.sendMessage({
         to: recipients(composeTo),
         cc: recipients(composeCc),
         bcc: recipients(composeBcc),
@@ -624,7 +624,7 @@ export const EmailMarketingView: React.FC = () => {
       setComposeBcc('');
       setComposeSubject('');
       setComposeBody('');
-      showToast(`Email sent to ${composeTo}`);
+      showToast(`Email sent to ${composeTo} from ${sent.sentFrom}`);
       if (mailboxFolder === 'sent') {
         window.setTimeout(() => void loadMailbox('sent', 1), 750);
       }
@@ -773,7 +773,7 @@ export const EmailMarketingView: React.FC = () => {
                 {gmailStatus?.connected ? (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Gmail Connected
+                    {gmailStatus.via === 'IMAP' ? `Inbox connected: ${gmailStatus.email}` : 'Gmail Connected'}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
@@ -783,13 +783,22 @@ export const EmailMarketingView: React.FC = () => {
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Read, send, and reply through Gmail securely with OAuth 2.0
+                Read, send, and reply through your Gmail or your own email account from My email settings
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {gmailStatus?.connected ? (
+            {gmailStatus?.via !== 'GMAIL' && (
+              <button
+                type="button"
+                onClick={() => setCurrentView('my-email')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors"
+              >
+                <span>My email settings</span>
+              </button>
+            )}
+            {gmailStatus?.via === 'IMAP' ? null : gmailStatus?.connected ? (
               <button
                 onClick={handleDisconnectGmail}
                 disabled={gmailConnecting}
@@ -821,8 +830,9 @@ export const EmailMarketingView: React.FC = () => {
 
             <button
               onClick={() => setIsComposeOpen(true)}
-              disabled={!gmailStatus?.connected || !canManageEmail}
-              title={!canManageEmail ? 'Your role cannot send email' : !gmailStatus?.connected ? 'Connect Gmail before composing' : 'Compose email'}
+              // The server sends from the account the workspace policy picks: the member's own, or the organization's.
+              disabled={!canManageEmail}
+              title={!canManageEmail ? 'Your role cannot send email' : 'Compose email'}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="w-4 h-4" />

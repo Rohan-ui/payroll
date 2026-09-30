@@ -11,6 +11,16 @@ export interface GmailConnectionStatus {
   status: 'PENDING' | 'CONNECTED' | 'OAUTH_FAILED' | 'REAUTH_REQUIRED' | 'DISCONNECTED';
   connectedAt: string | null;
   requiresReconnect: boolean;
+  /** Which inbox is shown: the member's connected Gmail, or their own IMAP account from My email settings. */
+  via?: 'GMAIL' | 'IMAP' | null;
+}
+
+/** What a send reports: the address it went out from (the member's own, or the organization's). */
+export interface GmailSendResult {
+  success: true;
+  messageId: string | null;
+  sentFrom: string;
+  sentFromKind: 'PERSONAL' | 'GMAIL' | 'ORGANIZATION';
 }
 
 export interface GmailInboxMessage {
@@ -116,7 +126,7 @@ export const gmailApi = {
     return apiClient.get<GmailInboxPage>(`/gmail/messages?${query}`);
   },
   getMessage: (folder: GmailFolder, uid: number) => apiClient.get<GmailMessage>(`/gmail/messages/${uid}?folder=${folder}`),
-  sendMessage: (body: GmailSendInput) => apiClient.post<{ success: true; messageId: string }>('/gmail/messages/send', body),
+  sendMessage: (body: GmailSendInput) => apiClient.post<GmailSendResult>('/gmail/messages/send', body),
   reply: (uid: number, text: string, replyAll = false) =>
     apiClient.post<{ success: true; messageId: string }>(`/gmail/messages/${uid}/reply`, { text, replyAll }),
   listTemplates: (page = 1, limit = 12, search = '') => {

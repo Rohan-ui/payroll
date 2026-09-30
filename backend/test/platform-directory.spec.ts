@@ -386,7 +386,7 @@ describe('Platform tenant and user directories', () => {
       expect(roles.FIELD_CLERK).toMatchObject({ kind: 'CUSTOM', memberCount: 1, permissionCount: 0 });
       expect(detail.modules.map((m: { code: string; enabled: boolean; features: string[] }) => [m.code, m.enabled, m.features])).toEqual([
         ['CRM', true, expect.arrayContaining(['Sales Pipelines'])],
-        ['HRMS', true, ['People', 'Attendance', 'Compliance']],
+        ['HRMS', true, ['People', 'Attendance', 'Onboarding', 'Compliance']],
         ['FINANCE', true, ['Payroll', 'Payslips', 'Bookkeeping', 'Reports']],
       ]);
     });

@@ -19,6 +19,8 @@ const ALLOWED = new Set([
   'api/client.ts', // defines apiFetch, the wrapper itself
   'superadmin/api/platform-client.ts', // the platform portal's own wrapper
   'superadmin/api/platform-auth.api.ts', // sign-in, before a session exists
+  'api/public-offer.api.ts', // a candidate's offer link: the token is the only key, and no session may be sent
+  'api/public-documents.api.ts', // a candidate's document upload link: likewise, the token is the only key
   'views/AddEmployeeView.tsx', // public IFSC lookup, a third party that must not receive our token
 ]);
 

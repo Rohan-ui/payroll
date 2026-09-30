@@ -18,6 +18,7 @@ import { attendanceApi } from '../api/attendance.api';
 const VALID_CRM_TABS: CrmTab[] = [
   'cold-funnel',
   'pipeline',
+  'leads',
   'activities',
   'proposals',
   'reports',
@@ -36,12 +37,14 @@ const VALID_VIEWS: AppView[] = [
   'edit-employee',
   'attendance',
   'clock-in',
+  'onboarding',
   'payslips',
   'bookkeeping',
   'reports',
   'settings',
   'organization',
   'users',
+  'my-email',
   'help',
 ];
 

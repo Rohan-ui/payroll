@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { EmailPolicyPanel } from './settings/EmailPolicyPanel';
 import { 
   Users, UserPlus, Search, ShieldCheck, Mail,
   Building2, Edit3, Trash2, CheckCircle2, X, RefreshCw,
@@ -1436,6 +1437,8 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
                 </fieldset>
               </form>
             </section>
+
+            <EmailPolicyPanel />
 
             {/* SECTION 3: WHATSAPP */}
             <section aria-labelledby="org-whatsapp-heading" className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">

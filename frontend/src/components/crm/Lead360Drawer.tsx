@@ -40,9 +40,11 @@ interface Lead360DrawerProps {
   onLeadConverted?: (result: any) => void;
   /** Opens the create-quotation page for this lead. */
   onCreateQuotation?: (leadId: string) => void;
+  /** Opens straight into editing the lead's details, as from Lead Management's Edit. */
+  startEditing?: boolean;
 }
 
-export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipelines = [], stages = [], onLeadConverted, onCreateQuotation }: Lead360DrawerProps) {
+export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipelines = [], stages = [], onLeadConverted, onCreateQuotation, startEditing = false }: Lead360DrawerProps) {
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -394,6 +396,15 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
   useEffect(() => {
     fetchLead360();
   }, [leadId]);
+
+  // Opened from Lead Management's Edit: go straight to the details form once the lead has loaded.
+  const editOpened = useRef(false);
+  useEffect(() => {
+    if (!startEditing || !(data?.lead || data) || editOpened.current) return;
+    editOpened.current = true;
+    openEditModal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startEditing, data]);
 
   if (!leadId) return null;
 
@@ -1095,13 +1106,13 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                       <div>
                         <span className="text-slate-400 dark:text-slate-500 block text-[11px] font-medium">GSTIN</span>
                         <span className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">
-                          {lead?.gstin || '29AABCN1234F1Z5'}
+                          {lead?.gstin }
                         </span>
                       </div>
                       <div>
                         <span className="text-slate-400 dark:text-slate-500 block text-[11px] font-medium">PAN Number</span>
                         <span className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">
-                          {lead?.pan || lead?.pan_number || 'AABCN1234F'}
+                          {lead?.pan || lead?.pan_number }
                         </span>
                       </div>
                     </div>

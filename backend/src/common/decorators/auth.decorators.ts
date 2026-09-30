@@ -13,8 +13,9 @@ export const PASSWORD_CHANGE_REQUIRED = 'PASSWORD_CHANGE_REQUIRED';
 
 /**
  * Marks a route as reachable without a session. Use only for sign-in,
- * registration and health checks: anything that returns tenant data must not
- * carry this.
+ * registration, health checks, and a candidate's own one-time link (which
+ * authorizes by its secret token and shows only that candidate's record).
+ * Nothing else that returns tenant data may carry this.
  */
 export const PublicRoute = () => SetMetadata(IS_PUBLIC_ROUTE, true);
 

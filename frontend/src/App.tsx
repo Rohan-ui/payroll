@@ -26,9 +26,11 @@ import { HelpView } from './views/HelpView';
 import { AddEmployeeView } from './views/AddEmployeeView';
 import { BookkeepingView } from './views/BookkeepingView';
 import { ClockInView } from './views/ClockInView';
+import { OnboardingView } from './views/onboarding/OnboardingView';
 import { CrmWorkspaceView } from './views/crm/CrmWorkspaceView';
 import { EmailMarketingView } from './views/emails/EmailMarketingView';
 import { OrganizationSettingsView } from './views/OrganizationSettingsView';
+import { MyEmailSettingsView } from './views/settings/MyEmailSettingsView';
 import { Card } from './components/ui/Card';
 import { cn } from './utils/cn';
 
@@ -55,6 +57,8 @@ const MainContent: React.FC = () => {
         />
       );
     }
+    // A member's own settings are open to every member, whatever their role.
+    if (currentView === 'my-email') return <MyEmailSettingsView />;
     // What a member may open comes from their role's permissions, decided by
     // the server; the API refuses the same things if a view is reached anyway.
     const entry = navigationEntry(VIEW_NAVIGATION[currentView] ?? 'dashboard');
@@ -88,6 +92,7 @@ const MainContent: React.FC = () => {
       case 'employee-detail': return <EmployeeDetailView />;
       case 'attendance':      return <AttendanceView />;
       case 'clock-in':        return <ClockInView />;
+      case 'onboarding':      return <OnboardingView />;
       case 'payslips':        return <PayslipsView />;
       case 'bookkeeping':     return <BookkeepingView />;
       case 'reports':         return <ReportsView />;

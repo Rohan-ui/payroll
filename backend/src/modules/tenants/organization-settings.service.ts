@@ -16,6 +16,7 @@ import { ADMIN_ROLE_CODE, MODULES, moduleFeatures, resolveModuleStates } from '@
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { SEAT_MEMBERSHIP_STATUSES } from '@/common/tenancy/seats';
 import { TenantDomainsService } from '@/modules/tenancy/tenant-domains.service';
+import { describeSmtpFailure } from '@/modules/email/email.service';
 import {
   decryptPlatformSecret,
   encryptPlatformSecret,
@@ -30,7 +31,7 @@ import {
 } from './dto/organization-settings.dto';
 
 type JsonRecord = Record<string, unknown>;
-type SettingsSection = 'profile' | 'smtp' | 'whatsapp' | 'modules';
+type SettingsSection = 'profile' | 'smtp' | 'whatsapp' | 'modules' | 'email';
 
 const asRecord = (value: unknown): JsonRecord =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : {};
@@ -138,6 +139,7 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
         contact_is_workspace_owner: !savedContactEmail && Boolean(owner),
       },
       smtp: this.toPublicSmtp(settings.smtp),
+      email: { personalAccounts: this.personalAccountsOf(settings.email) },
       whatsapp: this.toPublicWhatsApp(settings.whatsapp),
       quotas: quotas
         ? {
@@ -254,6 +256,57 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
     return { success: true, message: 'SMTP settings saved.', data: this.toPublicSmtp(smtp) };
   }
 
+  /**
+   * The workspace's saved SMTP account, ready to send mail as the workspace, or
+   * null when none is saved or it is switched off. For server-side senders
+   * only: it includes the decrypted password.
+   */
+  async workspaceSmtp(tenantId: string) {
+    const saved = asRecord((await this.readSettings(tenantId)).smtp);
+    const host = text(saved.host);
+    const senderEmail = text(saved.senderEmail);
+    if (!host || !senderEmail || saved.isActive === false) return null;
+    return {
+      host,
+      port: typeof saved.port === 'number' ? saved.port : 587,
+      username: text(saved.username),
+      password: this.readSecret(saved.passwordEncrypted, saved.password, 'SMTP password'),
+      encryption: text(saved.encryption) ?? 'TLS',
+      senderName: text(saved.senderName),
+      senderEmail,
+      replyToEmail: text(saved.replyToEmail),
+    };
+  }
+
+  // ── Email policy ─────────────────────────────────────────────
+
+  /**
+   * Whether members may send from their own mail accounts (ALLOWED), or all
+   * mail goes through the organization's account (ORGANIZATION_ONLY, the
+   * default, which is how every workspace sent before personal accounts).
+   */
+  async emailPolicy(tenantId: string): Promise<'ALLOWED' | 'ORGANIZATION_ONLY'> {
+    return this.personalAccountsOf((await this.readSettings(tenantId)).email);
+  }
+
+  async saveEmailPolicy(tenantId: string, personalAccounts: 'ALLOWED' | 'ORGANIZATION_ONLY', actor: AuthenticatedTenantUser) {
+    const before = await this.emailPolicy(tenantId);
+    await this.mergeSettingsSection(this.prisma, tenantId, 'email', { personalAccounts });
+    await this.auditService.log({
+      ...this.auditActor(tenantId, actor),
+      actionCode: 'EMAIL_POLICY_UPDATED',
+      entityType: 'TENANT_EMAIL_POLICY',
+      entityId: tenantId,
+      oldValues: { personalAccounts: before },
+      newValues: { personalAccounts },
+    });
+    return { personalAccounts };
+  }
+
+  private personalAccountsOf(raw: unknown): 'ALLOWED' | 'ORGANIZATION_ONLY' {
+    return asRecord(raw).personalAccounts === 'ALLOWED' ? 'ALLOWED' : 'ORGANIZATION_ONLY';
+  }
+
   async testSmtp(tenantId: string, input: TestSmtpSettingsDto) {
     let config: { host: string; port: number; username: string | null; password: string | null; encryption: string };
 
@@ -313,9 +366,10 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
         },
       };
     } catch (err) {
+      // A safe reason: the server's reply can echo the account name, so it is redacted.
       return {
         success: false,
-        error: `Could not connect to ${config.host}:${config.port}. ${err instanceof Error ? err.message : ''}`.trim(),
+        error: describeSmtpFailure(err, config.host, config.port, [config.username, config.password]),
         latencyMs: Date.now() - startedAt,
       };
     }

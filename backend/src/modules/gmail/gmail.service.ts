@@ -17,6 +17,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
+import { MailSenderService, MailSendError, MailMessage } from '@/modules/mail/mail-sender.service';
+import { UserMailAccountsService } from '@/modules/mail/user-mail-accounts.service';
+import { ImapCredentials, imapClient as ownImapClient } from '@/modules/mail/mail-connections';
+import { describeImapFailure } from '@/modules/mail/mail-errors';
 import {
   decryptPlatformSecret,
   encryptPlatformSecret,
@@ -75,6 +79,11 @@ interface StoredTemplate {
 type JsonRecord = Record<string, unknown>;
 type GmailFolder = 'inbox' | 'sent';
 
+/** The inbox a member reads: their connected Gmail, or their own IMAP account from My email settings. */
+type Mailbox =
+  | { kind: 'GMAIL'; email: string; connection: StoredConnection }
+  | { kind: 'IMAP'; email: string; accountId: string; imap: ImapCredentials };
+
 const asRecord = (value: unknown): JsonRecord =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : {};
 
@@ -89,6 +98,8 @@ export class GmailService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly mailSender: MailSenderService,
+    private readonly mailAccounts: UserMailAccountsService,
   ) {}
 
   async beginOAuth(tenantId: string, userId: string) {
@@ -156,12 +167,16 @@ export class GmailService {
       `,
     );
 
+    const gmailConnected = connection?.connection_status === 'CONNECTED';
+    // Without Gmail, the inbox is the member's own IMAP account, when they set one up.
+    const own = gmailConnected ? null : await this.mailAccounts.imapFor(tenantId, userId);
     return {
-      connected: connection?.connection_status === 'CONNECTED',
-      email: connection?.gmail_email ?? null,
-      status: connection?.connection_status ?? 'DISCONNECTED',
+      connected: gmailConnected || Boolean(own),
+      email: gmailConnected ? connection?.gmail_email ?? null : own?.email ?? null,
+      status: gmailConnected || !own ? connection?.connection_status ?? 'DISCONNECTED' : 'CONNECTED',
       connectedAt: connection?.connected_at ?? null,
       requiresReconnect: connection?.connection_status === 'REAUTH_REQUIRED',
+      via: gmailConnected ? 'GMAIL' : own ? 'IMAP' : null,
     };
   }
 
@@ -196,13 +211,13 @@ export class GmailService {
   }
 
   async listMessages(tenantId: string, userId: string, query: GmailInboxQueryDto) {
-    const connection = await this.connection(tenantId, userId);
+    const mailbox = await this.mailbox(tenantId, userId);
     const { folder, page, limit } = query;
 
-    return this.withClient(connection, async (client) => {
+    return this.withClient(mailbox, async (client) => {
       const lock = await client.getMailboxLock(await this.mailboxPath(client, folder), { readOnly: true });
       try {
-        const criteria = this.searchCriteria(query);
+        const criteria = this.searchCriteria(query, mailbox.kind === 'GMAIL');
         const filtered = Object.keys(criteria).length > 0;
         // ponytail: filtered searches materialize matching UIDs; move to ESEARCH PARTIAL if large mailboxes show latency.
         const matches = filtered ? (await client.search(criteria, { uid: true })) || [] : [];
@@ -256,9 +271,9 @@ export class GmailService {
   }
 
   async getMessage(tenantId: string, userId: string, uid: number, folder: GmailFolder = 'inbox') {
-    const connection = await this.connection(tenantId, userId);
+    const mailbox = await this.mailbox(tenantId, userId);
 
-    return this.withClient(connection, async (client) => {
+    return this.withClient(mailbox, async (client) => {
       const lock = await client.getMailboxLock(await this.mailboxPath(client, folder), { readOnly: folder === 'sent' });
       try {
         const message = await client.fetchOne(
@@ -299,9 +314,9 @@ export class GmailService {
 
   async downloadAttachment(tenantId: string, userId: string, uid: number, part: string, folder: GmailFolder = 'inbox') {
     if (!/^\d+(?:\.\d+)*$/.test(part)) throw new BadRequestException('Invalid attachment identifier.');
-    const connection = await this.connection(tenantId, userId);
+    const mailbox = await this.mailbox(tenantId, userId);
 
-    return this.withClient(connection, async (client) => {
+    return this.withClient(mailbox, async (client) => {
       const lock = await client.getMailboxLock(await this.mailboxPath(client, folder), { readOnly: true });
       try {
         const message = await client.fetchOne(uid, { bodyStructure: true }, { uid: true });
@@ -327,8 +342,7 @@ export class GmailService {
   }
 
   async sendMessage(tenantId: string, actor: AuthenticatedTenantUser, body: GmailSendMessageDto) {
-    const connection = await this.connection(tenantId, actor.userId);
-    const result = await this.sendViaGmail(connection, {
+    const result = await this.sendAsMember(tenantId, actor, {
       to: body.to,
       cc: body.cc,
       bcc: body.bcc,
@@ -342,15 +356,44 @@ export class GmailService {
       actorTenantMemberId: actor.tenantMemberId,
       actionCode: 'GMAIL_MESSAGE_SENT',
       entityType: 'GMAIL_CONNECTION',
-      entityId: connection.id,
-      metadata: { messageId: result.messageId, recipientCount: body.to.length + (body.cc?.length ?? 0) + (body.bcc?.length ?? 0) },
+      metadata: {
+        messageId: result.messageId,
+        senderKind: result.senderKind,
+        senderEmail: result.senderEmail,
+        recipientCount: body.to.length + (body.cc?.length ?? 0) + (body.bcc?.length ?? 0),
+      },
     });
-    return { success: true, messageId: result.messageId };
+    return { success: true, messageId: result.messageId, sentFrom: result.senderEmail, sentFromKind: result.senderKind };
+  }
+
+  /**
+   * Sends an email a member started, from the account the workspace policy
+   * picks for them (their Gmail, their own account, or the organization's).
+   */
+  private async sendAsMember(tenantId: string, actor: AuthenticatedTenantUser, message: MailMessage) {
+    const sender = await this.mailSender.resolve(tenantId, { userId: actor.userId, tenantMemberId: actor.tenantMemberId });
+    if (sender.kind === 'NONE') throw new ConflictException(sender.reason);
+    if (sender.kind === 'GMAIL') {
+      const result = await this.sendViaGmail(await this.connection(tenantId, actor.userId), message as nodemailer.SendMailOptions);
+      return { messageId: result.messageId as string | null, senderKind: sender.kind, senderEmail: sender.email };
+    }
+    try {
+      const result = await this.mailSender.sendSmtp(sender, message);
+      return { messageId: result.messageId, senderKind: sender.kind, senderEmail: sender.email };
+    } catch (error) {
+      if (error instanceof MailSendError) throw new ServiceUnavailableException(`The email was not sent from ${sender.email}. ${error.safeReason}`);
+      throw error;
+    }
+  }
+
+  /** Sends through a member's connected Gmail, for other modules sending as that member. */
+  async sendAsGmail(tenantId: string, userId: string, message: MailMessage) {
+    return this.sendViaGmail(await this.connection(tenantId, userId), message as nodemailer.SendMailOptions);
   }
 
   async reply(tenantId: string, actor: AuthenticatedTenantUser, uid: number, body: GmailReplyDto) {
-    const connection = await this.connection(tenantId, actor.userId);
-    const original = await this.withClient(connection, async (client) => {
+    const mailbox = await this.mailbox(tenantId, actor.userId);
+    const original = await this.withClient(mailbox, async (client) => {
       const lock = await client.getMailboxLock('INBOX');
       try {
         const message = await client.fetchOne(uid, { envelope: true, flags: true }, { uid: true });
@@ -362,7 +405,7 @@ export class GmailService {
       }
     });
 
-    const ownEmail = connection.gmail_email!.toLowerCase();
+    const ownEmail = mailbox.email.toLowerCase();
     const primary = original.replyTo?.length ? original.replyTo : original.from;
     const to = this.uniqueEmails(primary ?? [], ownEmail);
     const cc = body.replyAll
@@ -371,10 +414,10 @@ export class GmailService {
     if (to.length === 0) throw new BadRequestException('This message has no reply address.');
 
     const messageId = original.messageId?.trim();
-    const result = await this.sendViaGmail(connection, {
+    const result = await this.sendAsMember(tenantId, actor, {
       to,
       cc,
-      subject: /^\s*re:/i.test(original.subject ?? '') ? original.subject : `Re: ${original.subject || '(No subject)'}`,
+      subject: /^\s*re:/i.test(original.subject ?? '') ? original.subject ?? '' : `Re: ${original.subject || '(No subject)'}`,
       text: body.text,
       inReplyTo: messageId,
       references: messageId,
@@ -387,9 +430,9 @@ export class GmailService {
       actionCode: body.replyAll ? 'GMAIL_REPLY_ALL_SENT' : 'GMAIL_REPLY_SENT',
       entityType: 'GMAIL_MESSAGE',
       entityId: String(uid),
-      metadata: { messageId: result.messageId, recipientCount: to.length + cc.length },
+      metadata: { messageId: result.messageId, senderKind: result.senderKind, senderEmail: result.senderEmail, recipientCount: to.length + cc.length },
     });
-    return { success: true, messageId: result.messageId };
+    return { success: true, messageId: result.messageId, sentFrom: result.senderEmail, sentFromKind: result.senderKind };
   }
 
   async listTemplates(tenantId: string, page: number, limit: number, search?: string) {
@@ -637,7 +680,25 @@ export class GmailService {
     return connection;
   }
 
-  private async withClient<T>(connection: StoredConnection, action: (client: ImapFlow) => Promise<T>): Promise<T> {
+  /** The member's inbox: their Gmail when connected, else their own IMAP account. */
+  private async mailbox(tenantId: string, userId: string): Promise<Mailbox> {
+    const [gmail] = await this.prisma.$queryRaw<StoredConnection[]>(
+      Prisma.sql`
+        SELECT id, tenant_id, user_id, gmail_email, refresh_token_encrypted, connection_status, connected_at
+        FROM rndtechnosoft_gmail_connections
+        WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid AND connection_status = 'CONNECTED'
+        LIMIT 1
+      `,
+    );
+    if (gmail?.gmail_email && gmail.refresh_token_encrypted) return { kind: 'GMAIL', email: gmail.gmail_email, connection: gmail };
+    const own = await this.mailAccounts.imapFor(tenantId, userId);
+    if (own) return { kind: 'IMAP', email: own.email, accountId: own.accountId, imap: own.imap };
+    throw new ConflictException('Connect Gmail, or set up reading your inbox in My email settings, before loading messages.');
+  }
+
+  private async withClient<T>(mailbox: Mailbox, action: (client: ImapFlow) => Promise<T>): Promise<T> {
+    if (mailbox.kind === 'IMAP') return this.withOwnImap(mailbox, action);
+    const connection = mailbox.connection;
     const accessToken = await this.refreshAccessToken(connection);
     const client = this.imapClient(connection.gmail_email!, accessToken);
 
@@ -657,7 +718,26 @@ export class GmailService {
     }
   }
 
-  private searchCriteria(query: GmailInboxQueryDto, now = new Date()): SearchObject {
+  private async withOwnImap<T>(mailbox: Extract<Mailbox, { kind: 'IMAP' }>, action: (client: ImapFlow) => Promise<T>): Promise<T> {
+    const client = ownImapClient(mailbox.imap, { maxBytes: MAX_ATTACHMENT_BYTES });
+    try {
+      await client.connect();
+      return await action(client);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      const reason = describeImapFailure(error, mailbox.imap.host, mailbox.imap.port);
+      if (this.isImapAuthenticationError(error) || (error as { authenticationFailed?: boolean })?.authenticationFailed) {
+        await this.mailAccounts.recordImapFailure(mailbox.accountId, reason);
+        throw new ConflictException(`${reason} Check My email settings.`);
+      }
+      this.logger.warn(`Own IMAP operation failed accountId=${mailbox.accountId} code=${this.safeErrorCode(error)}`);
+      throw new ServiceUnavailableException(reason);
+    } finally {
+      client.close();
+    }
+  }
+
+  private searchCriteria(query: GmailInboxQueryDto, gmail: boolean, now = new Date()): SearchObject {
     const criteria: SearchObject = {};
     if (text(query.search)) criteria.text = query.search!.trim();
     if (text(query.from)) criteria.from = query.from!.trim();
@@ -688,7 +768,8 @@ export class GmailService {
     }
 
     const gmailTerms = [query.hasAttachment ? 'has:attachment' : '', query.excludePromotions ? '-category:promotions' : ''].filter(Boolean);
-    if (gmailTerms.length) criteria.gmailraw = gmailTerms.join(' ');
+    // Gmail's own search terms; other IMAP servers don't understand them.
+    if (gmailTerms.length && gmail) criteria.gmailraw = gmailTerms.join(' ');
     return criteria;
   }
 

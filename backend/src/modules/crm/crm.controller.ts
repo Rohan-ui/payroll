@@ -1,5 +1,8 @@
 import {
+  BadRequestException,
   Controller,
+  HttpCode,
+  HttpStatus,
   Get,
   Post,
   Put,
@@ -11,6 +14,8 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { CrmService } from './crm.service';
+import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
+import { AssignLeadsDto, LeadManagementQueryDto } from './dto/lead-management.dto';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
@@ -22,11 +27,14 @@ import { PermissionKey } from '@/common/access/access-catalog';
  * The acting member comes from the session (@CurrentUser), never from a
  * request header, so activity and audit attribution cannot be forged.
  */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Controller('crm')
 export class CrmController {
   constructor(
     private readonly crmService: CrmService,
     private readonly accessService: AccessService,
+    private readonly assignments: CrmLeadAssignmentService,
   ) {}
 
   private collection<T>(result: { items: T[]; total: number; page: number; limit: number; totalPages: number; hasMore: boolean }) {
@@ -186,6 +194,34 @@ export class CrmController {
     return { success: true, message: 'Lead deleted successfully' };
   }
 
+  /** The Lead Management table: the workspace's leads, filtered, sorted and paged by the server. */
+  @Get('lead-management')
+  @RequirePermissions('leads.view')
+  async leadManagement(@CurrentTenant() tenantId: string, @Query() query: LeadManagementQueryDto) {
+    const result = await this.assignments.list(tenantId, query);
+    return { success: true, data: result.items, pagination: result.pagination, filters: result.filters };
+  }
+
+  /** Team members leads can be assigned to, with how many leads each owns now. */
+  @Get('assignees')
+  @RequirePermissions('leads.view')
+  async assignees(@CurrentTenant() tenantId: string) {
+    return { success: true, data: await this.assignments.assignees(tenantId) };
+  }
+
+  /** Assigns the selected leads to one member (or unassigns them): all or nothing. */
+  @Post('leads/assign')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('leads.update')
+  async assignLeads(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: AssignLeadsDto) {
+    const data = await this.assignments.assign(tenantId, body.leadIds, body.assigneeMemberId, actor.tenantMemberId);
+    return {
+      success: true,
+      data,
+      message: data.assignee ? `${data.updated} lead${data.updated === 1 ? '' : 's'} assigned to ${data.assignee.name}` : `${data.updated} lead${data.updated === 1 ? '' : 's'} unassigned`,
+    };
+  }
+
   @Post('leads/bulk')
   @RequirePermissions('leads.update')
   async bulkLeadAction(
@@ -193,6 +229,17 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
+    // Reassigning goes through the same checked, all-or-nothing assignment as Lead Management.
+    if (body?.action === 'reassign') {
+      if (!Array.isArray(body.leadIds) || body.leadIds.length === 0 || typeof body.assignedUserId !== 'string') {
+        throw new BadRequestException('Choose the leads and the team member to assign them to.');
+      }
+      if (!body.leadIds.every((id: unknown) => typeof id === 'string' && UUID.test(id)) || !UUID.test(body.assignedUserId)) {
+        throw new BadRequestException('One of the selected leads or the team member is not valid.');
+      }
+      const data = await this.assignments.assign(tenantId, body.leadIds, body.assignedUserId, actor.tenantMemberId);
+      return { success: true, data: { ...data, count: data.updated }, message: `Leads assigned to ${data.assignee?.name}` };
+    }
     if (body?.action === 'delete') {
       await this.accessService.assertHoldsAll(
         tenantId,

@@ -14,17 +14,20 @@ export type AppView =
   | 'edit-employee'
   | 'attendance'
   | 'clock-in'
+  | 'onboarding'
   | 'payslips'
   | 'bookkeeping'
   | 'reports'
   | 'settings'
   | 'organization'
   | 'users'
+  | 'my-email'
   | 'help';
 
 export type CrmTab =
   | 'cold-funnel'
   | 'pipeline'
+  | 'leads'
   | 'activities'
   | 'proposals'
   | 'reports'

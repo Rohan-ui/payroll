@@ -16,6 +16,7 @@ import QuotationsManager from '../../components/crm/QuotationsManager';
 import CRMAnalytics from '../../components/crm/CRMAnalytics';
 import CRMMastersManager from '../../components/crm/CRMMastersManager';
 import Lead360Drawer from '../../components/crm/Lead360Drawer';
+import { LeadManagementView } from '../../components/crm/LeadManagementView';
 import CreateLeadModal from '../../components/crm/CreateLeadModal';
 import SLeadCadenceCenter from '../../components/crm/SLeadCadenceCenter';
 import CrmAuditTrailView from '../../components/crm/CrmAuditTrailView';
@@ -30,6 +31,10 @@ const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
   pipeline: {
     title: 'Sales Pipelines',
     desc: 'Real-time Kanban & list view, stage automation, and lead management.'
+  },
+  leads: {
+    title: 'Lead Management',
+    desc: 'Every lead in one table: search, filter and assign leads to your team.'
   },
   activities: {
     title: 'Follow-ups & Meetings',
@@ -53,7 +58,7 @@ const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
   }
 };
 
-type CrmTab = 'cold-funnel' | 'pipeline' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters';
+type CrmTab = 'cold-funnel' | 'pipeline' | 'leads' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters';
 
 function CRMEnterpriseContent() {
   const { crmTab, setCrmTab, navigateTo } = usePayroll();
@@ -91,6 +96,8 @@ function CRMEnterpriseContent() {
 
   // Cross-submodule state ("Do Anything From Anywhere")
   const [selectedLead360Id, setSelectedLead360Id] = useState<string | null>(null);
+  /** Opened from Lead Management's Edit: the drawer starts in its edit form. */
+  const [lead360Editing, setLead360Editing] = useState(false);
   const [quotationInitialLeadId, setQuotationInitialLeadId] = useState<string | null>(null);
   const [autoOpenQuotation, setAutoOpenQuotation] = useState(false);
   const [followupInitialLeadId, setFollowupInitialLeadId] = useState<string | null>(null);
@@ -813,6 +820,15 @@ function CRMEnterpriseContent() {
         />
       )}
 
+      {/* LEAD MANAGEMENT: every lead in one server-paged table, with bulk assignment */}
+      {activeTab === 'leads' && (
+        <LeadManagementView
+          onOpenLead={(leadId) => { setLead360Editing(false); setSelectedLead360Id(leadId); }}
+          onEditLead={(leadId) => { setLead360Editing(true); setSelectedLead360Id(leadId); }}
+          onAssigned={fetchCRMData}
+        />
+      )}
+
       {/* SUB-MODULE 6: CRM TAXONOMY & WORKFLOW MASTERS */}
       {activeTab === 'masters' && (
         <CRMMastersManager onRefreshParent={fetchCRMData} />
@@ -826,8 +842,10 @@ function CRMEnterpriseContent() {
       {/* GLOBAL 360° LEAD DOSSIER DRAWER */}
       {selectedLead360Id && (
         <Lead360Drawer
+          key={`${selectedLead360Id}:${lead360Editing}`}
           leadId={selectedLead360Id}
-          onClose={() => setSelectedLead360Id(null)}
+          startEditing={lead360Editing}
+          onClose={() => { setSelectedLead360Id(null); setLead360Editing(false); }}
           onRefreshParent={fetchCRMData}
           pipelines={pipelines}
           stages={stages}

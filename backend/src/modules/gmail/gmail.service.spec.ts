@@ -3,6 +3,8 @@ import { jest } from '@jest/globals';
 import { AuditService } from '@/modules/audit/audit.service';
 import { PrismaService } from '@/prisma/prisma.service';
 import { GmailService } from './gmail.service';
+import { MailSenderService } from '@/modules/mail/mail-sender.service';
+import { UserMailAccountsService } from '@/modules/mail/user-mail-accounts.service';
 import { GmailInboxQueryDto } from './dto/gmail.dto';
 
 describe('GmailService tenant ownership', () => {
@@ -12,6 +14,8 @@ describe('GmailService tenant ownership', () => {
       { $queryRaw: query } as unknown as PrismaService,
       new ConfigService(),
       {} as AuditService,
+      {} as MailSenderService,
+      { imapFor: async () => null } as unknown as UserMailAccountsService,
     );
 
     await service.status('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222');
@@ -32,6 +36,8 @@ describe('GmailService tenant ownership', () => {
       { $queryRaw: query } as unknown as PrismaService,
       new ConfigService(),
       {} as AuditService,
+      {} as MailSenderService,
+      { imapFor: async () => null } as unknown as UserMailAccountsService,
     );
 
     await service.listTemplates('11111111-1111-1111-1111-111111111111', 2, 25, 'welcome');
@@ -46,7 +52,7 @@ describe('GmailService tenant ownership', () => {
   });
 
   it('uses the server-advertised Sent mailbox path', async () => {
-    const service = new GmailService({} as PrismaService, new ConfigService(), {} as AuditService);
+    const service = new GmailService({} as PrismaService, new ConfigService(), {} as AuditService, {} as MailSenderService, {} as UserMailAccountsService);
     const resolver = service as unknown as {
       mailboxPath(client: { list: () => Promise<Array<{ path: string; specialUse?: string }>> }, folder: 'sent'): Promise<string>;
     };
@@ -60,9 +66,9 @@ describe('GmailService tenant ownership', () => {
   });
 
   it('maps validated mailbox filters to an IMAP search', () => {
-    const service = new GmailService({} as PrismaService, new ConfigService(), {} as AuditService);
+    const service = new GmailService({} as PrismaService, new ConfigService(), {} as AuditService, {} as MailSenderService, {} as UserMailAccountsService);
     const resolver = service as unknown as {
-      searchCriteria(query: GmailInboxQueryDto, now: Date): Record<string, unknown>;
+      searchCriteria(query: GmailInboxQueryDto, gmail: boolean, now: Date): Record<string, unknown>;
     };
     const query = Object.assign(new GmailInboxQueryDto(), {
       from: 'sender@example.com',
@@ -74,7 +80,7 @@ describe('GmailService tenant ownership', () => {
       sizeMb: 2,
     });
 
-    expect(resolver.searchCriteria(query, new Date('2026-09-26T00:00:00Z'))).toMatchObject({
+    expect(resolver.searchCriteria(query, true, new Date('2026-09-26T00:00:00Z'))).toMatchObject({
       from: 'sender@example.com',
       seen: false,
       gmailraw: 'has:attachment -category:promotions',

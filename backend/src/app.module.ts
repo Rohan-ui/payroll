@@ -7,6 +7,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmployeesModule } from './modules/employees/employees.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { SalaryModule } from './modules/salary/salary.module';
@@ -24,6 +25,7 @@ import { AccessModule } from './common/access/access.module';
 import { TenancyModule } from './modules/tenancy/tenancy.module';
 import { EmailModule } from './modules/email/email.module';
 import { GmailModule } from './modules/gmail/gmail.module';
+import { MailModule } from './modules/mail/mail.module';
 
 @Module({
   imports: [
@@ -37,9 +39,11 @@ import { GmailModule } from './modules/gmail/gmail.module';
     TenancyModule,
     EmailModule,
     GmailModule,
+    MailModule,
     TenantsModule,
     AuthModule,
     EmployeesModule,
+    OnboardingModule,
     AttendanceModule,
     LeaveModule,
     SalaryModule,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  AtSign,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -18,7 +19,7 @@ import { currentNavigationId, sidebarTree, type SidebarItem } from './navigation
 
 export const Sidebar: React.FC = () => {
   const { user, logout, activeTenant, navigation } = useAuth();
-  const { currentView, crmTab, navigateTo, role } = usePayroll();
+  const { currentView, crmTab, navigateTo, setCurrentView, role } = usePayroll();
   const { isFull, isSymbol, toggleMode } = useSidebar();
   const { theme, setTheme, toggleTheme } = useTheme();
 
@@ -510,6 +511,20 @@ export const Sidebar: React.FC = () => {
               </div>
             </div>
             <button
+              type="button"
+              onClick={() => setCurrentView('my-email')}
+              aria-current={currentView === 'my-email' ? 'page' : undefined}
+              className={cn(
+                'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                theme === 'dark'
+                  ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+              )}
+            >
+              <AtSign className="w-3.5 h-3.5" />
+              <span className="text-[11px]">My email settings</span>
+            </button>
+            <button
               onClick={logout}
               className={cn(
                 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
@@ -572,6 +587,33 @@ export const Sidebar: React.FC = () => {
                 )}
               >
                 {user?.displayName ?? 'Admin'} ({role?.toLowerCase().replace('_', ' ')})
+              </div>
+            </div>
+
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={() => setCurrentView('my-email')}
+                className={cn(
+                  'w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                  theme === 'dark'
+                    ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                )}
+                aria-label="My email settings"
+              >
+                <AtSign className="w-4 h-4" />
+              </button>
+              <div
+                role="tooltip"
+                className={cn(
+                  'absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 text-xs font-semibold rounded-lg shadow-xl border whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150',
+                  theme === 'dark'
+                    ? 'bg-[#1E1D2D] text-white border-[#2B293E]'
+                    : 'bg-slate-900 text-white border-slate-800',
+                )}
+              >
+                My email settings
               </div>
             </div>
 

@@ -3,6 +3,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { AttendanceService } from './attendance/attendance.service';
 import { BookkeepingService } from './bookkeeping/bookkeeping.service';
 import { CrmService } from './crm/crm.service';
+import { CrmLeadAssignmentService } from './crm/crm-lead-assignment.service';
 import { SuperAdminService } from './super-admin/super-admin.service';
 
 describe('growing collection pagination', () => {
@@ -35,7 +36,7 @@ describe('growing collection pagination', () => {
       run: async () => {
         const findMany = jest.fn<() => Promise<never[]>>().mockResolvedValue([]);
         const count = jest.fn<() => Promise<number>>().mockResolvedValue(31);
-        const service = new CrmService({ rndtechnosoft_crm_lead_activities: { findMany, count } } as unknown as PrismaService);
+        const service = new CrmService({ rndtechnosoft_crm_lead_activities: { findMany, count } } as unknown as PrismaService, {} as CrmLeadAssignmentService);
         const result = await service.getActivities('tenant-1', undefined, 2, 10);
         return { result, findMany };
       },

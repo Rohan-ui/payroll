@@ -23,6 +23,10 @@ import { SuperAdminController } from '@/modules/super-admin/super-admin.controll
 import { TenantsController } from '@/modules/tenants/tenants.controller';
 import { UsersController } from '@/modules/tenants/users.controller';
 import { PermissionsController } from '@/modules/tenants/permissions.controller';
+import { OnboardingController } from '@/modules/onboarding/onboarding.controller';
+import { PublicOffersController } from '@/modules/onboarding/public-offers.controller';
+import { PublicCandidateDocumentsController } from '@/modules/onboarding/public-candidate-documents.controller';
+import { MailAccountsController } from '@/modules/mail/mail-accounts.controller';
 
 const PATH_METADATA = 'path';
 const METHOD_METADATA = 'method';
@@ -52,6 +56,10 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['TenantsController', TenantsController],
   ['UsersController', UsersController],
   ['PermissionsController', PermissionsController],
+  ['OnboardingController', OnboardingController],
+  ['PublicOffersController', PublicOffersController],
+  ['PublicCandidateDocumentsController', PublicCandidateDocumentsController],
+  ['MailAccountsController', MailAccountsController],
 ];
 
 /**
@@ -66,6 +74,16 @@ const EXPECTED_PUBLIC_ROUTES = [
   'AuthController.subdomainAvailability', // whether a workspace address is free, for the sign-up form
   'HealthController.check', // liveness probe, no tenant data
   'GmailController.callback', // validates one-time OAuth state before storing the connection
+  // A candidate's offer link: authorized by the 256-bit token emailed to them (stored only as a hash),
+  // showing and answering only that one offer, only on its workspace's address and while HRMS is on.
+  'PublicOffersController.view',
+  'PublicOffersController.pdf',
+  'PublicOffersController.accept',
+  'PublicOffersController.decline',
+  // A candidate's document upload link: the same kind of emailed token, expiring after 30 days and replaced by
+  // any newer link. It lists and takes uploads for that one candidate's requested documents, never returns a file.
+  'PublicCandidateDocumentsController.view',
+  'PublicCandidateDocumentsController.upload',
 ].sort();
 
 function routesOf(name: string, controller: ControllerClass) {
@@ -120,6 +138,13 @@ describe('Tenant route guard coverage', () => {
       'TenantsController.getCurrent', // the name and code of the caller's workspace
       'TenantsController.sendWhatsApp', // refuses every request (not built yet)
       'TenantsController.sendEmail', // refuses every request (not built yet)
+      // The caller's own mail account in the session's workspace; none takes a member or user id.
+      'MailAccountsController.mine',
+      'MailAccountsController.saveMine',
+      'MailAccountsController.disconnectMine',
+      'MailAccountsController.testSmtp', // rate-limited per member
+      'MailAccountsController.testImap', // rate-limited per member
+      'MailAccountsController.testEmail', // rate-limited per member; sends only through the caller's own account
     ];
 
     const unguarded = allTenantRoutes
@@ -211,6 +236,12 @@ describe('Tenant route guard coverage', () => {
       ['TenantsController', [null]],
       ['UsersController', [null]],
       ['PermissionsController', [null]],
+      ['OnboardingController', ['HRMS']],
+      // Public token routes carry no permission; the service refuses them while HRMS is off.
+      ['PublicOffersController', []],
+      ['PublicCandidateDocumentsController', []],
+      // Mail accounts belong to the workspace, not to a business module.
+      ['MailAccountsController', [null]],
     ]);
   });
 

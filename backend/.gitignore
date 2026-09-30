@@ -16,3 +16,6 @@ lerna-debug.log*
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Private files stored by the app (letters, documents). Never commit them.
+/storage

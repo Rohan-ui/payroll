@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
@@ -146,7 +147,10 @@ type LeadListRow = Prisma.rndtechnosoft_crm_leadsGetPayload<{ include: typeof LE
 
 @Injectable()
 export class CrmService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly assignments: CrmLeadAssignmentService,
+  ) {}
 
   private pagination(requestedPage?: number, requestedLimit?: number) {
     const page = Number.isInteger(requestedPage) && requestedPage! > 0 ? requestedPage! : 1;
@@ -466,6 +470,9 @@ export class CrmService {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email!)) throw new BadRequestException('Enter a valid email address for the lead.');
 
     const { pipelineId, stageId } = await this.leadPlacement(tenantId, data.pipelineId || data.pipeline_id, data.stageId || data.stage_id);
+    // A lead given to someone else on creation goes only to an eligible member of this workspace.
+    const chosenAssignee = text(data.assignedTenantMemberId) ?? text(data.assigned_user_id);
+    if (chosenAssignee && chosenAssignee !== memberId) await this.assignments.eligibleAssignee(this.prisma, tenantId, chosenAssignee);
 
     const temperature = data.temperature || 'WARM';
     let customAttributes = data.customAttributes || data.custom_attributes;
@@ -575,7 +582,17 @@ export class CrmService {
     if (data.isLost !== undefined || data.is_lost !== undefined) updateData.is_lost = data.isLost ?? data.is_lost;
     if (data.aiScore !== undefined || data.ai_score !== undefined) updateData.ai_score = Number(data.aiScore || data.ai_score);
     if (data.winProbability !== undefined || data.win_probability !== undefined) updateData.win_probability = new Prisma.Decimal(data.winProbability || data.win_probability);
-    if (data.assignedUserId !== undefined || data.assigned_user_id !== undefined) updateData.assigned_tenant_member_id = data.assignedUserId || data.assigned_user_id;
+    // A new assignee must be an eligible member of this workspace; the change goes on the lead's activity.
+    let assignmentNote: string | null = null;
+    const assigneeField = data.assignedUserId !== undefined ? data.assignedUserId : data.assigned_user_id;
+    if (assigneeField !== undefined) {
+      const next: string | null = typeof assigneeField === 'string' && assigneeField.trim() ? assigneeField.trim() : null;
+      if (next !== existing.assigned_tenant_member_id) {
+        const assignee = next ? await this.assignments.eligibleAssignee(this.prisma, tenantId, next) : null;
+        updateData.assigned_tenant_member_id = next;
+        assignmentNote = assignee ? `Assigned to ${assignee.name}` : 'Unassigned';
+      }
+    }
     if (data.pipelineId !== undefined || data.pipeline_id !== undefined) updateData.pipeline_id = data.pipelineId || data.pipeline_id;
     if (data.customAttributes !== undefined || data.custom_attributes !== undefined) updateData.custom_attributes = data.customAttributes || data.custom_attributes;
 
@@ -614,6 +631,7 @@ export class CrmService {
       data: updateData,
     });
 
+    if (assignmentNote) await this.logActivity(tenantId, id, 'ASSIGNMENT', assignmentNote, undefined, memberId);
     await this.logAudit(tenantId, 'UPDATE', 'LEAD', id, updateData, memberId);
     return updated;
   }
@@ -647,13 +665,8 @@ export class CrmService {
     const { action, leadIds, assignedUserId, stageId } = body;
     if (!leadIds || leadIds.length === 0) return { count: 0 };
 
-    if (action === 'reassign' && assignedUserId) {
-      await this.prisma.rndtechnosoft_crm_leads.updateMany({
-        where: { tenant_id: tenantId, id: { in: leadIds } },
-        data: { assigned_tenant_member_id: assignedUserId },
-      });
-      await this.logAudit(tenantId, 'BULK_REASSIGN', 'LEAD', leadIds[0], { leadIds, assignedUserId }, memberId);
-    } else if (action === 'delete') {
+    // Reassigning is handled by CrmLeadAssignmentService (checked and all-or-nothing).
+    if (action === 'delete') {
       await this.prisma.rndtechnosoft_crm_leads.deleteMany({
         where: { tenant_id: tenantId, id: { in: leadIds } },
       });
@@ -664,6 +677,9 @@ export class CrmService {
         data: { stage_id: stageId, stage_entered_at: new Date() },
       });
       await this.logAudit(tenantId, 'BULK_STAGE_CHANGE', 'LEAD', leadIds[0], { leadIds, stageId }, memberId);
+    } else {
+      // Never report success for an action that did nothing.
+      throw new BadRequestException('This bulk action is not available.');
     }
 
     return { success: true, count: leadIds.length };

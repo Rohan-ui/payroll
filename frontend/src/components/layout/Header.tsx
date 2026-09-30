@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu, X, Bell, ChevronDown, Sparkles, Kanban, Mail, Clock, FileText, BarChart2, Settings2, Target, ShieldCheck, Sun, Moon } from 'lucide-react';
+import { Menu, X, Bell, ChevronDown, Sparkles, Kanban, ListChecks, Mail, Clock, FileText, BarChart2, Settings2, Target, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePayroll } from '../../context/PayrollContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -10,6 +10,7 @@ import type { AppView, CrmTab } from '../../types/payroll.types';
 const CRM_SUB_ITEMS = [
   { id: 'cold-funnel', label: 'Client Outreach',      view: 'crm' as AppView,    tab: 'cold-funnel' as CrmTab, icon: Sparkles, badge: '30D' },
   { id: 'pipeline',    label: 'Sales Pipelines',      view: 'crm' as AppView,    tab: 'pipeline' as CrmTab,    icon: Kanban },
+  { id: 'leads',       label: 'Lead Management',      view: 'crm' as AppView,    tab: 'leads' as CrmTab,       icon: ListChecks },
   { id: 'emails',      label: 'Email & Marketing',    view: 'emails' as AppView,                               icon: Mail,     badge: 'New' },
   { id: 'activities',  label: 'Follow-ups & Meetings', view: 'crm' as AppView,    tab: 'activities' as CrmTab,  icon: Clock },
   { id: 'proposals',   label: 'Quotations',           view: 'crm' as AppView,    tab: 'proposals' as CrmTab,   icon: FileText },
@@ -32,6 +33,7 @@ export const Header: React.FC = () => {
     { id: 'people', label: 'People' },
     { id: 'payroll', label: 'Payroll' },
     { id: 'attendance', label: 'Attendance' },
+    { id: 'onboarding', label: 'Onboarding' },
     { id: 'payslips', label: 'Payslips' },
     { id: 'bookkeeping', label: 'Bookkeeping' },
     { id: 'organization', label: 'Organization & Settings' },
@@ -305,6 +307,16 @@ export const Header: React.FC = () => {
                   <p className="text-[10px] text-teal-400 truncate">Voogyo User</p>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => { setCurrentView('my-email'); setMenuOpen(false); }}
+                className={cn(
+                  'w-full text-left px-3 py-2 rounded-xl text-xs transition-colors',
+                  theme === 'dark' ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                )}
+              >
+                My email settings
+              </button>
               <button
                 onClick={() => { void logout(); setMenuOpen(false); }}
                 className={cn(

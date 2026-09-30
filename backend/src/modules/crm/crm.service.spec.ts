@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmService } from './crm.service';
+import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 
 /** CRM service rules that need no database: every Prisma call is a stub. */
 
@@ -21,7 +22,7 @@ describe('CrmService.getLeads', () => {
       rndtechnosoft_crm_lead_sources: { findMany: stub([]) },
       rndtechnosoft_tenant_members: { findMany: stub([]) },
       rndtechnosoft_crm_clients: { findMany: stub([]) },
-    } as unknown as PrismaService);
+    } as unknown as PrismaService, {} as CrmLeadAssignmentService);
 
     await service.getLeads(TENANT, { page: 1, limit: 100 });
 
@@ -47,7 +48,7 @@ describe('CrmService.convertDealWon', () => {
       rndtechnosoft_crm_stages: { findFirst: stub({ id: 'won-stage' }) },
       rndtechnosoft_crm_lead_activities: { create: activity },
       rndtechnosoft_crm_audit_logs: { create: audit },
-    } as unknown as PrismaService);
+    } as unknown as PrismaService, {} as CrmLeadAssignmentService);
     return { service, activity, audit };
   }
 
@@ -82,7 +83,7 @@ describe('CrmService.seedCadenceDemoLeads', () => {
     if (value === undefined) delete process.env.CRM_ALLOW_DEMO_SEED;
     else process.env.CRM_ALLOW_DEMO_SEED = value;
     const pipelines = stub(null);
-    const service = new CrmService({ rndtechnosoft_crm_pipelines: { findFirst: pipelines } } as unknown as PrismaService);
+    const service = new CrmService({ rndtechnosoft_crm_pipelines: { findFirst: pipelines } } as unknown as PrismaService, {} as CrmLeadAssignmentService);
 
     await expect(service.seedCadenceDemoLeads(TENANT)).rejects.toBeInstanceOf(ForbiddenException);
     expect(pipelines).not.toHaveBeenCalled();
@@ -91,7 +92,7 @@ describe('CrmService.seedCadenceDemoLeads', () => {
   it('proceeds past the gate when the flag is exactly true', async () => {
     process.env.CRM_ALLOW_DEMO_SEED = 'true';
     const pipelines = stub(null);
-    const service = new CrmService({ rndtechnosoft_crm_pipelines: { findFirst: pipelines } } as unknown as PrismaService);
+    const service = new CrmService({ rndtechnosoft_crm_pipelines: { findFirst: pipelines } } as unknown as PrismaService, {} as CrmLeadAssignmentService);
 
     // With no pipeline it stops at the next check, which proves the gate let it through.
     await expect(service.seedCadenceDemoLeads(TENANT)).rejects.toThrow('No active CRM pipeline');

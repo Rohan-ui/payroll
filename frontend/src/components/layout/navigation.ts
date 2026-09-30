@@ -4,6 +4,7 @@ import {
   Target,
   Sparkles,
   Kanban,
+  ListChecks,
   Mail,
   Clock,
   FileText,
@@ -19,6 +20,7 @@ import {
   BookOpen,
   Settings,
   HelpCircle,
+  UserPlus,
 } from 'lucide-react';
 import type { NavigationEntry } from '../../api/auth.api';
 import type { AppView, CrmTab } from '../../types/payroll.types';
@@ -43,6 +45,7 @@ export const NAV_PRESENTATION: Record<string, NavPresentation> = {
   crm: { icon: Target },
   'crm.cold-funnel': { icon: Sparkles, view: 'crm', tab: 'cold-funnel', badge: '30D', hasPlus: true },
   'crm.pipeline': { icon: Kanban, view: 'crm', tab: 'pipeline', hasPlus: true },
+  'crm.leads': { icon: ListChecks, view: 'crm', tab: 'leads' },
   'crm.emails': { icon: Mail, view: 'emails', badge: 'New', hasPlus: true },
   'crm.activities': { icon: Clock, view: 'crm', tab: 'activities', hasPlus: true },
   'crm.proposals': { icon: FileText, view: 'crm', tab: 'proposals', hasPlus: true },
@@ -54,6 +57,7 @@ export const NAV_PRESENTATION: Record<string, NavPresentation> = {
   hrms: { icon: Contact },
   people: { icon: Users, view: 'people' },
   attendance: { icon: CalendarDays, view: 'attendance' },
+  onboarding: { icon: UserPlus, view: 'onboarding' },
   finance: { icon: Landmark },
   payroll: { icon: Banknote, view: 'payroll' },
   payslips: { icon: FileText, view: 'payslips' },
@@ -80,6 +84,7 @@ export const VIEW_NAVIGATION: Record<string, string> = {
   payroll: 'payroll',
   attendance: 'attendance',
   'clock-in': 'attendance',
+  onboarding: 'onboarding',
   payslips: 'payslips',
   bookkeeping: 'bookkeeping',
   reports: 'reports',
