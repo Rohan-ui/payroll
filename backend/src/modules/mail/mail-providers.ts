@@ -38,7 +38,7 @@ export const PROVIDER_PRESETS: Record<MailProvider, ProviderPreset> = {
     smtp: { host: 'smtp.zoho.com', port: 465, security: 'SSL' },
     imap: { host: 'imap.zoho.com', port: 993, security: 'SSL' },
     senderMustMatchUsername: true,
-    note: 'Accounts in India use smtp.zoho.in and imap.zoho.in. With two-factor sign-in on, use an application-specific password.',
+    note: 'Zoho paid organization accounts with your own domain use smtppro.zoho.com and imappro.zoho.com; India/EU data centers use the matching .in/.eu hosts. With two-factor sign-in on, use an application-specific password.',
   },
   CUSTOM: {
     label: 'Another mail server',

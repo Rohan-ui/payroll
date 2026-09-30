@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TenantsModule } from '@/modules/tenants/tenants.module';
-import { LoginThrottleService } from '@/common/security/login-throttle.service';
 import { MailAccountsController } from './mail-accounts.controller';
 import { MailSenderService } from './mail-sender.service';
 import { UserMailAccountsService } from './user-mail-accounts.service';
@@ -9,7 +8,7 @@ import { UserMailAccountsService } from './user-mail-accounts.service';
 @Module({
   imports: [TenantsModule],
   controllers: [MailAccountsController],
-  providers: [UserMailAccountsService, MailSenderService, LoginThrottleService],
+  providers: [UserMailAccountsService, MailSenderService],
   exports: [UserMailAccountsService, MailSenderService],
 })
 export class MailModule {}

@@ -59,6 +59,7 @@ const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
 };
 
 type CrmTab = 'cold-funnel' | 'pipeline' | 'leads' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters';
+const CRM_TABS: CrmTab[] = ['cold-funnel', 'pipeline', 'leads', 'activities', 'proposals', 'reports', 'audit-trail', 'masters'];
 
 function CRMEnterpriseContent() {
   const { crmTab, setCrmTab, navigateTo } = usePayroll();
@@ -128,7 +129,7 @@ function CRMEnterpriseContent() {
 
   // Sync tab with context updates (e.g. from Sidebar clicks or initial URL parse)
   useEffect(() => {
-    if (crmTab && ['pipeline', 'activities', 'proposals', 'reports', 'masters', 'cold-funnel', 'audit-trail'].includes(crmTab)) {
+    if (crmTab && CRM_TABS.includes(crmTab)) {
       setActiveTab(crmTab as CrmTab);
     }
   }, [crmTab]);
@@ -138,7 +139,7 @@ function CRMEnterpriseContent() {
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const tabFromUrl = searchParams.get('tab');
-      if (tabFromUrl && ['pipeline', 'activities', 'proposals', 'reports', 'masters', 'cold-funnel', 'audit-trail'].includes(tabFromUrl)) {
+      if (tabFromUrl && CRM_TABS.includes(tabFromUrl as CrmTab)) {
         setActiveTab(tabFromUrl as CrmTab);
         setCrmTab(tabFromUrl as CrmTab);
       }

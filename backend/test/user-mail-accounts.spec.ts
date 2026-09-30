@@ -47,7 +47,7 @@ describe('personal mail accounts', () => {
   const sagar: Person = { token: '', email: `sagar-${SUFFIX}@rnd.test`, memberId: '', userId: '' };
   const meet: Person = { token: '', email: `meet-${SUFFIX}@rnd.test`, memberId: '', userId: '' };
   const viewer: Person = { token: '', email: `viewer-${SUFFIX}@rnd.test`, memberId: '', userId: '' };
-  const SECRETS = { neha: 'neha-App-Pass-9f3k', nehaNew: 'neha-New-Pass-2x8q', sagar: 'sagar-App-Pass-7h2m', wrong: 'Wrong-Pass-5z1c' };
+  const SECRETS = { neha: 'neha-App-Pass-9f3k', nehaNew: 'neha-New-Pass-2x8q', sagar: 'sagar-App-Pass-7h2m', meet: 'meet-App-Pass-4q9r', wrong: 'Wrong-Pass-5z1c' };
 
   const call = (method: Method, url: string, token: string, body?: unknown) => {
     const req = request(app.getHttpServer())[method](`${API}${url}`).set('Host', LOCAL).set('Authorization', `Bearer ${token}`);
@@ -106,9 +106,9 @@ describe('personal mail accounts', () => {
     org = await startFakeSmtp();
     personal = await startFakeSmtp({
       tls: true,
-      accounts: { [neha.email]: SECRETS.neha, [`neha2-${SUFFIX}@rnd.test`]: SECRETS.nehaNew, [sagar.email]: SECRETS.sagar },
+      accounts: { [neha.email]: SECRETS.neha, [`neha2-${SUFFIX}@rnd.test`]: SECRETS.nehaNew, [sagar.email]: SECRETS.sagar, [meet.email]: SECRETS.meet },
     });
-    imap = await startFakeImap({ [neha.email]: SECRETS.neha });
+    imap = await startFakeImap({ [neha.email]: SECRETS.neha, [meet.email]: SECRETS.meet });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -246,6 +246,46 @@ describe('personal mail accounts', () => {
       expect((await call('get', '/gmail/status', neha.token)).body).toMatchObject({ connected: true, via: 'IMAP', email: neha.email });
     });
 
+    it('can enable IMAP with the already saved SMTP password', async () => {
+      const saved = await call('put', '/mail-accounts/me', meet.token, account(meet, { smtpPassword: SECRETS.meet }));
+      expect(saved.body.data.account).toMatchObject({ imapEnabled: false });
+
+      const enabled = await call('put', '/mail-accounts/me', meet.token, account(meet, { imapEnabled: true, imapHost: imap.host, imapPort: imap.port, imapSecurity: 'SSL', imapUsesSmtpPassword: true }));
+      expect(enabled.status).toBe(200);
+      expect(enabled.body.data.account).toMatchObject({ imapEnabled: true, imapUsesSmtpPassword: true, imapStatus: 'UNTESTED' });
+    });
+
+    it('uses Zoho paid organization hosts for custom-domain Zoho IMAP', async () => {
+      const saved = await call('put', '/mail-accounts/me', meet.token, account(meet, {
+        provider: 'ZOHO',
+        smtpHost: 'smtp.zoho.com',
+        imapEnabled: true,
+        imapHost: 'imap.zoho.com',
+        imapPort: 993,
+        imapSecurity: 'SSL',
+        imapUsesSmtpPassword: true,
+        smtpPassword: SECRETS.meet,
+      }));
+      expect(saved.status).toBe(200);
+      expect(saved.body.data.account).toMatchObject({ smtpHost: 'smtppro.zoho.com', imapHost: 'imappro.zoho.com' });
+    });
+
+    it('saves a changed Zoho mailbox when the app password is entered only for IMAP', async () => {
+      const email = `bdm-${SUFFIX}@rndtechnosoft.com`;
+      const saved = await call('put', '/mail-accounts/me', meet.token, account({ email }, {
+        provider: 'ZOHO',
+        smtpHost: 'smtp.zoho.in',
+        imapEnabled: true,
+        imapHost: 'imap.zoho.in',
+        imapPort: 993,
+        imapSecurity: 'SSL',
+        imapUsesSmtpPassword: false,
+        imapPassword: SECRETS.meet,
+      }));
+      expect(saved.status).toBe(200);
+      expect(saved.body.data.account).toMatchObject({ senderEmail: email, smtpUsername: email, imapUsername: email, smtpHost: 'smtppro.zoho.in', imapHost: 'imappro.zoho.in', hasSmtpPassword: true, hasImapPassword: true });
+    });
+
     it('sends a test email only when asked, to the typed address, through the member’s own account', async () => {
       const before = personal.messages.length;
       const sent = await call('post', '/mail-accounts/me/test-email', neha.token, { recipient: `me-${SUFFIX}@inbox.test` });
@@ -255,14 +295,14 @@ describe('personal mail accounts', () => {
       expect(personal.messages.at(-1)?.data).toContain(`From: Business Development <${neha.email}>`);
     });
 
-    it('limits connection tests and test emails per member', async () => {
+    it('does not rate-limit connection tests and test emails while setup is being fixed', async () => {
       const limited = { ...viewer };
-      for (let i = 0; i < 9; i += 1) expect((await call('post', '/mail-accounts/me/test-smtp', meet.token)).status).toBe(200);
-      expect((await call('post', '/mail-accounts/me/test-smtp', meet.token)).status).toBe(429);
+      expect((await call('post', '/mail-accounts/me/test-smtp', meet.token)).status).toBe(200);
+      expect((await call('post', '/mail-accounts/me/test-smtp', meet.token)).status).toBe(200);
       // Another member is not affected.
       expect((await call('post', '/mail-accounts/me/test-smtp', neha.token)).status).toBe(200);
-      for (let i = 0; i < 4; i += 1) expect((await call('post', '/mail-accounts/me/test-email', neha.token, { recipient: `me-${SUFFIX}@inbox.test` })).status).toBe(200);
-      expect((await call('post', '/mail-accounts/me/test-email', neha.token, { recipient: `me-${SUFFIX}@inbox.test` })).status).toBe(429);
+      expect((await call('post', '/mail-accounts/me/test-email', neha.token, { recipient: `me-${SUFFIX}@inbox.test` })).status).toBe(200);
+      expect((await call('post', '/mail-accounts/me/test-email', neha.token, { recipient: `me-${SUFFIX}@inbox.test` })).status).toBe(200);
       expect((await call('post', '/mail-accounts/me/test-smtp', limited.token)).status).toBe(409);
     });
   });
