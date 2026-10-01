@@ -22,6 +22,7 @@ import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
 import { dealWonMessage, isInOutreach } from './pipelineBoard';
+import { useCrmLeadPage } from './useCrmLeadPage';
 interface LeadsDirectoryProps {
   leads: any[];
   stages: any[];
@@ -31,6 +32,7 @@ interface LeadsDirectoryProps {
   salesPersons?: any[];
   clients?: any[];
   loading: boolean;
+  serverPaged?: boolean;
   onRefresh: () => void;
   onSelectLead360: (leadId: string) => void;
   onCreateQuotation?: (leadId: string) => void;
@@ -46,14 +48,15 @@ interface LeadsDirectoryProps {
 }
 
 export default function LeadsDirectory({
-  leads,
+  leads: initialLeads,
   stages,
   pipelines,
   sources,
   services,
   salesPersons = [],
   clients = [],
-  loading,
+  loading: initialLoading,
+  serverPaged = false,
   onRefresh,
   onLeadCreated,
   onSelectLead360,
@@ -83,8 +86,6 @@ export default function LeadsDirectory({
   // Leads in the 30-day outreach cadence are listed (with an "In outreach" badge) unless the user excludes them.
   const [includeColdFunnelLeads, setIncludeColdFunnelLeads] = useState(true);
 
-  const isolatedColdCount = useMemo(() => leads.filter(isInOutreach).length, [leads]);
-
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -107,8 +108,13 @@ export default function LeadsDirectory({
   }, [autoOpenAdd]);
 
   // Pagination states
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(50);
+  const leadPage = useCrmLeadPage({ search: searchQuery, temperature: filterTemp, stageId: filterStage,
+    assignedUserId: filterSalesPerson, origin: filterOrigin, service: filterService, industry: filterIndustry,
+    subIndustry: filterSubIndustry, excludeOutreach: includeColdFunnelLeads ? '' : 'true' }, initialLeads, serverPaged, pageSize);
+  const { page: currentPage, setPage: setCurrentPage, leads } = leadPage;
+  const loading = initialLoading || (serverPaged && leadPage.loading);
+  const isolatedColdCount = useMemo(() => leads.filter(isInOutreach).length, [leads]);
 
   // Three-dot action menu open state (stores leadId or null)
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
@@ -509,7 +515,7 @@ export default function LeadsDirectory({
   };
 
   // Filtering
-  const filteredLeads = leads.filter(lead => {
+  const filteredLeads = serverPaged ? leads : leads.filter(lead => {
     const matchesSearch = 
       lead.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -545,13 +551,14 @@ export default function LeadsDirectory({
   });
 
   // Pagination calculations
-  const totalItems = filteredLeads.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const totalItems = serverPaged ? leadPage.total : filteredLeads.length;
+  const totalPages = serverPaged ? leadPage.totalPages : Math.ceil(totalItems / pageSize) || 1;
   const startIndex = (currentPage - 1) * pageSize;
-  const paginatedLeads = filteredLeads.slice(startIndex, startIndex + pageSize);
+  const paginatedLeads = serverPaged ? filteredLeads : filteredLeads.slice(startIndex, startIndex + pageSize);
 
   return (
     <div className="space-y-4 relative">
+      {serverPaged && leadPage.error && <div role="alert" className="text-sm text-red-700">{leadPage.error} <button type="button" onClick={leadPage.reload} className="underline">Retry</button></div>}
       {/* Search & Actions Toolbar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Search Input */}

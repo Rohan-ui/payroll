@@ -6,7 +6,7 @@ import {
   Eye, Filter, Plus, ChevronDown, CheckCircle2, TrendingUp,
   Edit3, Trash2, X, Check, Palette, GripVertical, FileText,
   Calendar, UserCheck, Globe, Smartphone, Layers, Server,
-  ShoppingBag, Code2, Cpu, Kanban, List
+  ShoppingBag, Code2, Cpu, Kanban, List, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import {
   useTenantIndustries,
@@ -18,6 +18,7 @@ import {
 import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 
 import { apiFetch } from '../../api/client';
+import { useCrmLeadPage } from './useCrmLeadPage';
 import { toast } from '../../lib/toast';
 import { useAuth } from '../../context/AuthContext';
 import { dealWonMessage, isInOutreach, readRememberedPipeline, rememberPipeline, resolveBoardPipeline } from './pipelineBoard';
@@ -31,6 +32,7 @@ export interface BoardFocusRequest {
 }
 interface PipelineKanbanProps {
   leads: any[];
+  serverPaged?: boolean;
   stages: any[];
   pipelines: any[];
   salesPersons?: any[];
@@ -55,7 +57,8 @@ interface PipelineKanbanProps {
 const HIGHLIGHT_MS = 4000;
 
 export default function PipelineKanban({
-  leads,
+  leads: initialLeads,
+  serverPaged = false,
   stages,
   pipelines,
   salesPersons = [],
@@ -90,6 +93,12 @@ export default function PipelineKanban({
   const [selectedOrigin, setSelectedOrigin] = useState<'ALL' | 'EXISTING' | 'NEW'>('ALL');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('ALL');
   const [selectedSubIndustry, setSelectedSubIndustry] = useState<string>('ALL');
+  const leadPage = useCrmLeadPage({ pipelineId: selectedPipelineId, assignedUserId: selectedSalesPerson,
+    origin: selectedOrigin, industry: selectedIndustry, subIndustry: selectedSubIndustry, stageId: initialFilterStageId ?? '',
+    excludeOutreach: 'true' }, initialLeads, serverPaged);
+  const focusedLead = initialLeads.find(lead => lead.id === highlightedLeadId);
+  const leads = focusedLead && !leadPage.leads.some(lead => lead.id === focusedLead.id)
+    ? [focusedLead, ...leadPage.leads] : leadPage.leads;
 
 
   // "Show on board": select the lead's pipeline and clear filters so its card is visible.
@@ -440,6 +449,17 @@ export default function PipelineKanban({
 
   return (
     <div className="space-y-4 relative">
+      {serverPaged && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600" aria-busy={leadPage.loading}>
+          <span>{leadPage.loading ? 'Loading...' : `${leadPage.total ? (leadPage.page - 1) * 50 + 1 : 0}-${Math.min(leadPage.page * 50, leadPage.total)} of ${leadPage.total} leads`}</span>
+          {leadPage.error && <span role="alert" className="text-red-700">{leadPage.error} <button type="button" onClick={leadPage.reload} className="underline">Retry</button></span>}
+          <div className="flex items-center gap-3">
+            <button type="button" aria-label="Previous page" title="Previous page" disabled={leadPage.loading || leadPage.page === 1} onClick={() => leadPage.setPage(leadPage.page - 1)} className="rounded border p-2 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+            <span>Page {leadPage.page} of {leadPage.totalPages}</span>
+            <button type="button" aria-label="Next page" title="Next page" disabled={leadPage.loading || leadPage.page >= leadPage.totalPages} onClick={() => leadPage.setPage(leadPage.page + 1)} className="rounded border p-2 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-4">
         {/* Pipeline & Sales Person Selectors */}

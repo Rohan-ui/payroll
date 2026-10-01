@@ -69,7 +69,7 @@ function CRMEnterpriseContent() {
   // "Show on board" for a lead just created: the board selects its pipeline and highlights it.
   const [boardFocus, setBoardFocus] = useState<BoardFocusRequest | null>(null);
   const clearBoardFocus = useCallback(() => setBoardFocus(null), []);
-  // Leads converted from Client Outreach in this visit. The workspace loads only the newest 100
+  // Leads converted from Client Outreach in this visit. The workspace loads only the newest 50
   // leads, so an older lead that was just converted is kept on the board until the next reload.
   const [convertedLeads, setConvertedLeads] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
@@ -207,13 +207,13 @@ function CRMEnterpriseContent() {
     setLoading(true);
     try {
       const [leadsRes, srvRes, fupRes, meetRes, quotesRes, authRes, cadenceRes] = await Promise.all([
-        apiFetch('/api/v1/crm/leads?page=1&limit=100'),
+        apiFetch('/api/v1/crm/leads?page=1&limit=50'),
         apiFetch('/api/v1/crm/masters/services'),
-        apiFetch('/api/v1/crm/followups?page=1&limit=100'),
-        apiFetch('/api/v1/crm/meetings?page=1&limit=100'),
-        apiFetch('/api/v1/crm/quotations?page=1&limit=100'),
+        apiFetch('/api/v1/crm/followups?page=1&limit=50'),
+        apiFetch('/api/v1/crm/meetings?page=1&limit=50'),
+        apiFetch('/api/v1/crm/quotations?page=1&limit=50'),
         apiFetch('/api/v1/auth/me'),
-        apiFetch('/api/v1/crm/cadence')
+        apiFetch('/api/v1/crm/cadence?page=1&limit=1')
       ]);
 
       const leadsJson = await leadsRes.json().catch(() => ({}));
@@ -729,6 +729,7 @@ function CRMEnterpriseContent() {
       {/* SUB-MODULE 1: SALES PIPELINES (KANBAN OR LIST VIEW) */}
       {activeTab === 'pipeline' && pipelineView === 'list' && (
         <LeadsDirectory
+          serverPaged
           leads={boardLeads}
           stages={stages}
           pipelines={pipelines}
@@ -757,6 +758,7 @@ function CRMEnterpriseContent() {
 
       {activeTab === 'pipeline' && pipelineView === 'kanban' && (
         <PipelineKanban
+          serverPaged
           leads={boardLeads}
           stages={stages}
           pipelines={pipelines}

@@ -16,6 +16,7 @@ import { Response } from 'express';
 import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { AssignLeadsDto, LeadManagementQueryDto } from './dto/lead-management.dto';
+import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
@@ -130,7 +131,13 @@ export class CrmController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('isWon') isWon?: string,
+    @Query('origin') origin?: string,
+    @Query('service') service?: string,
+    @Query('excludeOutreach') excludeOutreach?: string,
   ) {
+    if (origin && !['ALL', 'NEW', 'EXISTING'].includes(origin)) throw new BadRequestException('Choose a valid lead origin.');
+    if (service && service.length > 200) throw new BadRequestException('The service filter is too long.');
+    if (excludeOutreach && !['true', 'false'].includes(excludeOutreach)) throw new BadRequestException('Choose whether to include outreach leads.');
     const data = await this.crmService.getLeads(tenantId, {
       pipelineId,
       stageId,
@@ -140,6 +147,9 @@ export class CrmController {
       industry,
       subIndustry,
       search,
+      origin,
+      service,
+      excludeOutreach: excludeOutreach === 'true',
       // Only "true" narrows the list to won deals; anything else lists every lead as before.
       isWon: isWon === 'true' ? true : undefined,
       page: page ? Number(page) : undefined,
@@ -284,10 +294,9 @@ export class CrmController {
   @RequirePermissions('outreach.view')
   async getCadence(
     @CurrentTenant() tenantId: string,
-    @Query('leadId') leadId?: string,
-    @Query('status') status?: string,
+    @Query() query: CadenceQueryDto,
   ) {
-    const data = await this.crmService.getCadenceMatrix(tenantId, leadId, status);
+    const data = await this.crmService.getCadenceMatrix(tenantId, query.leadId, query.status, query);
     return { success: true, data };
   }
 

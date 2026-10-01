@@ -44,7 +44,7 @@ export default function FollowupsAndMeetings({
   const [meetingTotal, setMeetingTotal] = useState(0);
   const [meetingTotalPages, setMeetingTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
-  const pageSize = 25;
+  const pageSize = 50;
 
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState(new Date());
