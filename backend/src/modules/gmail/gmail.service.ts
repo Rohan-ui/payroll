@@ -381,7 +381,12 @@ export class GmailService {
       const result = await this.mailSender.sendSmtp(sender, message);
       return { messageId: result.messageId, senderKind: sender.kind, senderEmail: sender.email };
     } catch (error) {
-      if (error instanceof MailSendError) throw new ServiceUnavailableException(`The email was not sent from ${sender.email}. ${error.safeReason}`);
+      if (error instanceof MailSendError) {
+        const settings = sender.kind === 'ORGANIZATION'
+          ? 'This send used Organization SMTP. Update its password in Organization Settings, or ask an administrator to allow sending from personal accounts.'
+          : 'This send used your personal SMTP account. Check My email settings.';
+        throw new ServiceUnavailableException(`The email was not sent from ${sender.email}. ${error.safeReason} ${settings}`);
+      }
       throw error;
     }
   }

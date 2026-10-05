@@ -320,11 +320,13 @@ const AccountForm: React.FC<{
     event.preventDefault();
     const port = Number(form.smtpPort);
     const imapPort = Number(form.imapPort);
+    const effectiveImapUsername = form.imapUsername.trim() || form.smtpUsername.trim();
+    const imapPasswordForSameMailbox = form.imapEnabled && form.imapPassword && effectiveImapUsername.toLowerCase() === form.smtpUsername.trim().toLowerCase();
     let problem: string | null = null;
     if (!form.smtpHost.trim()) problem = 'Enter the SMTP host.';
     else if (!(port >= 1 && port <= 65535)) problem = 'Enter an SMTP port between 1 and 65535.';
     else if (!form.smtpUsername.trim()) problem = 'Enter the SMTP username, usually your full email address.';
-    else if (!form.smtpPassword && !smtpSame) problem = account?.hasSmtpPassword ? 'You changed the server or username: enter the password again.' : 'Enter the password or app password.';
+    else if (!form.smtpPassword && !imapPasswordForSameMailbox && !smtpSame) problem = account?.hasSmtpPassword ? 'You changed the server or username: enter the password again.' : 'Enter the password or app password.';
     else if (!EMAIL.test(form.senderEmail.trim())) problem = 'Enter the email address you send from.';
     else if (preset?.senderMustMatchUsername && form.senderEmail.trim().toLowerCase() !== form.smtpUsername.trim().toLowerCase()) problem = `${preset.label} only sends as the address you sign in with, so the sender email must be ${form.smtpUsername.trim()}.`;
     else if (form.replyToEmail.trim() && !EMAIL.test(form.replyToEmail.trim())) problem = 'Enter a valid reply-to address, or leave it empty.';
@@ -338,7 +340,7 @@ const AccountForm: React.FC<{
         smtpPort: port,
         smtpSecurity: form.smtpSecurity,
         smtpUsername: form.smtpUsername.trim(),
-        ...(form.smtpPassword ? { smtpPassword: form.smtpPassword } : {}),
+        ...(form.smtpPassword || imapPasswordForSameMailbox ? { smtpPassword: form.smtpPassword || form.imapPassword } : {}),
         senderEmail: form.senderEmail.trim(),
         ...(form.senderName.trim() ? { senderName: form.senderName.trim() } : {}),
         ...(form.replyToEmail.trim() ? { replyToEmail: form.replyToEmail.trim() } : {}),
@@ -348,7 +350,7 @@ const AccountForm: React.FC<{
               imapHost: form.imapHost.trim(),
               imapPort,
               imapSecurity: form.imapSecurity,
-              imapUsername: form.imapUsername.trim() || form.smtpUsername.trim(),
+              imapUsername: effectiveImapUsername,
               imapUsesSmtpPassword: form.imapUsesSmtpPassword,
               ...(!form.imapUsesSmtpPassword && form.imapPassword ? { imapPassword: form.imapPassword } : {}),
             }

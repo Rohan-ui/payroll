@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
+import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
@@ -242,6 +243,9 @@ export class CrmService {
       industry?: string;
       subIndustry?: string;
       search?: string;
+      origin?: string;
+      service?: string;
+      excludeOutreach?: boolean;
       isWon?: boolean;
       isLost?: boolean;
       page?: number;
@@ -250,7 +254,7 @@ export class CrmService {
     },
   ) {
     const { page, limit, skip } = this.pagination(query.page, query.limit);
-    const where: any = { tenant_id: tenantId };
+    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId };
     if (query.pipelineId) where.pipeline_id = query.pipelineId;
     if (query.stageId) where.stage_id = query.stageId;
     if (query.temperature && query.temperature !== 'ALL') where.temperature = query.temperature;
@@ -260,6 +264,17 @@ export class CrmService {
     if (query.subIndustry && query.subIndustry !== 'ALL') where.sub_industry = query.subIndustry;
     if (typeof query.isWon === 'boolean') where.is_won = query.isWon;
     if (typeof query.isLost === 'boolean') where.is_lost = query.isLost;
+    const conditions: Prisma.rndtechnosoft_crm_leadsWhereInput[] = [];
+    if (query.origin === 'EXISTING') conditions.push({ OR: [{ is_existing_client: true }, { client_id: { not: null } }] });
+    if (query.origin === 'NEW') conditions.push({ AND: [{ OR: [{ is_existing_client: false }, { is_existing_client: null }] }, { client_id: null }] });
+    if (query.service && query.service !== 'ALL') where.primary_service = query.service;
+    if (query.excludeOutreach) conditions.push({ OR: [
+      { custom_attributes: { equals: Prisma.DbNull } },
+      { custom_attributes: { path: ['cadence'], equals: Prisma.AnyNull } },
+      { custom_attributes: { path: ['cadence', 'status'], equals: 'CONVERTED' } },
+      { custom_attributes: { path: ['cadence', 'convertedToOpportunity'], equals: true } },
+    ] });
+    if (conditions.length) where.AND = conditions;
 
     if (query.search) {
       where.OR = [
@@ -269,6 +284,10 @@ export class CrmService {
         { email: { contains: query.search, mode: 'insensitive' } },
         { lead_code: { contains: query.search, mode: 'insensitive' } },
         { phone: { contains: query.search, mode: 'insensitive' } },
+        { industry: { contains: query.search, mode: 'insensitive' } },
+        { sub_industry: { contains: query.search, mode: 'insensitive' } },
+        { primary_service: { contains: query.search, mode: 'insensitive' } },
+        { rndtechnosoft_tenant_members: { rndtechnosoft_users: { display_name: { contains: query.search, mode: 'insensitive' } } } },
       ];
     }
 
@@ -1402,7 +1421,7 @@ export class CrmService {
   // 30-DAY OUTREACH CADENCE ENGINE
   // ==========================================
 
-  async getCadenceMatrix(tenantId: string, leadId?: string, filterStatus: string = 'ALL') {
+  async getCadenceMatrix(tenantId: string, leadId?: string, filterStatus: string = 'ALL', query: Partial<CadenceQueryDto> = {}) {
     const tenant = await this.prisma.rndtechnosoft_tenants.findUnique({
       where: { id: tenantId },
       select: { tenant_code: true },
@@ -1422,15 +1441,75 @@ export class CrmService {
     }
 
     const steps = await this.getCadenceSteps(tenantId);
-    const leads = await this.prisma.rndtechnosoft_crm_leads.findMany({
-      where: { tenant_id: tenantId },
-      orderBy: { created_at: 'desc' },
-      include: {
-        rndtechnosoft_tenant_members: {
-          include: { rndtechnosoft_users: true },
-        },
-      },
-    });
+    const { page, limit, skip } = this.pagination(query.page, Math.min(query.limit ?? 50, 50));
+    const normalize = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_');
+    const matchesTaxonomy = (value: string, filter?: string) => !filter || filter === 'ALL' || normalize(value) === normalize(filter);
+    const stats = { totalEnrolled: 0, activeCount: 0, dueTodayCount: 0, overdueCount: 0, completedCount: 0, branchedCount: 0, convertedCount: 0,
+      platformCounts: { WHATSAPP: 0, EMAIL: 0, LINKEDIN: 0, PHONE: 0 } };
+    const industryCounts: Record<string, number> = {};
+    const subIndustryCounts: Record<string, number> = {};
+    const pageIds: string[] = [];
+    let total = 0;
+    let enrolledCount = 0;
+    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId };
+    const search = query.search?.trim();
+    if (search) {
+      where.OR = ['company_name', 'first_name', 'last_name', 'email', 'phone', 'whatsapp_number', 'lead_code', 'industry', 'sub_industry'].map(field => ({
+        [field]: { contains: search, mode: 'insensitive' },
+      }));
+    }
+    // ponytail: scan compact metadata in bounded batches for JSON cadence rules and totals;
+    // move classification into indexed relational fields if tenant size makes this slow.
+    let cursor: string | undefined;
+    while (true) {
+      const batch = await this.prisma.rndtechnosoft_crm_leads.findMany({
+        where, take: 500, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+        select: { id: true, custom_attributes: true, temperature: true, industry: true, sub_industry: true, is_won: true, created_at: true },
+      });
+      for (const lead of batch) {
+        const attr = lead.custom_attributes as { cadence?: CadenceState } | null;
+        const cadence = attr?.cadence;
+        if (!cadence && lead.temperature !== 'COLD') continue;
+        const status = cadence?.status ?? 'ACTIVE';
+        if (filterStatus !== 'ALL' && status !== filterStatus) continue;
+        const industry = lead.industry || cadence?.industry || 'general';
+        const subIndustry = lead.sub_industry || '';
+        enrolledCount++;
+        industryCounts[normalize(industry)] = (industryCounts[normalize(industry)] ?? 0) + 1;
+        if (matchesTaxonomy(industry, query.industry)) {
+          subIndustryCounts[normalize(subIndustry)] = (subIndustryCounts[normalize(subIndustry)] ?? 0) + 1;
+        }
+        if (!matchesTaxonomy(industry, query.industry) || !matchesTaxonomy(subIndustry, query.subIndustry)) continue;
+        const step = nextCadenceStep(steps, { completedSteps: cadence?.completedSteps ?? [] }) ?? steps[steps.length - 1];
+        if (query.channel && query.channel !== 'ALL' && !step.channels.includes(query.channel as CadenceChannel)) continue;
+        const dueStatus = status === 'ACTIVE' ? evaluateStepDueStatus(cadence?.nextDueAt || lead.created_at) : 'UPCOMING';
+        const category = status === 'CONVERTED' || cadence?.convertedToOpportunity || lead.is_won ? 'CONVERTED' : status;
+        stats.totalEnrolled++;
+        if (category === 'CONVERTED') stats.convertedCount++;
+        else if (category === 'COMPLETED') stats.completedCount++;
+        else if (category === 'BRANCHED') stats.branchedCount++;
+        else if (category === 'ACTIVE') {
+          stats.activeCount++;
+          if (dueStatus === 'OVERDUE') stats.overdueCount++;
+          if (dueStatus === 'DUE_TODAY') stats.dueTodayCount++;
+          if (dueStatus !== 'UPCOMING') step.channels.forEach(ch => stats.platformCounts[ch]++);
+        }
+        const queue = query.queue ?? 'ALL';
+        const inQueue = queue === 'ALL' || (queue === 'ALL_ACTIVE' ? category === 'ACTIVE'
+          : queue === 'ACTION_RADAR' ? category === 'ACTIVE' && dueStatus !== 'UPCOMING' : category === queue);
+        if (!inQueue) continue;
+        if (total >= skip && pageIds.length < limit) pageIds.push(lead.id);
+        total++;
+      }
+      if (batch.length < 500) break;
+      cursor = batch[batch.length - 1].id;
+    }
+    const leads = pageIds.length ? await this.prisma.rndtechnosoft_crm_leads.findMany({
+      where: { tenant_id: tenantId, id: { in: pageIds } }, take: limit,
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      include: { rndtechnosoft_tenant_members: { select: { rndtechnosoft_users: { select: { display_name: true } } } } },
+    }) : [];
 
     const activeList: any[] = [];
     const overdueList: any[] = [];
@@ -1439,20 +1518,6 @@ export class CrmService {
     const completedList: any[] = [];
     const branchedList: any[] = [];
     const convertedList: any[] = [];
-
-    let totalEnrolled = 0;
-    let dueTodayCount = 0;
-    let overdueCount = 0;
-    let completedCount = 0;
-    let branchedCount = 0;
-    let convertedCount = 0;
-
-    const platformCounts = {
-      WHATSAPP: 0,
-      EMAIL: 0,
-      LINKEDIN: 0,
-      PHONE: 0,
-    };
 
     for (const lead of leads) {
       const customAttr = (lead.custom_attributes as any) || {};
@@ -1480,7 +1545,6 @@ export class CrmService {
         continue;
       }
 
-      totalEnrolled++;
       // Where the lead is in this workspace's playbook; once past the last step, that step.
       const currentMasterStep = nextCadenceStep(steps, cadence) ?? steps[steps.length - 1];
       const stepDueDate = cadence.nextDueAt ? new Date(cadence.nextDueAt) : new Date(lead.created_at);
@@ -1535,29 +1599,18 @@ export class CrmService {
       };
 
       if (cadence.status === 'CONVERTED' || cadence.convertedToOpportunity || lead.is_won) {
-        convertedCount++;
         convertedList.push(enrichedItem);
       } else if (cadence.status === 'COMPLETED') {
-        completedCount++;
         completedList.push(enrichedItem);
       } else if (cadence.status === 'BRANCHED') {
-        branchedCount++;
         branchedList.push(enrichedItem);
       } else if (cadence.status === 'ACTIVE') {
         activeList.push(enrichedItem);
 
         if (dueStatus === 'OVERDUE') {
-          overdueCount++;
           overdueList.push(enrichedItem);
-          currentMasterStep.channels.forEach((ch) => {
-            platformCounts[ch] = (platformCounts[ch] || 0) + 1;
-          });
         } else if (dueStatus === 'DUE_TODAY') {
-          dueTodayCount++;
           dueTodayList.push(enrichedItem);
-          currentMasterStep.channels.forEach((ch) => {
-            platformCounts[ch] = (platformCounts[ch] || 0) + 1;
-          });
         } else {
           upcomingList.push(enrichedItem);
         }
@@ -1566,16 +1619,9 @@ export class CrmService {
 
     return {
       tenantName,
-      stats: {
-        totalEnrolled,
-        activeCount: activeList.length,
-        dueTodayCount,
-        overdueCount,
-        completedCount,
-        branchedCount,
-        convertedCount,
-        platformCounts,
-      },
+      stats,
+      pagination: this.pageMeta(total, page, limit, leads.length),
+      facets: { enrolledCount, industryCounts, subIndustryCounts },
       radar: {
         overdue: overdueList,
         dueToday: dueTodayList,

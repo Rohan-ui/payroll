@@ -3,7 +3,6 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
-import { LoginThrottleService } from '@/common/security/login-throttle.service';
 import { OrganizationSettingsService } from '@/modules/tenants/organization-settings.service';
 import { decryptPlatformSecret, encryptPlatformSecret, isPlatformEncryptionConfigured } from '@/modules/super-admin/auth/platform-crypto.util';
 import { UserMailAccountDto } from './dto/mail-account.dto';
@@ -14,10 +13,15 @@ import { ImapCredentials, imapClient, SmtpCredentials, transportFor } from './ma
 
 type Row = NonNullable<Awaited<ReturnType<PrismaService['rndtechnosoft_user_mail_accounts']['findFirst']>>>;
 
-/** Connection tests per member: enough to fix a typo, not enough to probe servers. */
-const TEST_RULE = { limit: 10, windowMinutes: 15, blockMinutes: 15 };
-/** Test emails per member: each one really goes out. */
-const TEST_EMAIL_RULE = { limit: 5, windowMinutes: 60, blockMinutes: 60 };
+const ZOHO_PERSONAL_DOMAINS = new Set(['zoho.com', 'zohomail.com']);
+const ZOHO_PAID_HOSTS: Record<string, string> = {
+  'smtp.zoho.com': 'smtppro.zoho.com',
+  'imap.zoho.com': 'imappro.zoho.com',
+  'smtp.zoho.in': 'smtppro.zoho.in',
+  'imap.zoho.in': 'imappro.zoho.in',
+  'smtp.zoho.eu': 'smtppro.zoho.eu',
+  'imap.zoho.eu': 'imappro.zoho.eu',
+};
 
 /**
  * Members' own mail accounts, one per member per workspace: SMTP to send as
@@ -34,7 +38,6 @@ export class UserMailAccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly throttle: LoginThrottleService,
     private readonly organizationSettings: OrganizationSettingsService,
   ) {}
 
@@ -64,9 +67,11 @@ export class UserMailAccountsService {
   async save(tenantId: string, actor: AuthenticatedTenantUser, input: UserMailAccountDto) {
     const provider = input.provider as MailProvider;
     const preset = PROVIDER_PRESETS[provider];
-    const smtpHost = input.smtpHost.trim().toLowerCase();
     const smtpUsername = input.smtpUsername.trim();
+    const smtpHost = this.normalizeZohoHost(provider, smtpUsername, input.smtpHost);
     const senderEmail = input.senderEmail.trim().toLowerCase();
+    const imapUsername = input.imapEnabled ? input.imapUsername?.trim() || smtpUsername : null;
+    const imapPasswordForSameMailbox = input.imapPassword && imapUsername?.toLowerCase() === smtpUsername.toLowerCase() ? input.imapPassword : undefined;
     if (preset.senderMustMatchUsername && senderEmail !== smtpUsername.toLowerCase()) {
       throw new BadRequestException(`${preset.label} only sends as the address you sign in with. Use ${smtpUsername.toLowerCase()} as the sender email, or choose "Another mail server" if your provider allows other addresses.`);
     }
@@ -75,22 +80,20 @@ export class UserMailAccountsService {
     // A saved password is only reused for the same server and username.
     const smtpSame = current !== null && current.smtp_host === smtpHost && current.smtp_port === input.smtpPort && current.smtp_username === smtpUsername;
     let smtpPasswordEncrypted: string | null;
-    if (input.smtpPassword) smtpPasswordEncrypted = this.encrypt(input.smtpPassword);
+    if (input.smtpPassword || imapPasswordForSameMailbox) smtpPasswordEncrypted = this.encrypt(input.smtpPassword ?? imapPasswordForSameMailbox!);
     else if (smtpSame && current?.smtp_password_encrypted) smtpPasswordEncrypted = current.smtp_password_encrypted;
     else throw new BadRequestException(current?.smtp_password_encrypted ? 'You changed the SMTP server or username: enter the password again.' : 'Enter the SMTP password or app password.');
 
     let imap: { host: string; port: number; security: string; username: string; passwordEncrypted: string | null } | null = null;
     if (input.imapEnabled) {
       if (!input.imapHost || !input.imapPort || !input.imapSecurity) throw new BadRequestException('Enter the IMAP host, port and security, or turn off reading your inbox.');
-      const host = input.imapHost.trim().toLowerCase();
-      const username = input.imapUsername?.trim() || smtpUsername;
+      const username = imapUsername!;
+      const host = this.normalizeZohoHost(provider, username, input.imapHost);
       const usesSmtpPassword = input.imapUsesSmtpPassword !== false;
       const imapSame = current !== null && current.imap_enabled && current.imap_host === host && current.imap_port === input.imapPort && current.imap_username === username;
       let passwordEncrypted: string | null = null;
       if (usesSmtpPassword) {
-        // The SMTP password is sent to this IMAP server only when typed now, or already used with this same server.
-        const alreadyUsedHere = imapSame && current?.imap_password_encrypted === null;
-        if (!input.smtpPassword && !alreadyUsedHere) throw new BadRequestException('Enter the password again to use it for reading your inbox on this server.');
+        if (!input.smtpPassword && !current?.smtp_password_encrypted) throw new BadRequestException('Enter the password again to use it for reading your inbox on this server.');
       } else if (input.imapPassword) {
         passwordEncrypted = this.encrypt(input.imapPassword);
       } else if (imapSame && current?.imap_password_encrypted) {
@@ -101,7 +104,7 @@ export class UserMailAccountsService {
       imap = { host, port: input.imapPort, security: input.imapSecurity, username, passwordEncrypted };
     }
 
-    const smtpChanged = !current || !smtpSame || current.smtp_security !== input.smtpSecurity || Boolean(input.smtpPassword);
+    const smtpChanged = !current || !smtpSame || current.smtp_security !== input.smtpSecurity || Boolean(input.smtpPassword || imapPasswordForSameMailbox);
     const imapFieldsChanged =
       !current ||
       current.imap_enabled !== Boolean(imap) ||
@@ -143,7 +146,7 @@ export class UserMailAccountsService {
       smtpPort: input.smtpPort,
       senderEmail,
       imapEnabled: Boolean(imap),
-      passwordReplaced: Boolean(input.smtpPassword || input.imapPassword),
+      passwordReplaced: Boolean(input.smtpPassword || input.imapPassword || imapPasswordForSameMailbox),
     });
     return this.get(tenantId, actor);
   }
@@ -173,7 +176,6 @@ export class UserMailAccountsService {
 
   /** Signs in to the saved SMTP server without sending anything. */
   async testSmtp(tenantId: string, actor: AuthenticatedTenantUser) {
-    await this.limit(tenantId, actor, 'test', TEST_RULE);
     const row = await this.enabledRow(tenantId, actor.userId);
     const smtp = this.smtpOf(row);
     const started = Date.now();
@@ -193,7 +195,6 @@ export class UserMailAccountsService {
 
   /** Signs in to the saved IMAP server without reading any mail. */
   async testImap(tenantId: string, actor: AuthenticatedTenantUser) {
-    await this.limit(tenantId, actor, 'test', TEST_RULE);
     const row = await this.enabledRow(tenantId, actor.userId);
     const imap = this.imapOf(row);
     if (!imap) throw new ConflictException('Turn on reading your inbox and save the IMAP settings first.');
@@ -213,7 +214,6 @@ export class UserMailAccountsService {
 
   /** Sends one email the member asked for, to the address they typed, through their own account. */
   async sendTestEmail(tenantId: string, actor: AuthenticatedTenantUser, recipient: string) {
-    await this.limit(tenantId, actor, 'email', TEST_EMAIL_RULE);
     const row = await this.enabledRow(tenantId, actor.userId);
     const smtp = this.smtpOf(row);
     const transport = transportFor(smtp);
@@ -342,12 +342,6 @@ export class UserMailAccountsService {
     });
   }
 
-  private async limit(tenantId: string, actor: AuthenticatedTenantUser, kind: 'test' | 'email', rule: { limit: number; windowMinutes: number; blockMinutes: number }) {
-    const key = `tenant:mail-${kind}:${tenantId}:${actor.userId}`;
-    await this.throttle.assertNotBlocked([key]);
-    await this.throttle.recordFailure([{ key, ...rule }]);
-  }
-
   private shape(row: Row) {
     return {
       provider: row.provider,
@@ -395,6 +389,14 @@ export class UserMailAccountsService {
       this.logger.error('A saved mail password could not be decrypted.');
       throw new ConflictException('Your saved mail password can no longer be read. Enter it again in My email settings.');
     }
+  }
+
+  private normalizeZohoHost(provider: MailProvider, username: string, host: string): string {
+    const value = host.trim().toLowerCase();
+    if (provider !== 'ZOHO') return value;
+    const domain = username.toLowerCase().split('@').at(1);
+    if (!domain || ZOHO_PERSONAL_DOMAINS.has(domain)) return value;
+    return ZOHO_PAID_HOSTS[value] ?? value;
   }
 
   private log(tenantId: string, actor: AuthenticatedTenantUser, actionCode: string, metadata: Record<string, unknown>) {

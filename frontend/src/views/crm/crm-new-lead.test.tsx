@@ -13,7 +13,7 @@ import { toast, ToastItem } from '../../lib/toast';
 
 const payroll = { crmTab: 'cold-funnel', setCrmTab: vi.fn(), navigateTo: vi.fn() };
 vi.mock('../../context/PayrollContext', () => ({ usePayroll: () => payroll }));
-vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ canOpen: () => true, activeTenant: { tenantId: 'tenant-1' } }) }));
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ can: () => true, canOpen: () => true, activeTenant: { tenantId: 'tenant-1' } }) }));
 
 const { CrmWorkspaceView } = await import('./CrmWorkspaceView');
 
@@ -52,6 +52,12 @@ beforeEach(() => {
       if (url.startsWith('/api/v1/crm/cadence')) {
         const radar = { overdue: [], dueToday: [], upcoming: [], allActive: [], completed: [], branched: [], converted: [] };
         return json({ success: true, data: { stats: {}, radar, masterSteps: [], replyBranches: {}, industries: {}, demoSeedAllowed: false } });
+      }
+      if (url.startsWith('/api/v1/crm/lead-management')) {
+        return json({ success: true, data: [], pagination: { page: 1, limit: 25, total: 0, totalPages: 1 }, filters: { stages: [], pipelines: [], sources: [] } });
+      }
+      if (url === '/api/v1/crm/assignees') {
+        return json({ success: true, data: [] });
       }
       return json({ success: true, data: [] });
     }),
@@ -95,6 +101,20 @@ async function addLeadFromTopButton() {
 }
 
 describe('adding a lead', () => {
+  it('opens Lead Management when the sidebar switches the CRM tab to leads', async () => {
+    payroll.crmTab = 'pipeline';
+    await act(async () => root?.render(<CrmWorkspaceView />));
+    await flush();
+    expect(container.textContent).toContain('Sales Pipelines');
+
+    payroll.crmTab = 'leads';
+    await act(async () => root?.render(<CrmWorkspaceView />));
+    await flush();
+
+    expect(container.textContent).toContain('Lead Management');
+    expect(container.textContent).toContain('Every lead in one table');
+  });
+
   it('names the pipeline and stage, and "Show on board" opens the board on that pipeline with the card highlighted', async () => {
     payroll.crmTab = 'cold-funnel';
     created = { id: 'new-1', lead_code: 'LD-2026-100001', company_name: 'Fresh Warm Co', first_name: 'Rahul', pipeline_id: 'p-sales', stage_id: 's-sales', temperature: 'WARM', budget_amount: 0, custom_attributes: null };

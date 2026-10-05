@@ -81,6 +81,29 @@ describe('pipeline rules', () => {
 });
 
 describe('Sales Pipelines board', () => {
+  it('pages 50 server records and queries a different pipeline before paging', async () => {
+    const requests: URLSearchParams[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const params = new URL(url, 'http://localhost').searchParams;
+      if (url.includes('/crm/leads?')) requests.push(params);
+      return new Response(JSON.stringify({ success: true, data: url.includes('/crm/leads?') ? {
+        leads: params.get('pipelineId') === 'p-main' ? [IN_MAIN] : [IN_SALES], pagination: { total: 152 },
+      } : [] }), { headers: { 'Content-Type': 'application/json' } });
+    }));
+    await board({ serverPaged: true, leads: [IN_SALES], pipelines: PIPELINES, stages: STAGES });
+    const settle = () => act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); });
+    await settle();
+    expect(requests[0].get('limit')).toBe('50');
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Next page"]')?.click());
+    await settle();
+    expect(requests[requests.length - 1].get('page')).toBe('2');
+    choose('p-main');
+    await settle();
+    expect(requests[requests.length - 1].get('page')).toBe('1');
+    expect(requests[requests.length - 1].get('pipelineId')).toBe('p-main');
+    expect(requests[requests.length - 1].get('excludeOutreach')).toBe('true');
+    expect(shows('Main Lead Co')).toBe(true);
+  });
   it('shows the default pipeline and its leads when the data arrives after the board opened', () => {
     board({});
     expect(shows('Sales Lead Co')).toBe(false);
@@ -163,7 +186,7 @@ describe('Won deals', () => {
       for (let i = 0; i < 5; i += 1) await Promise.resolve();
     });
 
-    expect((fetch.mock.calls[0] as unknown[] | undefined)?.[0]).toBe('/api/v1/crm/leads?isWon=true&page=1&limit=100');
+    expect((fetch.mock.calls[0] as unknown[] | undefined)?.[0]).toBe('/api/v1/crm/leads?isWon=true&page=1&limit=50');
     const rows = [...container.querySelectorAll('tbody tr')].map((r) => r.textContent ?? '');
     expect(rows[0]).toContain('Newer Win');
     expect(rows[0]).toContain('Not converted to a client');

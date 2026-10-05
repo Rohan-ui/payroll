@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Sparkles, Clock, Send, CheckCircle2, AlertCircle, Calendar,
   ArrowRight, ExternalLink, Copy, Check, PhoneCall, MessageSquare,
   Mail, Users, Filter, Search, RefreshCw, Play, Pause, Building2,
-  Tag, ChevronRight, X, UserCheck, Flame, Phone, Globe, HelpCircle, MapPin,
+  Tag, ChevronRight, ChevronLeft, X, UserCheck, Flame, Phone, Globe, HelpCircle, MapPin,
   TrendingUp, Layers, CheckSquare, ShieldCheck, Kanban, List, Trophy,
   DollarSign, Target, CheckCheck, Briefcase, Settings2, Download, Upload, MoreVertical, Loader2
 } from 'lucide-react';
@@ -61,6 +61,18 @@ export default function SLeadCadenceCenter({
   const [selectedSubIndustry, setSelectedSubIndustry] = useState('ALL');
   const [selectedQueueTab, setSelectedQueueTab] = useState<'ACTION_RADAR' | 'ALL_ACTIVE' | 'BRANCHED' | 'COMPLETED' | 'CONVERTED'>('ACTION_RADAR');
   const [channelFilter, setChannelFilter] = useState<'ALL' | 'WHATSAPP' | 'EMAIL' | 'LINKEDIN' | 'PHONE'>('ALL');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const requestVersion = useRef(0);
+  const filterKey = new URLSearchParams({
+    search: debouncedSearch, industry: selectedIndustry, subIndustry: selectedSubIndustry,
+    channel: channelFilter, queue: viewMode === 'kanban' ? 'ALL' : selectedQueueTab,
+  }).toString();
+  const [pageSelection, setPageSelection] = useState({ key: '', page: 1 });
+  const currentPage = pageSelection.key === filterKey ? pageSelection.page : 1;
+  useEffect(() => {
+    setPageSelection(current => current.key === filterKey ? current : { key: filterKey, page: 1 });
+  }, [filterKey]);
   const [sendingWhatsAppApi, setSendingWhatsAppApi] = useState(false);
 
   // Execution Modal State
@@ -235,24 +247,42 @@ export default function SLeadCadenceCenter({
     }
   };
 
-  const fetchCadenceData = async () => {
+  const fetchCadenceData = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
+    setLoadError(null);
     try {
-      const res = await apiFetch('/api/v1/crm/cadence');
+      const res = await apiFetch(`/api/v1/crm/cadence?${filterKey}&page=${currentPage}&limit=50`);
       const json = await res.json();
+      if (version !== requestVersion.current) return;
       if (res.ok && json.success) {
         setRadarData(json.data);
+        if (currentPage > 1 && json.data.pagination.totalPages < currentPage) {
+          setPageSelection({ key: filterKey, page: Math.max(1, json.data.pagination.totalPages) });
+        }
+      } else {
+        setRadarData(null);
+        setLoadError(json.message || 'Could not load Client Outreach. Try again.');
       }
     } catch {
-      // Reported by the API client.
+      if (version === requestVersion.current) {
+        setRadarData(null);
+        setLoadError('Could not load Client Outreach. Try again.');
+      }
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  };
+  }, [filterKey, currentPage]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     fetchCadenceData();
-  }, []);
+    return () => { requestVersion.current++; };
+  }, [fetchCadenceData]);
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -410,44 +440,7 @@ export default function SLeadCadenceCenter({
     return getTenantSubIndustries(selectedIndustry);
   }, [selectedIndustry, getTenantSubIndustries]);
 
-  // Filtered list of enrolled leads across all radar categories (for Kanban)
-  const allEnrolledLeads = useMemo(() => {
-    return rawAllEnrolledLeads.filter((item: any) => {
-      // Search
-      const searchStr = `${item.company_name} ${item.first_name} ${item.last_name} ${item.email} ${item.phone} ${item.lead_code}`.toLowerCase();
-      if (searchQuery && !searchStr.includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-      // Industry
-      const itemInd = (item.industry || item.cadence?.industry || 'general').toLowerCase().trim();
-      if (selectedIndustry !== 'ALL') {
-        const selLower = selectedIndustry.toLowerCase().trim();
-        const selNorm = selLower.replace(/[^a-z0-9]+/g, '_');
-        const itemNorm = itemInd.replace(/[^a-z0-9]+/g, '_');
-        if (itemInd !== selLower && itemNorm !== selNorm && itemNorm !== selLower) {
-          return false;
-        }
-      }
-      // Sub-Industry
-      if (selectedSubIndustry !== 'ALL') {
-        const itemSub = (item.sub_industry || item.subIndustry || '').toLowerCase().trim();
-        const subLower = selectedSubIndustry.toLowerCase().trim();
-        const itemSubNorm = itemSub.replace(/[^a-z0-9]+/g, '_');
-        const subNorm = subLower.replace(/[^a-z0-9]+/g, '_');
-        if (itemSub !== subLower && itemSubNorm !== subNorm && itemSubNorm !== subLower) {
-          return false;
-        }
-      }
-      // Channel
-      if (channelFilter !== 'ALL') {
-        const stepChannels = item.currentStep?.channels || [];
-        if (!stepChannels.includes(channelFilter)) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [rawAllEnrolledLeads, searchQuery, selectedIndustry, selectedSubIndustry, channelFilter]);
+  const allEnrolledLeads = rawAllEnrolledLeads;
 
   const handleExportLeads = async () => {
     try {
@@ -472,7 +465,7 @@ export default function SLeadCadenceCenter({
     }
   };
 
-  // Filter queue based on tab, search, industry, sub-industry, and channel (for List view)
+  // Search, taxonomy, channel and queue filters run before server pagination.
   const displayedLeads = useMemo(() => {
     if (!radarData) return [];
     let list: any[] = [];
@@ -490,34 +483,8 @@ export default function SLeadCadenceCenter({
       list = radarData.radar.converted || [];
     }
 
-    return list.filter((item: any) => {
-      // Search
-      const searchStr = `${item.company_name} ${item.first_name} ${item.last_name} ${item.email} ${item.phone} ${item.lead_code}`.toLowerCase();
-      if (searchQuery && !searchStr.includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-      // Industry
-      const itemInd = item.industry || item.cadence?.industry || 'general';
-      if (selectedIndustry !== 'ALL' && itemInd !== selectedIndustry) {
-        return false;
-      }
-      // Sub-Industry
-      if (selectedSubIndustry !== 'ALL') {
-        const itemSub = item.sub_industry || item.subIndustry || '';
-        if (itemSub !== selectedSubIndustry) {
-          return false;
-        }
-      }
-      // Channel
-      if (channelFilter !== 'ALL') {
-        const stepChannels = item.currentStep?.channels || [];
-        if (!stepChannels.includes(channelFilter)) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [radarData, selectedQueueTab, searchQuery, selectedIndustry, selectedSubIndustry, channelFilter]);
+    return list;
+  }, [radarData, selectedQueueTab]);
 
   const stats = radarData?.stats || {
     totalEnrolled: 0,
@@ -793,6 +760,7 @@ export default function SLeadCadenceCenter({
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
+              aria-label="Search outreach leads"
               placeholder="Search company, contact person, phone, email..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -804,8 +772,9 @@ export default function SLeadCadenceCenter({
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500 font-medium">Industry Layer:</span>
               <select
+                aria-label="Industry"
                 value={selectedIndustry}
-                onChange={(e) => setSelectedIndustry(e.target.value)}
+                onChange={(e) => { setSelectedIndustry(e.target.value); setSelectedSubIndustry('ALL'); }}
                 className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
                 <option value="ALL">All Industries</option>
@@ -855,17 +824,11 @@ export default function SLeadCadenceCenter({
           >
             <span>All Industries</span>
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${selectedIndustry === 'ALL' ? 'bg-indigo-800 text-indigo-100' : 'bg-white text-slate-600'}`}>
-              {rawAllEnrolledLeads.length}
+              {radarData?.facets?.enrolledCount ?? 0}
             </span>
           </button>
           {tenantIndustries.map((ind) => {
-            const indKeyLower = ind.key.toLowerCase().trim();
-            const indNameLower = ind.name.toLowerCase().trim();
-            const count = rawAllEnrolledLeads.filter((l: any) => {
-              const itemInd = (l.industry || l.cadence?.industry || 'general').toLowerCase().trim();
-              const itemNorm = itemInd.replace(/[^a-z0-9]+/g, '_');
-              return itemInd === indKeyLower || itemInd === indNameLower || itemNorm === ind.key;
-            }).length;
+            const count = radarData?.facets?.industryCounts?.[ind.key] ?? 0;
             return (
               <button
                 key={ind.key}
@@ -913,19 +876,7 @@ export default function SLeadCadenceCenter({
               <span>All Sub-Industries</span>
             </button>
             {availableSubIndustries.map((sub) => {
-              const subKeyLower = sub.key.toLowerCase().trim();
-              const subNameLower = sub.name.toLowerCase().trim();
-              const count = rawAllEnrolledLeads.filter((l: any) => {
-                const itemInd = (l.industry || l.cadence?.industry || 'general').toLowerCase().trim();
-                const selLower = selectedIndustry.toLowerCase().trim();
-                const selNorm = selLower.replace(/[^a-z0-9]+/g, '_');
-                const itemNorm = itemInd.replace(/[^a-z0-9]+/g, '_');
-                if (itemInd !== selLower && itemNorm !== selNorm && itemNorm !== selLower) return false;
-                
-                const itemSub = (l.sub_industry || l.subIndustry || '').toLowerCase().trim();
-                const itemSubNorm = itemSub.replace(/[^a-z0-9]+/g, '_');
-                return itemSub === subKeyLower || itemSub === subNameLower || itemSubNorm === sub.key;
-              }).length;
+              const count = radarData?.facets?.subIndustryCounts?.[sub.key] ?? 0;
               return (
                 <button
                   key={sub.key}
@@ -954,7 +905,14 @@ export default function SLeadCadenceCenter({
         {/* ------------------------------------------------------------- */}
         {/* VIEW 1: INTERACTIVE 30-DAY MULTI-COLUMN FUNNEL KANBAN         */}
         {/* ------------------------------------------------------------- */}
-        {viewMode === 'kanban' ? (
+        {loadError ? (
+          <div role="alert" className="p-6 text-center text-sm text-red-700">
+            <p>{loadError}</p>
+            <button type="button" onClick={fetchCadenceData} className="mt-3 inline-flex items-center gap-2 rounded border border-slate-300 px-3 py-2 text-slate-700">
+              <RefreshCw className="h-4 w-4" />Retry
+            </button>
+          </div>
+        ) : viewMode === 'kanban' ? (
           <div className="p-4 bg-slate-50/40">
             {loading ? (
               <div className="p-16 text-center text-slate-400">
@@ -1468,6 +1426,26 @@ export default function SLeadCadenceCenter({
                 })}
               </div>
             )}
+          </div>
+        )}
+        {!loadError && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
+            <span aria-live="polite">
+              {loading ? 'Loading...' : `${radarData?.pagination?.total ? (currentPage - 1) * 50 + 1 : 0}-${Math.min(currentPage * 50, radarData?.pagination?.total ?? 0)} of ${radarData?.pagination?.total ?? 0} leads`}
+            </span>
+            <div className="flex items-center gap-3">
+              <button type="button" aria-label="Previous page" title="Previous page" disabled={loading || currentPage === 1}
+                onClick={() => setPageSelection({ key: filterKey, page: currentPage - 1 })}
+                className="rounded border border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-40">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span>Page {currentPage} of {Math.max(1, radarData?.pagination?.totalPages ?? 1)}</span>
+              <button type="button" aria-label="Next page" title="Next page" disabled={loading || !radarData?.pagination?.hasMore}
+                onClick={() => setPageSelection({ key: filterKey, page: currentPage + 1 })}
+                className="rounded border border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-40">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>

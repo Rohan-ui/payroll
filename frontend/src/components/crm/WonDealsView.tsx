@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, RefreshCw, Trophy } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, Search, Trophy } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 
 interface WonDealsViewProps {
@@ -8,7 +8,7 @@ interface WonDealsViewProps {
 }
 
 /** Won deals come from the server (won leads only), not from the leads already loaded on the board. */
-const WON_LIMIT = 100;
+const WON_LIMIT = 50;
 
 const formatCurrency = (value: unknown, currency = 'INR') =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 }).format(Number(value) || 0);
@@ -24,15 +24,21 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
   const [deals, setDeals] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestVersion = useRef(0);
 
   const load = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/v1/crm/leads?isWon=true&page=1&limit=${WON_LIMIT}`);
+      const res = await apiFetch(`/api/v1/crm/leads?isWon=true&page=${page}&limit=${WON_LIMIT}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`);
       const json = await res.json().catch(() => null);
+      if (version !== requestVersion.current) return;
       if (!res.ok || !json?.success) {
         setError(json?.message || 'Won deals could not be loaded.');
         return;
@@ -44,14 +50,20 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
       setClients(json.data?.clients ?? []);
       setTotal(json.data?.pagination?.total ?? won.length);
     } catch {
-      setError('Could not reach the server. Check your connection and try again.');
+      if (version === requestVersion.current) setError('Could not reach the server. Check your connection and try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, []);
+  }, [page, debouncedSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1); }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     void load();
+    return () => { requestVersion.current++; };
   }, [load]);
 
   const clientName = (clientId: string | null) => {
@@ -87,6 +99,12 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
           Refresh
         </button>
+      </div>
+
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+        <input aria-label="Search won deals" value={search} onChange={event => setSearch(event.target.value)}
+          placeholder="Search company, contact, email or lead code" className="w-full rounded border border-slate-300 py-2 pl-9 pr-3 text-sm" />
       </div>
 
       {error && (
@@ -157,11 +175,14 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
               ))}
             </tbody>
           </table>
-          {total > deals.length && (
-            <p className="px-4 py-2 border-t border-slate-100 text-xs text-slate-500">
-              Showing the {deals.length} most recently created of {total} won deals.
-            </p>
-          )}
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-600">
+            <span>{total ? (page - 1) * WON_LIMIT + 1 : 0}-{Math.min(page * WON_LIMIT, total)} of {total} won deals</span>
+            <div className="flex items-center gap-3">
+              <button type="button" aria-label="Previous page" title="Previous page" disabled={loading || page === 1} onClick={() => setPage(page - 1)} className="rounded border p-2 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+              <span>Page {page} of {Math.max(1, Math.ceil(total / WON_LIMIT))}</span>
+              <button type="button" aria-label="Next page" title="Next page" disabled={loading || page * WON_LIMIT >= total} onClick={() => setPage(page + 1)} className="rounded border p-2 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+            </div>
+          </div>
         </div>
       )}
     </section>
