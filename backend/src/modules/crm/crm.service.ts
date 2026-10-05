@@ -4,6 +4,7 @@ import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { LeadVisibility, onVisibleLead, visibleLeads } from './lead-visibility';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CrmHistoryQueryDto } from './dto/history-query.dto';
+import { OutreachCalendar, addDays, dueInstant, dueRange, dueState, nextDueAt, validTimeZone, type DueFilter } from './crm-outreach-schedule';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
@@ -21,9 +22,7 @@ import {
   sopName,
   CadenceTemplate,
   ReplyBranch,
-  computeStepDueDate,
   nextCadenceStep,
-  evaluateStepDueStatus,
   interpolateText,
 } from './crm-cadence.helper';
 
@@ -530,7 +529,7 @@ export class CrmService {
     if (temperature === 'COLD' && (!customAttributes || !customAttributes.cadence)) {
       const now = new Date();
       const [firstStep] = await this.getCadenceSteps(tenantId);
-      const dueDate = computeStepDueDate(now, firstStep?.dayOffset || 0);
+      const dueDate = nextDueAt(firstStep?.dayOffset || 0, await this.outreachCalendar(tenantId), now);
       customAttributes = {
         ...(customAttributes || {}),
         cadence: {
@@ -1392,7 +1391,13 @@ export class CrmService {
   // 30-DAY OUTREACH CADENCE ENGINE
   // ==========================================
 
-  async getCadenceMatrix(tenantId: string, visibility: LeadVisibility, leadId?: string, filterStatus: string = 'ALL', query: Partial<CadenceQueryDto> = {}) {
+  /**
+   * Client Outreach: the playbook, counts, and one page of enrolled leads.
+   * Optionally only touchpoints due on a date range in workspace dates (with
+   * overdue ones, which still need doing) and only the member's own leads
+   * (`mineMemberId`); leads come overdue first, then by due date.
+   */
+  async getCadenceMatrix(tenantId: string, visibility: LeadVisibility, leadId?: string, filterStatus: string = 'ALL', query: Partial<CadenceQueryDto> = {}, mineMemberId?: string) {
     const tenant = await this.prisma.rndtechnosoft_tenants.findUnique({
       where: { id: tenantId },
       select: { tenant_code: true },
@@ -1411,19 +1416,24 @@ export class CrmService {
       };
     }
 
-    const steps = await this.getCadenceSteps(tenantId);
+    const [steps, calendar] = await Promise.all([this.getCadenceSteps(tenantId), this.outreachCalendar(tenantId)]);
     const { page, limit, skip } = this.pagination(query.page, Math.min(query.limit ?? 50, 50));
+    const today = dueState(null, calendar).today;
+    const due = dueRange((query.due ?? 'ALL') as DueFilter, today, query.dueDate);
+    const inDueRange = (dueOn: string | null) =>
+      !due || (dueOn !== null && ((dueOn >= due.from && dueOn <= due.to) || (due.withOverdue && dueOn < today)));
     const normalize = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_');
     const matchesTaxonomy = (value: string, filter?: string) => !filter || filter === 'ALL' || normalize(value) === normalize(filter);
     const stats = { totalEnrolled: 0, activeCount: 0, dueTodayCount: 0, overdueCount: 0, completedCount: 0, branchedCount: 0, convertedCount: 0,
       platformCounts: { WHATSAPP: 0, EMAIL: 0, LINKEDIN: 0, PHONE: 0 } };
     const industryCounts: Record<string, number> = {};
     const subIndustryCounts: Record<string, number> = {};
-    const pageIds: string[] = [];
+    const matches: { id: string; sortKey: number }[] = [];
     const milestoneCounts: Record<string, number> = {};
+    const milestoneDueCounts: Record<string, number> = {};
     let total = 0;
     let enrolledCount = 0;
-    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId, ...visibleLeads(visibility) };
+    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId, ...visibleLeads(visibility), ...(mineMemberId ? { assigned_tenant_member_id: mineMemberId } : {}) };
     const search = query.search?.trim();
     if (search) {
       where.OR = ['company_name', 'first_name', 'last_name', 'email', 'phone', 'whatsapp_number', 'lead_code', 'industry', 'sub_industry'].map(field => ({
@@ -1456,7 +1466,8 @@ export class CrmService {
         const nextStep = nextCadenceStep(steps, { completedSteps: cadence?.completedSteps ?? [] });
         const step = nextStep ?? steps[steps.length - 1];
         if (query.channel && query.channel !== 'ALL' && !step.channels.includes(query.channel as CadenceChannel)) continue;
-        const dueStatus = status === 'ACTIVE' ? evaluateStepDueStatus(cadence?.nextDueAt || lead.created_at) : 'UPCOMING';
+        const dueInfo = dueState(cadence?.nextDueAt || lead.created_at, calendar);
+        const dueStatus = status === 'ACTIVE' ? dueInfo.status : 'UPCOMING';
         const category = status === 'CONVERTED' || cadence?.convertedToOpportunity || lead.is_won ? 'CONVERTED' : status;
         stats.totalEnrolled++;
         if (category === 'CONVERTED') stats.convertedCount++;
@@ -1466,6 +1477,7 @@ export class CrmService {
           stats.activeCount++;
           // How many active leads wait at each playbook step, counted from every lead, not just this page.
           if (nextStep) milestoneCounts[nextStep.id] = (milestoneCounts[nextStep.id] ?? 0) + 1;
+          if (nextStep && due && inDueRange(dueInfo.dueOn)) milestoneDueCounts[nextStep.id] = (milestoneDueCounts[nextStep.id] ?? 0) + 1;
           if (dueStatus === 'OVERDUE') stats.overdueCount++;
           if (dueStatus === 'DUE_TODAY') stats.dueTodayCount++;
           if (dueStatus !== 'UPCOMING') step.channels.forEach(ch => stats.platformCounts[ch]++);
@@ -1474,17 +1486,23 @@ export class CrmService {
         const inQueue = queue === 'ALL' || (queue === 'ALL_ACTIVE' ? category === 'ACTIVE'
           : queue === 'ACTION_RADAR' ? category === 'ACTIVE' && dueStatus !== 'UPCOMING' : category === queue);
         if (!inQueue) continue;
-        if (total >= skip && pageIds.length < limit) pageIds.push(lead.id);
+        // A due-date filter keeps the touchpoints due in its range (and overdue ones); leads out of the
+        // playbook (replied, finished, converted) have nothing due and show only in their own lists.
+        if (due && (category === 'ACTIVE' ? !inDueRange(dueInfo.dueOn) : ['ALL', 'ALL_ACTIVE', 'ACTION_RADAR'].includes(queue))) continue;
+        matches.push({ id: lead.id, sortKey: category === 'ACTIVE' && dueInfo.dueOn ? new Date(cadence?.nextDueAt || lead.created_at).getTime() : Number.POSITIVE_INFINITY });
         total++;
       }
       if (batch.length < 500) break;
       cursor = batch[batch.length - 1].id;
     }
-    const leads = pageIds.length ? await this.prisma.rndtechnosoft_crm_leads.findMany({
+    // Overdue first, then soonest due; leads with nothing due keep newest first (a stable sort).
+    matches.sort((a, b) => a.sortKey - b.sortKey);
+    const pageIds = matches.slice(skip, skip + limit).map((m) => m.id);
+    const position = new Map(pageIds.map((id, index) => [id, index]));
+    const leads = pageIds.length ? (await this.prisma.rndtechnosoft_crm_leads.findMany({
       where: { tenant_id: tenantId, id: { in: pageIds } }, take: limit,
-      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
       include: { rndtechnosoft_tenant_members: { select: { rndtechnosoft_users: { select: { display_name: true } } } } },
-    }) : [];
+    })).sort((a, b) => position.get(a.id)! - position.get(b.id)!) : [];
 
     const activeList: any[] = [];
     const overdueList: any[] = [];
@@ -1523,7 +1541,8 @@ export class CrmService {
       // Where the lead is in this workspace's playbook; once past the last step, that step.
       const currentMasterStep = nextCadenceStep(steps, cadence) ?? steps[steps.length - 1];
       const stepDueDate = cadence.nextDueAt ? new Date(cadence.nextDueAt) : new Date(lead.created_at);
-      const dueStatus = cadence.status === 'ACTIVE' ? evaluateStepDueStatus(stepDueDate) : 'UPCOMING';
+      const dueInfo = dueState(stepDueDate, calendar);
+      const dueStatus = cadence.status === 'ACTIVE' ? dueInfo.status : 'UPCOMING';
 
       const vars = {
         firstName: lead.first_name ?? undefined,
@@ -1542,6 +1561,9 @@ export class CrmService {
           ...currentMasterStep,
           dueDate: stepDueDate.toISOString(),
           dueStatus,
+          // The due date in workspace dates, and how many days late it is.
+          dueOn: dueInfo.dueOn,
+          overdueDays: cadence.status === 'ACTIVE' ? dueInfo.overdueDays : 0,
           // What has been done on this day's channels; the day itself completes only when marked complete.
           channelActions: cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {},
           dayStatus: Object.values(cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {}).some((a) => a?.status === 'SENT') ? 'IN_PROGRESS' : 'PENDING',
@@ -1599,7 +1621,9 @@ export class CrmService {
       tenantName,
       stats,
       pagination: this.pageMeta(total, page, limit, leads.length),
-      facets: { enrolledCount, industryCounts, subIndustryCounts, milestoneCounts },
+      facets: { enrolledCount, industryCounts, subIndustryCounts, milestoneCounts, ...(due ? { milestoneDueCounts } : {}) },
+      // The workspace's today and time zone, and the due-date range applied (null: all leads).
+      schedule: { today, timeZone: calendar.timeZone, due: due ? { filter: query.due, ...due } : null },
       // The playbook Client Outreach follows: CRM Masters' steps, in their order (also in masterSteps).
       sop: { name: sopName(steps), milestones: steps.length, days: Math.max(0, ...steps.map((step) => step.dayNumber)) },
       radar: {
@@ -1627,7 +1651,7 @@ export class CrmService {
     if (action === 'ENROLL') {
       const now = new Date();
       const [firstStep] = await this.getCadenceSteps(tenantId);
-      const dueDate = computeStepDueDate(now, firstStep.dayOffset);
+      const dueDate = nextDueAt(firstStep.dayOffset, await this.outreachCalendar(tenantId), now);
 
       for (const id of targetIds) {
         const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id, ...scope } });
@@ -1703,7 +1727,8 @@ export class CrmService {
       if (nextStep) {
         cadence.currentStepIndex = nextIndex;
         // The gap between the two steps' days; a step ordered before an earlier day in Masters is due at once.
-        const nextDue = computeStepDueDate(new Date(), Math.max(0, nextStep.dayOffset - (executedStep?.dayOffset || 0)));
+        // Counted from now, when this step was done, in working days of the workspace.
+        const nextDue = nextDueAt(nextStep.dayOffset - (executedStep?.dayOffset || 0), await this.outreachCalendar(tenantId));
         cadence.nextDueAt = nextDue.toISOString();
       } else {
         cadence.status = 'COMPLETED';
@@ -1776,6 +1801,41 @@ export class CrmService {
         changes: { cadence_status: { before: statusBefore, after: 'BRANCHED' }, temperature: { before: lead.temperature, after: branch?.nextLeadTemperature || 'WARM' } },
       }, memberId);
       return { success: true, branch: branchKey };
+    }
+
+    // Moves a lead's current touchpoint to another date (the prospect asked to be contacted later).
+    if (action === 'RESCHEDULE' && leadId) {
+      const date: unknown = body.dueDate;
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+        throw new BadRequestException('Choose the date to move the touchpoint to.');
+      }
+      const calendar = await this.outreachCalendar(tenantId);
+      const today = dueState(null, calendar).today;
+      if (date < today) throw new BadRequestException('Choose today or a later date.');
+      if (date > addDays(today, 365)) throw new BadRequestException('Choose a date within the next year.');
+      const reason = typeof notes === 'string' ? notes.trim().slice(0, 2000) : '';
+      const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId, ...scope } });
+      if (!lead) throw new NotFoundException('Lead not found');
+      const customAttr = (lead.custom_attributes as any) || {};
+      const cadence: CadenceState | undefined = customAttr.cadence;
+      if (!cadence || cadence.status !== 'ACTIVE' || cadence.convertedToOpportunity) {
+        throw new ConflictException(`${lead.company_name} is not active in Client Outreach, so there is no touchpoint to move.`);
+      }
+      const step = nextCadenceStep(await this.getCadenceSteps(tenantId), cadence);
+      const before = dueState(cadence.nextDueAt || lead.created_at, calendar).dueOn;
+      const nextDue = dueInstant(date, calendar.timeZone).toISOString();
+      await this.prisma.rndtechnosoft_crm_leads.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id: leadId } },
+        data: { custom_attributes: { ...customAttr, cadence: { ...cadence, nextDueAt: nextDue } } },
+      });
+      const label = step ? `Day ${step.dayNumber} (${step.title})` : 'The touchpoint';
+      await this.logActivity(tenantId, leadId, 'NOTE', 'Touchpoint rescheduled', `${label} moved from ${before ?? 'no date'} to ${date}.${reason ? ` Reason: ${reason}` : ''}`, memberId);
+      await this.logAudit(tenantId, 'TOUCHPOINT_RESCHEDULED', 'LEAD', leadId, {
+        touchpoint: step ? { day: step.dayNumber, title: step.title } : null,
+        notes: reason || null,
+        changes: { due_on: { before, after: date }, next_touchpoint: { before: cadence.nextDueAt || null, after: nextDue } },
+      }, memberId);
+      return { success: true, dueOn: date, message: `${label} moved to ${date}` };
     }
 
     // An action this endpoint does not know, or one missing its lead, changes nothing, so it must not report success.
@@ -2536,6 +2596,65 @@ export class CrmService {
    * default steps until it first changes one. Default steps carry ids of the
    * form default-day-N so Masters can edit or remove them like any other.
    */
+  /**
+   * How many touchpoints fall due on each day of a month (workspace dates),
+   * for leads still working through the playbook that this member may see
+   * (only their own with mineMemberId), and how many are overdue today.
+   */
+  async getOutreachCalendar(tenantId: string, visibility: LeadVisibility, month: string, mineMemberId?: string) {
+    const calendar = await this.outreachCalendar(tenantId);
+    const today = dueState(null, calendar).today;
+    const days: Record<string, number> = {};
+    let overdue = 0;
+    let cursor: string | undefined;
+    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = {
+      tenant_id: tenantId, is_won: false, is_lost: false, ...visibleLeads(visibility), ...(mineMemberId ? { assigned_tenant_member_id: mineMemberId } : {}),
+      custom_attributes: { path: ['cadence', 'status'], equals: 'ACTIVE' },
+    };
+    for (;;) {
+      const batch = await this.prisma.rndtechnosoft_crm_leads.findMany({
+        where, take: 500, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), orderBy: { id: 'asc' }, select: { id: true, custom_attributes: true, created_at: true },
+      });
+      for (const lead of batch) {
+        const cadence = (lead.custom_attributes as { cadence?: CadenceState } | null)?.cadence;
+        if (!cadence || cadence.convertedToOpportunity) continue;
+        const { dueOn } = dueState(cadence.nextDueAt || lead.created_at, calendar);
+        if (!dueOn) continue;
+        if (dueOn < today) overdue++;
+        if (dueOn.startsWith(month)) days[dueOn] = (days[dueOn] ?? 0) + 1;
+      }
+      if (batch.length < 500) break;
+      cursor = batch[batch.length - 1].id;
+    }
+    const holidays = [...calendar.holidays].filter((date) => date.startsWith(month)).sort();
+    return { month, today, timeZone: calendar.timeZone, days, overdue, holidays };
+  }
+
+  /**
+   * The workspace's outreach calendar: its time zone (Organization & Settings,
+   * India time by default) and its holidays (HRMS holiday calendars that are
+   * active; optional holidays are working days), for due dates.
+   */
+  async outreachCalendar(tenantId: string): Promise<OutreachCalendar> {
+    const [settings, holidays] = await Promise.all([
+      this.prisma.rndtechnosoft_tenant_settings.findUnique({ where: { tenant_id: tenantId }, select: { settings: true } }),
+      this.prisma.rndtechnosoft_holidays.findMany({
+        where: {
+          tenant_id: tenantId,
+          is_optional: false,
+          holiday_date: { gte: new Date(Date.now() - 400 * 86_400_000), lte: new Date(Date.now() + 800 * 86_400_000) },
+          rndtechnosoft_holiday_calendars: { calendar_status: 'ACTIVE', archived_at: null },
+        },
+        select: { holiday_date: true },
+      }),
+    ]);
+    const saved = (settings?.settings ?? {}) as { timezone?: unknown; profile?: { timezone?: unknown } };
+    return {
+      timeZone: validTimeZone(saved.profile?.timezone ?? saved.timezone),
+      holidays: new Set(holidays.map((h) => h.holiday_date.toISOString().slice(0, 10))),
+    };
+  }
+
   async getCadenceSteps(tenantId: string): Promise<(CadenceStep & { id: string })[]> {
     // In the order set in CRM Masters; day decides only among steps never ordered.
     const rows = await this.prisma.rndtechnosoft_crm_sop_steps_master.findMany({

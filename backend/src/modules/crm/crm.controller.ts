@@ -354,7 +354,7 @@ export class CrmController {
     @Query() query: CadenceQueryDto,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.getCadenceMatrix(tenantId, await this.visibility(tenantId, actor), query.leadId, query.status, query);
+    const data = await this.crmService.getCadenceMatrix(tenantId, await this.visibility(tenantId, actor), query.leadId, query.status, query, query.mine === 'true' ? actor.tenantMemberId : undefined);
     return { success: true, data };
   }
 
@@ -378,6 +378,21 @@ export class CrmController {
     const data = await this.crmService.executeCadenceAction(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     const message = typeof (data as { message?: unknown })?.message === 'string' ? (data as { message: string }).message : 'Cadence action recorded';
     return { success: true, data, message };
+  }
+
+  /** Touchpoints due per day of a month (YYYY-MM), and how many are overdue, for the outreach calendar. */
+  @Get('cadence/calendar')
+  @RequirePermissions('outreach.view')
+  async outreachCalendar(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Query('month') month?: string,
+    @Query('mine') mine?: string,
+  ) {
+    if (!month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BadRequestException('Choose a month (YYYY-MM).');
+    if (mine !== undefined && !['true', 'false'].includes(mine)) throw new BadRequestException('Choose whether to show only your leads.');
+    const data = await this.crmService.getOutreachCalendar(tenantId, await this.visibility(tenantId, actor), month, mine === 'true' ? actor.tenantMemberId : undefined);
+    return { success: true, data };
   }
 
   /** Who Client Outreach emails come from: the organization's name and address, never its account details. */

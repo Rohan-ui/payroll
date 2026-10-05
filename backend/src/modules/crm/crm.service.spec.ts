@@ -51,6 +51,7 @@ describe('CrmService.getCadenceMatrix pagination', () => {
     } as unknown as PrismaService, {} as CrmLeadAssignmentService);
     jest.spyOn(service, 'getCadenceSteps').mockResolvedValue(CADENCE_STEPS_MASTER.map((step, i) => ({ ...step, id: `step-${i}` })));
     jest.spyOn(service, 'getReplyBranches').mockResolvedValue({});
+    jest.spyOn(service, 'outreachCalendar').mockResolvedValue({ timeZone: 'Asia/Kolkata', holidays: new Set() });
     return { service, findMany };
   }
 

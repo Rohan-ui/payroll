@@ -27,6 +27,9 @@ import {
 } from '@/lib/industryTaxonomy';
 import { LeadImportWizard } from './LeadImportWizard';
 import { OutreachEmailComposer, type OutreachEmailSent } from './OutreachEmailComposer';
+import { RescheduleDialog } from './RescheduleDialog';
+import { OutreachCalendar } from './OutreachCalendar';
+import { DUE_FILTERS, dueText, shortDate, type DueFilter } from './outreachDue';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
@@ -55,7 +58,12 @@ export default function SLeadCadenceCenter({
   const [loading, setLoading] = useState(true);
   const [radarData, setRadarData] = useState<any>(null);
   const activeTenantName = tenantName || radarData?.tenantName || 'Voogyo';
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'calendar'>('kanban');
+  // What is due when: by default today's touchpoints (with overdue ones), for every lead this member may see.
+  const [due, setDue] = useState<DueFilter>('TODAY');
+  const [dueDate, setDueDate] = useState('');
+  const [mine, setMine] = useState(false);
+  const [rescheduling, setRescheduling] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndustry, setSelectedIndustry] = useState('ALL');
   const [selectedSubIndustry, setSelectedSubIndustry] = useState('ALL');
@@ -66,7 +74,10 @@ export default function SLeadCadenceCenter({
   const requestVersion = useRef(0);
   const filterKey = new URLSearchParams({
     search: debouncedSearch, industry: selectedIndustry, subIndustry: selectedSubIndustry,
-    channel: channelFilter, queue: viewMode === 'kanban' ? 'ALL' : selectedQueueTab,
+    channel: channelFilter, queue: viewMode === 'list' ? selectedQueueTab : 'ALL',
+    due: due === 'DATE' && !dueDate ? 'TODAY' : due,
+    ...(due === 'DATE' && dueDate ? { dueDate } : {}),
+    ...(mine ? { mine: 'true' } : {}),
   }).toString();
   const [pageSelection, setPageSelection] = useState({ key: '', page: 1 });
   const currentPage = pageSelection.key === filterKey ? pageSelection.page : 1;
@@ -528,8 +539,8 @@ export default function SLeadCadenceCenter({
                           <h3 className="text-xs font-black text-slate-900 dark:text-white truncate tracking-tight">
                             {col.title}
                           </h3>
-                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${col.badgeBg}`}>
-                            {col.count}
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-black whitespace-nowrap ${col.badgeBg}`}>
+                            {radarData?.schedule?.due ? `${radarData.facets?.milestoneDueCounts?.[col.id] ?? 0} due · ${col.count} total` : col.count}
                           </span>
                         </div>
                         <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-medium">
@@ -628,17 +639,17 @@ export default function SLeadCadenceCenter({
                                   ) : isOverdue ? (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 animate-pulse">
                                       <AlertCircle className="w-3 h-3 text-rose-600" />
-                                      <span>⚠️ Past Due Date</span>
+                                      <span>{dueText(currentStep)?.text ?? 'Overdue'}</span>
                                     </span>
                                   ) : isDueToday ? (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
                                       <Flame className="w-3 h-3 text-amber-600" />
-                                      <span>🔥 Outreach Due Today</span>
+                                      <span>Due today</span>
                                     </span>
                                   ) : (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                                       <Clock className="w-3 h-3 text-slate-400" />
-                                      <span>Upcoming Touchpoint</span>
+                                      <span>{dueText(currentStep)?.text ?? 'Upcoming'}</span>
                                     </span>
                                   )}
                                 </div>
@@ -725,6 +736,12 @@ export default function SLeadCadenceCenter({
                                   )}
                                 </div>
 
+                                {item.cadence?.status === 'ACTIVE' && !isConverted && (
+                                  <button type="button" onClick={() => setRescheduling(item)}
+                                    className="w-full py-1 text-center text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                                    Reschedule
+                                  </button>
+                                )}
                                 {/* Bottom full 360 link */}
                                 <button
                                   type="button"
@@ -798,6 +815,18 @@ export default function SLeadCadenceCenter({
               >
                 <List className="w-3.5 h-3.5 text-indigo-600" />
                 <span>Radar List</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('calendar')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === 'calendar'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Calendar</span>
               </button>
             </div>
 
@@ -905,6 +934,34 @@ export default function SLeadCadenceCenter({
 
       {/* Main Radar Card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        {/* When: what is due on a day (overdue first), and whose leads */}
+        <div className="p-4 border-b border-slate-200 flex flex-wrap items-center gap-3 bg-white">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+            <span>Due</span>
+            <select aria-label="Due" value={due} onChange={(e) => setDue(e.target.value as DueFilter)}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+              {DUE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          {due === 'DATE' && (
+            <input type="date" aria-label="Due date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+          )}
+          <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200" role="group" aria-label="Whose leads">
+            {[{ value: false, label: 'All leads' }, { value: true, label: 'My leads' }].map((option) => (
+              <button key={option.label} type="button" aria-pressed={mine === option.value} onClick={() => setMine(option.value)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold ${mine === option.value ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500" role="status">
+            {radarData?.schedule?.due
+              ? `Showing touchpoints due ${radarData.schedule.due.from === radarData.schedule.due.to ? shortDate(radarData.schedule.due.from) : `${shortDate(radarData.schedule.due.from)} – ${shortDate(radarData.schedule.due.to)}`}${radarData.schedule.due.withOverdue ? ', with overdue ones first' : ''}.`
+              : radarData?.schedule ? 'Showing every lead, soonest due first.' : ''}
+          </p>
+        </div>
+
         {/* Global Search & Industry Filter Bar (Applies to both Kanban & List) */}
         <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70">
           <div className="relative flex-1 max-w-md">
@@ -1063,6 +1120,12 @@ export default function SLeadCadenceCenter({
               <RefreshCw className="h-4 w-4" />Retry
             </button>
           </div>
+        ) : viewMode === 'calendar' ? (
+          <OutreachCalendar
+            today={radarData?.schedule?.today ?? new Date().toISOString().slice(0, 10)}
+            mine={mine}
+            onPickDate={(date) => { setDue('DATE'); setDueDate(date); setViewMode('kanban'); }}
+          />
         ) : viewMode === 'kanban' ? (
           <div className="p-4 bg-slate-50/40">
             {loading ? (
@@ -1075,12 +1138,20 @@ export default function SLeadCadenceCenter({
                 <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-3 text-indigo-600">
                   <Sparkles className="w-6 h-6 text-amber-500" />
                 </div>
-                <h3 className="text-sm font-bold text-slate-800">No Prospects Enrolled in Funnel</h3>
+                <h3 className="text-sm font-bold text-slate-800">
+                  {radarData?.schedule?.due && stats.totalEnrolled > 0 ? 'Nothing due for this date' : 'No Prospects Enrolled in Funnel'}
+                </h3>
+                {radarData?.schedule?.due && stats.totalEnrolled > 0 ? (
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    No touchpoints are due then and none are overdue. Pick another date, or choose &quot;All leads&quot; to see everyone in the playbook.
+                  </p>
+                ) : (
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
                   {radarData?.demoSeedAllowed === true
                     ? 'Click "⚡ Seed Demo" in the header above to load sample prospects across the playbook\'s milestones.'
                     : `Add a lead as Cold, enrol leads from the list, or import them to start ${sop?.name ?? 'the outreach cadence'}.`}
                 </p>
+                )}
               </div>
             ) : (
               <div className="flex gap-4 overflow-x-auto pb-4 pt-1 items-start scrollbar-thin">
@@ -1261,16 +1332,23 @@ export default function SLeadCadenceCenter({
                               </span>
 
                               {isOverdue && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1 animate-pulse">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1">
                                   <AlertCircle className="w-3 h-3 text-rose-500" />
-                                  <span>Overdue</span>
+                                  <span>{dueText(currentStep)?.text ?? 'Overdue'}</span>
                                 </span>
                               )}
 
                               {isDueToday && (
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
                                   <Clock className="w-3 h-3 text-amber-500" />
-                                  <span>Due Today</span>
+                                  <span>Due today</span>
+                                </span>
+                              )}
+
+                              {!isOverdue && !isDueToday && dueText(currentStep) && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200 flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-slate-400" />
+                                  <span>{dueText(currentStep)!.text}</span>
                                 </span>
                               )}
                             </>
@@ -1325,6 +1403,12 @@ export default function SLeadCadenceCenter({
                               <Send className="w-3.5 h-3.5" />
                               <span>Execute Touchpoint</span>
                             </button>
+                            {item.cadence?.status === 'ACTIVE' && (
+                              <button type="button" onClick={() => setRescheduling(item)}
+                                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                                Reschedule
+                              </button>
+                            )}
 
                             <button
                               onClick={() => handleOpenConvertModal(item)}
@@ -1961,6 +2045,15 @@ export default function SLeadCadenceCenter({
         </div>
       )}
       
+      {rescheduling && (
+        <RescheduleDialog
+          lead={rescheduling}
+          today={radarData?.schedule?.today ?? new Date().toISOString().slice(0, 10)}
+          onClose={() => setRescheduling(null)}
+          onDone={(message) => { showToast(message, 'success'); setRescheduling(null); fetchCadenceData(); }}
+        />
+      )}
+
       <LeadImportWizard
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
