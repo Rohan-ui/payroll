@@ -74,6 +74,8 @@ export interface CadenceState {
   currentDay: number;
   nextDueAt: string;
   completedSteps: Array<{
+    /** The playbook step (CRM Masters) completed; absent on records made before it was kept. */
+    stepId?: string;
     stepIndex: number;
     dayNumber: number;
     completedAt: string;
@@ -91,7 +93,30 @@ export interface CadenceState {
   opportunityDealValue?: number;
   opportunityPipelineId?: string;
   opportunityStageId?: string;
+  /**
+   * What was done on each channel of a touchpoint, by day ("1", "10"…). A
+   * channel can be done while its day is still open: the day completes only
+   * when it is marked complete. Kept after the day completes, as its record.
+   */
+  channelActions?: Record<string, Partial<Record<CadenceChannel, CadenceChannelAction>>>;
 }
+
+/** One channel of one touchpoint: SENDING while the send is in flight, then SENT or FAILED. */
+export type CadenceChannelAction = {
+  status: 'SENDING' | 'SENT' | 'FAILED';
+  attempt: number;
+  executedBy: { memberId: string; name: string };
+  startedAt: string;
+  sentAt?: string;
+  failedAt?: string;
+  /** A failure reason that names no account details. */
+  failure?: string;
+  from?: { name: string | null; email: string };
+  to?: string;
+  subject?: string;
+  messageId?: string | null;
+  activityId?: string;
+};
 
 // -------------------------------------------------------------------------
 // LAYER 2: INDUSTRY-SPECIFIC DICTIONARY
@@ -756,14 +781,29 @@ export function computeStepDueDate(enrolledAt: string | Date, dayOffset: number)
 }
 
 /**
- * The step a lead in the cadence does next: the first step after the last day
- * it completed. Worked out from days, not list positions, so adding or removing
- * a playbook step never makes a lead skip or repeat one. Null when none is left.
+ * The step a lead in the cadence does next: in the playbook's order as set in
+ * CRM Masters, the step after the furthest step the lead has completed (a
+ * completed step is recognised by its id, or by its day for records made
+ * before ids were kept). So a step added or moved before where the lead
+ * already is never makes it go back, a removed step is simply skipped, and a
+ * lead none of whose completed steps remain carries on from the first step
+ * later than the last day it completed. Null when none is left.
  */
-export function nextCadenceStep<T extends CadenceStep>(steps: T[], cadence: Pick<CadenceState, 'completedSteps'>): T | null {
-  const lastDay = Math.max(0, ...(cadence.completedSteps ?? []).map((done) => done.dayNumber || 0));
+export function nextCadenceStep<T extends CadenceStep & { id?: string }>(steps: T[], cadence: Pick<CadenceState, 'completedSteps'>): T | null {
+  const done = cadence.completedSteps ?? [];
+  if (done.length === 0) return steps[0] ?? null;
+  // Default steps (ids "default-day-N") get new ids when a workspace first edits its playbook, so they match by day.
+  const isDone = (step: T) => done.some((record) =>
+    record.stepId && !record.stepId.startsWith('default-') ? record.stepId === step.id : record.dayNumber === step.dayNumber);
+  let furthest = -1;
+  steps.forEach((step, index) => { if (isDone(step)) furthest = index; });
+  if (furthest >= 0) return steps[furthest + 1] ?? null;
+  const lastDay = Math.max(0, ...done.map((record) => record.dayNumber || 0));
   return steps.find((step) => step.dayNumber > lastDay) ?? null;
 }
+
+/** The playbook as Client Outreach names it: by its last day ("30-Day Multi-Touch SOP"). */
+export const sopName = (steps: { dayNumber: number }[]) => `${Math.max(0, ...steps.map((step) => step.dayNumber)) || 30}-Day Multi-Touch SOP`;
 
 /**
  * Formats a Date object to YYYY-MM-DD HH:mm:ss for MySQL datetime

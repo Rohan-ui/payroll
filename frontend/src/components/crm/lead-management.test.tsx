@@ -34,6 +34,7 @@ const ASSIGNEES = [
 
 let calls: { url: string; method: string; body: any }[] = [];
 let assignResponse: () => Response;
+let deleteResponse: () => Response;
 let container: HTMLDivElement;
 let root: Root;
 
@@ -41,6 +42,7 @@ beforeEach(() => {
   granted = new Set(['leads.view', 'leads.view_all', 'leads.update']);
   calls = [];
   assignResponse = () => json({ success: true, data: { updated: 2, unchanged: 0, replaced: 1, assignee: NEHA }, message: '2 leads assigned to Neha Mishra' });
+  deleteResponse = () => json({ success: true, data: { count: 2 }, message: '2 leads deleted' });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit = {}) => {
@@ -51,6 +53,7 @@ beforeEach(() => {
       }
       if (url === '/api/v1/crm/assignees') return json({ success: true, data: ASSIGNEES });
       if (url === '/api/v1/crm/leads/assign') return assignResponse();
+      if (url === '/api/v1/crm/leads/bulk') return deleteResponse();
       if (url === '/api/v1/users') {
         return json({ success: true, data: { users: [
           { id: 'u1', member_id: 'm-neha', first_name: 'Neha', last_name: 'Mishra', email: 'neha@rnd.test', role_name: 'Sales', is_active: true, leads_count: 4 },
@@ -236,5 +239,61 @@ describe('CRM Masters → Assignees', () => {
     const rows = [...container.querySelectorAll('tbody tr')].map((r) => r.textContent ?? '');
     expect(rows.find((r) => r.includes('Neha'))).toContain('4 leads');
     expect(rows.find((r) => r.includes('Meet'))).toContain('0 leads');
+  });
+});
+
+describe('page size and bulk delete', () => {
+  it('lets the member choose how many leads a page shows, asked of the server from page one', async () => {
+    await render();
+    act(() => button('Next')?.click());
+    await settle();
+    const pageSize = container.querySelector('nav[aria-label="Pages"] select') as HTMLSelectElement;
+    expect([...pageSize.options].map((o) => o.value)).toEqual(['25', '50', '100']);
+    setValue(pageSize, '100');
+    await settle();
+    const last = listCalls().at(-1)!.url;
+    expect(last).toContain('limit=100');
+    expect(last).toContain('page=1');
+  });
+
+  it('deletes the selected leads after a specific confirmation, then reloads', async () => {
+    granted = new Set(['leads.view', 'leads.view_all', 'leads.update', 'leads.delete']);
+    const onChanged = await render();
+    act(() => checkbox('Select Asha, Alpha Traders').click());
+    act(() => checkbox('Select Bala, Beta Foods').click());
+    act(() => button('Delete leads')!.click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('Delete 2 leads?');
+    expect(dialog.textContent).toContain('Alpha Traders — Asha');
+    expect(dialog.textContent).toContain('Beta Foods — Bala');
+    const listsBefore = listCalls().length;
+    await act(async () => [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Delete 2 leads')!.click());
+    await settle();
+    expect(calls.find((c) => c.url === '/api/v1/crm/leads/bulk')?.body).toEqual({ action: 'delete', leadIds: ['l1', 'l2'] });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(listCalls().length).toBeGreaterThan(listsBefore);
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('shows a refusal in the dialog, naming the leads, and claims nothing was deleted', async () => {
+    granted = new Set(['leads.view', 'leads.view_all', 'leads.delete']);
+    deleteResponse = () => json({ statusCode: 409, message: '1 of the selected leads has quotations, so nothing was deleted: Alpha Traders. Unselect it and try again.', code: 'LEADS_HAVE_QUOTATIONS', errors: { failedLeadIds: ['l1'] } }, 409);
+    await render();
+    // Allowed to delete but not to edit: leads can be selected and deleted, not assigned.
+    expect(button('Assign Leads')).toBeUndefined();
+    act(() => checkbox('Select Asha, Alpha Traders').click());
+    expect(button('Assign Leads')).toBeUndefined();
+    act(() => button('Delete leads')!.click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    await act(async () => [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Delete 1 lead')!.click());
+    await settle();
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('nothing was deleted');
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('Not available: Asha (Alpha Traders).');
+  });
+
+  it('offers no delete to members who may not delete leads', async () => {
+    await render();
+    act(() => checkbox('Select Asha, Alpha Traders').click());
+    expect(button('Delete leads')).toBeUndefined();
   });
 });

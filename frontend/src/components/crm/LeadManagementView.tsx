@@ -20,11 +20,13 @@ interface Props {
   onOpenLead: (leadId: string) => void;
   /** Opens the lead's details straight into editing. */
   onEditLead: (leadId: string) => void;
-  /** Called after leads change owner, so the rest of the CRM reloads. */
+  /** Called after leads change owner or are deleted, so the rest of the CRM reloads. */
   onAssigned?: () => void;
 }
 
 const PAGE_SIZE = 25;
+/** Leads per page the table offers; the server serves at most 100. */
+const PAGE_SIZES = [25, 50, 100];
 const EMPTY_QUERY: LeadQuery = { page: 1, limit: PAGE_SIZE, search: '', assigneeId: '', pipelineId: '', stageId: '', sourceId: '', status: '', sort: 'created_at', direction: 'desc' };
 const STATUS_LABEL: Record<LeadStatus, { label: string; variant: 'info' | 'success' | 'danger' }> = {
   OPEN: { label: 'Open', variant: 'info' },
@@ -33,6 +35,7 @@ const STATUS_LABEL: Record<LeadStatus, { label: string; variant: 'info' | 'succe
 };
 const fieldClass = 'w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-blue-500';
 const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50';
+const dangerActionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-300 text-red-700 bg-white hover:bg-red-50 dark:bg-transparent dark:text-red-300 dark:border-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50';
 const primaryClass = 'px-4 py-2 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50';
 const date = (iso: string) => new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -48,6 +51,8 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
   const ids = useId();
   const { can } = useAuth();
   const canAssign = can('leads.update');
+  const canDelete = can('leads.delete');
+  const canSelect = canAssign || canDelete;
   // Without leads.view_all the server lists only the leads assigned to this member.
   const seesAll = can('leads.view_all');
   const [query, setQuery] = useState<LeadQuery>(EMPTY_QUERY);
@@ -61,7 +66,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
   const [loading, setLoading] = useState(true);
   /** Selected leads, kept across pages, with what the confirmation needs to know about each. */
   const [selected, setSelected] = useState<Map<string, ManagedLead>>(new Map());
-  const [dialog, setDialog] = useState<'assign' | 'unassign' | null>(null);
+  const [dialog, setDialog] = useState<'assign' | 'unassign' | 'delete' | null>(null);
   const request = useRef(0);
 
   const load = useCallback(() => {
@@ -193,14 +198,15 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
         )}
       </div>
 
-      {canAssign && selected.size > 0 && (
+      {canSelect && selected.size > 0 && (
         <div role="region" aria-label="Selected leads" className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/40 dark:border-blue-900">
           <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">
             {plural(selected.size, 'lead')} selected{selected.size > pageSelected ? ` (${selected.size - pageSelected} on other pages)` : ''}
           </p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setDialog('assign')} className={primaryClass}>Assign Leads</button>
-            {seesAll && <button type="button" onClick={() => setDialog('unassign')} className={actionClass}>Unassign</button>}
+            {canAssign && <button type="button" onClick={() => setDialog('assign')} className={primaryClass}>Assign Leads</button>}
+            {canAssign && seesAll && <button type="button" onClick={() => setDialog('unassign')} className={actionClass}>Unassign</button>}
+            {canDelete && <button type="button" onClick={() => setDialog('delete')} className={dangerActionClass}>Delete leads</button>}
             <button type="button" onClick={() => setSelected(new Map())} className={actionClass}>Clear selection</button>
           </div>
         </div>
@@ -223,7 +229,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
             <caption className="sr-only">Leads</caption>
             <thead className="bg-slate-50 dark:bg-white/5 text-[11px] text-slate-500 tracking-wide">
               <tr>
-                {canAssign && (
+                {canSelect && (
                   <th scope="col" className="py-3 px-3 w-10">
                     <input
                       type="checkbox"
@@ -250,7 +256,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
             <tbody className="divide-y divide-slate-100 dark:divide-[#2B293E]">
               {rows.map((lead) => (
                 <tr key={lead.id} className={selected.has(lead.id) ? 'bg-blue-50/60 dark:bg-blue-950/20' : 'hover:bg-slate-50/70 dark:hover:bg-white/5'}>
-                  {canAssign && (
+                  {canSelect && (
                     <td className="py-2.5 px-3">
                       <input type="checkbox" aria-label={`Select ${lead.name}, ${lead.companyName}`} checked={selected.has(lead.id)} onChange={() => toggle(lead)} />
                     </td>
@@ -287,7 +293,16 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
 
       {rows && rows.length > 0 && (
         <nav aria-label="Pages" className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
-          <span>Page {query.page} of {totalPages}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span>Page {query.page} of {totalPages}</span>
+            <label htmlFor={`${ids}-page-size`} className="flex items-center gap-2">
+              <span>Leads per page</span>
+              <select id={`${ids}-page-size`} value={query.limit} onChange={(e) => changeQuery({ limit: Number(e.target.value) })}
+                className="h-8 px-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+          </div>
           <div className="flex gap-2">
             <button type="button" disabled={query.page <= 1 || loading} onClick={() => changePage(query.page - 1)} className={actionClass}>Previous</button>
             <button type="button" disabled={query.page >= totalPages || loading} onClick={() => changePage(query.page + 1)} className={actionClass}>Next</button>
@@ -297,6 +312,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
 
       {dialog === 'assign' && <AssignDialog selected={[...selected.values()]} assignees={assignees} onClose={() => setDialog(null)} onDone={afterAssign} />}
       {dialog === 'unassign' && <UnassignDialog selected={[...selected.values()]} onClose={() => setDialog(null)} onDone={afterAssign} />}
+      {dialog === 'delete' && <DeleteDialog selected={[...selected.values()]} onClose={() => setDialog(null)} onDone={afterAssign} />}
     </div>
   );
 };
@@ -433,6 +449,47 @@ const UnassignDialog: React.FC<{ selected: ManagedLead[]; onClose: () => void; o
     >
       {error && <p role="alert" className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-800">{error}</p>}
       <p className="text-sm text-slate-700 dark:text-slate-300">{plural(selected.filter((l) => l.assignee).length, 'lead')} currently assigned will lose their assignee.</p>
+    </Dialog>
+  );
+};
+
+/** Deletes the selected leads after a confirmation that says exactly what goes; all or none. */
+const DeleteDialog: React.FC<{ selected: ManagedLead[]; onClose: () => void; onDone: (message: string) => void }> = ({ selected, onClose, onDone }) => {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirm = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      onDone((await leadManagementApi.deleteLeads(selected.map((lead) => lead.id))).message);
+    } catch (e) {
+      setError(e instanceof Error ? failureText(e, selected) : 'The leads could not be deleted. Nothing was changed.');
+      setSaving(false);
+    }
+  };
+  const shown = selected.slice(0, 5);
+  return (
+    <Dialog
+      title={`Delete ${plural(selected.length, 'lead')}?`}
+      description="This permanently deletes them, with their activity, follow-ups and meetings. It cannot be undone; the deletion stays in the audit trail."
+      size="sm"
+      onClose={saving ? () => undefined : onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={saving} className={actionClass}>Cancel</button>
+          <button type="button" onClick={confirm} disabled={saving}
+            className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-600 hover:bg-red-700 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50">
+            {saving ? 'Deleting…' : `Delete ${plural(selected.length, 'lead')}`}
+          </button>
+        </>
+      }
+    >
+      {error && <p role="alert" className="mb-3 p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-800">{error}</p>}
+      <ul className="text-sm text-slate-700 dark:text-slate-300 list-disc pl-5 space-y-0.5">
+        {shown.map((lead) => <li key={lead.id}>{`${lead.companyName}${lead.name ? ` — ${lead.name}` : ''}`}</li>)}
+      </ul>
+      {selected.length > shown.length && <p className="mt-1 text-sm text-slate-500">{`and ${plural(selected.length - shown.length, 'more lead')}`}</p>}
+      <p className="mt-3 text-xs text-slate-500">Leads with quotations cannot be deleted; if any are selected, nothing is deleted and they are named.</p>
     </Dialog>
   );
 };

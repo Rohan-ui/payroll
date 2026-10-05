@@ -79,4 +79,9 @@ export const leadManagementApi = {
     apiClient
       .post<{ success: boolean; data: AssignResult; message: string }>('/crm/leads/assign', { leadIds, assigneeMemberId }, { feedback: { success: false, error: false } } as RequestInit)
       .then((r) => ({ ...r.data, message: r.message })),
+  /** Deletes the leads, all or none; a refusal names the ids that could not go in `errors.failedLeadIds`. */
+  deleteLeads: (leadIds: string[]) =>
+    apiClient
+      .post<{ success: boolean; data: { count: number }; message: string }>('/crm/leads/bulk', { action: 'delete', leadIds }, { feedback: { success: false, error: false } } as RequestInit)
+      .then((r) => ({ count: r.data.count, message: r.message })),
 };

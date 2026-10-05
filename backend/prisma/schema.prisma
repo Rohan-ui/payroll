@@ -2166,6 +2166,7 @@ model rndtechnosoft_crm_lead_activities {
 
   @@unique([tenant_id, id], map: "uq_crm_activities_tenant_id")
   @@index([tenant_id, lead_id], map: "ix_crm_activities_lead")
+  @@index([tenant_id, lead_id, created_at(sort: Desc)], map: "ix_crm_activities_lead_time")
 }
 
 model rndtechnosoft_crm_lead_followups {
@@ -2306,6 +2307,9 @@ model rndtechnosoft_crm_audit_logs {
   @@unique([tenant_id, id], map: "uq_crm_audit_logs_tenant_id")
   @@index([tenant_id, entity_type, entity_id], map: "ix_crm_audit_logs_entity")
   @@index([actor_id, created_at(sort: Desc)], map: "ix_crm_audit_logs_actor")
+  @@index([tenant_id, created_at(sort: Desc)], map: "ix_crm_audit_logs_tenant_time")
+  @@index([tenant_id, action_type, created_at(sort: Desc)], map: "ix_crm_audit_logs_tenant_action")
+  @@index([tenant_id, entity_id, created_at(sort: Desc)], map: "ix_crm_audit_logs_entity_time")
 }
 
 /// A hostname that serves a workspace: its platform subdomain (kpmg.voogyo.com)

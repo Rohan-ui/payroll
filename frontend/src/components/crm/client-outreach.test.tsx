@@ -21,10 +21,11 @@ const latestRequest = () => requests[requests.length - 1];
 const response = (company = 'Loaded prospect', page = 1, total = 152) => new Response(JSON.stringify({
   success: true, data: {
     stats: { totalEnrolled: 152, activeCount: 152, dueTodayCount: 152, overdueCount: 0, convertedCount: 0 },
+    masterSteps: [{ id: 'step-1', dayNumber: 1, title: 'Triple Platform Launch', goal: 'First contact', channels: ['EMAIL'], templates: {} }],
     facets: { enrolledCount: 152, industryCounts: { manufacturing: 152 }, subIndustryCounts: { engineering_wire: 102 } },
     pagination: { page, total, totalPages: Math.ceil(total / 50), hasMore: page * 50 < total },
     radar: { allActive: [{ id: 'lead-151', company_name: company, first_name: 'Asha', industry: 'Manufacturing', sub_industry: 'Engineering Wire',
-      cadence: { status: 'ACTIVE' }, currentStep: { dayNumber: 1, channels: ['EMAIL'], dueStatus: 'DUE_TODAY', templates: {} } }] },
+      cadence: { status: 'ACTIVE' }, currentStep: { id: 'step-1', dayNumber: 1, channels: ['EMAIL'], dueStatus: 'DUE_TODAY', templates: {} } }] },
   },
 }));
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });

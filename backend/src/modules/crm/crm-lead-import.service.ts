@@ -4,6 +4,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { ImportLeadsDto, LeadImportRowDto } from './dto/lead-import.dto';
+import { sopName } from './crm-cadence.helper';
 import { LeadVisibility } from './lead-visibility';
 
 export type LeadImportRowOutcome = 'READY' | 'IMPORTED' | 'DUPLICATE' | 'FAILED';
@@ -50,8 +51,6 @@ const REQUIRED: { field: TextField; label: string }[] = [
   { field: 'phone', label: 'phone' },
 ];
 
-/** The workspace's outreach cadence as the Client Outreach screen names it, from its playbook. */
-const sopName = (steps: { dayNumber: number }[]) => `${steps[steps.length - 1]?.dayNumber ?? 30}-Day Multi-Touch SOP`;
 
 const squash = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 
@@ -156,7 +155,7 @@ export class CrmLeadImportService {
       assignees: assignees.map(({ id, name, email, eligible }) => ({ id, name, email, eligible: eligible || id === actorMemberId })),
       currentMemberId: actorMemberId,
       pipelines: pipelines.map(({ rndtechnosoft_crm_stages: stages, pipeline_kind, is_default, ...p }) => ({ ...p, kind: pipeline_kind, isDefault: is_default, stages })),
-      cadence: { name: sopName(steps), steps: steps.length, days: steps[steps.length - 1]?.dayNumber ?? 0 },
+      cadence: { name: sopName(steps), steps: steps.length, days: Math.max(0, ...steps.map((s) => s.dayNumber)) },
     };
   }
 
@@ -268,14 +267,13 @@ export class CrmLeadImportService {
       }, actorMemberId);
     }
 
-    const lastStep = cadenceSteps[cadenceSteps.length - 1];
     return {
       dryRun: Boolean(dto.dryRun),
       destination: dto.destination,
       pipeline: { id: pipeline.id, name: pipeline.name },
       stage: { id: stage.id, name: stage.name },
       assignee: { id: defaultAssignee.id, name: defaultAssignee.name },
-      cadence: outreach ? { name: target, steps: cadenceSteps.length, days: lastStep?.dayNumber ?? 0 } : null,
+      cadence: outreach ? { name: target, steps: cadenceSteps.length, days: Math.max(0, ...cadenceSteps.map((s) => s.dayNumber)) } : null,
       summary,
       rows: results,
     };

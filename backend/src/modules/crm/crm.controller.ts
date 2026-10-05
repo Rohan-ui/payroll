@@ -3,6 +3,7 @@ import {
   Controller,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
   Get,
   Post,
   Put,
@@ -16,8 +17,12 @@ import { Response } from 'express';
 import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { CrmLeadImportService } from './crm-lead-import.service';
+import { CrmOutreachEmailService } from './crm-outreach-email.service';
+import { SendOutreachEmailDto } from './dto/outreach-email.dto';
+import { CrmHistoryQueryDto } from './dto/history-query.dto';
 import { ImportLeadsDto } from './dto/lead-import.dto';
 import { leadVisibility } from './lead-visibility';
+import { CadenceState, nextCadenceStep } from './crm-cadence.helper';
 import { AssignLeadsDto, LeadManagementQueryDto } from './dto/lead-management.dto';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
@@ -40,6 +45,7 @@ export class CrmController {
     private readonly accessService: AccessService,
     private readonly assignments: CrmLeadAssignmentService,
     private readonly leadImport: CrmLeadImportService,
+    private readonly outreachEmail: CrmOutreachEmailService,
   ) {}
 
   /** Which leads this member sees: all of them with leads.view_all, otherwise only those assigned to them. */
@@ -189,8 +195,18 @@ export class CrmController {
       this.crmService.getCadenceSteps(tenantId),
       this.crmService.getReplyBranches(tenantId),
     ]);
-    // The workspace's outreach playbook, for the lead's cadence roadmap and reply options.
-    return { success: true, data: { ...lead, cadence_steps: cadenceSteps, reply_branches: replyBranches } };
+    // The workspace's outreach playbook, for the lead's cadence roadmap and reply options, and the step the lead is at.
+    const cadence = (lead.custom_attributes as { cadence?: CadenceState } | null)?.cadence;
+    const current = cadence?.status === 'ACTIVE' ? nextCadenceStep(cadenceSteps, cadence) : null;
+    return { success: true, data: { ...lead, cadence_steps: cadenceSteps, cadence_current_step_id: current?.id ?? null, reply_branches: replyBranches } };
+  }
+
+  /** A lead's history: who did what to it and when, with before and after values, newest first. */
+  @Get('leads/:id/history')
+  @RequirePermissions('leads.view')
+  async getLeadHistory(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string, @Query() query: CrmHistoryQueryDto, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const { actors, ...page } = await this.crmService.getLeadHistory(tenantId, await this.visibility(tenantId, actor), id, query);
+    return { ...this.collection(page), actors };
   }
 
   @Post('leads')
@@ -282,7 +298,8 @@ export class CrmController {
       );
     }
     const data = await this.crmService.bulkLeadAction(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
-    return { success: true, data, message: 'Bulk action applied successfully' };
+    const message = body?.action === 'delete' ? `${data.count} lead${data.count === 1 ? '' : 's'} deleted` : 'Bulk action applied successfully';
+    return { success: true, data, message };
   }
 
   /**
@@ -361,6 +378,25 @@ export class CrmController {
     const data = await this.crmService.executeCadenceAction(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     const message = typeof (data as { message?: unknown })?.message === 'string' ? (data as { message: string }).message : 'Cadence action recorded';
     return { success: true, data, message };
+  }
+
+  /** Who Client Outreach emails come from: the organization's name and address, never its account details. */
+  @Get('cadence/email-sender')
+  @RequirePermissions('outreach.view')
+  async outreachEmailSender(@CurrentTenant() tenantId: string) {
+    return { success: true, data: await this.outreachEmail.sender(tenantId) };
+  }
+
+  /**
+   * Sends a lead's current touchpoint email from the organization's account,
+   * recorded as executed by this member; optionally completes the touchpoint.
+   */
+  @Post('cadence/email')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('outreach.update')
+  async sendOutreachEmail(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: SendOutreachEmailDto) {
+    const data = await this.outreachEmail.send(tenantId, actor.tenantMemberId, await this.visibility(tenantId, actor), body);
+    return { success: true, data, message: data.message };
   }
 
   @Post('cadence/seed')
@@ -857,25 +893,8 @@ export class CrmController {
 
   @Get('audit-logs')
   @RequirePermissions('audit.view')
-  async getAuditLogs(
-    @CurrentTenant() tenantId: string,
-    @Query('leadId') leadId?: string,
-    @Query('actionType') actionType?: string,
-    @Query('actorId') actorId?: string,
-    @Query('entityType') entityType?: string,
-    @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    const data = await this.crmService.getAuditLogs(tenantId, {
-      leadId,
-      actionType,
-      actorId,
-      entityType,
-      search,
-      page: page ? Number(page) : undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
-    });
-    return this.collection(data);
+  async getAuditLogs(@CurrentTenant() tenantId: string, @Query() query: CrmHistoryQueryDto) {
+    const { actors, ...page } = await this.crmService.getAuditLogs(tenantId, query);
+    return { ...this.collection(page), actors };
   }
 }

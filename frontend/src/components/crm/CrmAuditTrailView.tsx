@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 
 import { apiFetch } from '../../api/client';
+import { ACTION_FILTERS, actionLabel, describeEntry, type HistoryEntry } from './crmHistory';
 interface AuditLogItem {
   id: string;
   tenant_id: string;
@@ -36,13 +37,13 @@ interface AuditLogItem {
   actor_name: string;
   actor_email: string;
   actor_role: string;
-  action_type: 'ADD' | 'UPDATE' | 'DELETE' | 'CONNECT' | 'LOGIN' | 'LOGOUT' | 'IMPORT' | 'EXPORT';
+  action_type: string;
   entity_type: string;
   entity_id: string | null;
   entity_name: string | null;
   title: string;
   description: string | null;
-  changes_diff: Record<string, { old: any; new: any }> | null;
+  changes_diff: Record<string, unknown> | null;
   metadata: Record<string, any> | null;
   ip_address: string | null;
   user_agent: string | null;
@@ -50,12 +51,10 @@ interface AuditLogItem {
 }
 
 interface CrmAuditTrailViewProps {
-  salesPersons?: any[];
   onSelectLead360?: (leadId: string) => void;
 }
 
 export default function CrmAuditTrailView({
-  salesPersons = [],
   onSelectLead360
 }: CrmAuditTrailViewProps) {
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
@@ -73,6 +72,8 @@ export default function CrmAuditTrailView({
   const [selectedActor, setSelectedActor] = useState<string>('ALL');
   const [selectedEntity, setSelectedEntity] = useState<string>('ALL');
   const [selectedLogForDetails, setSelectedLogForDetails] = useState<AuditLogItem | null>(null);
+  // Workspace members, from the server, for the "who" filter.
+  const [actors, setActors] = useState<{ id: string; name: string }[]>([]);
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const [total, setTotal] = useState(0);
@@ -90,7 +91,13 @@ export default function CrmAuditTrailView({
       const res = await apiFetch(url, { cache: 'no-store' });
       const json = await res.json();
       if (json.success) {
-        setLogs(json.data || []);
+        // What each record says, from what the server recorded (no invented titles, roles or addresses).
+        setLogs((json.data || []).map((log: AuditLogItem) => ({
+          ...log,
+          title: actionLabel(log.action_type),
+          description: describeEntry(log as unknown as HistoryEntry).join(' · ') || null,
+        })));
+        if (Array.isArray(json.actors)) setActors(json.actors);
         setTotal(json.pagination?.total || 0);
         setTotalPages(Math.max(1, json.pagination?.totalPages || 1));
         if (json.metrics) {
@@ -156,11 +163,13 @@ export default function CrmAuditTrailView({
   const getActionBadge = (action: string) => {
     switch (action) {
       case 'ADD':
+      case 'CREATE':
       case 'IMPORT':
+      case 'IMPORT_LEADS':
         return {
           bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
           icon: <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />,
-          label: action === 'IMPORT' ? 'Bulk Import' : 'Created'
+          label: action.startsWith('IMPORT') ? 'Bulk Import' : 'Created'
         };
       case 'UPDATE':
         return {
@@ -168,11 +177,12 @@ export default function CrmAuditTrailView({
           icon: <Edit3 className="w-3.5 h-3.5 text-blue-600" />,
           label: 'Updated'
         };
+      case 'OUTREACH_EMAIL_FAILED':
       case 'DELETE':
         return {
           bg: 'bg-rose-50 text-rose-700 border-rose-200',
           icon: <Trash2 className="w-3.5 h-3.5 text-rose-600" />,
-          label: 'Deleted'
+          label: actionLabel(action)
         };
       case 'CONNECT':
         return {
@@ -202,7 +212,7 @@ export default function CrmAuditTrailView({
         return {
           bg: 'bg-slate-50 text-slate-700 border-slate-200',
           icon: <Clock className="w-3.5 h-3.5 text-slate-500" />,
-          label: action
+          label: actionLabel(action)
         };
     }
   };
@@ -320,15 +330,10 @@ export default function CrmAuditTrailView({
             onChange={(e) => { setSelectedAction(e.target.value); setPage(1); }}
             className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
           >
-            <option value="ALL">⚡ All Action Types</option>
-            <option value="ADD">➕ Created (ADD)</option>
-            <option value="UPDATE">✏️ Updated (UPDATE)</option>
-            <option value="DELETE">🗑️ Deleted (DELETE)</option>
-            <option value="CONNECT">📞 Connected (Calls/WhatsApp)</option>
-            <option value="LOGIN">🔑 Logins</option>
-            <option value="LOGOUT">🚪 Logouts</option>
-            <option value="IMPORT">📥 Imports</option>
-            <option value="EXPORT">📤 Exports</option>
+            <option value="ALL">All actions</option>
+            {[...ACTION_FILTERS, { label: 'Imports', value: 'IMPORT_LEADS' }, { label: 'Reordering', value: 'REORDER' }].map((a) => (
+              <option key={a.value} value={a.value}>{a.label}</option>
+            ))}
           </select>
 
           {/* Actor / Employee */}
@@ -337,11 +342,9 @@ export default function CrmAuditTrailView({
             onChange={(e) => { setSelectedActor(e.target.value); setPage(1); }}
             className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
           >
-            <option value="ALL">👤 All Employees</option>
-            {salesPersons.map((sp) => (
-              <option key={sp.id} value={sp.id}>
-                {sp.first_name} {sp.last_name} ({sp.designation || 'Sales'})
-              </option>
+            <option value="ALL">All members</option>
+            {actors.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
             ))}
           </select>
 
@@ -351,12 +354,12 @@ export default function CrmAuditTrailView({
             onChange={(e) => { setSelectedEntity(e.target.value); setPage(1); }}
             className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
           >
-            <option value="ALL">📂 All Entities</option>
-            <option value="LEAD">🎯 Leads</option>
-            <option value="QUOTATION">📄 Quotations</option>
-            <option value="CADENCE">🚀 Cadence Outreach</option>
-            <option value="MEETING">📅 Meetings / Tasks</option>
-            <option value="AUTH">🔐 Authentication Sessions</option>
+            <option value="ALL">All records</option>
+            <option value="LEAD">Leads</option>
+            <option value="PIPELINE">Pipelines</option>
+            <option value="PIPELINE_STAGE">Pipeline stages</option>
+            <option value="SOP_STEP">Outreach playbook steps</option>
+            <option value="SOP_BRANCH">Objection strategies</option>
           </select>
         </div>
       </div>
@@ -412,9 +415,9 @@ export default function CrmAuditTrailView({
                           </div>
                           <div className="truncate">
                             <p className="font-bold text-slate-900 leading-tight truncate">{log.actor_name}</p>
-                            <span className="text-[10px] text-indigo-600 font-semibold block truncate">
-                              {log.actor_role || 'User'}
-                            </span>
+                            {log.actor_email && (
+                              <span className="text-[10px] text-slate-500 block truncate">{log.actor_email}</span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -555,45 +558,28 @@ export default function CrmAuditTrailView({
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Actor (Employee)</span>
                   <p className="font-bold text-slate-900 mt-0.5">{selectedLogForDetails.actor_name}</p>
                   <p className="text-slate-500 text-[11px]">{selectedLogForDetails.actor_email}</p>
-                  <span className="inline-block mt-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded">
-                    Role: {selectedLogForDetails.actor_role || 'STAFF'}
-                  </span>
                 </div>
 
-                <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Security & Origin</span>
-                  <p className="font-mono text-slate-800 mt-0.5">IP: {selectedLogForDetails.ip_address || '127.0.0.1'}</p>
-                  <p className="text-slate-400 text-[10px] truncate mt-1" title={selectedLogForDetails.user_agent || ''}>
-                    Agent: {selectedLogForDetails.user_agent || 'Web Client'}
-                  </p>
-                </div>
+                {selectedLogForDetails.ip_address && (
+                  <div className="p-3 bg-white border border-slate-200 rounded-xl">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Origin</span>
+                    <p className="font-mono text-slate-800 mt-0.5">IP: {selectedLogForDetails.ip_address}</p>
+                  </div>
+                )}
               </div>
 
-              {/* Before vs After Field Diff */}
-              {selectedLogForDetails.changes_diff && Object.keys(selectedLogForDetails.changes_diff).length > 0 && (
+              {/* What was recorded: before → after values and the action's facts */}
+              {describeEntry(selectedLogForDetails as unknown as HistoryEntry).length > 0 && (
                 <div>
                   <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                     <Edit3 className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Tracked Field Changes (Diff)</span>
+                    <span>Recorded details</span>
                   </h5>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 text-xs">
-                    <div className="grid grid-cols-3 bg-slate-100/80 p-2 text-[11px] font-bold text-slate-600 uppercase">
-                      <span>Field</span>
-                      <span className="text-rose-700">Previous Value</span>
-                      <span className="text-emerald-700">Updated Value</span>
-                    </div>
-                    {Object.entries(selectedLogForDetails.changes_diff).map(([key, change]) => (
-                      <div key={key} className="grid grid-cols-3 p-2.5 items-center hover:bg-slate-50">
-                        <span className="font-semibold text-slate-800 font-mono text-[11px]">{key}</span>
-                        <span className="text-rose-600 line-through truncate text-[11px]">
-                          {change.old !== null && change.old !== undefined ? String(change.old) : '<empty>'}
-                        </span>
-                        <span className="text-emerald-700 font-bold truncate text-[11px]">
-                          {change.new !== null && change.new !== undefined ? String(change.new) : '<empty>'}
-                        </span>
-                      </div>
+                  <ul className="border border-slate-200 rounded-xl divide-y divide-slate-100 text-xs">
+                    {describeEntry(selectedLogForDetails as unknown as HistoryEntry).map((line, i) => (
+                      <li key={i} className="p-2.5 text-slate-700 break-words">{line}</li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               )}
 

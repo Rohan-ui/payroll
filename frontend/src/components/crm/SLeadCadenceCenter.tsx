@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { 
-  CADENCE_STEPS_MASTER, 
   CADENCE_REPLY_BRANCHES, 
   CADENCE_INDUSTRIES,
   CadenceStep,
@@ -27,6 +26,7 @@ import {
   useTenantIndustries 
 } from '@/lib/industryTaxonomy';
 import { LeadImportWizard } from './LeadImportWizard';
+import { OutreachEmailComposer, type OutreachEmailSent } from './OutreachEmailComposer';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
@@ -103,16 +103,15 @@ export default function SLeadCadenceCenter({
   const [phoneDisposition, setPhoneDisposition] = useState<'ANSWERED' | 'MISSED' | 'NONE'>('NONE');
 
   const [seeding, setSeeding] = useState(false);
-  const [sendingSmtp, setSendingSmtp] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Dynamic masters with fallback to static constants
-  const currentMasterSteps = useMemo(() => {
-    return (radarData?.masterSteps && radarData.masterSteps.length > 0) 
-      ? radarData.masterSteps 
-      : CADENCE_STEPS_MASTER;
-  }, [radarData]);
+  // The playbook from CRM Masters, in its order, as the server sends it; nothing here defines milestones.
+  const currentMasterSteps: { id: string; dayNumber: number; title: string; goal: string; channels: string[] }[] = useMemo(
+    () => radarData?.masterSteps ?? [],
+    [radarData],
+  );
+  const sop: { name: string; milestones: number; days: number } | null = radarData?.sop ?? null;
 
   const currentIndustries = useMemo(() => {
     if (tenantIndustries && tenantIndustries.length > 0) {
@@ -165,43 +164,21 @@ export default function SLeadCadenceCenter({
     };
   };
 
-  const handleSendViaPortalSmtp = async () => {
-    if (!selectedLeadForAction || !selectedLeadForAction.email) {
-      showToast('Lead email address missing', 'error');
-      return;
-    }
-    const subject = interpolateText(selectedLeadForAction.currentStep.templates.email.subject, getInterpolationVars());
-    const text = interpolateText(selectedLeadForAction.currentStep.templates.email.body, getInterpolationVars());
-
-    setSendingSmtp(true);
-    try {
-      const res = await apiFetch('/api/v1/tenant/email/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: selectedLeadForAction.email,
-          recipientName: `${selectedLeadForAction.first_name} ${selectedLeadForAction.last_name || ''}`.trim(),
-          subject,
-          text,
-          leadId: selectedLeadForAction.id,
-          cadenceStepIndex: selectedLeadForAction.currentStep.stepIndex,
-          advanceCadence: false
-        })
+  // The email went out from the organization; the outreach view reloads, and a completed day closes this window.
+  const handleOutreachEmailSent = (result: OutreachEmailSent) => {
+    showToast(result.message, 'success');
+    if (result.touchpointCompleted) {
+      setSelectedLeadForAction(null);
+    } else {
+      // The open window shows what the server saved; the reload below brings the list in line.
+      setSelectedLeadForAction((current: any) => current && {
+        ...current,
+        currentStep: { ...current.currentStep, channelActions: result.channelActions, dayStatus: 'IN_PROGRESS' },
       });
-      const json = await res.json();
-      if (json.success) {
-        showToast(json.data?.message || 'Email sent via portal SMTP!', 'success');
-        if (!executionNotes) {
-          setExecutionNotes(`Email dispatched via Portal SMTP to ${selectedLeadForAction.email}`);
-        }
-      } else {
-        showToast(json.message || json.error || 'Failed to send email via SMTP', 'error');
-      }
-    } catch (err: any) {
-      showToast('Error communicating with SMTP service', 'error');
-    } finally {
-      setSendingSmtp(false);
+      if (!executionNotes) setExecutionNotes(`Email sent from ${result.from.email} to ${result.to}`);
     }
+    fetchCadenceData();
+    if (onRefreshParent) onRefreshParent();
   };
 
   const handleSendViaWhatsAppApi = async () => {
@@ -497,101 +474,271 @@ export default function SLeadCadenceCenter({
     platformCounts: { WHATSAPP: 0, EMAIL: 0, LINKEDIN: 0, PHONE: 0 }
   };
 
-  const KANBAN_COLUMNS = [
-    {
-      id: 'day-1',
-      title: 'Day 1: Triple Launch',
-      dayNumber: 1,
-      goal: 'Professional Introduction',
-      channels: ['LINKEDIN', 'EMAIL', 'WHATSAPP'],
-      accentColor: 'border-blue-500',
-      badgeBg: 'bg-blue-100 text-blue-800'
-    },
-    {
-      id: 'day-5',
-      title: 'Day 5: Portfolio & Trust',
-      dayNumber: 5,
-      goal: 'Establish Credibility',
-      channels: ['WHATSAPP', 'EMAIL'],
-      accentColor: 'border-emerald-500',
-      badgeBg: 'bg-emerald-100 text-emerald-800'
-    },
-    {
-      id: 'day-10',
-      title: 'Day 10: Value & Tip',
-      dayNumber: 10,
-      goal: 'Free Industry Insight',
-      channels: ['EMAIL', 'LINKEDIN'],
-      accentColor: 'border-indigo-500',
-      badgeBg: 'bg-indigo-100 text-indigo-800'
-    },
-    {
-      id: 'day-15',
-      title: 'Day 15: Free Audit',
-      dayNumber: 15,
-      goal: 'High-Value Offer',
-      channels: ['WHATSAPP', 'EMAIL'],
-      accentColor: 'border-violet-500',
-      badgeBg: 'bg-violet-100 text-violet-800'
-    },
-    {
-      id: 'day-20',
-      title: 'Day 20: Case Study',
-      dayNumber: 20,
-      goal: 'Concrete Client Proof',
-      channels: ['EMAIL', 'LINKEDIN'],
-      accentColor: 'border-cyan-500',
-      badgeBg: 'bg-cyan-100 text-cyan-800'
-    },
-    {
-      id: 'day-25',
-      title: 'Day 25: Discovery Call',
-      dayNumber: 25,
-      goal: 'Direct Strategy Call',
-      channels: ['WHATSAPP', 'PHONE'],
-      accentColor: 'border-amber-500',
-      badgeBg: 'bg-amber-100 text-amber-800'
-    },
-    {
-      id: 'day-30',
-      title: 'Day 30: Respectful Exit',
-      dayNumber: 30,
-      goal: 'Psychological Reversal',
-      channels: ['EMAIL', 'LINKEDIN'],
-      accentColor: 'border-slate-500',
-      badgeBg: 'bg-slate-100 text-slate-800'
-    },
-    {
-      id: 'branched',
-      title: 'Branched / Responded',
-      isBranched: true,
-      goal: 'Objection & Warm Interest',
-      channels: ['WHATSAPP', 'EMAIL', 'PHONE'],
-      accentColor: 'border-orange-500',
-      badgeBg: 'bg-orange-100 text-orange-800'
-    },
-    {
-      id: 'converted',
-      title: 'Converted to Opportunity',
-      isConverted: true,
-      goal: 'Active in Sales Pipeline',
-      channels: ['LINKEDIN', 'EMAIL', 'WHATSAPP', 'PHONE'],
-      accentColor: 'border-emerald-600',
-      badgeBg: 'bg-emerald-200 text-emerald-950 font-black'
-    }
+  type BoardColumn = {
+    id: string;
+    title: string;
+    goal: string;
+    channels: string[];
+    accentColor: string;
+    badgeBg: string;
+    /** Leads in this column across every page, from the server. */
+    count: number;
+  };
+  const COLUMN_STYLES = [
+    ['border-blue-500', 'bg-blue-100 text-blue-800'],
+    ['border-emerald-500', 'bg-emerald-100 text-emerald-800'],
+    ['border-indigo-500', 'bg-indigo-100 text-indigo-800'],
+    ['border-violet-500', 'bg-violet-100 text-violet-800'],
+    ['border-cyan-500', 'bg-cyan-100 text-cyan-800'],
+    ['border-amber-500', 'bg-amber-100 text-amber-800'],
+    ['border-slate-500', 'bg-slate-100 text-slate-800'],
   ];
+  const milestoneCounts: Record<string, number> = radarData?.facets?.milestoneCounts ?? {};
+  // One column per playbook step (CRM Masters), in its order, matched to leads by step id.
+  const MILESTONE_COLUMNS: BoardColumn[] = currentMasterSteps.map((step, index) => ({
+    id: step.id,
+    title: /^day\s*\d/i.test(step.title) ? step.title : `Day ${step.dayNumber}: ${step.title}`,
+    goal: step.goal,
+    channels: step.channels,
+    accentColor: COLUMN_STYLES[index % COLUMN_STYLES.length][0],
+    badgeBg: COLUMN_STYLES[index % COLUMN_STYLES.length][1],
+    count: milestoneCounts[step.id] ?? 0,
+  }));
 
-  const getLeadsForColumn = (col: typeof KANBAN_COLUMNS[0]) => {
-    if (col.isConverted) {
-      return allEnrolledLeads.filter(l => l.cadence?.status === 'CONVERTED' || l.cadence?.convertedToOpportunity);
-    }
-    if (col.isBranched) {
-      return allEnrolledLeads.filter(l => l.cadence?.status === 'BRANCHED');
-    }
-    return allEnrolledLeads.filter(l => 
-      l.cadence?.status === 'ACTIVE' && 
+  // The board shows the playbook's milestones only: leads still working through it.
+  const getLeadsForColumn = (col: BoardColumn) => {
+    return allEnrolledLeads.filter(l =>
+      l.cadence?.status === 'ACTIVE' &&
       !l.cadence?.convertedToOpportunity &&
-      l.currentStep?.dayNumber === col.dayNumber
+      l.currentStep?.id === col.id
+    );
+  };
+
+  /** One board column: a playbook milestone, with its leads on this page. */
+  const renderBoardColumn = (col: BoardColumn) => {
+    const colLeads = getLeadsForColumn(col);
+    return (
+                    <div 
+                      key={col.id} 
+                      className="w-80 flex-shrink-0 bg-slate-100/70 dark:bg-[#151421] border border-slate-200/90 dark:border-[#262438] rounded-2xl flex flex-col shadow-2xs max-h-[780px]"
+                    >
+                      {/* Column Header */}
+                      <div className={`p-3.5 border-t-4 ${col.accentColor} rounded-t-2xl border-b border-slate-200 dark:border-[#262438] bg-white dark:bg-[#1a1928]`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="text-xs font-black text-slate-900 dark:text-white truncate tracking-tight">
+                            {col.title}
+                          </h3>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${col.badgeBg}`}>
+                            {col.count}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-medium">
+                          {col.goal}
+                        </div>
+                        <div className="flex items-center gap-1 mt-2 flex-wrap">
+                          {col.channels.map((ch) => (
+                            <span 
+                              key={ch} 
+                              className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                                ch === 'LINKEDIN' ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300' :
+                                ch === 'EMAIL' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300' :
+                                ch === 'WHATSAPP' ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300' :
+                                'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+                              }`}
+                            >
+                              {ch === 'LINKEDIN' ? 'LI' : ch === 'EMAIL' ? 'EM' : ch === 'WHATSAPP' ? 'WA' : 'PH'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Column Cards Container */}
+                      <div className="p-2.5 overflow-y-auto space-y-2.5 flex-1 min-h-[140px]">
+                        {colLeads.length === 0 ? (
+                          <div className="p-6 text-center border border-dashed border-slate-200 dark:border-[#2e2c43] rounded-xl">
+                            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">No leads at this milestone</p>
+                          </div>
+                        ) : (
+                          colLeads.map((item: any) => {
+                            const currentStep = item.currentStep;
+                            const dueStatus = currentStep?.dueStatus;
+                            const isOverdue = dueStatus === 'OVERDUE';
+                            const isDueToday = dueStatus === 'DUE_TODAY';
+                            const isConverted = item.cadence?.status === 'CONVERTED' || item.cadence?.convertedToOpportunity;
+                            const isBranched = item.cadence?.status === 'BRANCHED';
+
+                            return (
+                              <div
+                                key={item.id}
+                                className="bg-white dark:bg-[#1c1b29] border border-slate-200 dark:border-[#2e2c43] hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl p-3 shadow-xs hover:shadow-md transition-all space-y-2.5 group"
+                              >
+                                {/* Card Header */}
+                                <div className="flex items-start justify-between gap-1.5">
+                                  <div className="min-w-0 flex-1">
+                                    <div 
+                                      onClick={() => onSelectLead360(item.id)}
+                                      className="font-bold text-slate-900 dark:text-white text-xs truncate flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" 
+                                      title={item.company_name}
+                                    >
+                                      <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
+                                      <span className="truncate">{item.company_name}</span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
+                                      {item.first_name} {item.last_name}
+                                      {item.designation ? ` • ${item.designation}` : ''}
+                                    </div>
+                                    {item.website_url && (
+                                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 truncate flex items-center gap-1 mt-0.5">
+                                        <Globe className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                                        <span className="truncate">{item.website_url.replace(/^https?:\/\//, '')}</span>
+                                      </div>
+                                    )}
+                                    {item.city && item.state && (
+                                      <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate flex items-center gap-1">
+                                        <MapPin className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                                        <span>{item.city}, {item.state}</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-col items-end gap-1 shrink-0">
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 dark:bg-[#252336] text-slate-700 dark:text-slate-300 rounded border border-slate-200/80 dark:border-[#383550]">
+                                      {getIndustryLabel(item.industry || item.cadence?.industry)}
+                                    </span>
+                                    {(item.sub_industry || item.subIndustry) && (
+                                      <span className="text-[9px] font-medium px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded border border-indigo-200 dark:border-indigo-800/60">
+                                        {getSubIndustryLabel(item.industry || item.cadence?.industry, item.sub_industry || item.subIndustry)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Status / Due Badge */}
+                                <div>
+                                  {isConverted ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                      <Trophy className="w-3 h-3 text-emerald-600" />
+                                      <span>Opportunity Won • Sales Pipeline</span>
+                                    </span>
+                                  ) : isBranched ? (
+                                    <div className="text-[10px] font-medium bg-amber-50 dark:bg-[#252119] text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-900/60 p-1.5 rounded-lg line-clamp-2">
+                                      <span className="font-bold text-amber-700 dark:text-amber-400">⚡ Replied: </span>
+                                      {item.cadence.branchReply?.leadFeedback || 'Response received'}
+                                    </div>
+                                  ) : isOverdue ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 animate-pulse">
+                                      <AlertCircle className="w-3 h-3 text-rose-600" />
+                                      <span>⚠️ Past Due Date</span>
+                                    </span>
+                                  ) : isDueToday ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                      <Flame className="w-3 h-3 text-amber-600" />
+                                      <span>🔥 Outreach Due Today</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                                      <Clock className="w-3 h-3 text-slate-400" />
+                                      <span>Upcoming Touchpoint</span>
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Contact Links & Deal Value */}
+                                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#2e2c43]">
+                                  <div className="flex items-center gap-1.5">
+                                    {item.whatsapp_number || item.phone ? (
+                                      <a
+                                        href={generateWhatsAppUrl(item.whatsapp_number || item.phone, '')}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
+                                        title="WhatsApp"
+                                      >
+                                        <MessageSquare className="w-3.5 h-3.5" />
+                                      </a>
+                                    ) : null}
+                                    {item.email ? (
+                                      <a
+                                        href={`mailto:${item.email}`}
+                                        className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition-colors"
+                                        title="Email"
+                                      >
+                                        <Mail className="w-3.5 h-3.5" />
+                                      </a>
+                                    ) : null}
+                                    {item.phone ? (
+                                      <a
+                                        href={`tel:${item.phone}`}
+                                        className="p-1 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
+                                        title="Call"
+                                      >
+                                        <Phone className="w-3.5 h-3.5" />
+                                      </a>
+                                    ) : null}
+                                  </div>
+
+                                  {item.budget_amount ? (
+                                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 font-mono">
+                                      ₹{Number(item.budget_amount).toLocaleString('en-IN')}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-600 italic">No budget</span>
+                                  )}
+                                </div>
+
+                                {/* Card Action Buttons */}
+                                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                  {!isConverted ? (
+                                    <>
+                                      {item.currentStep?.channelActions?.EMAIL?.status === 'SENT' && (
+                                        <span className="px-1.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-[10px] font-bold" title={`Day ${item.currentStep.dayNumber} email sent`}>✓ Email sent</span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenActionModal(item)}
+                                        className="px-2 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
+                                        title="Execute Multi-Channel Step"
+                                      >
+                                        <Send className="w-3 h-3" />
+                                        <span>Execute</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenConvertModal(item)}
+                                        className="px-2 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
+                                        title="Convert to Sales Opportunity"
+                                      >
+                                        <Sparkles className="w-3 h-3 text-amber-300" />
+                                        <span>Convert Opp</span>
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => onNavigateToPipeline && onNavigateToPipeline()}
+                                      className="col-span-2 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
+                                    >
+                                      <Trophy className="w-3 h-3 text-amber-300" />
+                                      <span>View in Sales Pipeline</span>
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Bottom full 360 link */}
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectLead360(item.id)}
+                                  className="w-full py-1 text-center text-[10px] font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/40 rounded transition-colors"
+                                >
+                                  View 360° Lead Dossier →
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
     );
   };
 
@@ -606,12 +753,16 @@ export default function SLeadCadenceCenter({
                 <Sparkles className="w-3 h-3 text-amber-600" />
                 {activeTenantName} Outbound
               </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                30-Day Multi-Touch SOP
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                8 Touchpoints
-              </span>
+              {sop && (
+                <>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                    {sop.name}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    {`${sop.milestones} ${sop.milestones === 1 ? 'milestone' : 'milestones'}`}
+                  </span>
+                </>
+              )}
             </div>
             <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
               Cold Outreach Command Center
@@ -712,7 +863,7 @@ export default function SLeadCadenceCenter({
             <Users className="w-4 h-4 text-indigo-600" />
           </div>
           <div className="text-2xl font-black text-slate-900 mt-1">{stats.activeCount}</div>
-          <div className="text-[11px] text-slate-400 mt-0.5">{stats.totalEnrolled} total enrolled in 30D SOP</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">{`${stats.totalEnrolled} total enrolled in ${sop?.name ?? 'the playbook'}`}</div>
         </div>
 
         <div 
@@ -917,7 +1068,7 @@ export default function SLeadCadenceCenter({
             {loading ? (
               <div className="p-16 text-center text-slate-400">
                 <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-indigo-500" />
-                <p className="text-xs font-semibold">Loading 30-Day Outbound Funnel Board...</p>
+                <p className="text-xs font-semibold">Loading the outreach board…</p>
               </div>
             ) : allEnrolledLeads.length === 0 ? (
               <div className="p-16 text-center">
@@ -927,235 +1078,13 @@ export default function SLeadCadenceCenter({
                 <h3 className="text-sm font-bold text-slate-800">No Prospects Enrolled in Funnel</h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
                   {radarData?.demoSeedAllowed === true
-                    ? 'Click "⚡ Seed Demo" in the header above to load sample prospects across all 8 touchpoint milestones.'
-                    : 'Add a lead as Cold, enrol leads from the list, or import them to start the 30-day outreach cadence.'}
+                    ? 'Click "⚡ Seed Demo" in the header above to load sample prospects across the playbook\'s milestones.'
+                    : `Add a lead as Cold, enrol leads from the list, or import them to start ${sop?.name ?? 'the outreach cadence'}.`}
                 </p>
               </div>
             ) : (
               <div className="flex gap-4 overflow-x-auto pb-4 pt-1 items-start scrollbar-thin">
-                {KANBAN_COLUMNS.map((col) => {
-                  const colLeads = getLeadsForColumn(col);
-                  return (
-                    <div 
-                      key={col.id} 
-                      className="w-80 flex-shrink-0 bg-slate-100/70 dark:bg-[#151421] border border-slate-200/90 dark:border-[#262438] rounded-2xl flex flex-col shadow-2xs max-h-[780px]"
-                    >
-                      {/* Column Header */}
-                      <div className={`p-3.5 border-t-4 ${col.accentColor} rounded-t-2xl border-b border-slate-200 dark:border-[#262438] bg-white dark:bg-[#1a1928]`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <h3 className="text-xs font-black text-slate-900 dark:text-white truncate tracking-tight">
-                            {col.title}
-                          </h3>
-                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${col.badgeBg}`}>
-                            {colLeads.length}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-medium">
-                          {col.goal}
-                        </div>
-                        <div className="flex items-center gap-1 mt-2 flex-wrap">
-                          {col.channels.map((ch) => (
-                            <span 
-                              key={ch} 
-                              className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
-                                ch === 'LINKEDIN' ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300' :
-                                ch === 'EMAIL' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300' :
-                                ch === 'WHATSAPP' ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300' :
-                                'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
-                              }`}
-                            >
-                              {ch === 'LINKEDIN' ? 'LI' : ch === 'EMAIL' ? 'EM' : ch === 'WHATSAPP' ? 'WA' : 'PH'}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Column Cards Container */}
-                      <div className="p-2.5 overflow-y-auto space-y-2.5 flex-1 min-h-[140px]">
-                        {colLeads.length === 0 ? (
-                          <div className="p-6 text-center border border-dashed border-slate-200 dark:border-[#2e2c43] rounded-xl">
-                            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">No leads at this milestone</p>
-                          </div>
-                        ) : (
-                          colLeads.map((item: any) => {
-                            const currentStep = item.currentStep;
-                            const dueStatus = currentStep?.dueStatus;
-                            const isOverdue = dueStatus === 'OVERDUE';
-                            const isDueToday = dueStatus === 'DUE_TODAY';
-                            const isConverted = item.cadence?.status === 'CONVERTED' || item.cadence?.convertedToOpportunity;
-                            const isBranched = item.cadence?.status === 'BRANCHED';
-
-                            return (
-                              <div
-                                key={item.id}
-                                className="bg-white dark:bg-[#1c1b29] border border-slate-200 dark:border-[#2e2c43] hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl p-3 shadow-xs hover:shadow-md transition-all space-y-2.5 group"
-                              >
-                                {/* Card Header */}
-                                <div className="flex items-start justify-between gap-1.5">
-                                  <div className="min-w-0 flex-1">
-                                    <div 
-                                      onClick={() => onSelectLead360(item.id)}
-                                      className="font-bold text-slate-900 dark:text-white text-xs truncate flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" 
-                                      title={item.company_name}
-                                    >
-                                      <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
-                                      <span className="truncate">{item.company_name}</span>
-                                    </div>
-                                    <div className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
-                                      {item.first_name} {item.last_name}
-                                      {item.designation ? ` • ${item.designation}` : ''}
-                                    </div>
-                                    {item.website_url && (
-                                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 truncate flex items-center gap-1 mt-0.5">
-                                        <Globe className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                                        <span className="truncate">{item.website_url.replace(/^https?:\/\//, '')}</span>
-                                      </div>
-                                    )}
-                                    {item.city && item.state && (
-                                      <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate flex items-center gap-1">
-                                        <MapPin className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                                        <span>{item.city}, {item.state}</span>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-col items-end gap-1 shrink-0">
-                                    <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 dark:bg-[#252336] text-slate-700 dark:text-slate-300 rounded border border-slate-200/80 dark:border-[#383550]">
-                                      {getIndustryLabel(item.industry || item.cadence?.industry)}
-                                    </span>
-                                    {(item.sub_industry || item.subIndustry) && (
-                                      <span className="text-[9px] font-medium px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded border border-indigo-200 dark:border-indigo-800/60">
-                                        {getSubIndustryLabel(item.industry || item.cadence?.industry, item.sub_industry || item.subIndustry)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Status / Due Badge */}
-                                <div>
-                                  {isConverted ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                      <Trophy className="w-3 h-3 text-emerald-600" />
-                                      <span>Opportunity Won • Sales Pipeline</span>
-                                    </span>
-                                  ) : isBranched ? (
-                                    <div className="text-[10px] font-medium bg-amber-50 dark:bg-[#252119] text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-900/60 p-1.5 rounded-lg line-clamp-2">
-                                      <span className="font-bold text-amber-700 dark:text-amber-400">⚡ Replied: </span>
-                                      {item.cadence.branchReply?.leadFeedback || 'Response received'}
-                                    </div>
-                                  ) : isOverdue ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 animate-pulse">
-                                      <AlertCircle className="w-3 h-3 text-rose-600" />
-                                      <span>⚠️ Past Due Date</span>
-                                    </span>
-                                  ) : isDueToday ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                      <Flame className="w-3 h-3 text-amber-600" />
-                                      <span>🔥 Outreach Due Today</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                                      <Clock className="w-3 h-3 text-slate-400" />
-                                      <span>Upcoming Touchpoint</span>
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Contact Links & Deal Value */}
-                                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#2e2c43]">
-                                  <div className="flex items-center gap-1.5">
-                                    {item.whatsapp_number || item.phone ? (
-                                      <a
-                                        href={generateWhatsAppUrl(item.whatsapp_number || item.phone, '')}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
-                                        title="WhatsApp"
-                                      >
-                                        <MessageSquare className="w-3.5 h-3.5" />
-                                      </a>
-                                    ) : null}
-                                    {item.email ? (
-                                      <a
-                                        href={`mailto:${item.email}`}
-                                        className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition-colors"
-                                        title="Email"
-                                      >
-                                        <Mail className="w-3.5 h-3.5" />
-                                      </a>
-                                    ) : null}
-                                    {item.phone ? (
-                                      <a
-                                        href={`tel:${item.phone}`}
-                                        className="p-1 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
-                                        title="Call"
-                                      >
-                                        <Phone className="w-3.5 h-3.5" />
-                                      </a>
-                                    ) : null}
-                                  </div>
-
-                                  {item.budget_amount ? (
-                                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 font-mono">
-                                      ₹{Number(item.budget_amount).toLocaleString('en-IN')}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-600 italic">No budget</span>
-                                  )}
-                                </div>
-
-                                {/* Card Action Buttons */}
-                                <div className="grid grid-cols-2 gap-1.5 pt-1">
-                                  {!isConverted ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenActionModal(item)}
-                                        className="px-2 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
-                                        title="Execute Multi-Channel Step"
-                                      >
-                                        <Send className="w-3 h-3" />
-                                        <span>Execute</span>
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenConvertModal(item)}
-                                        className="px-2 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
-                                        title="Convert to Sales Opportunity"
-                                      >
-                                        <Sparkles className="w-3 h-3 text-amber-300" />
-                                        <span>Convert Opp</span>
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => onNavigateToPipeline && onNavigateToPipeline()}
-                                      className="col-span-2 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
-                                    >
-                                      <Trophy className="w-3 h-3 text-amber-300" />
-                                      <span>View in Sales Pipeline</span>
-                                    </button>
-                                  )}
-                                </div>
-
-                                {/* Bottom full 360 link */}
-                                <button
-                                  type="button"
-                                  onClick={() => onSelectLead360(item.id)}
-                                  className="w-full py-1 text-center text-[10px] font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/40 rounded transition-colors"
-                                >
-                                  View 360° Lead Dossier →
-                                </button>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {MILESTONE_COLUMNS.map(renderBoardColumn)}
               </div>
             )}
           </div>
@@ -1386,6 +1315,9 @@ export default function SLeadCadenceCenter({
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {!isConverted ? (
                           <>
+                            {item.currentStep?.channelActions?.EMAIL?.status === 'SENT' && (
+                              <span className="px-2 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-[11px] font-bold">✓ Day {item.currentStep.dayNumber} email sent</span>
+                            )}
                             <button
                               onClick={() => handleOpenActionModal(item)}
                               className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all hover:shadow-md"
@@ -1464,7 +1396,10 @@ export default function SLeadCadenceCenter({
                     {activeTenantName} Funnel
                   </span>
                   <span className="text-xs font-semibold text-slate-300">
-                    Day {selectedLeadForAction.currentStep.dayNumber} of 30
+                    Day {selectedLeadForAction.currentStep.dayNumber}{sop ? ` of ${sop.days}` : ''}
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-white/10 text-slate-200 border border-white/20">
+                    {selectedLeadForAction.currentStep.dayStatus === 'IN_PROGRESS' ? 'In progress' : 'Not started'}
                   </span>
                 </div>
                 <h2 className="text-lg font-bold mt-1 text-white flex items-center gap-2">
@@ -1588,58 +1523,20 @@ export default function SLeadCadenceCenter({
               {/* CHANNEL 2: EMAIL                                              */}
               {/* ------------------------------------------------------------- */}
               {selectedLeadForAction.currentStep.templates?.email && (
-                <div className="border border-purple-200 bg-purple-50/20 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-bold text-purple-900 text-sm">
-                      <Mail className="w-4 h-4 text-purple-600" />
-                      <span>Email Template</span>
-                      <span className="text-[10px] font-normal text-slate-500">
-                        ({selectedLeadForAction.email || 'No email provided'})
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleCopy(
-                          interpolateText(selectedLeadForAction.currentStep.templates.email.body, getInterpolationVars()),
-                          'email_body'
-                        )}
-                        className="px-2.5 py-1 bg-white border border-purple-200 hover:bg-purple-50 text-purple-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                      >
-                        {copiedKey === 'email_body' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        <span>Copy Body</span>
-                      </button>
-
-                      {selectedLeadForAction.email && (
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={handleSendViaPortalSmtp}
-                            disabled={sendingSmtp}
-                            className="px-3 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
-                            title="Directly send this personalized email through the tenant portal SMTP"
-                          >
-                            <Send className={`w-3 h-3 ${sendingSmtp ? 'animate-spin' : ''}`} />
-                            <span>{sendingSmtp ? 'Sending...' : '⚡ Send via Portal SMTP'}</span>
-                          </button>
-
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="bg-white px-3 py-2 rounded-lg border border-purple-100 flex items-center gap-2">
-                      <span className="font-bold text-slate-400">Subject:</span>
-                      <span className="font-medium text-slate-800">
-                        {interpolateText(selectedLeadForAction.currentStep.templates.email.subject, getInterpolationVars())}
-                      </span>
-                    </div>
-
-                    <div className="bg-white p-3 rounded-lg border border-purple-100 font-sans text-xs text-slate-800 whitespace-pre-wrap leading-relaxed shadow-2xs">
-                      {interpolateText(selectedLeadForAction.currentStep.templates.email.body, getInterpolationVars())}
-                    </div>
-                  </div>
-                </div>
+                <OutreachEmailComposer
+                  key={`${selectedLeadForAction.id}-${selectedLeadForAction.currentStep.dayNumber}`}
+                  leadId={selectedLeadForAction.id}
+                  recipient={selectedLeadForAction.email || null}
+                  touchpoint={{
+                    day: selectedLeadForAction.currentStep.dayNumber,
+                    title: selectedLeadForAction.currentStep.title,
+                    channels: selectedLeadForAction.currentStep.channels || [],
+                  }}
+                  subject={interpolateText(selectedLeadForAction.currentStep.templates.email.subject, getInterpolationVars())}
+                  body={interpolateText(selectedLeadForAction.currentStep.templates.email.body, getInterpolationVars())}
+                  saved={selectedLeadForAction.currentStep.channelActions?.EMAIL ?? null}
+                  onSent={handleOutreachEmailSent}
+                />
               )}
 
               {/* ------------------------------------------------------------- */}

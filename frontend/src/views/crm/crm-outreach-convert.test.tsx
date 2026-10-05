@@ -31,7 +31,7 @@ const OUTREACH_LEAD = {
   pipeline_id: 'p-sales', stage_id: 's-sales', temperature: 'COLD', budget_amount: '0', industry: 'general',
   custom_attributes: { cadence: { status: 'ACTIVE', currentStepIndex: 0 } },
   cadence: { status: 'ACTIVE', currentStepIndex: 0, completedSteps: [], industry: 'general' },
-  currentStep: { dayNumber: 1, title: 'Intro', channels: ['WHATSAPP'] },
+  currentStep: { id: 'step-1', dayNumber: 1, title: 'Intro', channels: ['WHATSAPP'] },
   dueStatus: 'DUE_TODAY',
 };
 const CONVERTED = { ...OUTREACH_LEAD, pipeline_id: 'p-cold', stage_id: 's-first', pipeline_name: 'Cold Funnel', stage_name: 'First touch', temperature: 'HOT', custom_attributes: { cadence: { status: 'CONVERTED', convertedToOpportunity: true } } };
@@ -60,7 +60,7 @@ beforeEach(() => {
       if (url === '/api/v1/crm/cadence' && method === 'POST') return convertReply();
       if (url.startsWith('/api/v1/crm/cadence')) {
         const radar = { overdue: [], dueToday: [OUTREACH_LEAD], upcoming: [], allActive: [OUTREACH_LEAD], completed: [], branched: [], converted: [] };
-        return json({ success: true, data: { stats: { totalEnrolled: 1 }, radar, masterSteps: [], replyBranches: {}, industries: {}, demoSeedAllowed: false } });
+        return json({ success: true, data: { stats: { totalEnrolled: 1 }, radar, masterSteps: [{ id: 'step-1', dayNumber: 1, title: 'Intro', goal: 'First contact', channels: ['WHATSAPP'], templates: {} }], replyBranches: {}, industries: {}, demoSeedAllowed: false } });
       }
       if (url.startsWith('/api/v1/crm/leads?')) {
         // The lead is older than the first page of leads, so the list does not include it.

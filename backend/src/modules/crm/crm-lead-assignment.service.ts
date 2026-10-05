@@ -201,16 +201,23 @@ export class CrmLeadAssignmentService {
             description: row.assigned_tenant_member_id ? `Previously assigned to ${previous.get(row.assigned_tenant_member_id) ?? 'a former member'}` : 'Previously unassigned',
           })),
         });
-        await tx.rndtechnosoft_crm_audit_logs.create({
-          data: {
+        // One audit record per lead, with its owner before and after, in the same transaction as the change.
+        const actor = await this.memberNames(tx, tenantId, [actorMemberId]);
+        await tx.rndtechnosoft_crm_audit_logs.createMany({
+          data: changing.map((row) => ({
             id: randomUUID(),
             tenant_id: tenantId,
-            action_type: assignee ? 'BULK_ASSIGN' : 'BULK_UNASSIGN',
+            action_type: assignee ? 'LEAD_ASSIGNED' : 'LEAD_UNASSIGNED',
             entity_type: 'LEAD',
-            entity_id: changing[0].id,
+            entity_id: row.id,
             actor_id: actorMemberId,
-            changes_diff: { leadIds: changing.map((row) => row.id), assigneeMemberId: assignee?.id ?? null, replaced } as Prisma.InputJsonObject,
-          },
+            actor_name: actor.get(actorMemberId)?.slice(0, 120) ?? null,
+            changes_diff: {
+              changes: { assigned_tenant_member_id: { before: row.assigned_tenant_member_id, after: assignee?.id ?? null } },
+              names: { before: row.assigned_tenant_member_id ? previous.get(row.assigned_tenant_member_id) ?? null : null, after: assignee?.name ?? null },
+              bulk: changing.length > 1,
+            } as Prisma.InputJsonObject,
+          })),
         });
       }
       return {

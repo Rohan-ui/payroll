@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { LeadVisibility, onVisibleLead, visibleLeads } from './lead-visibility';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
+import { CrmHistoryQueryDto } from './dto/history-query.dto';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
@@ -17,6 +18,7 @@ import {
   CadenceChannel,
   CadenceState,
   CadenceStep,
+  sopName,
   CadenceTemplate,
   ReplyBranch,
   computeStepDueDate,
@@ -132,6 +134,24 @@ export const isCrmDemoSeedAllowed = () => process.env.CRM_ALLOW_DEMO_SEED === 't
  */
 export const COLD_FUNNEL_PIPELINE_CODE = 'COLD_FUNNEL';
 
+/** Lead fields whose values stay out of the audit log: only that they changed is recorded. */
+const UNRECORDED_LEAD_VALUES = new Set(['pan', 'gstin', 'custom_attributes']);
+const HISTORY_BOOKKEEPING = new Set(['updated_at', 'stage_entered_at', 'closed_at']);
+
+/** What an update changed on a lead, field by field, as { before, after }. */
+function leadChanges(before: Record<string, unknown>, update: Record<string, unknown>) {
+  const plain = (value: unknown) => (value === undefined ? null : value instanceof Prisma.Decimal ? value.toString() : value instanceof Date ? value.toISOString() : value);
+  const changes: Record<string, { before: unknown; after: unknown } | { changed: true }> = {};
+  for (const [field, next] of Object.entries(update)) {
+    if (HISTORY_BOOKKEEPING.has(field)) continue;
+    const was = plain(before[field]);
+    const now = plain(next);
+    if (JSON.stringify(was) === JSON.stringify(now)) continue;
+    changes[field] = UNRECORDED_LEAD_VALUES.has(field) ? { changed: true } : { before: was, after: now };
+  }
+  return changes;
+}
+
 /** The related records a lead is listed with, on the board, in the list and in API answers. */
 const LEAD_LIST_INCLUDE = {
   rndtechnosoft_crm_stages: true,
@@ -147,6 +167,8 @@ type LeadListRow = Prisma.rndtechnosoft_crm_leadsGetPayload<{ include: typeof LE
 
 @Injectable()
 export class CrmService {
+  private readonly logger = new Logger(CrmService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly assignments: CrmLeadAssignmentService,
@@ -570,7 +592,10 @@ export class CrmService {
 
     // Record creation activity
     await this.logActivity(tenantId, lead.id, 'NOTE', 'Lead Created', `Lead account created via ${options.createdVia ?? 'CRM Workspace'}`, memberId);
-    await this.logAudit(tenantId, 'CREATE', 'LEAD', lead.id, { company_name: lead.company_name, lead_code: lead.lead_code }, memberId);
+    await this.logAudit(tenantId, 'CREATE', 'LEAD', lead.id, {
+      company_name: lead.company_name, lead_code: lead.lead_code, created_via: options.createdVia ?? 'CRM Workspace',
+      assigned_tenant_member_id: lead.assigned_tenant_member_id, ...(lead.custom_attributes ? { enrolled_in_outreach: Boolean((lead.custom_attributes as { cadence?: unknown }).cadence) } : {}),
+    }, memberId);
 
     return lead;
   }
@@ -612,6 +637,7 @@ export class CrmService {
     if (data.winProbability !== undefined || data.win_probability !== undefined) updateData.win_probability = new Prisma.Decimal(data.winProbability || data.win_probability);
     // A new assignee must be an eligible member of this workspace; the change goes on the lead's activity.
     let assignmentNote: string | null = null;
+    let newAssigneeName: string | null = null;
     const assigneeField = data.assignedUserId !== undefined ? data.assignedUserId : data.assigned_user_id;
     if (assigneeField !== undefined) {
       const next: string | null = typeof assigneeField === 'string' && assigneeField.trim() ? assigneeField.trim() : null;
@@ -619,6 +645,7 @@ export class CrmService {
         const assignee = next ? await this.assignments.eligibleAssignee(this.prisma, tenantId, next) : null;
         updateData.assigned_tenant_member_id = next;
         assignmentNote = assignee ? `Assigned to ${assignee.name}` : 'Unassigned';
+        newAssigneeName = assignee?.name ?? null;
       }
     }
     if (data.pipelineId !== undefined || data.pipeline_id !== undefined) updateData.pipeline_id = data.pipelineId || data.pipeline_id;
@@ -660,7 +687,23 @@ export class CrmService {
     });
 
     if (assignmentNote) await this.logActivity(tenantId, id, 'ASSIGNMENT', assignmentNote, undefined, memberId);
-    await this.logAudit(tenantId, 'UPDATE', 'LEAD', id, updateData, memberId);
+    const changes = leadChanges(existing, updateData);
+    if (changes.assigned_tenant_member_id) {
+      const { assigned_tenant_member_id: owner, ...rest } = changes;
+      await this.logAudit(tenantId, updateData.assigned_tenant_member_id ? 'LEAD_ASSIGNED' : 'LEAD_UNASSIGNED', 'LEAD', id, {
+        changes: { assigned_tenant_member_id: owner },
+        names: { after: newAssigneeName },
+      }, memberId);
+      delete changes.assigned_tenant_member_id;
+      Object.assign(changes, rest);
+    }
+    if (Object.keys(changes).length > 0) {
+      const detailFields = Object.keys(changes).filter((field) => !['stage_id', 'assigned_tenant_member_id', 'is_won', 'is_lost', 'temperature'].includes(field));
+      if (detailFields.length > 0) {
+        await this.logActivity(tenantId, id, 'NOTE', 'Lead details updated', `Changed: ${detailFields.map((f) => f.replace(/_/g, ' ')).join(', ')}`, memberId);
+      }
+      await this.logAudit(tenantId, 'UPDATE', 'LEAD', id, { changes }, memberId);
+    }
     return updated;
   }
 
@@ -696,17 +739,39 @@ export class CrmService {
     await this.assertLeadsVisible(tenantId, visibility, leadIds);
 
     // Reassigning is handled by CrmLeadAssignmentService (checked and all-or-nothing).
+    // Each lead's own record in the audit log, with what it was before.
+    const before = await this.prisma.rndtechnosoft_crm_leads.findMany({
+      where: { tenant_id: tenantId, id: { in: leadIds } },
+      select: { id: true, company_name: true, lead_code: true, stage_id: true },
+    });
     if (action === 'delete') {
-      await this.prisma.rndtechnosoft_crm_leads.deleteMany({
-        where: { tenant_id: tenantId, id: { in: leadIds } },
+      if (leadIds.length > 500) throw new BadRequestException('Delete at most 500 leads at a time.');
+      // All or nothing. A lead with a quotation is never deleted: quotations are financial records.
+      await this.prisma.$transaction(async (tx) => {
+        const quoted = await tx.rndtechnosoft_crm_quotations.findMany({
+          where: { tenant_id: tenantId, lead_id: { in: leadIds } }, select: { lead_id: true }, distinct: ['lead_id'],
+        });
+        if (quoted.length > 0) {
+          const names = before.filter((lead) => quoted.some((q) => q.lead_id === lead.id)).map((lead) => lead.company_name);
+          throw new ConflictException({
+            message: `${quoted.length} of the selected leads ${quoted.length === 1 ? 'has' : 'have'} quotations, so nothing was deleted: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}. Unselect ${quoted.length === 1 ? 'it' : 'them'} and try again.`,
+            code: 'LEADS_HAVE_QUOTATIONS',
+            errors: { failedLeadIds: quoted.map((q) => q.lead_id) },
+          });
+        }
+        await tx.rndtechnosoft_crm_leads.deleteMany({ where: { tenant_id: tenantId, id: { in: leadIds } } });
       });
-      await this.logAudit(tenantId, 'BULK_DELETE', 'LEAD', leadIds[0], { leadIds }, memberId);
+      await this.logAuditMany(tenantId, before.map((lead) => ({
+        actionType: 'DELETE', entityType: 'LEAD', entityId: lead.id, details: { company_name: lead.company_name, lead_code: lead.lead_code, bulk: true },
+      })), memberId);
     } else if (action === 'stage_change' && stageId) {
       await this.prisma.rndtechnosoft_crm_leads.updateMany({
         where: { tenant_id: tenantId, id: { in: leadIds } },
         data: { stage_id: stageId, stage_entered_at: new Date() },
       });
-      await this.logAudit(tenantId, 'BULK_STAGE_CHANGE', 'LEAD', leadIds[0], { leadIds, stageId }, memberId);
+      await this.logAuditMany(tenantId, before.filter((lead) => lead.stage_id !== stageId).map((lead) => ({
+        actionType: 'UPDATE', entityType: 'LEAD', entityId: lead.id, details: { changes: { stage_id: { before: lead.stage_id, after: stageId } }, bulk: true },
+      })), memberId);
     } else {
       // Never report success for an action that did nothing.
       throw new BadRequestException('This bulk action is not available.');
@@ -1355,6 +1420,7 @@ export class CrmService {
     const industryCounts: Record<string, number> = {};
     const subIndustryCounts: Record<string, number> = {};
     const pageIds: string[] = [];
+    const milestoneCounts: Record<string, number> = {};
     let total = 0;
     let enrolledCount = 0;
     const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId, ...visibleLeads(visibility) };
@@ -1387,7 +1453,8 @@ export class CrmService {
           subIndustryCounts[normalize(subIndustry)] = (subIndustryCounts[normalize(subIndustry)] ?? 0) + 1;
         }
         if (!matchesTaxonomy(industry, query.industry) || !matchesTaxonomy(subIndustry, query.subIndustry)) continue;
-        const step = nextCadenceStep(steps, { completedSteps: cadence?.completedSteps ?? [] }) ?? steps[steps.length - 1];
+        const nextStep = nextCadenceStep(steps, { completedSteps: cadence?.completedSteps ?? [] });
+        const step = nextStep ?? steps[steps.length - 1];
         if (query.channel && query.channel !== 'ALL' && !step.channels.includes(query.channel as CadenceChannel)) continue;
         const dueStatus = status === 'ACTIVE' ? evaluateStepDueStatus(cadence?.nextDueAt || lead.created_at) : 'UPCOMING';
         const category = status === 'CONVERTED' || cadence?.convertedToOpportunity || lead.is_won ? 'CONVERTED' : status;
@@ -1397,6 +1464,8 @@ export class CrmService {
         else if (category === 'BRANCHED') stats.branchedCount++;
         else if (category === 'ACTIVE') {
           stats.activeCount++;
+          // How many active leads wait at each playbook step, counted from every lead, not just this page.
+          if (nextStep) milestoneCounts[nextStep.id] = (milestoneCounts[nextStep.id] ?? 0) + 1;
           if (dueStatus === 'OVERDUE') stats.overdueCount++;
           if (dueStatus === 'DUE_TODAY') stats.dueTodayCount++;
           if (dueStatus !== 'UPCOMING') step.channels.forEach(ch => stats.platformCounts[ch]++);
@@ -1473,6 +1542,9 @@ export class CrmService {
           ...currentMasterStep,
           dueDate: stepDueDate.toISOString(),
           dueStatus,
+          // What has been done on this day's channels; the day itself completes only when marked complete.
+          channelActions: cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {},
+          dayStatus: Object.values(cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {}).some((a) => a?.status === 'SENT') ? 'IN_PROGRESS' : 'PENDING',
           interpolatedTemplates: {
             linkedin: currentMasterStep.templates.linkedin
               ? {
@@ -1527,7 +1599,9 @@ export class CrmService {
       tenantName,
       stats,
       pagination: this.pageMeta(total, page, limit, leads.length),
-      facets: { enrolledCount, industryCounts, subIndustryCounts },
+      facets: { enrolledCount, industryCounts, subIndustryCounts, milestoneCounts },
+      // The playbook Client Outreach follows: CRM Masters' steps, in their order (also in masterSteps).
+      sop: { name: sopName(steps), milestones: steps.length, days: Math.max(0, ...steps.map((step) => step.dayNumber)) },
       radar: {
         overdue: overdueList,
         dueToday: dueTodayList,
@@ -1579,6 +1653,10 @@ export class CrmService {
           },
         });
         await this.logActivity(tenantId, id, 'NOTE', 'Enrolled in 30-Day Outbound Cadence', `Target industry: ${industry || 'general'}`, memberId);
+        await this.logAudit(tenantId, 'CADENCE_ENROLLED', 'LEAD', id, {
+          funnel: cadence.funnelName, industry: cadence.industry,
+          changes: { cadence_status: { before: customAttr.cadence?.status ?? null, after: 'ACTIVE' }, temperature: { before: lead.temperature, after: 'COLD' } },
+        }, memberId);
       }
       return { success: true, count: targetIds.length };
     }
@@ -1599,6 +1677,8 @@ export class CrmService {
         completedSteps: [],
       };
 
+      const statusBefore = cadence.status ?? null;
+      const dueBefore = cadence.nextDueAt || null;
       // The step due now in this workspace's playbook, found by day so playbook edits never skip or repeat one.
       const steps = await this.getCadenceSteps(tenantId);
       const executedStep = nextCadenceStep(steps, cadence);
@@ -1608,6 +1688,7 @@ export class CrmService {
         cadence.completedSteps = [
           ...(cadence.completedSteps ?? []),
           {
+            stepId: executedStep.id,
             stepIndex: currentIndex,
             dayNumber: executedStep.dayNumber,
             completedAt: new Date().toISOString(),
@@ -1621,7 +1702,8 @@ export class CrmService {
       const nextStep = steps[nextIndex];
       if (nextStep) {
         cadence.currentStepIndex = nextIndex;
-        const nextDue = computeStepDueDate(new Date(), nextStep.dayOffset - (executedStep?.dayOffset || 0));
+        // The gap between the two steps' days; a step ordered before an earlier day in Masters is due at once.
+        const nextDue = computeStepDueDate(new Date(), Math.max(0, nextStep.dayOffset - (executedStep?.dayOffset || 0)));
         cadence.nextDueAt = nextDue.toISOString();
       } else {
         cadence.status = 'COMPLETED';
@@ -1640,6 +1722,16 @@ export class CrmService {
       });
 
       await this.logActivity(tenantId, leadId, channel || 'WHATSAPP', `Cadence Step ${currentIndex + 1} Done: ${executedStep?.title || 'Touchpoint'}`, notes, memberId);
+      await this.logAudit(tenantId, 'TOUCHPOINT_COMPLETED', 'LEAD', leadId, {
+        touchpoint: executedStep ? { day: executedStep.dayNumber, title: executedStep.title, step_index: currentIndex } : null,
+        channel: channel || null,
+        channels: channel ? [channel] : executedStep?.channels ?? [],
+        notes: typeof notes === 'string' ? notes.slice(0, 2000) : null,
+        changes: {
+          cadence_status: { before: statusBefore, after: cadence.status },
+          next_touchpoint: { before: dueBefore, after: cadence.nextDueAt || null },
+        },
+      }, memberId);
       return { success: true, nextStepIndex: cadence.currentStepIndex, status: cadence.status };
     }
 
@@ -1659,6 +1751,7 @@ export class CrmService {
       if (!branch) throw new BadRequestException('That objection strategy no longer exists. Reload the page and choose one from the list.');
       const customAttr = (lead.custom_attributes as any) || {};
       const cadence: CadenceState = customAttr.cadence || ({} as any);
+      const statusBefore = cadence.status ?? null;
 
       cadence.status = 'BRANCHED';
       cadence.branchReply = {
@@ -1677,6 +1770,11 @@ export class CrmService {
       });
 
       await this.logActivity(tenantId, leadId, 'STATUS_CHANGE', `Branched to SOP: ${branch?.label || branchKey}`, replyNotes, memberId);
+      await this.logAudit(tenantId, 'CADENCE_BRANCHED', 'LEAD', leadId, {
+        branch: { key: branchKey, label: branch?.label ?? null },
+        notes: typeof replyNotes === 'string' ? replyNotes.slice(0, 2000) : null,
+        changes: { cadence_status: { before: statusBefore, after: 'BRANCHED' }, temperature: { before: lead.temperature, after: branch?.nextLeadTemperature || 'WARM' } },
+      }, memberId);
       return { success: true, branch: branchKey };
     }
 
@@ -1746,6 +1844,7 @@ export class CrmService {
     }
     const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null;
 
+    const before: { lead?: { pipeline_id: string; stage_id: string; cadence_status: string } } = {};
     const converted = await this.prisma.$transaction(async (tx) => {
       // Locks the row: a second conversion of the same lead waits here, then sees it converted.
       const locked = await tx.$queryRaw<{ id: string }[]>`
@@ -1763,6 +1862,7 @@ export class CrmService {
       if (lead.is_won || lead.is_lost) {
         throw new ConflictException(`${lead.company_name} is already closed as ${lead.is_won ? 'won' : 'lost'}.`);
       }
+      before.lead = { pipeline_id: lead.pipeline_id, stage_id: lead.stage_id, cadence_status: cadence.status };
 
       const now = new Date();
       await tx.rndtechnosoft_crm_leads.update({
@@ -1802,6 +1902,11 @@ export class CrmService {
         pipelineId: pipeline.id,
         stageId: stage.id,
         temperature,
+        changes: {
+          pipeline_id: { before: before.lead?.pipeline_id ?? null, after: pipeline.id },
+          stage_id: { before: before.lead?.stage_id ?? null, after: stage.id },
+          cadence_status: { before: before.lead?.cadence_status ?? null, after: 'CONVERTED' },
+        },
         ...(budget !== undefined ? { budgetAmount: budget.toString() } : {}),
         ...(typeof body.conversionChannel === 'string' && body.conversionChannel ? { channel: body.conversionChannel.slice(0, 32) } : {}),
       },
@@ -2432,9 +2537,10 @@ export class CrmService {
    * form default-day-N so Masters can edit or remove them like any other.
    */
   async getCadenceSteps(tenantId: string): Promise<(CadenceStep & { id: string })[]> {
+    // In the order set in CRM Masters; day decides only among steps never ordered.
     const rows = await this.prisma.rndtechnosoft_crm_sop_steps_master.findMany({
       where: { tenant_id: tenantId },
-      orderBy: { day_number: 'asc' },
+      orderBy: [{ sort_order: 'asc' }, { day_number: 'asc' }],
     });
     if (rows.length === 0) return CADENCE_STEPS_MASTER.map((step) => ({ ...step, id: `default-day-${step.dayNumber}` }));
     return rows.map((row, index) => ({
@@ -2535,9 +2641,10 @@ export class CrmService {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`crm-sop-steps:${tenantId}`}, 0))`;
     if ((await tx.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: tenantId } })) === 0) {
       await tx.rndtechnosoft_crm_sop_steps_master.createMany({
-        data: CADENCE_STEPS_MASTER.map((step) => ({
+        data: CADENCE_STEPS_MASTER.map((step, index) => ({
           id: randomUUID(),
           tenant_id: tenantId,
+          sort_order: index + 1,
           day_number: step.dayNumber,
           title: step.title,
           primary_objective: step.goal,
@@ -2575,12 +2682,24 @@ export class CrmService {
       if (clash) {
         throw new ConflictException(`Day ${input.day_number} already has a step ("${clash.title}"). Choose another day, or edit that step.`);
       }
-      return rowId
-        ? tx.rndtechnosoft_crm_sop_steps_master.update({
-            where: { tenant_id_id: { tenant_id: tenantId, id: rowId } },
-            data: { ...input, updated_at: new Date() },
-          })
-        : tx.rndtechnosoft_crm_sop_steps_master.create({ data: { id: randomUUID(), tenant_id: tenantId, ...input } });
+      if (rowId) {
+        return tx.rndtechnosoft_crm_sop_steps_master.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: rowId } },
+          data: { ...input, updated_at: new Date() },
+        });
+      }
+      // A new step goes in the sequence after the last step with an earlier day; the order is then renumbered 1, 2, 3…
+      const ordered = await tx.rndtechnosoft_crm_sop_steps_master.findMany({
+        where: { tenant_id: tenantId }, orderBy: [{ sort_order: 'asc' }, { day_number: 'asc' }], select: { id: true, day_number: true },
+      });
+      const created = await tx.rndtechnosoft_crm_sop_steps_master.create({ data: { id: randomUUID(), tenant_id: tenantId, ...input } });
+      let at = 0;
+      ordered.forEach((step, index) => { if (step.day_number < input.day_number) at = index + 1; });
+      const sequence = [...ordered.slice(0, at).map((step) => step.id), created.id, ...ordered.slice(at).map((step) => step.id)];
+      for (const [index, id] of sequence.entries()) {
+        await tx.rndtechnosoft_crm_sop_steps_master.update({ where: { tenant_id_id: { tenant_id: tenantId, id } }, data: { sort_order: index + 1 } });
+      }
+      return created;
     });
 
     await this.logAudit(tenantId, isUpdate ? 'UPDATE' : 'CREATE', 'SOP_STEP', saved.id, { day_number: saved.day_number, title: saved.title }, memberId);
@@ -3208,6 +3327,32 @@ export class CrmService {
   }
 
   /**
+   * Saves the outreach playbook's step order as dragged in CRM Masters: the
+   * sequence Client Outreach follows. Every step of the playbook, each once
+   * (default steps by their default ids, copied in first). A lead already past
+   * a step that is moved later does not go back to it.
+   */
+  private async reorderSopSteps(tenantId: string, ids: unknown, memberId?: string) {
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200 || !ids.every((id) => typeof id === 'string') || new Set(ids).size !== ids.length) {
+      throw new BadRequestException('The new order could not be read. Reload the page and try again.');
+    }
+    const ordered = await this.prisma.$transaction(async (tx) => {
+      const rowIds: string[] = [];
+      for (const id of ids as string[]) rowIds.push((await this.claimSopPlaybook(tx, tenantId, id)) as string);
+      const total = await tx.rndtechnosoft_crm_sop_steps_master.count({ where: { tenant_id: tenantId } });
+      if (new Set(rowIds).size !== rowIds.length || rowIds.length !== total) {
+        throw new BadRequestException('The playbook changed since the page was loaded. Reload the page and drag again.');
+      }
+      for (const [index, id] of rowIds.entries()) {
+        await tx.rndtechnosoft_crm_sop_steps_master.update({ where: { tenant_id_id: { tenant_id: tenantId, id } }, data: { sort_order: index + 1, updated_at: new Date() } });
+      }
+      return rowIds;
+    });
+    await this.logAudit(tenantId, 'REORDER', 'SOP_STEP', tenantId, { ordered_ids: ordered }, memberId);
+    return { saved: ordered.length };
+  }
+
+  /**
    * Saves the order CRM Masters shows after a drag: pipeline stages (the sales
    * board's columns) or pipelines, numbered 1, 2, 3… in the order sent. All or
    * nothing, and only records of this workspace; any other list is refused
@@ -3216,7 +3361,8 @@ export class CrmService {
   async reorderMasters(tenantId: string, body: any, memberId?: string) {
     const type = body?.masterType;
     const ids: unknown = body?.orderedIds;
-    if (type !== 'stages' && type !== 'pipelines') throw new BadRequestException('Only pipelines and pipeline stages can be reordered.');
+    if (type === 'sop_steps') return this.reorderSopSteps(tenantId, ids, memberId);
+    if (type !== 'stages' && type !== 'pipelines') throw new BadRequestException('Only pipelines, pipeline stages and outreach playbook steps can be reordered.');
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500 || !ids.every((id) => typeof id === 'string' && CrmService.UUID_PATTERN.test(id)) || new Set(ids).size !== ids.length) {
       throw new BadRequestException('The new order could not be read. Reload the page and try again.');
     }
@@ -3240,36 +3386,79 @@ export class CrmService {
   // AUDIT LOGS
   // ==========================================
 
-  async getAuditLogs(tenantId: string, query?: {
-    page?: number;
-    limit?: number;
-    leadId?: string;
-    actionType?: string;
-    actorId?: string;
-    entityType?: string;
-    search?: string;
-  }) {
-    const { page, limit, skip } = this.pagination(query?.page, query?.limit);
-    const where: any = { tenant_id: tenantId };
-    if (query?.leadId) where.entity_id = query.leadId;
-    if (query?.actionType) where.action_type = query.actionType;
-    if (query?.actorId) where.actor_id = query.actorId;
-    if (query?.entityType) where.entity_type = query.entityType;
-    if (query?.search) {
+  /** Filters shared by a lead's history and the workspace audit trail. */
+  private historyWhere(tenantId: string, query: Partial<CrmHistoryQueryDto>): Prisma.rndtechnosoft_crm_audit_logsWhereInput {
+    const where: Prisma.rndtechnosoft_crm_audit_logsWhereInput = { tenant_id: tenantId };
+    if (query.leadId) where.entity_id = query.leadId;
+    if (query.actionType) where.action_type = { in: query.actionType.split(',') };
+    if (query.actorId) where.actor_id = query.actorId;
+    if (query.entityType) where.entity_type = query.entityType;
+    if (query.channel) where.changes_diff = { path: ['channel'], equals: query.channel };
+    if (query.from || query.to) where.created_at = { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lt: new Date(query.to) } : {}) };
+    const search = query.search?.trim();
+    if (search) {
       where.OR = [
-        { actor_name: { contains: query.search.trim(), mode: 'insensitive' } },
-        { action_type: { contains: query.search.trim(), mode: 'insensitive' } },
-        { entity_type: { contains: query.search.trim(), mode: 'insensitive' } },
+        { actor_name: { contains: search, mode: 'insensitive' } },
+        { action_type: { contains: search, mode: 'insensitive' } },
+        { entity_type: { contains: search, mode: 'insensitive' } },
       ];
     }
-
-    const [items, total] = await Promise.all([
-      this.prisma.rndtechnosoft_crm_audit_logs.findMany({ where, orderBy: { created_at: 'desc' }, skip, take: limit }),
-      this.prisma.rndtechnosoft_crm_audit_logs.count({ where }),
-    ]);
-    return this.pageResult(items, total, page, limit);
+    return where;
   }
 
+  /**
+   * One page of audit records, newest first, each with who did it: the member's
+   * name as recorded then, and their current email; plus the workspace's members
+   * for the "who" filter.
+   */
+  private async historyPage(tenantId: string, where: Prisma.rndtechnosoft_crm_audit_logsWhereInput, query: Partial<CrmHistoryQueryDto>) {
+    const { page, limit, skip } = this.pagination(query.page, query.limit);
+    const [rows, total, members] = await Promise.all([
+      this.prisma.rndtechnosoft_crm_audit_logs.findMany({ where, orderBy: [{ created_at: 'desc' }, { id: 'desc' }], skip, take: limit }),
+      this.prisma.rndtechnosoft_crm_audit_logs.count({ where }),
+      this.prisma.rndtechnosoft_tenant_members.findMany({
+        where: { tenant_id: tenantId },
+        select: { id: true, rndtechnosoft_users: { select: { display_name: true, email: true } } },
+      }),
+    ]);
+    const byId = new Map(members.map((m) => [m.id, { name: m.rndtechnosoft_users.display_name || m.rndtechnosoft_users.email, email: m.rndtechnosoft_users.email }]));
+    // The lead each record is about, by its company; a deleted lead by the name its record kept.
+    const leadIds = [...new Set(rows.filter((row) => row.entity_type === 'LEAD').map((row) => row.entity_id))];
+    const leads = leadIds.length
+      ? await this.prisma.rndtechnosoft_crm_leads.findMany({ where: { tenant_id: tenantId, id: { in: leadIds } }, select: { id: true, company_name: true } })
+      : [];
+    const leadNames = new Map(leads.map((l) => [l.id, l.company_name]));
+    const items = rows.map((row) => {
+      const member = row.actor_id ? byId.get(row.actor_id) : undefined;
+      const kept = (row.changes_diff as { company_name?: unknown } | null)?.company_name;
+      return {
+        ...row,
+        actor_name: row.actor_name ?? member?.name ?? (row.actor_id ? 'Former member' : 'System'),
+        actor_email: member?.email ?? null,
+        entity_name: row.entity_type === 'LEAD' ? leadNames.get(row.entity_id) ?? (typeof kept === 'string' ? kept : null) : null,
+      };
+    });
+    const actors = [...byId.entries()].map(([id, m]) => ({ id, name: m.name })).sort((a, b) => a.name.localeCompare(b.name));
+    return { ...this.pageResult(items, total, page, limit), actors };
+  }
+
+  async getAuditLogs(tenantId: string, query: Partial<CrmHistoryQueryDto> = {}) {
+    return this.historyPage(tenantId, this.historyWhere(tenantId, query), query);
+  }
+
+  /** A lead's history: every recorded action on it, by whom, with what changed. Only for a lead this member may see. */
+  async getLeadHistory(tenantId: string, visibility: LeadVisibility, leadId: string, query: Partial<CrmHistoryQueryDto>) {
+    await this.assertLeadsVisible(tenantId, visibility, [leadId]);
+    return this.historyPage(tenantId, this.historyWhere(tenantId, { ...query, leadId, entityType: 'LEAD', search: undefined }), query);
+  }
+
+
+  /**
+   * Appends to the CRM audit log (the table rejects any later change): what was
+   * done, to what, by which member of this workspace (taken from the session,
+   * never the request), with the member's name kept as it was at the time.
+   * Details never hold credentials or secrets.
+   */
   async logAudit(
     tenantId: string,
     actionType: string,
@@ -3278,22 +3467,42 @@ export class CrmService {
     details?: any,
     actorId?: string,
   ) {
+    await this.logAuditMany(tenantId, [{ actionType, entityType, entityId, details }], actorId);
+  }
+
+  /** Several audit records by one member at once, e.g. one per lead of a bulk change. */
+  async logAuditMany(
+    tenantId: string,
+    entries: { actionType: string; entityType: string; entityId: string; details?: any }[],
+    actorId?: string,
+  ) {
+    if (entries.length === 0) return;
     try {
-      await this.prisma.rndtechnosoft_crm_audit_logs.create({
-        data: {
+      const actor = actorId
+        ? await this.prisma.rndtechnosoft_tenant_members.findFirst({
+            where: { tenant_id: tenantId, id: actorId },
+            select: { rndtechnosoft_users: { select: { display_name: true, email: true } } },
+          })
+        : null;
+      const actorName = actor ? (actor.rndtechnosoft_users.display_name || actor.rndtechnosoft_users.email).slice(0, 120) : null;
+      await this.prisma.rndtechnosoft_crm_audit_logs.createMany({
+        data: entries.map((entry) => ({
           id: randomUUID(),
           tenant_id: tenantId,
-          action_type: actionType,
-          entity_type: entityType,
-          entity_id: entityId,
+          action_type: entry.actionType,
+          entity_type: entry.entityType,
+          entity_id: entry.entityId,
           actor_id: actorId || null,
-          changes_diff: details || undefined,
-        },
+          actor_name: actorName,
+          changes_diff: entry.details || undefined,
+        })),
       });
-    } catch {
-      // ignore logging failures
+    } catch (error) {
+      // The change itself is already saved; a lost audit record is reported, never hidden.
+      this.logger.error(`CRM audit write failed: tenant=${tenantId} action=${entries[0].actionType} error=${error instanceof Error ? error.name : 'unknown'}`);
     }
   }
+
 
   // ==========================================
   // SEED CADENCE DEMO LEADS

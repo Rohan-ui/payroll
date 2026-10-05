@@ -6,7 +6,7 @@ import {
   CheckCircle2, FileText, Trophy, ArrowRight, Plus, RefreshCw,
   MessageSquare, Video, ShieldCheck, UserCheck, AlertTriangle, Send, Check,
   ExternalLink, Copy, Globe, Flame, PhoneCall, Target, DollarSign, Briefcase,
-  Edit3, Save
+  Edit3, Save, History
 } from 'lucide-react';
 import { 
   CadenceStep,
@@ -28,6 +28,8 @@ import { parsePhoneWithCountryCode } from '@/lib/countryCodes';
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
 import { conversionDestination, dealWonMessage } from './pipelineBoard';
+import { LeadHistory } from './LeadHistory';
+import { OutreachEmailComposer } from './OutreachEmailComposer';
 import { ConvertDestination } from './ConvertDestination';
 interface Lead360DrawerProps {
   leadId: string | null;
@@ -48,7 +50,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'followups' | 'meetings' | 'quotes' | 'cadence'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'history' | 'followups' | 'meetings' | 'quotes' | 'cadence'>('overview');
 
   // Form states for adding activities / follow-ups
   const [showLogActivity, setShowLogActivity] = useState(false);
@@ -85,7 +87,6 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
   const [drawerBranchKey, setDrawerBranchKey] = useState<string>('');
   const [applyingDrawerBranch, setApplyingDrawerBranch] = useState(false);
   const [drawerPhoneDisposition, setDrawerPhoneDisposition] = useState<'ANSWERED' | 'MISSED' | 'NONE'>('NONE');
-  const [sendingSmtpStep, setSendingSmtpStep] = useState<number | null>(null);
 
   // Cadence conversion to Opportunity state
   const [showCadenceConvertModal, setShowCadenceConvertModal] = useState(false);
@@ -255,43 +256,6 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
     showToast('Copied to clipboard!', 'success');
   };
 
-  const handleSendLeadCadenceSmtp = async (step: any, vars: any) => {
-    if (!lead?.email) {
-      showToast('Lead email address missing', 'error');
-      return;
-    }
-    const subj = interpolateText(step.templates.email.subject, vars);
-    const text = interpolateText(step.templates.email.body, vars);
-
-    setSendingSmtpStep(step.stepIndex);
-    try {
-      const res = await apiFetch('/api/v1/tenant/email/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: lead.email,
-          recipientName: `${lead.first_name} ${lead.last_name || ''}`.trim(),
-          subject: subj,
-          text,
-          leadId: lead.id,
-          cadenceStepIndex: step.stepIndex,
-          advanceCadence: false
-        })
-      });
-      const json = await res.json().catch(() => null);
-      if (res.ok && json?.success) {
-        showToast(json.data?.message || 'Email sent', 'success');
-        fetchLead360();
-      } else {
-        showToast(json?.message || json?.error || 'The email could not be sent.', 'error');
-      }
-    } catch {
-      showToast('Could not reach the server. Check your connection and try again.', 'error');
-    } finally {
-      setSendingSmtpStep(null);
-    }
-  };
-
   const handleEnrollLeadInCadence = async () => {
     if (!leadId) return;
     setEnrollingCadence(true);
@@ -420,11 +384,12 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
     }
   } catch (e) {}
 
-  // The workspace's outreach playbook, sent with the lead. The lead's current
-  // step is the first after the last day it completed, as the server works it out.
-  const cadenceSteps: CadenceStep[] = data?.cadence_steps ?? [];
-  const lastCompletedDay = Math.max(0, ...(leadCadence?.completedSteps ?? []).map((done: any) => Number(done.dayNumber) || 0));
-  const currentCadenceStep = cadenceSteps.find((step) => step.dayNumber > lastCompletedDay);
+  // The workspace's outreach playbook (CRM Masters, in its order), sent with the lead,
+  // and the step the lead is at, as the server works it out.
+  const cadenceSteps: (CadenceStep & { id?: string })[] = data?.cadence_steps ?? [];
+  const currentCadenceStep = cadenceSteps.find((step) => step.id && step.id === data?.cadence_current_step_id);
+  const playbookDays = Math.max(0, ...cadenceSteps.map((step) => step.dayNumber));
+  const playbookChannels = [...new Set(cadenceSteps.flatMap((step) => step.channels))];
   const replyBranches: Record<string, ReplyBranch> = data?.reply_branches ?? {};
 
   const formatCurrency = (val: number) => {
@@ -694,6 +659,19 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
           >
             <Clock className="w-4 h-4" />
             <span>Activity Timeline ({data?.activities?.length || 0})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('history')}
+            aria-pressed={activeTab === 'history'}
+            className={`py-3 px-3 border-b-2 transition-all flex items-center gap-1.5 shrink-0 ${
+              activeTab === 'history'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                : 'border-transparent hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <History className="w-4 h-4" aria-hidden="true" />
+            <span>History</span>
           </button>
 
           <button
@@ -1138,6 +1116,17 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                       <p>Client ID: {lead?.converted_client_id}</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* HISTORY: who did what to this lead, recorded by the server */}
+              {activeTab === 'history' && leadId && (
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase">History</h3>
+                    <p className="text-[11px] text-slate-500">Every recorded action on this lead: who did it, when, and what changed.</p>
+                  </div>
+                  <LeadHistory leadId={leadId} pipelines={pipelines} stages={stages} />
                 </div>
               )}
 
@@ -1679,7 +1668,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                           RND Technosoft Smart Multi-Channel Cold Marketing Funnel
                         </h3>
                         <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                          8 Touchpoints, 3 Platforms (🟢 LinkedIn + ✉️ Email + 💬 WhatsApp + 📞 Phone), 1 Discovery Call. 30-Day automated sequence for India B2B outbound.
+                          {`${cadenceSteps.length} milestones over ${playbookDays} days on ${playbookChannels.map((ch) => ch.charAt(0) + ch.slice(1).toLowerCase()).join(', ')}, as set in CRM Masters.`}
                         </p>
                       </div>
 
@@ -1777,7 +1766,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                             </div>
                             <div>
                               <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                                Voogyo RND 30-Day Multi-Touch SOP Workflow
+                                {`${playbookDays}-Day Multi-Touch SOP Workflow`}
                               </h4>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                                 Target: <span className="font-semibold text-slate-800 dark:text-slate-200">{lead?.company_name}</span> ({lead?.first_name} {lead?.last_name}{lead?.designation ? ` • ${lead?.designation}` : ''})
@@ -1893,7 +1882,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                       {/* 8-Step Visual Roadmap */}
                       <div className="space-y-3">
                         <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center justify-between">
-                          <span>30-Day Multi-Channel Roadmap</span>
+                          <span>{`${playbookDays}-Day Multi-Channel Roadmap`}</span>
                           <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal">{cadenceSteps.length} Steps</span>
                         </h4>
 
@@ -1903,16 +1892,18 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                             const isCurrent = step === currentCadenceStep && leadCadence.status === 'ACTIVE';
                             const completedRecord = leadCadence.completedSteps?.find((s: any) => s.dayNumber === step.dayNumber);
 
+                            // The lead's own details; the template fills in a polite default for anything missing.
                             const vars = {
-                              firstName: lead?.first_name || 'Aditya',
-                              lastName: lead?.last_name || 'Kulkarni',
-                              fullName: [lead?.first_name, lead?.last_name].filter(Boolean).join(' ') || 'Aditya Kulkarni',
-                              companyName: lead?.company_name || 'Nexus Quantum Labs',
-                              designation: lead?.designation || 'Founder & CTO',
-                              industry: leadCadence?.industry || lead?.industry || 'software_it',
-                              phone: lead?.whatsapp_number || lead?.phone || '+91 98201 44892',
-                              email: lead?.email || 'aditya.kulkarni@nexusquantum.io'
+                              firstName: lead?.first_name || undefined,
+                              lastName: lead?.last_name || undefined,
+                              companyName: lead?.company_name || undefined,
+                              designation: lead?.designation || undefined,
+                              industry: leadCadence?.industry || lead?.industry || 'general',
+                              phone: lead?.whatsapp_number || lead?.phone || undefined,
+                              email: lead?.email || undefined,
+                              assigneeName: lead?.assigned_user_name && lead.assigned_user_name !== 'Unassigned' ? lead.assigned_user_name : undefined,
                             };
+                            const emailAction = leadCadence.channelActions?.[String(step.dayNumber)]?.EMAIL;
 
                             return (
                               <div
@@ -2004,37 +1995,43 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                                     </div>
                                   )}
 
-                                  {step.templates.email && (
+                                  {step.templates.email && isCurrent && (
+                                    <OutreachEmailComposer
+                                      leadId={lead.id}
+                                      recipient={lead?.email || null}
+                                      touchpoint={{ day: step.dayNumber, title: step.title, channels: step.channels }}
+                                      subject={interpolateText(step.templates.email.subject, vars)}
+                                      body={interpolateText(step.templates.email.body, vars)}
+                                      saved={emailAction ?? null}
+                                      onSent={(result) => {
+                                        showToast(result.message, 'success');
+                                        fetchLead360();
+                                        onRefreshParent?.();
+                                      }}
+                                    />
+                                  )}
+
+                                  {step.templates.email && !isCurrent && (
                                     <div className="bg-white dark:bg-[#12111d] p-3 rounded-xl border border-purple-200/80 dark:border-purple-900/40 space-y-1.5">
                                       <div className="flex items-center justify-between text-purple-900 dark:text-purple-300 font-bold text-[11px]">
                                         <span className="flex items-center gap-1 truncate max-w-[320px]">
                                           <Mail className="w-3 h-3 flex-shrink-0" /> Email: {interpolateText(step.templates.email.subject, vars)}
                                         </span>
-                                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                                          <button
-                                            onClick={() => handleCadenceCopy(
-                                              interpolateText(step.templates.email!.body, vars),
-                                              `email_${step.stepIndex}`
-                                            )}
-                                            className="text-[10px] text-purple-700 dark:text-purple-400 hover:underline"
-                                          >
-                                            {copiedCadenceKey === `email_${step.stepIndex}` ? 'Copied!' : 'Copy Body'}
-                                          </button>
-                                          {lead?.email && (
-                                            <div className="flex items-center gap-1">
-                                              <button
-                                                onClick={() => handleSendLeadCadenceSmtp(step, vars)}
-                                                disabled={sendingSmtpStep === step.stepIndex}
-                                                className="px-2 py-0.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded text-[10px] font-bold flex items-center gap-1 disabled:opacity-50 transition-all"
-                                                title="Send directly via Portal SMTP"
-                                              >
-                                                <Send className={`w-2.5 h-2.5 ${sendingSmtpStep === step.stepIndex ? 'animate-spin' : ''}`} />
-                                                {sendingSmtpStep === step.stepIndex ? 'Sending...' : '⚡ Send SMTP'}
-                                              </button>
-                                            </div>
+                                        <button
+                                          onClick={() => handleCadenceCopy(
+                                            interpolateText(step.templates.email!.body, vars),
+                                            `email_${step.stepIndex}`
                                           )}
-                                        </div>
+                                          className="text-[10px] text-purple-700 dark:text-purple-400 hover:underline flex-shrink-0"
+                                        >
+                                          {copiedCadenceKey === `email_${step.stepIndex}` ? 'Copied!' : 'Copy Body'}
+                                        </button>
                                       </div>
+                                      {emailAction?.status === 'SENT' && (
+                                        <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                          {`✓ Sent ${new Date(emailAction.sentAt).toLocaleString('en-IN')} by ${emailAction.executedBy.name}${emailAction.from ? ` from ${emailAction.from.email}` : ''}`}
+                                        </p>
+                                      )}
                                       <p className="text-slate-700 dark:text-slate-300 text-[11px] whitespace-pre-wrap leading-relaxed">
                                         {interpolateText(step.templates.email.body, vars)}
                                       </p>

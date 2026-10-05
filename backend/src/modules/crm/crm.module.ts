@@ -4,11 +4,13 @@ import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { CrmLeadImportService } from './crm-lead-import.service';
 import { PrismaModule } from '@/prisma/prisma.module';
+import { MailModule } from '@/modules/mail/mail.module';
+import { CrmOutreachEmailService } from './crm-outreach-email.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, MailModule],
   controllers: [CrmController],
-  providers: [CrmService, CrmLeadAssignmentService, CrmLeadImportService],
+  providers: [CrmService, CrmLeadAssignmentService, CrmLeadImportService, CrmOutreachEmailService],
   exports: [CrmService, CrmLeadAssignmentService],
 })
 export class CrmModule {}

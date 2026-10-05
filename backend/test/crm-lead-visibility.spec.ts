@@ -260,6 +260,43 @@ describe('CRM lead visibility', () => {
     });
   });
 
+  describe('bulk delete', () => {
+    const bulkDelete = (token: string, leadIds: string[]) => call('post', '/crm/leads/bulk', token, { action: 'delete', leadIds });
+
+    it('deletes a member’s own leads, each recorded in the audit trail as theirs', async () => {
+      const x = await newLead('Xena', neha.memberId);
+      const y = await newLead('Yash', neha.memberId);
+      const deleted = await bulkDelete(neha.token, [x, y]);
+      expect(deleted.status).toBe(201);
+      expect(deleted.body.message).toBe('2 leads deleted');
+      expect(await prisma.rndtechnosoft_crm_leads.count({ where: { id: { in: [x, y] } } })).toBe(0);
+      const audits = await prisma.rndtechnosoft_crm_audit_logs.findMany({ where: { entity_id: { in: [x, y] }, action_type: 'DELETE' } });
+      expect(audits.map((a) => [a.actor_id, (a.changes_diff as { bulk: boolean }).bulk])).toEqual([[neha.memberId, true], [neha.memberId, true]]);
+    });
+
+    it('deletes nothing when one of the leads has a quotation, and names it', async () => {
+      const quoted = await newLead('Quinn', neha.memberId);
+      const plain = await newLead('Riya', neha.memberId);
+      expect((await call('post', '/crm/quotations', admin.token, { leadId: quoted, items: [{ description: 'Website', quantity: 1, unitRate: 1000 }] })).status).toBe(201);
+      const refused = await bulkDelete(neha.token, [quoted, plain]);
+      expect(refused.status).toBe(409);
+      expect(refused.body).toMatchObject({ code: 'LEADS_HAVE_QUOTATIONS', errors: { failedLeadIds: [quoted] } });
+      expect(refused.body.message).toBe(`1 of the selected leads has quotations, so nothing was deleted: Quinn Co ${SUFFIX}. Unselect it and try again.`);
+      expect(await prisma.rndtechnosoft_crm_leads.count({ where: { id: { in: [quoted, plain] } } })).toBe(2);
+      // Leave the workspace's leads as the later tests expect them.
+      await prisma.rndtechnosoft_crm_quotation_items.deleteMany({ where: { rndtechnosoft_crm_quotations: { lead_id: quoted } } });
+      await prisma.rndtechnosoft_crm_quotations.deleteMany({ where: { lead_id: quoted } });
+      expect((await bulkDelete(neha.token, [quoted, plain])).status).toBe(201);
+    });
+
+    it('deletes nothing when a lead is not the member’s to see', async () => {
+      const own = await newLead('Sana', neha.memberId);
+      expect((await bulkDelete(neha.token, [own, lead.sagar])).status).toBe(404);
+      expect(await prisma.rndtechnosoft_crm_leads.count({ where: { id: { in: [own, lead.sagar] } } })).toBe(2);
+      expect((await bulkDelete(neha.token, [own])).status).toBe(201);
+    });
+  });
+
   describe('changes take effect at once', () => {
     it('moves a lead out of a member’s view when it is reassigned, and into the new owner’s', async () => {
       await call('post', '/crm/leads/assign', admin.token, { leadIds: [lead.neha], assigneeMemberId: sagar.memberId });
