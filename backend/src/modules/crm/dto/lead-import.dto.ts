@@ -61,6 +61,14 @@ export class ImportLeadsDto {
   @IsUUID('all', { message: 'Choose the stage the leads start in.' })
   stageId?: string;
 
+  /**
+   * Who the leads are assigned to, unless a row's "Assigned to" names an
+   * eligible team member; the person importing when left out.
+   */
+  @IsOptional()
+  @IsUUID('all', { message: 'Choose the team member to assign the leads to from the list.' })
+  assigneeMemberId?: string;
+
   /** Checks every row and reports what would happen, saving nothing. */
   @IsOptional()
   @IsBoolean()

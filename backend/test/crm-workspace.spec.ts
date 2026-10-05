@@ -369,10 +369,10 @@ describe('CRM & Sales in a tenant workspace', () => {
     it('cannot attach its records to A’s lead or pipeline', async () => {
       const lead = await asB('post', '/crm/leads', { companyName: 'B Co', firstName: 'Bea', email: 'bea@b.test', pipelineId: ids.pipeline });
       expect([lead.status, lead.body.message]).toEqual([400, 'That pipeline does not exist in this workspace.']);
-      expect((await asB('post', '/crm/followups', { leadId: ids.lead, scheduledAt: '2026-10-01T10:00:00.000Z' })).status).toBe(400);
-      expect((await asB('post', '/crm/meetings', { leadId: ids.lead, scheduledAt: '2026-10-01T10:00:00.000Z' })).status).toBe(400);
+      expect((await asB('post', '/crm/followups', { leadId: ids.lead, scheduledAt: '2026-10-01T10:00:00.000Z' })).status).toBe(404);
+      expect((await asB('post', '/crm/meetings', { leadId: ids.lead, scheduledAt: '2026-10-01T10:00:00.000Z' })).status).toBe(404);
       expect((await asB('post', '/crm/quotations', { leadId: ids.lead, items: [{ description: 'X', quantity: 1, unitRate: 1 }] })).status).toBe(404);
-      expect((await asB('post', '/crm/activities', { leadId: ids.lead, activityType: 'NOTE', title: 'X' })).status).toBe(400);
+      expect((await asB('post', '/crm/activities', { leadId: ids.lead, activityType: 'NOTE', title: 'X' })).status).toBe(404);
       for (const table of ['rndtechnosoft_crm_lead_followups', 'rndtechnosoft_crm_meetings', 'rndtechnosoft_crm_quotations', 'rndtechnosoft_crm_lead_activities'] as const) {
         expect([table, await (prisma[table] as unknown as { count: (args: object) => Promise<number> }).count({ where: { tenant_id: b.tenantId } })]).toEqual([table, 0]);
       }

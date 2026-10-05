@@ -2080,7 +2080,7 @@ model rndtechnosoft_crm_leads {
   tenant_id                             String                                 @db.Uuid
   lead_code                             String                                 @db.VarChar(64)
   company_name                          String                                 @db.VarChar(200)
-  first_name                            String                                 @db.VarChar(100)
+  first_name                            String?                                @db.VarChar(100)
   last_name                             String?                                @db.VarChar(100)
   email                                 String                                 @db.VarChar(320)
   phone                                 String?                                @db.VarChar(32)

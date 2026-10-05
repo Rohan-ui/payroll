@@ -1679,7 +1679,7 @@ export default function SLeadCadenceCenter({
                         </a>
                       ) : (
                         <a
-                          href={`https://www.google.com/search?q=${encodeURIComponent(`${selectedLeadForAction.first_name} ${selectedLeadForAction.last_name} ${selectedLeadForAction.company_name} linkedin`)}`}
+                          href={`https://www.google.com/search?q=${encodeURIComponent(`${[selectedLeadForAction.first_name, selectedLeadForAction.last_name, selectedLeadForAction.company_name].filter(Boolean).join(' ')} linkedin`)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1"

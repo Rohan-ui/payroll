@@ -1059,7 +1059,7 @@ export default function PipelineKanban({
                   <input
                     type="text"
                     required
-                    value={editFormData.first_name}
+                    value={editFormData.first_name ?? ''}
                     onChange={(e) => setEditFormData({ ...editFormData, first_name: e.target.value })}
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />

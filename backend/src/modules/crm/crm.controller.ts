@@ -17,6 +17,7 @@ import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { CrmLeadImportService } from './crm-lead-import.service';
 import { ImportLeadsDto } from './dto/lead-import.dto';
+import { leadVisibility } from './lead-visibility';
 import { AssignLeadsDto, LeadManagementQueryDto } from './dto/lead-management.dto';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
@@ -41,6 +42,11 @@ export class CrmController {
     private readonly leadImport: CrmLeadImportService,
   ) {}
 
+  /** Which leads this member sees: all of them with leads.view_all, otherwise only those assigned to them. */
+  private async visibility(tenantId: string, actor: AuthenticatedTenantUser) {
+    return leadVisibility(await this.accessService.getMemberPermissions(tenantId, actor.tenantMemberId), actor.tenantMemberId);
+  }
+
   private collection<T>(result: { items: T[]; total: number; page: number; limit: number; totalPages: number; hasMore: boolean }) {
     const { items: data, ...pagination } = result;
     return { success: true, data, pagination };
@@ -52,8 +58,8 @@ export class CrmController {
 
   @Get('pipelines')
   @RequirePermissions('pipelines.view')
-  async getPipelines(@CurrentTenant() tenantId: string) {
-    const data = await this.crmService.getPipelines(tenantId);
+  async getPipelines(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const data = await this.crmService.getPipelines(tenantId, await this.visibility(tenantId, actor));
     return { success: true, data };
   }
 
@@ -94,7 +100,7 @@ export class CrmController {
   @RequirePermissions('leads.create')
   async leadImportOptions(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser) {
     const [options, permissions] = await Promise.all([
-      this.leadImport.options(tenantId),
+      this.leadImport.options(tenantId, actor.tenantMemberId),
       this.accessService.getMemberPermissions(tenantId, actor.tenantMemberId),
     ]);
     return { success: true, data: { ...options, canImportToOutreach: permissions.includes('outreach.create') } };
@@ -106,8 +112,9 @@ export class CrmController {
     @CurrentTenant() tenantId: string,
     @Query() query: any,
     @Res() res: Response,
+    @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const buffer = await this.crmService.exportLeads(tenantId, query);
+    const buffer = await this.crmService.exportLeads(tenantId, await this.visibility(tenantId, actor), query);
     const dateStr = new Date().toISOString().slice(0, 10);
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -134,6 +141,7 @@ export class CrmController {
   @RequirePermissions('leads.view')
   async getLeads(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
     @Query('pipelineId') pipelineId?: string,
     @Query('stageId') stageId?: string,
     @Query('temperature') temperature?: string,
@@ -152,7 +160,7 @@ export class CrmController {
     if (origin && !['ALL', 'NEW', 'EXISTING'].includes(origin)) throw new BadRequestException('Choose a valid lead origin.');
     if (service && service.length > 200) throw new BadRequestException('The service filter is too long.');
     if (excludeOutreach && !['true', 'false'].includes(excludeOutreach)) throw new BadRequestException('Choose whether to include outreach leads.');
-    const data = await this.crmService.getLeads(tenantId, {
+    const data = await this.crmService.getLeads(tenantId, await this.visibility(tenantId, actor), {
       pipelineId,
       stageId,
       temperature,
@@ -174,9 +182,10 @@ export class CrmController {
 
   @Get('leads/:id')
   @RequirePermissions('leads.view')
-  async getLeadById(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+  async getLeadById(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const visibility = await this.visibility(tenantId, actor);
     const [lead, cadenceSteps, replyBranches] = await Promise.all([
-      this.crmService.getLeadById(tenantId, id),
+      this.crmService.getLeadById(tenantId, visibility, id),
       this.crmService.getCadenceSteps(tenantId),
       this.crmService.getReplyBranches(tenantId),
     ]);
@@ -203,7 +212,7 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.updateLead(tenantId, id, body, actor.tenantMemberId);
+    const data = await this.crmService.updateLead(tenantId, await this.visibility(tenantId, actor), id, body, actor.tenantMemberId);
     return { success: true, data, message: 'Lead updated successfully' };
   }
 
@@ -214,15 +223,15 @@ export class CrmController {
     @Param('id') id: string,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    await this.crmService.deleteLead(tenantId, id, actor.tenantMemberId);
+    await this.crmService.deleteLead(tenantId, await this.visibility(tenantId, actor), id, actor.tenantMemberId);
     return { success: true, message: 'Lead deleted successfully' };
   }
 
   /** The Lead Management table: the workspace's leads, filtered, sorted and paged by the server. */
   @Get('lead-management')
   @RequirePermissions('leads.view')
-  async leadManagement(@CurrentTenant() tenantId: string, @Query() query: LeadManagementQueryDto) {
-    const result = await this.assignments.list(tenantId, query);
+  async leadManagement(@CurrentTenant() tenantId: string, @Query() query: LeadManagementQueryDto, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const result = await this.assignments.list(tenantId, await this.visibility(tenantId, actor), query);
     return { success: true, data: result.items, pagination: result.pagination, filters: result.filters };
   }
 
@@ -238,7 +247,7 @@ export class CrmController {
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('leads.update')
   async assignLeads(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: AssignLeadsDto) {
-    const data = await this.assignments.assign(tenantId, body.leadIds, body.assigneeMemberId, actor.tenantMemberId);
+    const data = await this.assignments.assign(tenantId, await this.visibility(tenantId, actor), body.leadIds, body.assigneeMemberId, actor.tenantMemberId);
     return {
       success: true,
       data,
@@ -261,7 +270,7 @@ export class CrmController {
       if (!body.leadIds.every((id: unknown) => typeof id === 'string' && UUID.test(id)) || !UUID.test(body.assignedUserId)) {
         throw new BadRequestException('One of the selected leads or the team member is not valid.');
       }
-      const data = await this.assignments.assign(tenantId, body.leadIds, body.assignedUserId, actor.tenantMemberId);
+      const data = await this.assignments.assign(tenantId, await this.visibility(tenantId, actor), body.leadIds, body.assignedUserId, actor.tenantMemberId);
       return { success: true, data: { ...data, count: data.updated }, message: `Leads assigned to ${data.assignee?.name}` };
     }
     if (body?.action === 'delete') {
@@ -272,7 +281,7 @@ export class CrmController {
         'You do not have permission to delete leads (requires leads.delete).',
       );
     }
-    const data = await this.crmService.bulkLeadAction(tenantId, body, actor.tenantMemberId);
+    const data = await this.crmService.bulkLeadAction(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     return { success: true, data, message: 'Bulk action applied successfully' };
   }
 
@@ -297,7 +306,7 @@ export class CrmController {
         'You do not have permission to add leads to Client Outreach (requires outreach.create).',
       );
     }
-    const data = await this.leadImport.importLeads(tenantId, actor.tenantMemberId, body);
+    const data = await this.leadImport.importLeads(tenantId, actor.tenantMemberId, await this.visibility(tenantId, actor), body);
     const { summary } = data;
     const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
     const message = data.dryRun
@@ -313,7 +322,7 @@ export class CrmController {
     @Param('id') id: string,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.convertDealWon(tenantId, id, actor.tenantMemberId);
+    const data = await this.crmService.convertDealWon(tenantId, await this.visibility(tenantId, actor), id, actor.tenantMemberId);
     return { success: true, data, message: 'Deal won converted successfully' };
   }
 
@@ -326,8 +335,9 @@ export class CrmController {
   async getCadence(
     @CurrentTenant() tenantId: string,
     @Query() query: CadenceQueryDto,
+    @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.getCadenceMatrix(tenantId, query.leadId, query.status, query);
+    const data = await this.crmService.getCadenceMatrix(tenantId, await this.visibility(tenantId, actor), query.leadId, query.status, query);
     return { success: true, data };
   }
 
@@ -348,7 +358,7 @@ export class CrmController {
       required,
       `You do not have permission to do this (requires ${required.join(' and ')}).`,
     );
-    const data = await this.crmService.executeCadenceAction(tenantId, body, actor.tenantMemberId);
+    const data = await this.crmService.executeCadenceAction(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     const message = typeof (data as { message?: unknown })?.message === 'string' ? (data as { message: string }).message : 'Cadence action recorded';
     return { success: true, data, message };
   }
@@ -368,11 +378,12 @@ export class CrmController {
   @RequirePermissions('leads.view')
   async getActivities(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
     @Query('leadId') leadId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.collection(await this.crmService.getActivities(tenantId, leadId, Number(page), Number(limit)));
+    return this.collection(await this.crmService.getActivities(tenantId, await this.visibility(tenantId, actor), leadId, Number(page), Number(limit)));
   }
 
   @Post('activities')
@@ -382,7 +393,7 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.addActivity(tenantId, body, actor.tenantMemberId);
+    const data = await this.crmService.addActivity(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     return { success: true, data };
   }
 
@@ -390,10 +401,11 @@ export class CrmController {
   @RequirePermissions('followups.view')
   async getFollowups(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.collection(await this.crmService.getFollowups(tenantId, Number(page), Number(limit)));
+    return this.collection(await this.crmService.getFollowups(tenantId, await this.visibility(tenantId, actor), Number(page), Number(limit)));
   }
 
   @Post('followups')
@@ -403,7 +415,7 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.createFollowup(tenantId, body, actor.tenantMemberId);
+    const data = await this.crmService.createFollowup(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     return { success: true, data, message: 'Follow-up scheduled' };
   }
 
@@ -415,14 +427,14 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.updateFollowup(tenantId, id, body, actor.tenantMemberId);
+    const data = await this.crmService.updateFollowup(tenantId, await this.visibility(tenantId, actor), id, body, actor.tenantMemberId);
     return { success: true, data, message: 'Follow-up updated' };
   }
 
   @Delete('followups/:id')
   @RequirePermissions('followups.delete')
-  async deleteFollowup(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    await this.crmService.deleteFollowup(tenantId, id);
+  async deleteFollowup(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    await this.crmService.deleteFollowup(tenantId, await this.visibility(tenantId, actor), id);
     return { success: true, message: 'Follow-up deleted' };
   }
 
@@ -430,10 +442,11 @@ export class CrmController {
   @RequirePermissions('meetings.view')
   async getMeetings(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.collection(await this.crmService.getMeetings(tenantId, Number(page), Number(limit)));
+    return this.collection(await this.crmService.getMeetings(tenantId, await this.visibility(tenantId, actor), Number(page), Number(limit)));
   }
 
   @Post('meetings')
@@ -443,7 +456,7 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.createMeeting(tenantId, body, actor.tenantMemberId);
+    const data = await this.crmService.createMeeting(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     return { success: true, data, message: 'Meeting scheduled' };
   }
 
@@ -455,14 +468,14 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.updateMeeting(tenantId, id, body, actor.tenantMemberId);
+    const data = await this.crmService.updateMeeting(tenantId, await this.visibility(tenantId, actor), id, body, actor.tenantMemberId);
     return { success: true, data, message: 'Meeting updated' };
   }
 
   @Delete('meetings/:id')
   @RequirePermissions('meetings.delete')
-  async deleteMeeting(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    await this.crmService.deleteMeeting(tenantId, id);
+  async deleteMeeting(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    await this.crmService.deleteMeeting(tenantId, await this.visibility(tenantId, actor), id);
     return { success: true, message: 'Meeting deleted' };
   }
 
@@ -474,10 +487,11 @@ export class CrmController {
   @RequirePermissions('quotations.view')
   async getQuotations(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.collection(await this.crmService.getQuotations(tenantId, Number(page), Number(limit)));
+    return this.collection(await this.crmService.getQuotations(tenantId, await this.visibility(tenantId, actor), Number(page), Number(limit)));
   }
 
   @Post('quotations')
@@ -487,14 +501,14 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.createQuotation(tenantId, body, actor.tenantMemberId);
+    const data = await this.crmService.createQuotation(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     return { success: true, data, message: 'Quotation created' };
   }
 
   @Get('quotations/:id')
   @RequirePermissions('quotations.view')
-  async getQuotationById(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    const data = await this.crmService.getQuotationById(tenantId, id);
+  async getQuotationById(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const data = await this.crmService.getQuotationById(tenantId, await this.visibility(tenantId, actor), id);
     return { success: true, data };
   }
 
@@ -506,14 +520,14 @@ export class CrmController {
     @Body() body: any,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const data = await this.crmService.updateQuotation(tenantId, id, body, actor.tenantMemberId);
+    const data = await this.crmService.updateQuotation(tenantId, await this.visibility(tenantId, actor), id, body, actor.tenantMemberId);
     return { success: true, data, message: 'Quotation updated' };
   }
 
   @Delete('quotations/:id')
   @RequirePermissions('quotations.delete')
-  async deleteQuotation(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    await this.crmService.deleteQuotation(tenantId, id);
+  async deleteQuotation(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    await this.crmService.deleteQuotation(tenantId, await this.visibility(tenantId, actor), id);
     return { success: true, message: 'Quotation deleted' };
   }
 

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { LeadManagementQueryDto } from './dto/lead-management.dto';
+import { LeadVisibility, visibleLeads } from './lead-visibility';
 
 type Tx = Prisma.TransactionClient;
 
@@ -25,8 +26,9 @@ export class CrmLeadAssignmentService {
   // ── Reading ──────────────────────────────────────────────────
 
   /** The Lead Management table: one page of the workspace's leads, filtered and sorted by the server. */
-  async list(tenantId: string, query: LeadManagementQueryDto) {
-    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId };
+  async list(tenantId: string, visibility: LeadVisibility, query: LeadManagementQueryDto) {
+    // Only the leads this member may see; the assignee filter narrows within them.
+    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId, AND: [visibleLeads(visibility)] };
     if (query.assigneeId === 'unassigned') where.assigned_tenant_member_id = null;
     else if (query.assigneeId) where.assigned_tenant_member_id = query.assigneeId;
     if (query.pipelineId) where.pipeline_id = query.pipelineId;
@@ -38,7 +40,7 @@ export class CrmLeadAssignmentService {
     const search = query.search?.trim();
     if (search) {
       const words = search.split(/\s+/).slice(0, 4);
-      where.AND = words.map((word) => ({
+      where.AND = [visibleLeads(visibility), ...words.map((word): Prisma.rndtechnosoft_crm_leadsWhereInput => ({
         OR: [
           { company_name: { contains: word, mode: 'insensitive' } },
           { first_name: { contains: word, mode: 'insensitive' } },
@@ -47,7 +49,7 @@ export class CrmLeadAssignmentService {
           { phone: { contains: word } },
           { lead_code: { contains: word, mode: 'insensitive' } },
         ],
-      }));
+      }))];
     }
 
     const dir = query.direction;
@@ -159,14 +161,16 @@ export class CrmLeadAssignmentService {
    * already with that member are left as they are, so nothing is recorded
    * twice. Each change goes on the lead's activity and the CRM audit trail.
    */
-  async assign(tenantId: string, leadIds: string[], assigneeMemberId: string | null, actorMemberId: string) {
+  async assign(tenantId: string, visibility: LeadVisibility, leadIds: string[], assigneeMemberId: string | null, actorMemberId: string) {
     const ids = [...new Set(leadIds)];
+    // A member who can't see every lead hands on only leads assigned to them.
+    const onlyOwn = visibility.all ? Prisma.empty : Prisma.sql`AND assigned_tenant_member_id = ${visibility.memberId}::uuid`;
     return this.prisma.$transaction(async (tx) => {
       const assignee = assigneeMemberId ? await this.eligibleAssignee(tx, tenantId, assigneeMemberId) : null;
       // Locked, so two assignments of the same leads apply one after the other.
       const found = await tx.$queryRaw<{ id: string; lead_code: string; assigned_tenant_member_id: string | null }[]>`
         SELECT id, lead_code, assigned_tenant_member_id FROM rndtechnosoft_crm_leads
-        WHERE tenant_id = ${tenantId}::uuid AND id = ANY(${ids}::uuid[])
+        WHERE tenant_id = ${tenantId}::uuid AND id = ANY(${ids}::uuid[]) ${onlyOwn}
         ORDER BY id
         FOR UPDATE`;
       if (found.length !== ids.length) {

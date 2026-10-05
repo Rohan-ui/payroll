@@ -38,7 +38,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  granted = new Set(['leads.view', 'leads.update']);
+  granted = new Set(['leads.view', 'leads.view_all', 'leads.update']);
   calls = [];
   assignResponse = () => json({ success: true, data: { updated: 2, unchanged: 0, replaced: 1, assignee: NEHA }, message: '2 leads assigned to Neha Mishra' });
   vi.stubGlobal(
@@ -133,6 +133,16 @@ describe('Lead Management table', () => {
     setValue(container.querySelector('select') as HTMLSelectElement, 'm-neha');
     await settle();
     expect(container.querySelector('[aria-label="Selected leads"]')).toBeNull();
+  });
+
+  it('shows a member without "see every lead" only their own leads, with no assignee filter or unassigning', async () => {
+    granted = new Set(['leads.view', 'leads.update']);
+    await render();
+    expect(container.textContent).toContain('53 leads assigned to you');
+    expect([...container.querySelectorAll('select')].some((s) => [...s.options].some((o) => o.value === 'unassigned'))).toBe(false);
+    act(() => checkbox('Select Asha, Alpha Traders').click());
+    expect(button('Unassign')).toBeUndefined();
+    expect(button('Assign')).toBeDefined();
   });
 
   it('hides selection and assignment from members who can’t edit leads', async () => {

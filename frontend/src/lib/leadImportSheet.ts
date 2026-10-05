@@ -232,13 +232,13 @@ export function duplicateTargets(mapping: ColumnTarget[]): ColumnTarget[] {
   return [...repeated];
 }
 
-/** Which required lead values the mapping does not provide. */
+/** Which required lead values the mapping does not provide: a company, an email and a phone (a contact name is optional). */
 export function missingRequired(mapping: ColumnTarget[]): string[] {
   const has = (...targets: ColumnTarget[]) => targets.some((t) => mapping.includes(t));
   return [
     !has('companyName') && 'Company name',
-    !has('firstName', 'fullName', 'nameAndPosition') && 'First name (or a full name column)',
     !has('email') && 'Email',
+    !has('phone') && 'Phone',
   ].filter((label): label is string => Boolean(label));
 }
 

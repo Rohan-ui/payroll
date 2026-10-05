@@ -17,6 +17,10 @@ export interface ImportPipeline {
 
 export interface ImportOptions {
   pipelines: ImportPipeline[];
+  /** Every active team member; `eligible` false for those whose role can't view leads. */
+  assignees: { id: string; name: string; email: string; eligible: boolean }[];
+  /** The person importing: the assignee chosen by default. */
+  currentMemberId: string;
   /** The workspace's outreach cadence, the 30-day SOP every Client Outreach lead follows. */
   cadence: { name: string; steps: number; days: number };
   canImportToOutreach: boolean;
@@ -38,6 +42,8 @@ export interface ImportResult {
   destination: ImportDestination;
   pipeline: { id: string; name: string };
   stage: { id: string; name: string };
+  /** Who the leads go to unless a row's "Assigned to" names another member. */
+  assignee: { id: string; name: string };
   cadence: { name: string; steps: number; days: number } | null;
   summary: { processed: number; ready: number; imported: number; duplicates: number; failed: number; enrolled: number; withWarnings: number };
   rows: ImportRowResult[];
@@ -48,6 +54,7 @@ export interface ImportRequest {
   /** Left out for Client Outreach to import into the 30-day SOP itself. */
   pipelineId?: string;
   stageId?: string;
+  assigneeMemberId?: string;
   fileName?: string;
   rows: ImportRow[];
 }

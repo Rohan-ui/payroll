@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { COUNTRY_CODES, CountryCodeItem, combinePhoneWithCountryCode } from '@/common/utils/country-codes.util';
+import { COUNTRY_CODES, CountryCodeItem } from '@/common/utils/country-codes.util';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { ImportLeadsDto, LeadImportRowDto } from './dto/lead-import.dto';
+import { LeadVisibility } from './lead-visibility';
 
 export type LeadImportRowOutcome = 'READY' | 'IMPORTED' | 'DUPLICATE' | 'FAILED';
 
@@ -42,11 +43,11 @@ const COLUMN_LIMITS: Partial<Record<TextField, { label: string; max: number }>> 
   linkedinUrl: { label: 'LinkedIn profile', max: 255 },
   linkedinCompanyUrl: { label: 'Company LinkedIn', max: 255 },
 };
-const PHONE_MAX = 32;
+/** What an imported row must have; a contact name is optional. */
 const REQUIRED: { field: TextField; label: string }[] = [
   { field: 'companyName', label: 'company name' },
-  { field: 'firstName', label: 'first name' },
   { field: 'email', label: 'email' },
+  { field: 'phone', label: 'phone' },
 ];
 
 /** The workspace's outreach cadence as the Client Outreach screen names it, from its playbook. */
@@ -71,6 +72,38 @@ export function resolveCountry(raw: string): CountryCodeItem | null {
   const dial = value.startsWith('+') ? value : `+${value}`;
   const byDial = COUNTRY_CODES.filter((c) => c.code === dial).sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
   return byDial[0] ?? null;
+}
+
+/**
+ * The phone numbers in a spreadsheet cell, each as "+<country code> <number>":
+ * "98250 12345", "919825012345" (country code already there), "097277 06665"
+ * (leading 0), "+971 50 123 4567", "0091…", and cells holding several numbers
+ * ("98250 12345 / 98250 67890"). `extraText` is whatever else the cell said
+ * ("(Apar Umargam)"), so it can be kept rather than lost.
+ */
+export function parsePhones(raw: string, dialCode: string): { numbers: string[]; extraText: string } {
+  const dialDigits = dialCode.replace(/\D/g, '');
+  const numbers: string[] = [];
+  for (const part of raw.split(/[/,;|]|\bor\b/i)) {
+    const digits = part.replace(/[^\d+]/g, '');
+    let international = digits.startsWith('+') ? digits.slice(1).replace(/\+/g, '') : digits.startsWith('00') ? digits.slice(2) : null;
+    let national = international === null ? digits.replace(/\+/g, '') : '';
+    if (international !== null) {
+      // Written with its country code: split it off when it is this lead's country.
+      if (!international.startsWith(dialDigits)) {
+        if (international.length >= 8 && international.length <= 15) numbers.push(`+${international}`);
+        continue;
+      }
+      national = international.slice(dialDigits.length);
+      international = null;
+    } else if (national.startsWith(dialDigits) && national.length - dialDigits.length >= 9) {
+      national = national.slice(dialDigits.length);
+    }
+    national = national.replace(/^0/, '');
+    if (national.length >= 6 && national.length <= 13) numbers.push(`${dialCode} ${national}`);
+  }
+  const extraText = raw.replace(/[\d+\-().\s/,;|]/g, ' ').replace(/\bor\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  return { numbers, extraText };
 }
 
 /**
@@ -101,10 +134,12 @@ export class CrmLeadImportService {
 
   /**
    * What the import screen offers: the workspace's active pipelines by type,
-   * each with its open stages, and the outreach cadence imported leads follow.
+   * each with its open stages, the outreach cadence imported leads follow, and
+   * every active team member, marked with whether leads can be assigned to them
+   * (the person importing is chosen by default).
    */
-  async options(tenantId: string) {
-    const [pipelines, steps] = await Promise.all([
+  async options(tenantId: string, actorMemberId: string) {
+    const [pipelines, steps, assignees] = await Promise.all([
       this.prisma.rndtechnosoft_crm_pipelines.findMany({
         where: { tenant_id: tenantId, is_active: true },
         orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
@@ -114,14 +149,18 @@ export class CrmLeadImportService {
         },
       }),
       this.crm.getCadenceSteps(tenantId),
+      this.assignments.assignees(tenantId),
     ]);
     return {
+      // Every active member of the workspace; `eligible` false for those who can't be given leads (their role can't view leads).
+      assignees: assignees.map(({ id, name, email, eligible }) => ({ id, name, email, eligible: eligible || id === actorMemberId })),
+      currentMemberId: actorMemberId,
       pipelines: pipelines.map(({ rndtechnosoft_crm_stages: stages, pipeline_kind, is_default, ...p }) => ({ ...p, kind: pipeline_kind, isDefault: is_default, stages })),
       cadence: { name: sopName(steps), steps: steps.length, days: steps[steps.length - 1]?.dayNumber ?? 0 },
     };
   }
 
-  async importLeads(tenantId: string, actorMemberId: string, dto: ImportLeadsDto) {
+  async importLeads(tenantId: string, actorMemberId: string, visibility: LeadVisibility, dto: ImportLeadsDto) {
     const outreach = dto.destination === 'CLIENT_OUTREACH';
     const { pipeline, stage } = await this.placement(tenantId, dto);
     const [sources, assignees, cadenceSteps] = await Promise.all([
@@ -133,6 +172,11 @@ export class CrmLeadImportService {
     const intoSop = outreach && !dto.pipelineId;
     const target = intoSop ? sopName(cadenceSteps) : pipeline.name;
     const sourceByName = new Map(sources.map((s) => [s.name.trim().toLowerCase(), s.id]));
+    // The chosen team member must be one who can be given leads, in this workspace; by default the person importing.
+    const chosen = dto.assigneeMemberId && dto.assigneeMemberId !== actorMemberId
+      ? await this.assignments.eligibleAssignee(this.prisma, tenantId, dto.assigneeMemberId)
+      : null;
+    const defaultAssignee = chosen ?? { id: actorMemberId, name: assignees.find((a) => a.id === actorMemberId)?.name ?? 'you' };
     // By email, full name, or a first name only one member has ("Meet", "Sagar").
     const assigneeByKey = new Map<string, (typeof assignees)[number]>();
     const firstNames = new Map<string, (typeof assignees)[number][]>();
@@ -150,7 +194,7 @@ export class CrmLeadImportService {
     const ready: { result: LeadImportRowResult; data: Record<string, unknown> }[] = [];
     const firstRowByEmail = new Map<string, number>();
     for (const row of dto.rows) {
-      const { result, data } = this.prepare(row, { sourceByName, assigneeByKey });
+      const { result, data } = this.prepare(row, { sourceByName, assigneeByKey, defaultAssignee: chosen ? chosen : null });
       results.push(result);
       if (result.outcome === 'FAILED') continue;
       const earlier = firstRowByEmail.get(result.email!);
@@ -163,21 +207,25 @@ export class CrmLeadImportService {
       ready.push({ result, data });
     }
 
-    // Leads already in this workspace with the same email are skipped, never duplicated.
+    // Leads already in this workspace with the same email are skipped, never duplicated,
+    // whoever they are assigned to; the existing lead is named only to those who may see it.
     const existing = firstRowByEmail.size
       ? await this.prisma.rndtechnosoft_crm_leads.findMany({
           where: { tenant_id: tenantId, email: { in: [...firstRowByEmail.keys()], mode: 'insensitive' } },
-          select: { email: true, lead_code: true },
+          select: { email: true, lead_code: true, assigned_tenant_member_id: true },
         })
       : [];
-    const existingCode = new Map(existing.map((lead) => [lead.email.toLowerCase(), lead.lead_code]));
+    const existingCode = new Map(existing.map((lead) => [
+      lead.email.toLowerCase(),
+      visibility.all || lead.assigned_tenant_member_id === visibility.memberId ? lead.lead_code : null,
+    ]));
 
     const createdVia = `spreadsheet import${dto.fileName ? ` (${dto.fileName})` : ''} into ${outreach ? 'Client Outreach' : 'the sales pipeline'}: ${target}`;
     for (const { result, data } of ready) {
-      const code = existingCode.get(result.email!);
-      if (code) {
+      if (existingCode.has(result.email!)) {
+        const code = existingCode.get(result.email!);
         result.outcome = 'DUPLICATE';
-        result.reasons.push(`A lead with this email already exists (${code}).`);
+        result.reasons.push(code ? `A lead with this email already exists (${code}).` : 'A lead with this email already exists in this workspace.');
         continue;
       }
       if (dto.dryRun) continue;
@@ -187,7 +235,7 @@ export class CrmLeadImportService {
           { ...data, temperature: outreach ? 'COLD' : 'WARM', pipeline_id: pipeline.id, stage_id: stage.id },
           actorMemberId,
           // Into the SOP, enrolled exactly as every other Client Outreach lead is.
-          { outreachFunnel: intoSop ? undefined : pipeline.name, createdVia },
+          { outreachFunnel: intoSop ? undefined : pipeline.name, createdVia, firstNameOptional: true },
         );
         result.outcome = 'IMPORTED';
         result.leadId = lead.id;
@@ -216,7 +264,7 @@ export class CrmLeadImportService {
     };
     if (!dto.dryRun) {
       await this.crm.logAudit(tenantId, 'IMPORT_LEADS', 'LEAD', tenantId, {
-        destination: dto.destination, pipeline_id: pipeline.id, stage_id: stage.id, file_name: dto.fileName ?? null, ...summary,
+        destination: dto.destination, pipeline_id: pipeline.id, stage_id: stage.id, assignee_member_id: defaultAssignee.id, file_name: dto.fileName ?? null, ...summary,
       }, actorMemberId);
     }
 
@@ -226,6 +274,7 @@ export class CrmLeadImportService {
       destination: dto.destination,
       pipeline: { id: pipeline.id, name: pipeline.name },
       stage: { id: stage.id, name: stage.name },
+      assignee: { id: defaultAssignee.id, name: defaultAssignee.name },
       cadence: outreach ? { name: target, steps: cadenceSteps.length, days: lastStep?.dayNumber ?? 0 } : null,
       summary,
       rows: results,
@@ -280,7 +329,12 @@ export class CrmLeadImportService {
   /** One row's checks and the lead it would create; nothing is read from the database here. */
   private prepare(
     row: LeadImportRowDto,
-    lookups: { sourceByName: Map<string, string>; assigneeByKey: Map<string, { id: string; name: string; eligible: boolean }> },
+    lookups: {
+      sourceByName: Map<string, string>;
+      assigneeByKey: Map<string, { id: string; name: string; eligible: boolean }>;
+      /** The member chosen on the import screen; null when the leads go to the person importing. */
+      defaultAssignee: { id: string; name: string } | null;
+    },
   ) {
     const value = (field: TextField) => (row[field] ?? '').trim();
     const email = value('email').toLowerCase();
@@ -296,6 +350,14 @@ export class CrmLeadImportService {
     const missing = REQUIRED.filter(({ field }) => !value(field)).map(({ label }) => label);
     if (missing.length) result.reasons.push(`Missing ${missing.join(', ')}.`);
     if (email && !EMAIL.test(email)) result.reasons.push(`"${email}" is not a valid email address.`);
+    const country = value('country') ? resolveCountry(value('country')) : null;
+    const dialCode = country?.code ?? '+91';
+    const phones = {
+      phone: parsePhones(value('phone'), dialCode),
+      alternatePhone: parsePhones(value('alternatePhone'), dialCode),
+      whatsappNumber: parsePhones(value('whatsappNumber'), dialCode),
+    };
+    if (value('phone') && phones.phone.numbers.length === 0) result.reasons.push(`"${value('phone')}" is not a phone number.`);
 
     // Values too long for their column: a required one fails the row, any other is left out and reported.
     const kept: Partial<Record<TextField, string>> = {};
@@ -315,25 +377,25 @@ export class CrmLeadImportService {
       return { result, data: {} };
     }
 
-    let countryCode: string | undefined;
-    let dialCode = '+91';
-    if (value('country')) {
-      const country = resolveCountry(value('country'));
-      if (country) {
-        countryCode = country.iso;
-        dialCode = country.code;
-      } else {
-        result.warnings.push(`Country "${value('country')}" is not recognised, so the lead's country was left as India.`);
-      }
+    if (value('country') && !country) {
+      result.warnings.push(`Country "${value('country')}" is not recognised, so the lead's country was left as India.`);
     }
-    const phone = (field: 'phone' | 'alternatePhone' | 'whatsappNumber', label: string) => {
-      const raw = value(field);
-      if (!raw) return null;
-      const number = raw.startsWith('+') ? raw : combinePhoneWithCountryCode(dialCode, raw);
-      if (number.length <= PHONE_MAX) return number;
-      result.warnings.push(`${label} is longer than ${PHONE_MAX} characters, so it was not imported.`);
-      return null;
+    // The first number of each phone cell is stored (a second phone number becomes the alternate
+    // phone when that column is empty); the whole cell goes to the notes when anything else in it was not stored.
+    const phoneNotes: string[] = [];
+    const [mainPhone = null, secondPhone] = phones.phone.numbers;
+    const optionalPhone = (field: 'alternatePhone' | 'whatsappNumber', label: string) => {
+      if (value(field) && phones[field].numbers.length === 0) {
+        result.warnings.push(`${label} "${value(field)}" is not a phone number, so it was not imported.`);
+        return null;
+      }
+      if (phones[field].numbers.length > 1 || phones[field].extraText) phoneNotes.push(`${label}: ${value(field)}`);
+      return phones[field].numbers[0] ?? null;
     };
+    const alternatePhone = optionalPhone('alternatePhone', 'Alternate phone') ?? secondPhone ?? null;
+    const whatsappNumber = optionalPhone('whatsappNumber', 'WhatsApp number');
+    const phoneStored = alternatePhone === secondPhone ? 2 : 1;
+    if (phones.phone.numbers.length > phoneStored || phones.phone.extraText) phoneNotes.unshift(`Phone: ${value('phone')}`);
 
     let budget: string | null = null;
     if (value('budgetAmount')) {
@@ -352,26 +414,28 @@ export class CrmLeadImportService {
       // "Amit Patel (SEO Lead)": the name without the role in brackets.
       const named = value('assignedTo').replace(/\s*\([^)]*\)\s*$/, '').toLowerCase();
       const assignee = lookups.assigneeByKey.get(value('assignedTo').toLowerCase()) ?? lookups.assigneeByKey.get(named);
+      const fallback = lookups.defaultAssignee ? lookups.defaultAssignee.name : 'you';
       if (assignee?.eligible) assigneeId = assignee.id;
-      else if (assignee) result.warnings.push(`${assignee.name} cannot be given leads, so the lead was assigned to you.`);
-      else result.warnings.push(`"${value('assignedTo')}" is not a team member, so the lead was assigned to you.`);
+      else if (assignee) result.warnings.push(`${assignee.name} cannot be given leads, so the lead was assigned to ${fallback}.`);
+      else result.warnings.push(`"${value('assignedTo')}" is not a team member, so the lead was assigned to ${fallback}.`);
     }
+    assigneeId ??= lookups.defaultAssignee?.id;
 
     const data: Record<string, unknown> = {
       company_name: kept.companyName,
-      first_name: kept.firstName,
+      first_name: kept.firstName ?? null,
       last_name: kept.lastName ?? null,
       email,
       alternate_email: kept.alternateEmail ?? null,
-      phone: phone('phone', 'Phone'),
-      alternate_phone: phone('alternatePhone', 'Alternate phone'),
-      whatsapp_number: phone('whatsappNumber', 'WhatsApp number'),
+      phone: mainPhone,
+      alternate_phone: alternatePhone,
+      whatsapp_number: whatsappNumber,
       designation: kept.designation ?? null,
       industry: kept.industry ?? null,
       sub_industry: kept.subIndustry ?? null,
       city: kept.city ?? null,
       state: kept.state ?? null,
-      country_code: countryCode,
+      country_code: country?.iso,
       address: value('address') || null,
       postal_code: kept.postalCode ?? null,
       website_url: kept.websiteUrl ?? null,
@@ -382,7 +446,7 @@ export class CrmLeadImportService {
       assigned_user_id: assigneeId,
       budget_amount: budget,
       requirement_brief: value('requirementBrief') || null,
-      internal_notes: value('internalNotes') || null,
+      internal_notes: [value('internalNotes'), ...phoneNotes].filter(Boolean).join('\n') || null,
     };
     return { result, data };
   }

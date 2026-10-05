@@ -1738,7 +1738,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                             <button
                               onClick={() => {
                                 setCadenceDealValue(Number(lead?.budget_amount) > 0 ? Number(lead?.budget_amount) : '');
-                                setCadenceNotes(`Prospect ${lead?.first_name} ${lead?.last_name} qualified during Cold Cadence Day ${currentCadenceStep?.dayNumber || 1}.`);
+                                setCadenceNotes(`Prospect ${[lead?.first_name, lead?.last_name].filter(Boolean).join(' ') || lead?.company_name} qualified during Cold Cadence Day ${currentCadenceStep?.dayNumber || 1}.`);
                                 setConvertPipelineId('');
                                 setConvertStageId('');
                                 setShowCadenceConvertModal(true);
@@ -1757,7 +1757,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
 
                           <button
                             onClick={() => handleCadenceCopy(
-                              `Company: ${lead?.company_name}\nContact: ${lead?.first_name} ${lead?.last_name}\nCadence Day: ${currentCadenceStep?.dayNumber}\nStatus: ${leadCadence.status}`,
+                              `Company: ${lead?.company_name}\nContact: ${[lead?.first_name, lead?.last_name].filter(Boolean).join(' ') || '—'}\nCadence Day: ${currentCadenceStep?.dayNumber}\nStatus: ${leadCadence.status}`,
                               'summary'
                             )}
                             className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold flex items-center gap-1 border border-white/10 transition-colors"

@@ -49,7 +49,7 @@ export function LeadImportWizard({ isOpen, onClose, onImported }: LeadImportWiza
 
 function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) {
   const { setCrmTab } = usePayroll();
-  const ids = { file: useId(), sheet: useId(), header: useId(), pipeline: useId(), stage: useId() };
+  const ids = { file: useId(), sheet: useId(), header: useId(), pipeline: useId(), stage: useId(), assignee: useId(), assigneeHint: useId() };
   const [step, setStep] = useState<Step>('upload');
   const [options, setOptions] = useState<ImportOptions | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
@@ -63,6 +63,7 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
   const [destination, setDestination] = useState<ImportDestination | null>(null);
   const [pipelineId, setPipelineId] = useState('');
   const [stageId, setStageId] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState<'preview' | 'import' | null>(null);
@@ -72,7 +73,11 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
   useEffect(() => {
     let live = true;
     leadImportApi.options()
-      .then((data) => live && setOptions(data))
+      .then((data) => {
+        if (!live) return;
+        setOptions(data);
+        setAssigneeId(data.currentMemberId);
+      })
       .catch((error) => live && setOptionsError(message(error, 'Could not load your pipelines. Close this window and try again.')));
     return () => { live = false; };
   }, []);
@@ -147,6 +152,7 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
     destination: destination!,
     ...(intoSop ? {} : { pipelineId }),
     ...(destination === 'SALES_PIPELINE' ? { stageId } : {}),
+    ...(assigneeId ? { assigneeMemberId: assigneeId } : {}),
     fileName,
     rows: buildRows(sheet!, headerIndex, mapping),
   });
@@ -363,6 +369,22 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
                   {`Leads join the same ${plural(options.cadence.steps, 'step')}, ${plural(options.cadence.days, 'day')} cadence as your other Client Outreach leads, starting on the day of import.`}
                 </p>
               )}
+              <div className="sm:col-span-2">
+                <label htmlFor={ids.assignee} className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Assign leads to</label>
+                <select id={ids.assignee} className={`${fieldClass} sm:max-w-sm`} value={assigneeId} aria-describedby={ids.assigneeHint}
+                  onChange={(e) => { setAssigneeId(e.target.value); setPreview(null); }}>
+                  {(options?.assignees ?? []).map((a) => (
+                    <option key={a.id} value={a.id} disabled={!a.eligible}>
+                      {a.id === options?.currentMemberId ? `${a.name} (you)` : a.eligible ? a.name : `${a.name} (role can't view leads)`}
+                    </option>
+                  ))}
+                </select>
+                <p id={ids.assigneeHint} className="mt-1 text-xs text-slate-500">
+                  {(options?.assignees ?? []).length === 0
+                    ? 'The team list could not be loaded, so the leads will be assigned to you.'
+                    : 'A row whose "Assigned to" column names another team member goes to that member instead. Members whose role can\'t view leads can\'t be chosen; give their role "View leads" in Roles first.'}
+                </p>
+              </div>
               {destination === 'SALES_PIPELINE' && pipelines.length === 0 && (
                 <p className="sm:col-span-2 text-xs text-amber-800 dark:text-amber-300" role="status">
                   There is no active sales pipeline. Create one in CRM Masters → Pipelines, then import again.
@@ -382,7 +404,7 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
             Choose the lead field for each column. Columns with no matching field are kept in the lead&apos;s internal notes as &quot;Column: value&quot;;
             columns set to &quot;Don&apos;t import&quot; are not stored anywhere.
           </p>
-          {missing.length > 0 && <ErrorNote>{`Map a column to: ${missing.join(', ')}. Every lead needs a company, a first name and an email.`}</ErrorNote>}
+          {missing.length > 0 && <ErrorNote>{`Map a column to: ${missing.join(', ')}. Every lead needs a company, an email and a phone; a contact name is optional.`}</ErrorNote>}
           <div className="overflow-x-auto border border-slate-200 dark:border-[#2B293E] rounded-xl">
             <table className="w-full text-xs">
               <caption className="sr-only">Spreadsheet columns and the lead field each one is imported as</caption>
@@ -447,7 +469,7 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
             <p className="text-sm text-slate-800 dark:text-slate-100">
               {result.summary.imported === 0
                 ? 'No leads were imported. The rows below say why.'
-                : `Imported ${plural(result.summary.imported, 'lead')} of ${plural(result.summary.processed, 'row')} into ${result.destination === 'CLIENT_OUTREACH' ? `Client Outreach (${result.cadence?.name ?? result.pipeline.name})` : `${result.pipeline.name} › ${result.stage.name}`}.`}
+                : `Imported ${plural(result.summary.imported, 'lead')} of ${plural(result.summary.processed, 'row')} into ${result.destination === 'CLIENT_OUTREACH' ? `Client Outreach (${result.cadence?.name ?? result.pipeline.name})` : `${result.pipeline.name} › ${result.stage.name}`}, assigned to ${result.assignee.name} unless a row named another team member.`}
             </p>
           </div>
           <Summary items={[
@@ -509,6 +531,7 @@ function Placement({ result, mapping }: { result: ImportResult; mapping: ColumnT
           ? `Destination: Client Outreach · ${result.cadence?.name ?? result.pipeline.name} · cadence ${plural(result.cadence?.steps ?? 0, 'step')} over ${plural(result.cadence?.days ?? 0, 'day')}`
           : `Destination: Sales Pipeline · ${result.pipeline.name} › ${result.stage.name}`}
       </p>
+      <p>{`Assigned to: ${result.assignee.name}, unless a row names another team member.`}</p>
       <p>{`Columns: ${mapped} mapped to lead fields, ${notes} kept in internal notes, ${skipped} not imported.`}</p>
     </div>
   );

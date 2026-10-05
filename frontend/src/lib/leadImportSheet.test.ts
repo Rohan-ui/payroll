@@ -79,7 +79,8 @@ describe('suggesting the mapping', () => {
   it('flags a field chosen twice and the required fields not mapped', () => {
     const mapping: ColumnTarget[] = ['email', 'email', 'notes', 'notes', ''];
     expect(duplicateTargets(mapping)).toEqual(['email']);
-    expect(missingRequired(mapping)).toEqual(['Company name', 'First name (or a full name column)']);
+    expect(missingRequired(mapping)).toEqual(['Company name', 'Phone']);
+    expect(missingRequired(['companyName', 'email', 'phone'])).toEqual([]);
   });
 });
 

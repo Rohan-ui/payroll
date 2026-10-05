@@ -169,7 +169,7 @@ describe('Tenant route guard coverage', () => {
       allTenantRoutes.flatMap((route) => (Reflect.getMetadata(REQUIRED_PERMISSIONS, route.handler) ?? []) as string[]),
     );
     // Checked inside a handler because the action decides which permission applies.
-    const CHECKED_IN_HANDLER = ['outreach.create', 'outreach.update', 'leads.delete', 'people.bank.update'];
+    const CHECKED_IN_HANDLER = ['outreach.create', 'outreach.update', 'leads.delete', 'leads.view_all', 'people.bank.update'];
     // Pages whose data is computed in the browser or is sample data; the
     // permission decides only whether the sidebar shows them.
     const PAGE_ONLY = ['dashboard.view', 'marketing.view', 'analytics.view', 'payslips.view', 'reports.view', 'compliance.view', 'help.view'];

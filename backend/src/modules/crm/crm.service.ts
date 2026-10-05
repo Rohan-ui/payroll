@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
+import { LeadVisibility, onVisibleLead, visibleLeads } from './lead-visibility';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -169,7 +170,7 @@ export class CrmService {
   // PIPELINES & STAGES
   // ==========================================
 
-  async getPipelines(tenantId: string) {
+  async getPipelines(tenantId: string, visibility: LeadVisibility) {
     const pipelines = await this.prisma.rndtechnosoft_crm_pipelines.findMany({
       where: { tenant_id: tenantId },
       orderBy: { sort_order: 'asc' },
@@ -190,7 +191,7 @@ export class CrmService {
         const stagesWithRollups = await Promise.all(
           p.rndtechnosoft_crm_stages.map(async (stg) => {
             const leads = await this.prisma.rndtechnosoft_crm_leads.findMany({
-              where: { tenant_id: tenantId, stage_id: stg.id, is_lost: false },
+              where: { tenant_id: tenantId, stage_id: stg.id, is_lost: false, ...visibleLeads(visibility) },
               select: { budget_amount: true },
             });
 
@@ -232,6 +233,7 @@ export class CrmService {
 
   async getLeads(
     tenantId: string,
+    visibility: LeadVisibility,
     query: {
       pipelineId?: string;
       stageId?: string;
@@ -272,6 +274,8 @@ export class CrmService {
       { custom_attributes: { path: ['cadence', 'status'], equals: 'CONVERTED' } },
       { custom_attributes: { path: ['cadence', 'convertedToOpportunity'], equals: true } },
     ] });
+    // Only the leads this member may see; an assignee filter narrows within them.
+    if (!visibility.all) conditions.push(visibleLeads(visibility));
     if (conditions.length) where.AND = conditions;
 
     if (query.search) {
@@ -371,9 +375,9 @@ export class CrmService {
     };
   }
 
-  async getLeadById(tenantId: string, leadId: string) {
+  async getLeadById(tenantId: string, visibility: LeadVisibility, leadId: string) {
     const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({
-      where: { tenant_id: tenantId, id: leadId },
+      where: { tenant_id: tenantId, id: leadId, ...visibleLeads(visibility) },
       include: {
         rndtechnosoft_crm_stages: true,
         rndtechnosoft_crm_pipelines: true,
@@ -478,15 +482,17 @@ export class CrmService {
 
   /**
    * `outreachFunnel` names the Client Outreach pipeline a COLD lead is enrolled
-   * through; `createdVia` says where the lead came from in its activity log.
+   * through; `createdVia` says where the lead came from in its activity log;
+   * `firstNameOptional` lets a lead without a contact name in (spreadsheet
+   * imports, which require a phone instead).
    */
-  async createLead(tenantId: string, data: any, memberId?: string, options: { outreachFunnel?: string; createdVia?: string } = {}) {
+  async createLead(tenantId: string, data: any, memberId?: string, options: { outreachFunnel?: string; createdVia?: string; firstNameOptional?: boolean } = {}) {
     const leadId = randomUUID();
     const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
     const companyName = text(data.companyName ?? data.company_name);
     const firstName = text(data.firstName ?? data.first_name);
     const email = text(data.email)?.toLowerCase() ?? null;
-    const missing = [!companyName && 'company name', !firstName && 'first name', !email && 'email'].filter(Boolean);
+    const missing = [!companyName && 'company name', !firstName && !options.firstNameOptional && 'first name', !email && 'email'].filter(Boolean);
     if (missing.length > 0) throw new BadRequestException(`A lead needs a ${missing.join(', ')}.`);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email!)) throw new BadRequestException('Enter a valid email address for the lead.');
 
@@ -524,7 +530,7 @@ export class CrmService {
         tenant_id: tenantId,
         lead_code: leadCode,
         company_name: companyName!,
-        first_name: firstName!,
+        first_name: firstName,
         last_name: data.lastName || data.last_name || null,
         designation: data.designation || null,
         email: email!,
@@ -569,9 +575,9 @@ export class CrmService {
     return lead;
   }
 
-  async updateLead(tenantId: string, id: string, data: any, memberId?: string) {
+  async updateLead(tenantId: string, visibility: LeadVisibility, id: string, data: any, memberId?: string) {
     const existing = await this.prisma.rndtechnosoft_crm_leads.findFirst({
-      where: { tenant_id: tenantId, id },
+      where: { tenant_id: tenantId, id, ...visibleLeads(visibility) },
     });
     if (!existing) throw new NotFoundException('Lead not found');
 
@@ -658,9 +664,9 @@ export class CrmService {
     return updated;
   }
 
-  async deleteLead(tenantId: string, id: string, memberId?: string) {
+  async deleteLead(tenantId: string, visibility: LeadVisibility, id: string, memberId?: string) {
     const existing = await this.prisma.rndtechnosoft_crm_leads.findFirst({
-      where: { tenant_id: tenantId, id },
+      where: { tenant_id: tenantId, id, ...visibleLeads(visibility) },
     });
     if (!existing) throw new NotFoundException('Lead not found');
 
@@ -676,6 +682,7 @@ export class CrmService {
 
   async bulkLeadAction(
     tenantId: string,
+    visibility: LeadVisibility,
     body: {
       action: string;
       leadIds: string[];
@@ -686,6 +693,7 @@ export class CrmService {
   ) {
     const { action, leadIds, assignedUserId, stageId } = body;
     if (!leadIds || leadIds.length === 0) return { count: 0 };
+    await this.assertLeadsVisible(tenantId, visibility, leadIds);
 
     // Reassigning is handled by CrmLeadAssignmentService (checked and all-or-nothing).
     if (action === 'delete') {
@@ -1080,8 +1088,8 @@ export class CrmService {
     return Buffer.from(buffer);
   }
 
-  async exportLeads(tenantId: string, filters: any): Promise<Buffer> {
-    const leadsResult = await this.getLeads(tenantId, { ...filters, unpaginated: true });
+  async exportLeads(tenantId: string, visibility: LeadVisibility, filters: any): Promise<Buffer> {
+    const leadsResult = await this.getLeads(tenantId, visibility, { ...filters, unpaginated: true });
     const leads = Array.isArray(leadsResult) ? leadsResult : (leadsResult.leads || []);
 
     const workbook = new ExcelJS.Workbook();
@@ -1146,31 +1154,33 @@ export class CrmService {
         }
       }
 
+      // The lead's own values only; an empty field stays empty.
+      const country = SORTED_COUNTRY_CODES.find((c) => c.iso === l.country_code);
       ws.addRow({
         date_created: dateCreated,
         company_name: l.company_name || '',
         first_name: l.first_name || '',
         last_name: l.last_name || '',
-        designation: l.designation || 'Decision Maker',
+        designation: l.designation || '',
         email: l.email || '',
         secondary_email: l.alternate_email || '',
-        country_code: parsedPhone.countryCode || '+91',
+        country_code: (l.phone && parsedPhone.countryCode) || country?.code || '',
         phone: parsedPhone.number || l.phone || '',
         alternate_phone: parsedAltPhone.number || l.alternate_phone || '',
         whatsapp_number: parsedWa.number || l.whatsapp_number || '',
-        industry: l.industry || 'Manufacturing',
+        industry: l.industry || '',
         sub_industry: l.sub_industry || '',
         website_url: l.website_url || '',
         linkedin_company_url: l.linkedin_company_url || '',
         personal_linkedin_url: l.linkedin_url || '',
         city: l.city || '',
         state: l.state || '',
-        country: 'India',
+        country: country?.name || '',
         address: l.address || '',
         pincode: l.postal_code || '',
-        website_status: l.website_status || 'ACTIVE',
-        assigned_to: l.assigned_to_user?.display_name || '',
-        lead_source: l.source?.name || '',
+        website_status: l.website_status || '',
+        assigned_to: l.rndtechnosoft_tenant_members?.rndtechnosoft_users?.display_name || '',
+        lead_source: l.rndtechnosoft_crm_lead_sources?.name || '',
         budget_amount: Number(l.budget_amount) || 0,
         internal_notes: l.internal_notes || l.requirement_brief || '',
       });
@@ -1237,9 +1247,9 @@ export class CrmService {
     return lead;
   }
 
-  async convertDealWon(tenantId: string, leadId: string, memberId?: string) {
+  async convertDealWon(tenantId: string, visibility: LeadVisibility, leadId: string, memberId?: string) {
     const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({
-      where: { tenant_id: tenantId, id: leadId },
+      where: { tenant_id: tenantId, id: leadId, ...visibleLeads(visibility) },
     });
     if (!lead) throw new NotFoundException('Lead not found');
 
@@ -1256,7 +1266,8 @@ export class CrmService {
           tenant_id: tenantId,
           client_code: clientCode,
           company_name: lead.company_name,
-          contact_person: `${lead.first_name} ${lead.last_name || ''}`.trim(),
+          // A lead imported without a contact name is reached by its email.
+          contact_person: [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.email,
           email: lead.email,
           phone: lead.phone,
           billing_address: lead.address || lead.city || null,
@@ -1316,7 +1327,7 @@ export class CrmService {
   // 30-DAY OUTREACH CADENCE ENGINE
   // ==========================================
 
-  async getCadenceMatrix(tenantId: string, leadId?: string, filterStatus: string = 'ALL', query: Partial<CadenceQueryDto> = {}) {
+  async getCadenceMatrix(tenantId: string, visibility: LeadVisibility, leadId?: string, filterStatus: string = 'ALL', query: Partial<CadenceQueryDto> = {}) {
     const tenant = await this.prisma.rndtechnosoft_tenants.findUnique({
       where: { id: tenantId },
       select: { tenant_code: true },
@@ -1324,7 +1335,7 @@ export class CrmService {
     const tenantName = tenant?.tenant_code || 'Voogyo';
 
     if (leadId) {
-      const lead = await this.getLeadById(tenantId, leadId);
+      const lead = await this.getLeadById(tenantId, visibility, leadId);
       const customAttr = (lead.custom_attributes as any) || {};
       return {
         lead,
@@ -1346,7 +1357,7 @@ export class CrmService {
     const pageIds: string[] = [];
     let total = 0;
     let enrolledCount = 0;
-    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId };
+    const where: Prisma.rndtechnosoft_crm_leadsWhereInput = { tenant_id: tenantId, ...visibleLeads(visibility) };
     const search = query.search?.trim();
     if (search) {
       where.OR = ['company_name', 'first_name', 'last_name', 'email', 'phone', 'whatsapp_number', 'lead_code', 'industry', 'sub_industry'].map(field => ({
@@ -1446,7 +1457,7 @@ export class CrmService {
       const dueStatus = cadence.status === 'ACTIVE' ? evaluateStepDueStatus(stepDueDate) : 'UPCOMING';
 
       const vars = {
-        firstName: lead.first_name,
+        firstName: lead.first_name ?? undefined,
         lastName: lead.last_name || '',
         companyName: lead.company_name,
         industry: cadence.industry || 'general',
@@ -1534,9 +1545,10 @@ export class CrmService {
     };
   }
 
-  async executeCadenceAction(tenantId: string, body: any, memberId?: string) {
+  async executeCadenceAction(tenantId: string, visibility: LeadVisibility, body: any, memberId?: string) {
     const { action, leadId, leadIds, industry, channel, notes, branchKey } = body;
     const targetIds: string[] = Array.isArray(leadIds) ? leadIds : leadId ? [leadId] : [];
+    const scope = visibleLeads(visibility);
 
     if (action === 'ENROLL') {
       const now = new Date();
@@ -1544,7 +1556,7 @@ export class CrmService {
       const dueDate = computeStepDueDate(now, firstStep.dayOffset);
 
       for (const id of targetIds) {
-        const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id } });
+        const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id, ...scope } });
         if (!lead) continue;
 
         const customAttr = (lead.custom_attributes as any) || {};
@@ -1572,7 +1584,7 @@ export class CrmService {
     }
 
     if (action === 'COMPLETE_STEP' && leadId) {
-      const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
+      const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId, ...scope } });
       if (!lead) throw new NotFoundException('Lead not found');
 
       const customAttr = (lead.custom_attributes as any) || {};
@@ -1632,13 +1644,13 @@ export class CrmService {
     }
 
     if (action === 'CONVERT_OPPORTUNITY') {
-      return this.convertOutreachLead(tenantId, body, memberId);
+      return this.convertOutreachLead(tenantId, visibility, body, memberId);
     }
 
     // The screens send BRANCH_REPLY (with feedbackNotes); CHANGE_BRANCH is the older name.
     if ((action === 'CHANGE_BRANCH' || action === 'BRANCH_REPLY') && leadId && branchKey) {
       const replyNotes: string | undefined = notes ?? body.feedbackNotes;
-      const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
+      const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId, ...scope } });
       if (!lead) throw new NotFoundException('Lead not found');
 
       // One of this workspace's objection strategies; never a key that is not in its list.
@@ -1680,7 +1692,7 @@ export class CrmService {
    * transaction, with the lead row locked, so two clicks cannot both convert it
    * and a failure leaves it untouched.
    */
-  private async convertOutreachLead(tenantId: string, body: any, memberId?: string) {
+  private async convertOutreachLead(tenantId: string, visibility: LeadVisibility, body: any, memberId?: string) {
     const leadId: unknown = body.leadId;
     if (typeof leadId !== 'string' || !leadId) throw new BadRequestException('Choose the outreach lead to convert.');
     const optionalId = (value: unknown, message: string): string | undefined => {
@@ -1740,7 +1752,7 @@ export class CrmService {
         SELECT id FROM rndtechnosoft_crm_leads WHERE tenant_id = ${tenantId}::uuid AND id = ${leadId}::uuid FOR UPDATE`;
       if (locked.length === 0) throw new NotFoundException('Lead not found');
 
-      const lead = await tx.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId } });
+      const lead = await tx.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId, ...visibleLeads(visibility) } });
       if (!lead) throw new NotFoundException('Lead not found');
       const customAttr = (lead.custom_attributes as Record<string, any> | null) || {};
       const cadence = customAttr.cadence as CadenceState | undefined;
@@ -1809,9 +1821,9 @@ export class CrmService {
   // ACTIVITIES, FOLLOWUPS & MEETINGS
   // ==========================================
 
-  async getActivities(tenantId: string, leadId?: string, requestedPage?: number, requestedLimit?: number) {
+  async getActivities(tenantId: string, visibility: LeadVisibility, leadId?: string, requestedPage?: number, requestedLimit?: number) {
     const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
-    const where: any = { tenant_id: tenantId };
+    const where: Prisma.rndtechnosoft_crm_lead_activitiesWhereInput = { tenant_id: tenantId, ...onVisibleLead(visibility) };
     if (leadId) where.lead_id = leadId;
 
     const [activities, total] = await Promise.all([
@@ -1841,6 +1853,7 @@ export class CrmService {
 
   async addActivity(
     tenantId: string,
+    visibility: LeadVisibility,
     body: {
       leadId: string;
       activityType: string;
@@ -1851,6 +1864,7 @@ export class CrmService {
     },
     memberId?: string,
   ) {
+    await this.assertLeadsVisible(tenantId, visibility, [body.leadId]);
     const activity = await this.prisma.rndtechnosoft_crm_lead_activities.create({
       data: {
         id: randomUUID(),
@@ -1874,6 +1888,22 @@ export class CrmService {
     });
 
     return activity;
+  }
+
+  /**
+   * Refuses unless every lead is one this member may see. A lead they may not
+   * see is answered as not found, the same as one that does not exist.
+   */
+  async assertLeadsVisible(tenantId: string, visibility: LeadVisibility, leadIds: unknown[]) {
+    const ids = [...new Set(leadIds)];
+    const valid = ids.every((id): id is string => typeof id === 'string' && CrmService.UUID_PATTERN.test(id));
+    const found = valid ? await this.prisma.rndtechnosoft_crm_leads.count({ where: { tenant_id: tenantId, id: { in: ids as string[] }, ...visibleLeads(visibility) } }) : -1;
+    if (found !== ids.length) throw new NotFoundException(ids.length === 1 ? 'Lead not found' : 'Some of the selected leads were not found. Reload the page and try again.');
+  }
+
+  /** Refuses a follow-up, meeting or quotation whose lead this member may not see, as not found. */
+  private async assertRecordOnVisibleLead(count: Promise<number>, label: string) {
+    if ((await count) === 0) throw new NotFoundException(`${label} not found`);
   }
 
   private async logActivity(
@@ -1901,9 +1931,9 @@ export class CrmService {
     }
   }
 
-  async getFollowups(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+  async getFollowups(tenantId: string, visibility: LeadVisibility, requestedPage?: number, requestedLimit?: number) {
     const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
-    const where = { tenant_id: tenantId };
+    const where = { tenant_id: tenantId, ...onVisibleLead(visibility) };
     const [followups, total] = await Promise.all([
       this.prisma.rndtechnosoft_crm_lead_followups.findMany({
         where,
@@ -1935,6 +1965,7 @@ export class CrmService {
 
   async createFollowup(
     tenantId: string,
+    visibility: LeadVisibility,
     body: {
       leadId: string;
       scheduledAt: string;
@@ -1944,6 +1975,7 @@ export class CrmService {
     },
     memberId?: string,
   ) {
+    await this.assertLeadsVisible(tenantId, visibility, [body.leadId]);
     const followup = await this.prisma.rndtechnosoft_crm_lead_followups.create({
       data: {
         id: randomUUID(),
@@ -1967,7 +1999,8 @@ export class CrmService {
     return followup;
   }
 
-  async updateFollowup(tenantId: string, id: string, body: any, memberId?: string) {
+  async updateFollowup(tenantId: string, visibility: LeadVisibility, id: string, body: any, memberId?: string) {
+    await this.assertRecordOnVisibleLead(this.prisma.rndtechnosoft_crm_lead_followups.count({ where: { tenant_id: tenantId, id, ...onVisibleLead(visibility) } }), 'Follow-up');
     const updateData: any = {};
     if (body.status) updateData.status = body.status;
     if (body.outcomeNote || body.outcome_note) updateData.outcome_note = body.outcomeNote || body.outcome_note;
@@ -1986,14 +2019,15 @@ export class CrmService {
     return followup;
   }
 
-  async deleteFollowup(tenantId: string, id: string) {
+  async deleteFollowup(tenantId: string, visibility: LeadVisibility, id: string) {
+    await this.assertRecordOnVisibleLead(this.prisma.rndtechnosoft_crm_lead_followups.count({ where: { tenant_id: tenantId, id, ...onVisibleLead(visibility) } }), 'Follow-up');
     await this.prisma.rndtechnosoft_crm_lead_followups.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     return { success: true };
   }
 
-  async getMeetings(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+  async getMeetings(tenantId: string, visibility: LeadVisibility, requestedPage?: number, requestedLimit?: number) {
     const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
-    const where = { tenant_id: tenantId };
+    const where = { tenant_id: tenantId, ...onVisibleLead(visibility) };
     const [meetings, total] = await Promise.all([
       this.prisma.rndtechnosoft_crm_meetings.findMany({
         where,
@@ -2019,7 +2053,8 @@ export class CrmService {
     return this.pageResult(items, total, page, limit);
   }
 
-  async createMeeting(tenantId: string, body: any, memberId?: string) {
+  async createMeeting(tenantId: string, visibility: LeadVisibility, body: any, memberId?: string) {
+    await this.assertLeadsVisible(tenantId, visibility, [body.leadId]);
     const meeting = await this.prisma.rndtechnosoft_crm_meetings.create({
       data: {
         id: randomUUID(),
@@ -2037,7 +2072,8 @@ export class CrmService {
     return meeting;
   }
 
-  async updateMeeting(tenantId: string, id: string, body: any, memberId?: string) {
+  async updateMeeting(tenantId: string, visibility: LeadVisibility, id: string, body: any, memberId?: string) {
+    await this.assertRecordOnVisibleLead(this.prisma.rndtechnosoft_crm_meetings.count({ where: { tenant_id: tenantId, id, ...onVisibleLead(visibility) } }), 'Meeting');
     const updateData: any = {};
     if (body.title) updateData.title = body.title;
     if (body.status) updateData.status = body.status;
@@ -2056,7 +2092,8 @@ export class CrmService {
     return meeting;
   }
 
-  async deleteMeeting(tenantId: string, id: string) {
+  async deleteMeeting(tenantId: string, visibility: LeadVisibility, id: string) {
+    await this.assertRecordOnVisibleLead(this.prisma.rndtechnosoft_crm_meetings.count({ where: { tenant_id: tenantId, id, ...onVisibleLead(visibility) } }), 'Meeting');
     await this.prisma.rndtechnosoft_crm_meetings.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } });
     return { success: true };
   }
@@ -2065,9 +2102,9 @@ export class CrmService {
   // GST QUOTATIONS
   // ==========================================
 
-  async getQuotations(tenantId: string, requestedPage?: number, requestedLimit?: number) {
+  async getQuotations(tenantId: string, visibility: LeadVisibility, requestedPage?: number, requestedLimit?: number) {
     const { page, limit, skip } = this.pagination(requestedPage, requestedLimit);
-    const where = { tenant_id: tenantId };
+    const where = { tenant_id: tenantId, ...onVisibleLead(visibility) };
     const [quotations, total] = await Promise.all([
       this.prisma.rndtechnosoft_crm_quotations.findMany({
         where,
@@ -2096,9 +2133,9 @@ export class CrmService {
     return this.pageResult(items, total, page, limit);
   }
 
-  async getQuotationById(tenantId: string, id: string) {
+  async getQuotationById(tenantId: string, visibility: LeadVisibility, id: string) {
     const quotation = await this.prisma.rndtechnosoft_crm_quotations.findFirst({
-      where: { tenant_id: tenantId, id },
+      where: { tenant_id: tenantId, id, ...onVisibleLead(visibility) },
       include: {
         rndtechnosoft_crm_leads: true,
         rndtechnosoft_crm_quotation_items: true,
@@ -2185,11 +2222,11 @@ export class CrmService {
     return notes.trim() || null;
   }
 
-  async createQuotation(tenantId: string, body: any, memberId?: string) {
+  async createQuotation(tenantId: string, visibility: LeadVisibility, body: any, memberId?: string) {
     const leadId = body.leadId || body.lead_id;
     if (!leadId) throw new BadRequestException('Choose the lead this quotation is for.');
     if (typeof leadId !== 'string' || !CrmService.UUID_PATTERN.test(leadId)) throw new NotFoundException('Lead not found');
-    const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId }, select: { id: true } });
+    const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: leadId, ...visibleLeads(visibility) }, select: { id: true } });
     if (!lead) throw new NotFoundException('Lead not found');
 
     const priced = this.priceQuotation(body.items, body.taxMode);
@@ -2235,12 +2272,13 @@ export class CrmService {
    * draft, and every total is recalculated from the lines; a sent, accepted or
    * rejected quotation keeps the amounts it was issued with.
    */
-  async updateQuotation(tenantId: string, id: string, body: any, memberId?: string) {
+  async updateQuotation(tenantId: string, visibility: LeadVisibility, id: string, body: any, memberId?: string) {
     const statuses = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED'];
     if (body.status !== undefined && !statuses.includes(body.status)) {
       throw new BadRequestException('The status must be DRAFT, SENT, ACCEPTED or REJECTED.');
     }
     if (typeof id !== 'string' || !CrmService.UUID_PATTERN.test(id)) throw new NotFoundException('Quotation not found');
+    await this.assertRecordOnVisibleLead(this.prisma.rndtechnosoft_crm_quotations.count({ where: { tenant_id: tenantId, id, ...onVisibleLead(visibility) } }), 'Quotation');
     const editsContent = body.items !== undefined || body.taxMode !== undefined;
 
     const quote = await this.prisma.$transaction(async (tx) => {
@@ -2300,7 +2338,8 @@ export class CrmService {
     return quote;
   }
 
-  async deleteQuotation(tenantId: string, id: string) {
+  async deleteQuotation(tenantId: string, visibility: LeadVisibility, id: string) {
+    await this.assertRecordOnVisibleLead(this.prisma.rndtechnosoft_crm_quotations.count({ where: { tenant_id: tenantId, id, ...onVisibleLead(visibility) } }), 'Quotation');
     await this.prisma.$transaction([
       this.prisma.rndtechnosoft_crm_quotation_items.deleteMany({ where: { tenant_id: tenantId, quotation_id: id } }),
       this.prisma.rndtechnosoft_crm_quotations.delete({ where: { tenant_id_id: { tenant_id: tenantId, id } } }),

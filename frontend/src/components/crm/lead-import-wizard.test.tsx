@@ -25,6 +25,12 @@ const OPTIONS = {
     { id: 'p-out', name: 'Manufacturing Outreach', kind: 'OUTREACH', isDefault: false, stages: [{ id: 's-cad', name: 'In cadence' }] },
   ],
   cadence: { name: '30-Day Multi-Touch SOP', steps: 12, days: 30 },
+  assignees: [
+    { id: 'm-me', name: 'Ravi Shah', email: 'ravi@rnd.test', eligible: true },
+    { id: 'm-neha', name: 'Neha Mishra', email: 'neha@rnd.test', eligible: true },
+    { id: 'm-acc', name: 'Accountant', email: 'acc@rnd.test', eligible: false },
+  ],
+  currentMemberId: 'm-me',
   canImportToOutreach: true,
 };
 
@@ -38,6 +44,7 @@ const resultFor = (body: any) => {
     pipeline: outreach && !sop ? { id: 'p-out', name: 'Manufacturing Outreach' } : { id: 'p-sales', name: 'Sales' },
     stage: outreach && !sop ? { id: 's-cad', name: 'In cadence' } : sop ? { id: 's-new', name: 'New' } : { id: body.stageId, name: 'Qualified' },
     cadence: outreach ? { name: sop ? '30-Day Multi-Touch SOP' : 'Manufacturing Outreach', steps: 12, days: 30 } : null,
+    assignee: body.assigneeMemberId === 'm-neha' ? { id: 'm-neha', name: 'Neha Mishra' } : { id: 'm-me', name: 'Ravi Shah' },
     summary: { processed: 3, ready: done ? 0 : 1, imported: done ? 1 : 0, duplicates: 1, failed: 1, enrolled: done && outreach ? 1 : 0, withWarnings: 0 },
     rows: [
       { rowNumber: 2, outcome: done ? 'IMPORTED' : 'READY', companyName: 'Apex Polymer', email: 'rajesh@apex.test', reasons: [], warnings: [] },
@@ -97,10 +104,10 @@ function spreadsheet(rows: unknown[][]) {
   return new File([XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer], 'BDM.xlsx');
 }
 const LEAD_ROWS = [
-  ['Company Name *', 'First Name *', 'Email *', 'Status'],
-  ['Apex Polymer', 'Rajesh', 'rajesh@apex.test', 'Hot'],
-  ['Apex Again', 'Rajesh', 'rajesh@apex.test', ''],
-  ['No Name Co', '', 'x@nn.test', ''],
+  ['Company Name *', 'First Name *', 'Email *', 'Status', 'Phone'],
+  ['Apex Polymer', 'Rajesh', 'rajesh@apex.test', 'Hot', '98250 12345'],
+  ['Apex Again', 'Rajesh', 'rajesh@apex.test', '', '98250 12345'],
+  ['No Name Co', '', 'x@nn.test', '', ''],
 ];
 
 async function render(onClose = vi.fn(), onImported = vi.fn()) {
@@ -150,9 +157,9 @@ describe('lead import wizard', () => {
 
     expect(importCalls()).toHaveLength(1);
     expect(importCalls()[0].body).toMatchObject({
-      destination: 'CLIENT_OUTREACH', dryRun: true, fileName: 'BDM.xlsx',
+      destination: 'CLIENT_OUTREACH', dryRun: true, fileName: 'BDM.xlsx', assigneeMemberId: 'm-me',
       rows: [
-        { rowNumber: 2, companyName: 'Apex Polymer', firstName: 'Rajesh', email: 'rajesh@apex.test', internalNotes: 'Status: Hot' },
+        { rowNumber: 2, companyName: 'Apex Polymer', firstName: 'Rajesh', email: 'rajesh@apex.test', phone: '98250 12345', internalNotes: 'Status: Hot' },
         { rowNumber: 3, companyName: 'Apex Again' },
         { rowNumber: 4, companyName: 'No Name Co', email: 'x@nn.test' },
       ],
@@ -167,7 +174,7 @@ describe('lead import wizard', () => {
     await click(button('Import 1 lead into Client Outreach'));
     expect(importCalls()).toHaveLength(2);
     expect(importCalls()[1].body.dryRun).toBeUndefined();
-    expect(document.body.textContent).toContain('Imported 1 lead of 3 rows into Client Outreach (30-Day Multi-Touch SOP).');
+    expect(document.body.textContent).toContain('Imported 1 lead of 3 rows into Client Outreach (30-Day Multi-Touch SOP), assigned to Ravi Shah unless a row named another team member.');
     expect(document.body.textContent).toContain('Enrolled in cadence');
     expect(onImported).toHaveBeenCalledTimes(1);
 
@@ -184,9 +191,14 @@ describe('lead import wizard', () => {
     await settle();
     expect([...labelled('Sales pipeline').options].map((o) => o.textContent)).toEqual(['Choose a pipeline', 'Sales']);
     await select(labelled('First stage'), 's-qual');
+    expect(labelled('Assign leads to').value).toBe('m-me');
+    const assignees = [...labelled('Assign leads to').options];
+    expect(assignees.map((o) => [o.textContent, o.disabled])).toEqual([['Ravi Shah (you)', false], ['Neha Mishra', false], ["Accountant (role can't view leads)", true]]);
+    await select(labelled('Assign leads to'), 'm-neha');
     await click(button('Next: map columns'));
     await click(button('Next: preview'));
-    expect(importCalls()[0].body).toMatchObject({ destination: 'SALES_PIPELINE', pipelineId: 'p-sales', stageId: 's-qual', dryRun: true });
+    expect(importCalls()[0].body).toMatchObject({ destination: 'SALES_PIPELINE', pipelineId: 'p-sales', stageId: 's-qual', dryRun: true, assigneeMemberId: 'm-neha' });
+    expect(document.body.textContent).toContain('Assigned to: Neha Mishra, unless a row names another team member.');
     await click(button('Import 1 lead into the Sales Pipeline'));
     await click(button('View Sales Pipeline'));
     expect(setCrmTab).toHaveBeenCalledWith('pipeline');
@@ -226,7 +238,19 @@ describe('lead import wizard', () => {
     expect(document.body.textContent).toContain('Destination: Client Outreach · Manufacturing Outreach');
   });
 
-  it('will not continue until company, first name and email are mapped once each', async () => {
+  it('imports a sheet with only company, email and phone columns', async () => {
+    await render();
+    await upload(spreadsheet([['Company', 'Mobile', 'Email'], ['Techno Tarp', '097277 06665', 'info@technotarp.test']]));
+    await click(button('Next: destination'));
+    await act(async () => (document.querySelectorAll('input[type="radio"]')[1] as HTMLInputElement).click());
+    await settle();
+    await click(button('Next: map columns'));
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    await click(button('Next: preview'));
+    expect(importCalls()[0].body.rows).toEqual([{ rowNumber: 2, companyName: 'Techno Tarp', phone: '097277 06665', email: 'info@technotarp.test' }]);
+  });
+
+  it('will not continue until company, email and phone are mapped once each', async () => {
     await render();
     await upload(spreadsheet(LEAD_ROWS));
     await click(button('Next: destination'));

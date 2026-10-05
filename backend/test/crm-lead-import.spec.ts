@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import * as ExcelJS from 'exceljs';
 import { randomUUID } from 'crypto';
 import { AppModule } from '@/app.module';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
@@ -39,6 +40,7 @@ describe('CRM lead import', () => {
   const neha: Person = { token: '', email: `neha-${SUFFIX}@import.test`, memberId: '', userId: '' };
   const salesOnly: Person = { token: '', email: `sales-${SUFFIX}@import.test`, memberId: '', userId: '' };
   const viewer: Person = { token: '', email: `viewer-${SUFFIX}@import.test`, memberId: '', userId: '' };
+  const accountant: Person = { token: '', email: `accountant-${SUFFIX}@import.test`, memberId: '', userId: '' };
   const ids = { sales: '', salesNew: '', salesQualified: '', salesWon: '', outreach: '', outreachStage: '', otherSales: '', otherSalesStage: '', otherOutreach: '', sourceId: '' };
 
   const call = (method: Method, url: string, token: string, body?: unknown) => {
@@ -47,7 +49,7 @@ describe('CRM lead import', () => {
   };
   const email = (name: string) => `${name}-${SUFFIX}@client.test`;
   const row = (rowNumber: number, name: string, extra: Record<string, string> = {}) => ({
-    rowNumber, companyName: `${name} Industries ${SUFFIX}`, firstName: name, email: email(name.toLowerCase()), ...extra,
+    rowNumber, companyName: `${name} Industries ${SUFFIX}`, firstName: name, email: email(name.toLowerCase()), phone: '98200 12345', ...extra,
   });
   const importInto = (token: string, body: Record<string, unknown>) => call('post', '/crm/leads/import', token, body);
 
@@ -120,6 +122,7 @@ describe('CRM lead import', () => {
     await addMember(neha, 'Neha Mishra', ['leads.view', 'leads.create', 'outreach.view', 'outreach.create']);
     await addMember(salesOnly, 'Sales Only', ['leads.view', 'leads.create']);
     await addMember(viewer, 'Lead Viewer', ['leads.view', 'outreach.view']);
+    await addMember(accountant, 'Accountant', ['payslips.view']);
 
     ids.sales = await salesPipeline(ravi.token, 'Sales');
     await call('put', '/crm/masters/pipelines', ravi.token, { id: ids.sales, name: 'Sales', code: `Sales_${SUFFIX}`, is_default: 1 });
@@ -226,7 +229,7 @@ describe('CRM lead import', () => {
       expect(preview.body.data.cadence).toMatchObject({ name: 'Manufacturing Outreach' });
       expect(preview.body.data.cadence.steps).toBeGreaterThan(0);
       const byRow = Object.fromEntries(preview.body.data.rows.map((r: { rowNumber: number }) => [r.rowNumber, r]));
-      expect(byRow[4]).toMatchObject({ outcome: 'FAILED', reasons: ['Missing first name.'] });
+      expect(byRow[4]).toMatchObject({ outcome: 'FAILED', reasons: ['Missing phone.'] });
       expect(byRow[5]).toMatchObject({ outcome: 'DUPLICATE', reasons: ['Same email as row 2 of this file.'] });
       expect(byRow[6]).toMatchObject({ outcome: 'FAILED', reasons: ['"not-an-email" is not a valid email address.'] });
       expect(await prisma.rndtechnosoft_crm_leads.count({ where: { tenant_id: ravi.tenantId, pipeline_id: ids.outreach } })).toBe(0);
@@ -319,6 +322,97 @@ describe('CRM lead import', () => {
     it('does not change the type of a pipeline that holds leads', async () => {
       const changed = await call('put', '/crm/masters/pipelines', ravi.token, { id: ids.outreach, name: 'Manufacturing Outreach', pipeline_kind: 'SALES' });
       expect(changed.status).toBe(409);
+    });
+  });
+
+  describe('who the leads are assigned to', () => {
+    it('offers the team members leads can go to, with the person importing chosen by default', async () => {
+      const options = (await call('get', '/crm/leads/import/options', ravi.token)).body.data;
+      expect(options.currentMemberId).toBe(ravi.memberId);
+      const byId = Object.fromEntries(options.assignees.map((a: { id: string; eligible: boolean }) => [a.id, a.eligible]));
+      // Every active member is listed; those who can't view leads can't be chosen.
+      expect(byId).toEqual({ [ravi.memberId]: true, [neha.memberId]: true, [salesOnly.memberId]: true, [viewer.memberId]: true, [accountant.memberId]: false });
+    });
+
+    it('assigns to the person importing when no one is chosen', async () => {
+      const imported = await importInto(salesOnly.token, { destination: 'SALES_PIPELINE', pipelineId: ids.sales, stageId: ids.salesNew, dryRun: true, rows: [row(2, 'Omar')] });
+      expect(imported.body.data.assignee).toEqual({ id: salesOnly.memberId, name: 'Sales Only' });
+    });
+
+    it('assigns to the chosen member, unless a row names another eligible member', async () => {
+      const imported = await importInto(ravi.token, {
+        destination: 'SALES_PIPELINE', pipelineId: ids.sales, stageId: ids.salesNew, assigneeMemberId: neha.memberId,
+        rows: [row(2, 'Pia'), row(3, 'Quinn', { assignedTo: 'Sales Only' }), row(4, 'Rhea', { assignedTo: 'Somebody Else' })],
+      });
+      expect(imported.body.data.assignee).toEqual({ id: neha.memberId, name: 'Neha Mishra' });
+      expect(imported.body.data.summary).toMatchObject({ imported: 3 });
+      expect(imported.body.data.rows[2].warnings).toEqual(['"Somebody Else" is not a team member, so the lead was assigned to Neha Mishra.']);
+      const owners = Object.fromEntries((await prisma.rndtechnosoft_crm_leads.findMany({
+        where: { email: { in: [email('pia'), email('quinn'), email('rhea')] } }, select: { email: true, assigned_tenant_member_id: true },
+      })).map((l) => [l.email, l.assigned_tenant_member_id]));
+      expect(owners).toEqual({ [email('pia')]: neha.memberId, [email('quinn')]: salesOnly.memberId, [email('rhea')]: neha.memberId });
+    });
+
+    it('refuses a member of another workspace, and saves nothing', async () => {
+      const refused = await importInto(ravi.token, { destination: 'SALES_PIPELINE', pipelineId: ids.sales, stageId: ids.salesNew, assigneeMemberId: other.memberId, rows: [row(2, 'Sana')] });
+      expect(refused.status).toBe(400);
+      expect(refused.body.message).toBe('That team member is not in this workspace.');
+      expect(await prisma.rndtechnosoft_crm_leads.count({ where: { email: email('sana') } })).toBe(0);
+      const cannotView = await importInto(ravi.token, { destination: 'SALES_PIPELINE', pipelineId: ids.sales, stageId: ids.salesNew, assigneeMemberId: accountant.memberId, rows: [row(2, 'Sana')] });
+      expect(cannotView.status).toBe(400);
+      expect(cannotView.body.message).toBe('Accountant\'s role can\'t view leads, so leads can\'t be assigned to them. Give their role the "View leads" permission first.');
+    });
+  });
+
+  describe('what a row needs', () => {
+    it('imports a row with a company, email and phone and no contact name, with its phone numbers normalised', async () => {
+      const imported = await importInto(ravi.token, {
+        destination: 'SALES_PIPELINE', pipelineId: ids.sales, stageId: ids.salesNew,
+        rows: [
+          { rowNumber: 2, companyName: `Nameless ${SUFFIX}`, email: email('nameless'), phone: '919825012345', alternatePhone: '079 2650 1234' },
+          { rowNumber: 3, companyName: `Two Numbers ${SUFFIX}`, email: email('twonumbers'), phone: '097277 06665 / 097277 06666 (office)' },
+          { rowNumber: 4, companyName: `No Phone ${SUFFIX}`, email: email('nophone'), phone: 'No wp' },
+        ],
+      });
+      expect(imported.body.data.summary).toMatchObject({ imported: 2, failed: 1 });
+      expect(imported.body.data.rows[2]).toMatchObject({ outcome: 'FAILED', reasons: ['"No wp" is not a phone number.'] });
+      const nameless = await prisma.rndtechnosoft_crm_leads.findFirstOrThrow({ where: { email: email('nameless') } });
+      expect(nameless).toMatchObject({ first_name: null, phone: '+91 9825012345', alternate_phone: '+91 7926501234', whatsapp_number: '+91 9825012345' });
+      const two = await prisma.rndtechnosoft_crm_leads.findFirstOrThrow({ where: { email: email('twonumbers') } });
+      expect(two).toMatchObject({ phone: '+91 9727706665', alternate_phone: '+91 9727706666', internal_notes: 'Phone: 097277 06665 / 097277 06666 (office)' });
+      // A nameless lead still opens and can be marked won (its email is the client's contact).
+      expect((await call('get', `/crm/leads/${nameless.id}`, ravi.token)).status).toBe(200);
+      const won = await call('post', `/crm/leads/${nameless.id}/convert-won`, ravi.token);
+      expect(won.status).toBe(201);
+      const client = await prisma.rndtechnosoft_crm_clients.findFirstOrThrow({ where: { created_from_lead_id: nameless.id } });
+      expect(client.contact_person).toBe(email('nameless'));
+    });
+
+    it('still needs a first name for a lead added by hand', async () => {
+      const response = await call('post', '/crm/leads', ravi.token, { companyName: `Manual Nameless ${SUFFIX}`, email: email('manualnameless') });
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe('A lead needs a first name.');
+    });
+
+    it('exports the lead’s own values, including secondary email, alternate phone and personal LinkedIn', async () => {
+      const response = await call('get', `/crm/leads/export?search=${encodeURIComponent(email('asha'))}`, ravi.token).buffer(true).parse((res, done) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => done(null, Buffer.concat(chunks)));
+      });
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(response.body);
+      const sheet = workbook.worksheets[0];
+      const headers = (sheet.getRow(1).values as unknown[]).slice(1);
+      const rows: Record<string, unknown>[] = [];
+      sheet.eachRow((r, n) => { if (n > 1) rows.push(Object.fromEntries(headers.map((h, i) => [String(h), r.getCell(i + 1).value ?? '']))); });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        'Company Name *': `Asha Industries ${SUFFIX}`, 'Email *': email('asha'), 'Secondary Email': 'asha.alt@client.test',
+        'Country Code *': '+91', Phone: '9820012345', 'Alternate Phone': '9820099999', 'Personal LinkedIn URL': 'https://linkedin.com/in/asha',
+        'LinkedIn Company URL': 'https://linkedin.com/company/asha', Country: 'India', 'Website Status': 'Outdated',
+        'Assigned To': 'Neha Mishra', 'Lead Source': 'LinkedIn', Designation: 'Director', 'Industry *': 'Packaging',
+      });
     });
   });
 

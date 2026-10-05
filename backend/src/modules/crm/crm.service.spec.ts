@@ -5,10 +5,12 @@ import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { CADENCE_STEPS_MASTER } from './crm-cadence.helper';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
+import { LeadVisibility } from './lead-visibility';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
+const ALL: LeadVisibility = { all: true };
 const LEAD = '22222222-2222-2222-2222-222222222222';
 
 describe('CrmService.getCadenceMatrix pagination', () => {
@@ -54,12 +56,12 @@ describe('CrmService.getCadenceMatrix pagination', () => {
 
   it('returns 50 at a time with full totals and reaches records past 100 and the metadata batch boundary', async () => {
     const { service, findMany } = setup();
-    const first = await service.getCadenceMatrix(TENANT);
+    const first = await service.getCadenceMatrix(TENANT, ALL);
     expect(first.pagination).toMatchObject({ total: 625, page: 1, limit: 50, hasMore: true });
     expect(first.radar?.allActive).toHaveLength(50);
     expect(first.stats).toMatchObject({ totalEnrolled: 625, activeCount: 600, branchedCount: 25 });
     expect(first.facets?.subIndustryCounts.engineering_wire).toBe(75);
-    const last = await service.getCadenceMatrix(TENANT, undefined, 'ALL', { page: 13 });
+    const last = await service.getCadenceMatrix(TENANT, ALL, undefined, 'ALL', { page: 13 });
     expect(last.pagination).toMatchObject({ total: 625, totalPages: 13, hasMore: false });
     expect(last.radar?.branched.map(row => row.id)).toEqual(rows.slice(600).map(row => row.id));
     expect(findMany.mock.calls.every(([args]) => args.where.tenant_id === TENANT && args.take <= 500)).toBe(true);
@@ -69,17 +71,17 @@ describe('CrmService.getCadenceMatrix pagination', () => {
 
   it('filters taxonomy names by keys, channel and queue before paging, and searches beyond the initial page', async () => {
     const { service, findMany } = setup();
-    const filtered = await service.getCadenceMatrix(TENANT, undefined, 'ALL', {
+    const filtered = await service.getCadenceMatrix(TENANT, ALL, undefined, 'ALL', {
       industry: 'manufacturing', subIndustry: 'engineering_wire', channel: 'EMAIL', queue: 'BRANCHED',
     });
     expect(filtered.pagination?.total).toBe(25);
     expect(filtered.radar?.branched).toHaveLength(25);
     expect(filtered.radar?.allActive).toHaveLength(0);
-    const searched = await service.getCadenceMatrix(TENANT, undefined, 'ALL', { search: 'Beyond the first hundred' });
+    const searched = await service.getCadenceMatrix(TENANT, ALL, undefined, 'ALL', { search: 'Beyond the first hundred' });
     expect(searched.radar?.branched[0].id).toBe('lead-600');
     expect(searched.pagination?.total).toBe(1);
     expect(findMany.mock.calls.some(([args]) => args.where.OR?.some(filter => filter.sub_industry))).toBe(true);
-    const otherTenant = await service.getCadenceMatrix('other-tenant');
+    const otherTenant = await service.getCadenceMatrix('other-tenant', ALL);
     expect(otherTenant.pagination?.total).toBe(0);
   });
 });
@@ -101,14 +103,14 @@ describe('CrmService.getLeads', () => {
       rndtechnosoft_crm_clients: { findMany: stub([]) },
     } as unknown as PrismaService, {} as CrmLeadAssignmentService);
 
-    await service.getLeads(TENANT, { page: 1, limit: 100 });
+    await service.getLeads(TENANT, ALL, { page: 1, limit: 100 });
 
     const args = findMany.mock.calls[0]?.[0] as { where: unknown; orderBy: unknown; take: number };
     expect(args.orderBy).toEqual([{ created_at: 'desc' }, { id: 'desc' }]);
     expect(args.where).toEqual({ tenant_id: TENANT });
     expect(args.take).toBe(100);
 
-    await service.getLeads(TENANT, { page: 3, limit: 50, origin: 'NEW', service: 'Consulting', excludeOutreach: true, search: 'Engineering' });
+    await service.getLeads(TENANT, ALL, { page: 3, limit: 50, origin: 'NEW', service: 'Consulting', excludeOutreach: true, search: 'Engineering' });
     expect(findMany.mock.calls[1]?.[0]).toMatchObject({ skip: 100, take: 50, where: { tenant_id: TENANT, primary_service: 'Consulting', AND: expect.any(Array), OR: expect.any(Array) } });
   });
 });
@@ -134,7 +136,7 @@ describe('CrmService.convertDealWon', () => {
 
   it('records a created client and invents no project or invoice number', async () => {
     const { service, activity, audit } = serviceWith(null);
-    const result = await service.convertDealWon(TENANT, LEAD);
+    const result = await service.convertDealWon(TENANT, ALL, LEAD);
 
     expect(result).toEqual({ clientId: expect.any(String), clientCode: expect.stringMatching(/^CL-\d{4}-\d{6}$/), clientCreated: true });
     const written = JSON.stringify([result, activity.mock.calls, audit.mock.calls]);
@@ -145,7 +147,7 @@ describe('CrmService.convertDealWon', () => {
 
   it('says the client was linked when it already existed', async () => {
     const { service, activity } = serviceWith({ id: 'existing', client_code: 'CL-2026-123456', company_name: 'Acme' });
-    const result = await service.convertDealWon(TENANT, LEAD);
+    const result = await service.convertDealWon(TENANT, ALL, LEAD);
 
     expect(result).toEqual({ clientId: 'existing', clientCode: 'CL-2026-123456', clientCreated: false });
     expect((activity.mock.calls[0]?.[0] as { data: { title: string } }).data.title).toBe('Deal won — client CL-2026-123456 linked');

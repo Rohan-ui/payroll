@@ -95,6 +95,7 @@ export const PERMISSIONS = [
   { key: 'pipelines.update', name: 'Add, edit, reorder and remove pipeline stages', section: 'crm', group: 'Sales Pipelines', nav: 'crm.pipeline' },
   { key: 'pipelines.delete', name: 'Delete pipelines', section: 'crm', group: 'Sales Pipelines', nav: 'crm.pipeline' },
   { key: 'leads.view', name: 'View leads and their activity', section: 'crm', group: 'Leads', nav: 'crm.leads' },
+  { key: 'leads.view_all', name: 'See every lead, including unassigned leads and other members\' leads', section: 'crm', group: 'Leads', nav: 'crm.leads' },
   { key: 'leads.create', name: 'Create and import leads', section: 'crm', group: 'Leads', nav: 'crm.leads' },
   { key: 'leads.update', name: 'Edit leads, log activity and mark deals won', section: 'crm', group: 'Leads', nav: 'crm.leads' },
   { key: 'leads.delete', name: 'Delete leads', section: 'crm', group: 'Leads', nav: 'crm.leads' },

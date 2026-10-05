@@ -10,8 +10,9 @@ import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/passw
 import { deleteCrmData } from './support/crm-cleanup';
 
 /**
- * Lead ownership over HTTP: assigned-lead counts per team member, the Lead
- * Management table (server-side filters, sort, paging), and bulk assignment,
+ * Lead ownership over HTTP, as members who see every lead (leads.view_all; what
+ * members without it see is in crm-lead-visibility.spec.ts): assigned-lead
+ * counts per team member, the Lead Management table (server-side filters, sort, paging), and bulk assignment,
  * which is all or nothing, only to eligible members of the same workspace,
  * and only for members allowed to edit leads.
  */
@@ -102,9 +103,9 @@ describe('CRM lead assignment', () => {
 
     await register(ravi, 'A');
     await register(other, 'B');
-    await addMember(neha, 'Neha Mishra', ['leads.view', 'leads.update']);
-    await addMember(sagar, 'Sagar Bhanushali', ['leads.view', 'leads.update']);
-    await addMember(viewer, 'Lead Viewer', ['leads.view']);
+    await addMember(neha, 'Neha Mishra', ['leads.view', 'leads.view_all', 'leads.update']);
+    await addMember(sagar, 'Sagar Bhanushali', ['leads.view', 'leads.view_all', 'leads.update']);
+    await addMember(viewer, 'Lead Viewer', ['leads.view', 'leads.view_all']);
     await addMember(accountant, 'Accountant', ['payslips.view']);
     await addMember(suspended, 'Away Member', ['leads.view', 'leads.update'], 'SUSPENDED');
 

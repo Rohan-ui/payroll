@@ -38,7 +38,8 @@ const date = (iso: string) => new Intl.DateTimeFormat('en-IN', { day: 'numeric',
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * CRM → Lead Management: every lead of the workspace in one table, searched,
+ * CRM → Lead Management: the leads this member may see (every lead of the
+ * workspace with leads.view_all, otherwise those assigned to them) in one table, searched,
  * filtered, sorted and paged by the server, with bulk assignment to a team
  * member. Assignment is all or nothing and checked by the server; the table
  * and the rest of the CRM reload from the server afterwards.
@@ -47,6 +48,8 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
   const ids = useId();
   const { can } = useAuth();
   const canAssign = can('leads.update');
+  // Without leads.view_all the server lists only the leads assigned to this member.
+  const seesAll = can('leads.view_all');
   const [query, setQuery] = useState<LeadQuery>(EMPTY_QUERY);
   const [searchText, setSearchText] = useState('');
   const [rows, setRows] = useState<ManagedLead[] | null>(null);
@@ -148,7 +151,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Lead Management</h2>
-          <p className="text-sm text-slate-500" role="status">{loading && rows === null ? 'Loading leads…' : `${plural(total, 'lead')}${filtered ? ' match these filters' : ' in this workspace'}`}</p>
+          <p className="text-sm text-slate-500" role="status">{loading && rows === null ? 'Loading leads…' : `${plural(total, 'lead')}${filtered ? ' match these filters' : seesAll ? ' in this workspace' : ' assigned to you'}`}</p>
         </div>
       </div>
 
@@ -158,11 +161,13 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
           <input id={`${ids}-search`} value={searchText} onChange={(e) => setSearchText(e.target.value)} maxLength={160} placeholder="Search name, company, email or phone" className={`${fieldClass} pl-9`} />
         </div>
-        <Filter id={`${ids}-assignee`} label="Assignee" value={query.assigneeId ?? ''} onChange={(v) => changeQuery({ assigneeId: v })}>
-          <option value="">All assignees</option>
-          <option value="unassigned">Unassigned</option>
-          {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </Filter>
+        {seesAll && (
+          <Filter id={`${ids}-assignee`} label="Assignee" value={query.assigneeId ?? ''} onChange={(v) => changeQuery({ assigneeId: v })}>
+            <option value="">All assignees</option>
+            <option value="unassigned">Unassigned</option>
+            {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Filter>
+        )}
         <Filter id={`${ids}-pipeline`} label="Pipeline" value={query.pipelineId ?? ''} onChange={(v) => changeQuery({ pipelineId: v, stageId: '' })}>
           <option value="">All pipelines</option>
           {filters.pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -195,7 +200,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
           </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setDialog('assign')} className={primaryClass}>Assign Leads</button>
-            <button type="button" onClick={() => setDialog('unassign')} className={actionClass}>Unassign</button>
+            {seesAll && <button type="button" onClick={() => setDialog('unassign')} className={actionClass}>Unassign</button>}
             <button type="button" onClick={() => setSelected(new Map())} className={actionClass}>Clear selection</button>
           </div>
         </div>
