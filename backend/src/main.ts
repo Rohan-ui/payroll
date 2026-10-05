@@ -4,10 +4,12 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { registerBodyParsers } from './common/http/body-parsers';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  registerBodyParsers(app);
 
   // The reverse proxy on this host (nginx) appends the caller's address to
   // X-Forwarded-For. Only a loopback peer is trusted to set it, so a caller

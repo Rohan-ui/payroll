@@ -1937,6 +1937,8 @@ model rndtechnosoft_crm_pipelines {
   tenant_id                String                     @db.Uuid
   name                     String                     @db.VarChar(120)
   code                     String                     @db.VarChar(64)
+  /// SALES (opportunities) or OUTREACH (Client Outreach cadence leads).
+  pipeline_kind            String                     @default("SALES") @db.VarChar(16)
   is_default               Boolean                    @default(false)
   sort_order               Int                        @default(0)
   is_active                Boolean                    @default(true)

@@ -309,7 +309,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
         is_active: 1
       });
     } else if (activeMasterTab === 'pipelines') {
-      setFormData({ name: '', code: '', is_default: 0, is_active: 1 });
+      setFormData({ name: '', code: '', pipeline_kind: 'SALES', is_default: 0, is_active: 1 });
     } else if (activeMasterTab === 'services') {
       setFormData({ name: '', category: 'IT & Software', sac_code: '998314', default_rate: 250000, is_active: 1 });
     } else if (activeMasterTab === 'lost_reasons') {
@@ -1287,6 +1287,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                 <th className="py-3 px-3 w-8"></th>
                 <th className="py-3 px-4">Pipeline Name</th>
                 <th className="py-3 px-4">Code</th>
+                <th className="py-3 px-4">Type</th>
                 <th className="py-3 px-4">Stages</th>
                 <th className="py-3 px-4">Deals</th>
                 <th className="py-3 px-4">Default</th>
@@ -1313,6 +1314,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 font-bold text-slate-800">{p.name}</td>
                   <td className="py-3 px-4 font-mono text-[11px] text-slate-500">{p.code}</td>
+                  <td className="py-3 px-4 text-slate-600">{p.pipeline_kind === 'OUTREACH' ? 'Client Outreach' : 'Sales'}</td>
                   <td className="py-3 px-4 text-slate-600">{p.stages_count || 0} stages</td>
                   <td className="py-3 px-4 font-semibold text-blue-700">{p.leads_count || 0} deals</td>
                   <td className="py-3 px-4">
@@ -2308,9 +2310,29 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       Leads converted from Client Outreach go to the pipeline with code <span className="font-mono">COLD_FUNNEL</span> by default.
                     </p>
                   </div>
+                  <div>
+                    <label htmlFor="pipeline-kind" className="block text-xs font-bold text-slate-700 mb-1">Type</label>
+                    <select
+                      id="pipeline-kind"
+                      value={formData.pipeline_kind || 'SALES'}
+                      disabled={Boolean(formData.id) && Number(formData.leads_count || 0) > 0}
+                      onChange={(e) => setFormData({ ...formData, pipeline_kind: e.target.value, ...(e.target.value === 'OUTREACH' ? { is_default: 0 } : {}) })}
+                      aria-describedby="pipeline-kind-hint"
+                      className="w-full px-3 py-2 text-xs border rounded-lg disabled:bg-slate-50"
+                    >
+                      <option value="SALES">Sales pipeline (opportunities)</option>
+                      <option value="OUTREACH">Client Outreach (leads in the outreach cadence)</option>
+                    </select>
+                    <p id="pipeline-kind-hint" className="mt-1 text-[11px] text-slate-500">
+                      {Boolean(formData.id) && Number(formData.leads_count || 0) > 0
+                        ? 'This pipeline has leads, so its type cannot change.'
+                        : 'Optional: imports into Client Outreach go to the 30-day SOP unless you choose a Client Outreach pipeline. A new Client Outreach pipeline gets one stage, "In cadence".'}
+                    </p>
+                  </div>
                   <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
                     <input
                       type="checkbox"
+                      disabled={formData.pipeline_kind === 'OUTREACH'}
                       checked={Boolean(Number(formData.is_default ?? 0))}
                       onChange={(e) => setFormData({ ...formData, is_default: e.target.checked ? 1 : 0 })}
                       className="rounded text-blue-600 focus:ring-blue-500"

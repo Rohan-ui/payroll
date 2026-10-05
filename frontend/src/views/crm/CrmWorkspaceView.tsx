@@ -286,6 +286,13 @@ function CRMEnterpriseContent() {
     fetchCRMData();
   }, []);
 
+  // Client Outreach pipelines hold leads working through the cadence; sales screens list sales pipelines only.
+  const salesPipelines = useMemo(() => pipelines.filter((p) => p.pipeline_kind !== 'OUTREACH'), [pipelines]);
+  const salesStages = useMemo(() => {
+    const ids = new Set(salesPipelines.map((p) => p.id));
+    return stages.filter((s) => ids.has(s.pipeline_id));
+  }, [stages, salesPipelines]);
+
   const boardLeads = useMemo(() => {
     const loaded = new Set(leads.map((l) => l.id));
     return [...convertedLeads.filter((l) => !loaded.has(l.id)), ...leads];
@@ -718,8 +725,8 @@ function CRMEnterpriseContent() {
         <SLeadCadenceCenter
           onSelectLead360={(leadId) => setSelectedLead360Id(leadId)}
           onRefreshParent={fetchCRMData}
-          pipelines={pipelines}
-          stages={stages}
+          pipelines={salesPipelines}
+          stages={salesStages}
           onNavigateToPipeline={() => handleTabChange('pipeline')}
           tenantName={tenantName}
           onLeadConverted={handleLeadConverted}
@@ -731,8 +738,8 @@ function CRMEnterpriseContent() {
         <LeadsDirectory
           serverPaged
           leads={boardLeads}
-          stages={stages}
-          pipelines={pipelines}
+          stages={salesStages}
+          pipelines={salesPipelines}
           sources={sources}
           services={services}
           salesPersons={salesPersons}
@@ -760,8 +767,8 @@ function CRMEnterpriseContent() {
         <PipelineKanban
           serverPaged
           leads={boardLeads}
-          stages={stages}
-          pipelines={pipelines}
+          stages={salesStages}
+          pipelines={salesPipelines}
           salesPersons={salesPersons}
           clients={clients}
           initialFilterStageId={kanbanInitialFilterStageId}
@@ -1008,8 +1015,8 @@ function CRMEnterpriseContent() {
         }}
         sources={sources}
         services={services}
-        pipelines={pipelines}
-        stages={stages}
+        pipelines={salesPipelines}
+        stages={salesStages}
         salesPersons={salesPersons}
         clients={clients}
       />

@@ -9,7 +9,7 @@ import {
   Globe, Smartphone, Layers, Server, TrendingUp, Palette, ShoppingBag,
   Code2, Cpu, Kanban, List, Snowflake, Download, Upload, Loader2
 } from 'lucide-react';
-import { ColdLeadImportModal } from './ColdLeadImportModal';
+import { LeadImportWizard } from './LeadImportWizard';
 import {
   useTenantIndustries,
   getIndustries,
@@ -1929,10 +1929,10 @@ export default function LeadsDirectory({
       )}
 
       {/* Interactive Cold Lead Import Modal */}
-      <ColdLeadImportModal
+      <LeadImportWizard
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onSuccess={() => onRefresh()}
+        onImported={() => onRefresh()}
       />
     </div>
   );

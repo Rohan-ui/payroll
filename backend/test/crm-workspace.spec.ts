@@ -541,7 +541,7 @@ describe('CRM & Sales in a tenant workspace', () => {
     it('goes to another pipeline when one is chosen, only an active pipeline of this workspace and one of its open stages', async () => {
       const five = await coldLead('five');
       for (const [label, extra, message] of [
-        ['other workspace pipeline', { pipelineId: conv.bFunnel }, /not an active pipeline in this workspace/],
+        ['other workspace pipeline', { pipelineId: conv.bFunnel }, /not an active sales pipeline in this workspace/],
         ['not an id', { pipelineId: 'sales' }, /Choose the pipeline/],
         ['Cold Funnel stage in Sales', { pipelineId: ids.pipeline, stageId: conv.qualified }, /not an open stage of the Sales pipeline/],
       ] as const) {

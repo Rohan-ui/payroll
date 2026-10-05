@@ -15,6 +15,8 @@ import {
 import { Response } from 'express';
 import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
+import { CrmLeadImportService } from './crm-lead-import.service';
+import { ImportLeadsDto } from './dto/lead-import.dto';
 import { AssignLeadsDto, LeadManagementQueryDto } from './dto/lead-management.dto';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
@@ -36,6 +38,7 @@ export class CrmController {
     private readonly crmService: CrmService,
     private readonly accessService: AccessService,
     private readonly assignments: CrmLeadAssignmentService,
+    private readonly leadImport: CrmLeadImportService,
   ) {}
 
   private collection<T>(result: { items: T[]; total: number; page: number; limit: number; totalPages: number; hasMore: boolean }) {
@@ -84,6 +87,17 @@ export class CrmController {
       'Expires': '0',
     });
     res.end(buffer);
+  }
+
+  /** The pipelines, stages and cadence the import screen offers, and whether this member may import into Client Outreach. */
+  @Get('leads/import/options')
+  @RequirePermissions('leads.create')
+  async leadImportOptions(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const [options, permissions] = await Promise.all([
+      this.leadImport.options(tenantId),
+      this.accessService.getMemberPermissions(tenantId, actor.tenantMemberId),
+    ]);
+    return { success: true, data: { ...options, canImportToOutreach: permissions.includes('outreach.create') } };
   }
 
   @Get('leads/export')
@@ -262,17 +276,34 @@ export class CrmController {
     return { success: true, data, message: 'Bulk action applied successfully' };
   }
 
+  /**
+   * Imports spreadsheet rows into the destination the person chose: Client
+   * Outreach (enrolled in the cadence; needs outreach.create too) or a sales
+   * pipeline. With dryRun, reports what would happen and saves nothing.
+   */
   @Post('leads/import')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('leads.create')
   async importLeads(
     @CurrentTenant() tenantId: string,
-    @Body() body: any,
+    @Body() body: ImportLeadsDto,
     @CurrentUser() actor: AuthenticatedTenantUser,
   ) {
-    const leads = body.leads || body;
-    const data = await this.crmService.importLeads(tenantId, leads, actor.tenantMemberId);
-    const skipped = data.skipped.length > 0 ? `; ${data.skipped.length} rows skipped` : '';
-    return { success: true, data, message: `Imported ${data.importedCount} leads${skipped}` };
+    if (body.destination === 'CLIENT_OUTREACH') {
+      await this.accessService.assertHoldsAll(
+        tenantId,
+        actor.tenantMemberId,
+        ['outreach.create'],
+        'You do not have permission to add leads to Client Outreach (requires outreach.create).',
+      );
+    }
+    const data = await this.leadImport.importLeads(tenantId, actor.tenantMemberId, body);
+    const { summary } = data;
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const message = data.dryRun
+      ? `${plural(summary.ready, 'row')} ready to import, ${plural(summary.duplicates, 'duplicate')}, ${plural(summary.failed, 'row')} with problems`
+      : `Imported ${plural(summary.imported, 'lead')}; ${plural(summary.duplicates, 'duplicate')} skipped; ${plural(summary.failed, 'row')} failed`;
+    return { success: true, data, message };
   }
 
   @Post('leads/:id/convert-won')
@@ -536,12 +567,13 @@ export class CrmController {
   // MASTERS & TAXONOMY
   // ==========================================
 
-  /** Only pipeline stages can be reordered, so this is a pipeline change. */
+  /** Only pipelines and their stages can be reordered, so this is a pipeline change. */
   @Post('masters/reorder')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('pipelines.update')
-  async reorderMasters(@CurrentTenant() tenantId: string, @Body() body: any) {
-    const data = await this.crmService.reorderMasters(tenantId, body);
-    return { success: true, data };
+  async reorderMasters(@CurrentTenant() tenantId: string, @Body() body: any, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const data = await this.crmService.reorderMasters(tenantId, body, actor.tenantMemberId);
+    return { success: true, data, message: 'New order saved' };
   }
 
   // Specific Industry Taxonomy endpoints

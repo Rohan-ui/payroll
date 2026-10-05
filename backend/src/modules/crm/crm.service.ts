@@ -7,8 +7,6 @@ import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import {
   SORTED_COUNTRY_CODES,
-  extractDialCode,
-  combinePhoneWithCountryCode,
   parsePhoneWithCountryCode,
 } from '@/common/utils/country-codes.util';
 import {
@@ -302,7 +300,7 @@ export class CrmService {
       this.prisma.rndtechnosoft_crm_leads.count({ where }),
       this.prisma.rndtechnosoft_crm_stages.findMany({
         where: { tenant_id: tenantId },
-        orderBy: { sort_order: 'asc' },
+        orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
       }),
       this.prisma.rndtechnosoft_crm_pipelines.findMany({
         where: { tenant_id: tenantId },
@@ -436,13 +434,13 @@ export class CrmService {
 
   /**
    * The pipeline and stage a new lead goes into: those requested, when they are
-   * this workspace's and the stage is in that pipeline, or the default pipeline's
-   * first stage. A workspace without one is told how to fix it.
+   * this workspace's and the stage is in that pipeline, or the default sales
+   * pipeline's first stage. A workspace without one is told how to fix it.
    */
   private async leadPlacement(tenantId: string, requestedPipelineId?: string, requestedStageId?: string) {
     const pipeline = requestedPipelineId
       ? await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId, id: requestedPipelineId }, select: { id: true } })
-      : await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId }, orderBy: { is_default: 'desc' }, select: { id: true } });
+      : await this.prisma.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId, pipeline_kind: 'SALES' }, orderBy: { is_default: 'desc' }, select: { id: true } });
     if (!pipeline) {
       throw new BadRequestException(
         requestedPipelineId ? 'That pipeline does not exist in this workspace.' : 'Create a sales pipeline with at least one stage (CRM Masters → Pipelines) before adding leads.',
@@ -478,7 +476,11 @@ export class CrmService {
     }
   }
 
-  async createLead(tenantId: string, data: any, memberId?: string) {
+  /**
+   * `outreachFunnel` names the Client Outreach pipeline a COLD lead is enrolled
+   * through; `createdVia` says where the lead came from in its activity log.
+   */
+  async createLead(tenantId: string, data: any, memberId?: string, options: { outreachFunnel?: string; createdVia?: string } = {}) {
     const leadId = randomUUID();
     const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
     const companyName = text(data.companyName ?? data.company_name);
@@ -504,7 +506,7 @@ export class CrmService {
       customAttributes = {
         ...(customAttributes || {}),
         cadence: {
-          funnelName: 'RND Gold Funnel',
+          funnelName: options.outreachFunnel ?? 'RND Gold Funnel',
           status: 'ACTIVE',
           industry: data.industry || 'general',
           enrolledAt: now.toISOString(),
@@ -533,6 +535,7 @@ export class CrmService {
         website_url: data.websiteUrl || data.website_url || null,
         linkedin_url: data.linkedinUrl || data.linkedin_url || null,
         linkedin_company_url: data.linkedinCompanyUrl || data.linkedin_company_url || null,
+        website_status: text(data.websiteStatus ?? data.website_status),
         city: data.city || null,
         state: data.state || null,
         address: data.address || null,
@@ -560,7 +563,7 @@ export class CrmService {
     }));
 
     // Record creation activity
-    await this.logActivity(tenantId, lead.id, 'NOTE', 'Lead Created', `Lead account created via CRM Workspace`, memberId);
+    await this.logActivity(tenantId, lead.id, 'NOTE', 'Lead Created', `Lead account created via ${options.createdVia ?? 'CRM Workspace'}`, memberId);
     await this.logAudit(tenantId, 'CREATE', 'LEAD', lead.id, { company_name: lead.company_name, lead_code: lead.lead_code }, memberId);
 
     return lead;
@@ -1192,117 +1195,9 @@ export class CrmService {
     return Buffer.from(buffer);
   }
 
-  async importLeads(tenantId: string, leads: any[], memberId?: string) {
-    if (!Array.isArray(leads) || leads.length === 0) {
-      return { importedCount: 0, successCount: 0, skipped: [] as { row: number; reason: string }[] };
-    }
-
-    const defaultPipe = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
-      where: { tenant_id: tenantId },
-      orderBy: { is_default: 'desc' },
-    });
-    const defaultStage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
-      where: { tenant_id: tenantId, pipeline_id: defaultPipe?.id },
-      orderBy: { sort_order: 'asc' },
-    });
-
-    let count = 0;
-    const skipped: { row: number; reason: string }[] = [];
-    for (const [index, item] of leads.entries()) {
-      const rowNumber = index + 1;
-      const companyName = String(
-        item.companyName || item['Company Name *'] || item['Company Name'] || item.company_name || ''
-      ).trim();
-      const firstName = String(
-        item.firstName || item['First Name *'] || item['First Name'] || item.first_name || ''
-      ).trim();
-      const lastName = String(
-        item.lastName || item['Last Name'] || item.last_name || ''
-      ).trim();
-      const email = String(
-        item.email || item['Email *'] || item['Email'] || ''
-      ).trim();
-      const secondaryEmail = String(
-        item.secondaryEmail || item['Secondary Email'] || item.secondary_email || item.alternate_email || ''
-      ).trim();
-
-      if (!companyName || !firstName || !email) {
-        skipped.push({ row: rowNumber, reason: 'Company name, first name and email are required.' });
-        continue;
-      }
-
-      const rawCountryCode = item.countryCode || item['Country Code *'] || item['Country Code'] || item.country_code || '+91';
-      const dialCode = extractDialCode(rawCountryCode, '+91');
-
-      let phone = String(item.phone || item['Phone'] || item['Phone Number'] || '').trim();
-      let alternatePhone = String(item.alternatePhone || item['Alternate Phone'] || item.alternate_phone || '').trim();
-      let whatsappNumber = String(item.whatsappNumber || item['WhatsApp Number'] || item.whatsapp_number || '').trim();
-
-      if (phone && !phone.startsWith('+')) {
-        phone = combinePhoneWithCountryCode(dialCode, phone);
-      }
-      if (alternatePhone && !alternatePhone.startsWith('+')) {
-        alternatePhone = combinePhoneWithCountryCode(dialCode, alternatePhone);
-      }
-      if (whatsappNumber && !whatsappNumber.startsWith('+')) {
-        whatsappNumber = combinePhoneWithCountryCode(dialCode, whatsappNumber);
-      } else if (!whatsappNumber && phone) {
-        whatsappNumber = phone;
-      }
-
-      const industry = String(item.industry || item['Industry *'] || item['Industry'] || '').trim();
-      const subIndustry = String(item.subIndustry || item['Sub Industry'] || item.sub_industry || '').trim();
-      const city = String(item.city || item['City'] || '').trim();
-      const state = String(item.state || item['State'] || '').trim();
-      const address = String(item.address || item['Address'] || '').trim();
-      const postalCode = String(item.pincode || item.postalCode || item['Pincode'] || '').trim();
-      const websiteUrl = String(item.websiteUrl || item['Website URL'] || item.website_url || '').trim();
-      const websiteStatus = String(item.websiteStatus || item['Website Status'] || item.website_status || 'ACTIVE').trim();
-      const linkedinUrl = String(item.personalLinkedInUrl || item['Personal LinkedIn URL'] || item.linkedin_url || '').trim();
-      const linkedinCompanyUrl = String(item.linkedinCompanyUrl || item['LinkedIn Company URL'] || item.linkedin_company_url || '').trim();
-      const designation = String(item.designation || item['Designation'] || '').trim();
-      const internalNotes = String(item.internalNotes || item['Internal Notes'] || item.internal_notes || '').trim();
-      const budgetAmount = Number(item.budgetAmount || item['Budget Amount'] || item.budget_amount) || 0;
-
-      try {
-        await this.createLead(
-        tenantId,
-        {
-          company_name: companyName,
-          first_name: firstName,
-          last_name: lastName || null,
-          email,
-          phone: phone || null,
-          whatsapp_number: whatsappNumber || phone || null,
-          designation: designation || null,
-          city: city || null,
-          state: state || null,
-          industry: industry || null,
-          sub_industry: subIndustry || null,
-          website_url: websiteUrl || null,
-          linkedin_url: linkedinUrl || null,
-          budget_amount: budgetAmount,
-          temperature: (item.temperature || 'COLD') as any,
-          pipeline_id: defaultPipe?.id,
-          stage_id: defaultStage?.id,
-        },
-        memberId,
-        );
-        count++;
-      } catch (error) {
-        // One bad row does not stop the import; it is reported instead.
-        if (!(error instanceof BadRequestException)) throw error;
-        skipped.push({ row: rowNumber, reason: error.message });
-      }
-    }
-
-    await this.logAudit(tenantId, 'IMPORT_LEADS', 'LEAD', tenantId, { importedCount: count, skippedCount: skipped.length }, memberId);
-    return { importedCount: count, successCount: count, skipped };
-  }
-
   async handleInboundWebhook(tenantId: string, payload: any) {
     const defaultPipe = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
-      where: { tenant_id: tenantId },
+      where: { tenant_id: tenantId, pipeline_kind: 'SALES' },
       orderBy: { is_default: 'desc' },
     });
     const defaultStage = await this.prisma.rndtechnosoft_crm_stages.findFirst({
@@ -1799,14 +1694,14 @@ export class CrmService {
     // The chosen active pipeline of this workspace; otherwise the Cold Funnel, never some other pipeline silently.
     const pipeline = await this.prisma.rndtechnosoft_crm_pipelines.findFirst({
       where: chosenPipelineId
-        ? { tenant_id: tenantId, id: chosenPipelineId, is_active: true }
+        ? { tenant_id: tenantId, id: chosenPipelineId, is_active: true, pipeline_kind: 'SALES' }
         : // Case-insensitive: CRM Masters stores a code as typed.
-          { tenant_id: tenantId, code: { equals: COLD_FUNNEL_PIPELINE_CODE, mode: 'insensitive' }, is_active: true },
+          { tenant_id: tenantId, code: { equals: COLD_FUNNEL_PIPELINE_CODE, mode: 'insensitive' }, is_active: true, pipeline_kind: 'SALES' },
       orderBy: { created_at: 'asc' },
       select: { id: true, name: true },
     });
     if (!pipeline && chosenPipelineId) {
-      throw new BadRequestException('That pipeline is not an active pipeline in this workspace. Choose another pipeline and convert again.');
+      throw new BadRequestException('That pipeline is not an active sales pipeline in this workspace. Choose another pipeline and convert again.');
     }
     if (!pipeline) {
       throw new BadRequestException(
@@ -2838,7 +2733,7 @@ export class CrmService {
     if (type === 'stages') {
       return this.prisma.rndtechnosoft_crm_stages.findMany({
         where: { tenant_id: tenantId },
-        orderBy: { sort_order: 'asc' },
+        orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
       });
     }
 
@@ -2986,14 +2881,27 @@ export class CrmService {
     }
 
     if (type === 'pipelines') {
-      return this.prisma.rndtechnosoft_crm_pipelines.create({
-        data: {
-          id: randomUUID(),
-          tenant_id: tenantId,
-          name: body.name,
-          code: body.code || body.name.toUpperCase().replace(/\s+/g, '_'),
-          is_default: Boolean(body.is_default),
-        },
+      const kind = CrmService.pipelineKind(body.pipeline_kind) ?? 'SALES';
+      const isDefault = Boolean(body.is_default);
+      if (kind === 'OUTREACH' && isDefault) throw new BadRequestException(CrmService.OUTREACH_NOT_DEFAULT);
+      return this.prisma.$transaction(async (tx) => {
+        const pipeline = await tx.rndtechnosoft_crm_pipelines.create({
+          data: {
+            id: randomUUID(),
+            tenant_id: tenantId,
+            name: body.name,
+            code: body.code || body.name.toUpperCase().replace(/\s+/g, '_'),
+            pipeline_kind: kind,
+            is_default: isDefault,
+          },
+        });
+        // Outreach leads move through the cadence, not stages; they wait in this one stage until converted.
+        if (kind === 'OUTREACH') {
+          await tx.rndtechnosoft_crm_stages.create({
+            data: { id: randomUUID(), tenant_id: tenantId, pipeline_id: pipeline.id, name: 'In cadence', sort_order: 1 },
+          });
+        }
+        return pipeline;
       });
     }
 
@@ -3113,10 +3021,22 @@ export class CrmService {
     return { success: true };
   }
 
+  private static readonly OUTREACH_NOT_DEFAULT =
+    'A Client Outreach pipeline cannot be the default pipeline: new leads without a pipeline go to the default, which must be a sales pipeline.';
+
+  /** A pipeline type sent by CRM Masters; undefined when none was sent. */
+  private static pipelineKind(value: unknown): 'SALES' | 'OUTREACH' | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (value === 'SALES' || value === 'OUTREACH') return value;
+    throw new BadRequestException('Choose whether the pipeline is a sales pipeline or a Client Outreach pipeline.');
+  }
+
   /**
-   * Renames a pipeline or changes its code, default flag or active flag. Codes
+   * Renames a pipeline or changes its code, type, default flag or active flag. Codes
    * are unique in a workspace regardless of case (the Cold Funnel is found by
-   * code that way), and one pipeline at most is the default.
+   * code that way), and one pipeline at most is the default. A pipeline's type
+   * changes only while it has no leads, and an outreach pipeline is never the
+   * default.
    */
   private async updatePipeline(tenantId: string, id: unknown, body: any) {
     const gone = new NotFoundException('That pipeline no longer exists. Reload the page.');
@@ -3129,8 +3049,16 @@ export class CrmService {
     if (code.length > 64) throw new BadRequestException('The pipeline code must be 64 characters or fewer.');
 
     return this.prisma.$transaction(async (tx) => {
-      const pipeline = await tx.rndtechnosoft_crm_pipelines.findFirst({ where: { tenant_id: tenantId, id }, select: { id: true } });
+      const pipeline = await tx.rndtechnosoft_crm_pipelines.findFirst({
+        where: { tenant_id: tenantId, id },
+        select: { id: true, name: true, pipeline_kind: true, is_default: true, _count: { select: { rndtechnosoft_crm_leads: true } } },
+      });
       if (!pipeline) throw gone;
+      const kind = CrmService.pipelineKind(body.pipeline_kind);
+      if (kind && kind !== pipeline.pipeline_kind && pipeline._count.rndtechnosoft_crm_leads > 0) {
+        const leads = pipeline._count.rndtechnosoft_crm_leads;
+        throw new ConflictException(`The "${pipeline.name}" pipeline has ${leads} lead${leads === 1 ? '' : 's'}, so its type cannot change. Create a new pipeline of the other type instead.`);
+      }
       const clash = await tx.rndtechnosoft_crm_pipelines.findFirst({
         where: { tenant_id: tenantId, code: { equals: code, mode: 'insensitive' }, NOT: { id } },
         select: { name: true },
@@ -3138,6 +3066,9 @@ export class CrmService {
       if (clash) throw new ConflictException(`The "${clash.name}" pipeline already uses the code ${code}. Choose another code.`);
 
       const isDefault = body.is_default !== undefined ? Boolean(Number(body.is_default)) : undefined;
+      if ((kind ?? pipeline.pipeline_kind) === 'OUTREACH' && (isDefault ?? pipeline.is_default)) {
+        throw new BadRequestException(CrmService.OUTREACH_NOT_DEFAULT);
+      }
       if (isDefault) {
         await tx.rndtechnosoft_crm_pipelines.updateMany({ where: { tenant_id: tenantId, is_default: true, NOT: { id } }, data: { is_default: false } });
       }
@@ -3146,6 +3077,7 @@ export class CrmService {
         data: {
           name,
           code,
+          ...(kind ? { pipeline_kind: kind } : {}),
           ...(isDefault !== undefined ? { is_default: isDefault } : {}),
           ...(body.is_active !== undefined ? { is_active: Boolean(Number(body.is_active)) } : {}),
           updated_at: new Date(),
@@ -3236,20 +3168,33 @@ export class CrmService {
     return { success: true };
   }
 
-  async reorderMasters(tenantId: string, body: any) {
-    const { type, items } = body;
-    if (Array.isArray(items)) {
-      for (const item of items) {
-        if (type === 'stages' && item.id) {
-          // Ids outside this tenant match nothing and are left untouched.
-          await this.prisma.rndtechnosoft_crm_stages.updateMany({
-            where: { tenant_id: tenantId, id: item.id },
-            data: { sort_order: item.sort_order ?? item.sortOrder ?? 0 },
-          });
-        }
-      }
+  /**
+   * Saves the order CRM Masters shows after a drag: pipeline stages (the sales
+   * board's columns) or pipelines, numbered 1, 2, 3… in the order sent. All or
+   * nothing, and only records of this workspace; any other list is refused
+   * rather than reported as saved.
+   */
+  async reorderMasters(tenantId: string, body: any, memberId?: string) {
+    const type = body?.masterType;
+    const ids: unknown = body?.orderedIds;
+    if (type !== 'stages' && type !== 'pipelines') throw new BadRequestException('Only pipelines and pipeline stages can be reordered.');
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500 || !ids.every((id) => typeof id === 'string' && CrmService.UUID_PATTERN.test(id)) || new Set(ids).size !== ids.length) {
+      throw new BadRequestException('The new order could not be read. Reload the page and try again.');
     }
-    return { success: true };
+    const orderedIds = ids as string[];
+    const stale = new BadRequestException('Some of these records no longer exist. Reload the page and try again.');
+    await this.prisma.$transaction(async (tx) => {
+      const where = { tenant_id: tenantId, id: { in: orderedIds } };
+      const found = type === 'stages' ? await tx.rndtechnosoft_crm_stages.count({ where }) : await tx.rndtechnosoft_crm_pipelines.count({ where });
+      if (found !== orderedIds.length) throw stale;
+      for (const [index, id] of orderedIds.entries()) {
+        const data = { sort_order: index + 1, updated_at: new Date() };
+        if (type === 'stages') await tx.rndtechnosoft_crm_stages.update({ where: { tenant_id_id: { tenant_id: tenantId, id } }, data });
+        else await tx.rndtechnosoft_crm_pipelines.update({ where: { tenant_id_id: { tenant_id: tenantId, id } }, data });
+      }
+    });
+    await this.logAudit(tenantId, 'REORDER', type === 'stages' ? 'PIPELINE_STAGE' : 'PIPELINE', tenantId, { ordered_ids: orderedIds }, memberId);
+    return { saved: orderedIds.length };
   }
 
   // ==========================================

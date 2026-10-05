@@ -67,6 +67,8 @@ interface FunnelPipeline extends PipelineLike {
   name: string;
   code?: string | null;
   is_active?: boolean | null;
+  /** OUTREACH pipelines hold Client Outreach leads; a conversion goes to a SALES one. */
+  pipeline_kind?: string | null;
 }
 
 interface FunnelStage {
@@ -79,7 +81,7 @@ interface FunnelStage {
 }
 
 /**
- * Where a converted outreach lead will go: the chosen active pipeline, else the
+ * Where a converted outreach lead will go: the chosen active sales pipeline, else the
  * Cold Funnel; and the chosen open stage of it, else its first open stage by
  * order. The server checks the same. `pipeline` is null when nothing is chosen
  * and there is no Cold Funnel; `stage` is null when the pipeline has no open stage.
@@ -90,7 +92,7 @@ export function conversionDestination(
   chosen: { pipelineId?: string; stageId?: string } = {},
 ) {
   const activePipelines = pipelines
-    .filter((p) => p.is_active !== false)
+    .filter((p) => p.is_active !== false && p.pipeline_kind !== 'OUTREACH')
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((p) => ({ id: p.id, name: p.name, isColdFunnel: p.code?.toUpperCase() === COLD_FUNNEL_PIPELINE_CODE }));
   const pipeline = activePipelines.find((p) => p.id === chosen.pipelineId) ?? activePipelines.find((p) => p.isColdFunnel) ?? null;

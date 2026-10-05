@@ -110,6 +110,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = HttpStatus.BAD_REQUEST;
       message = 'The request was not valid.';
       this.logger.error(`Prisma validation error on ${request.method} ${request.url}`);
+    } else if ((exception as { type?: unknown } | null)?.type === 'entity.too.large') {
+      // A request body over the parser's size limit.
+      status = HttpStatus.PAYLOAD_TOO_LARGE;
+      message = 'The request is too large. Send less data at a time.';
     } else {
       this.logger.error('Unhandled exception:', exception);
     }

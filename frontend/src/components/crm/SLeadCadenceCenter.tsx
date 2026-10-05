@@ -26,7 +26,7 @@ import {
   getSubIndustryLabel, 
   useTenantIndustries 
 } from '@/lib/industryTaxonomy';
-import { ColdLeadImportModal } from './ColdLeadImportModal';
+import { LeadImportWizard } from './LeadImportWizard';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
@@ -2064,10 +2064,10 @@ export default function SLeadCadenceCenter({
         </div>
       )}
       
-      <ColdLeadImportModal 
-        isOpen={isImportModalOpen} 
-        onClose={() => setIsImportModalOpen(false)} 
-        onSuccess={() => {
+      <LeadImportWizard
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImported={() => {
           fetchCadenceData();
           if (onRefreshParent) onRefreshParent();
         }}

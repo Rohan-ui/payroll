@@ -119,3 +119,51 @@ it('edits a pipeline (name, code, default) and moves a stage to another pipeline
   container.remove();
   vi.unstubAllGlobals();
 });
+
+it('saves stages in the order they are dragged to, then refreshes the sales pipeline', async () => {
+  const stages = [
+    { id: 's-new', pipeline_id: 'p-sales', name: 'New', sort_order: 1 },
+    { id: 's-contacted', pipeline_id: 'p-sales', name: 'Contacted', sort_order: 2 },
+    { id: 's-proposal', pipeline_id: 'p-sales', name: 'Proposal', sort_order: 3 },
+  ];
+  const posts: { url: string; body: any }[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      if ((init.method ?? 'GET') === 'POST') {
+        posts.push({ url, body: JSON.parse(String(init.body)) });
+        return new Response(JSON.stringify({ success: true, data: { saved: 3 }, message: 'New order saved' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const data = url.endsWith('/masters/pipelines') ? PIPELINES : url.endsWith('/masters/stages') ? stages : [];
+      return new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }),
+  );
+  const refreshSalesPipeline = vi.fn();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const settle = () => act(async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
+  await act(async () => root.render(<CRMMastersManager onRefreshParent={refreshSalesPipeline} />));
+  await settle();
+  act(() => ([...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Pipeline Stages')) as HTMLButtonElement).click());
+
+  const drag = (row: Element, type: string) =>
+    act(() => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: { setData: () => undefined, effectAllowed: '', dropEffect: '' } });
+      row.dispatchEvent(event);
+    });
+  const rows = () => [...container.querySelectorAll('tbody tr')];
+  drag(rows()[2], 'dragstart');
+  drag(rows()[0], 'dragover');
+  await act(async () => drag(rows()[0], 'drop'));
+  await settle();
+
+  expect(rows().map((r) => r.querySelector('td:nth-child(2)')?.textContent?.trim())).toEqual(['Proposal', 'New', 'Contacted']);
+  expect(posts).toEqual([{ url: '/api/v1/crm/masters/reorder', body: { masterType: 'stages', orderedIds: ['s-proposal', 's-new', 's-contacted'] } }]);
+  expect(refreshSalesPipeline).toHaveBeenCalledTimes(1);
+
+  act(() => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+});

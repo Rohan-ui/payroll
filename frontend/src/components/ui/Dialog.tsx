@@ -9,7 +9,7 @@ interface DialogProps {
   children: React.ReactNode;
   /** Buttons along the bottom. */
   footer?: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
 /**
@@ -49,7 +49,7 @@ export const Dialog: React.FC<DialogProps> = ({ title, description, onClose, chi
         onClick={(event) => event.stopPropagation()}
         className={cn(
           'w-full max-h-[90vh] flex flex-col rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] shadow-2xl focus:outline-none',
-          size === 'sm' ? 'max-w-md' : size === 'lg' ? 'max-w-3xl' : 'max-w-xl',
+          size === 'sm' ? 'max-w-md' : size === 'lg' ? 'max-w-3xl' : size === 'xl' ? 'max-w-5xl' : 'max-w-xl',
         )}
       >
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-[#2B293E]">
