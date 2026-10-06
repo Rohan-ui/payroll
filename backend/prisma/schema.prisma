@@ -2576,6 +2576,8 @@ model rndtechnosoft_document_template_versions {
   version_number               Int
   title                        String    @db.VarChar(200)
   body                         String    @db.Text
+  /// The formatted letter (editor document JSON), the version's source of truth when present; title and body then hold its plain text. Null: a plain-text version from before formatting.
+  body_document                Json?     @db.JsonB
   version_status               String    @default("DRAFT") @db.VarChar(16)
   created_by_tenant_member_id  String?   @db.Uuid
   approved_by_tenant_member_id String?   @db.Uuid
@@ -2621,6 +2623,8 @@ model rndtechnosoft_offers {
   submission_number             Int       @default(0)
   rendered_title                String?   @db.VarChar(200)
   rendered_body                 String?   @db.Text
+  /// The formatted letter with its values filled, fixed with rendered_body when the offer is submitted; null for letters from plain-text templates.
+  rendered_document             Json?     @db.JsonB
   pdf_storage_key               String?   @db.VarChar(500)
   pdf_sha256                    String?   @db.Char(64)
   response_token_hash           String?   @unique(map: "uq_offers_response_token") @db.Char(64)
@@ -2758,6 +2762,22 @@ model rndtechnosoft_letterheads {
   footer_image_storage_key    String?  @db.VarChar(500)
   header_height_mm            Int      @default(30)
   footer_height_mm            Int      @default(16)
+  /// Image boxes set in the visual editor, in mm from the header/footer area's top-left; none: the automatic layout.
+  logo_x_mm                   Decimal? @db.Decimal(6, 1)
+  logo_y_mm                   Decimal? @db.Decimal(6, 1)
+  logo_width_mm               Decimal? @db.Decimal(6, 1)
+  logo_height_mm              Decimal? @db.Decimal(6, 1)
+  logo_stretch                Boolean  @default(false)
+  header_art_x_mm             Decimal? @db.Decimal(6, 1)
+  header_art_y_mm             Decimal? @db.Decimal(6, 1)
+  header_art_width_mm         Decimal? @db.Decimal(6, 1)
+  header_art_height_mm        Decimal? @db.Decimal(6, 1)
+  header_art_stretch          Boolean  @default(false)
+  footer_art_x_mm             Decimal? @db.Decimal(6, 1)
+  footer_art_y_mm             Decimal? @db.Decimal(6, 1)
+  footer_art_width_mm         Decimal? @db.Decimal(6, 1)
+  footer_art_height_mm        Decimal? @db.Decimal(6, 1)
+  footer_art_stretch          Boolean  @default(false)
   is_default                  Boolean  @default(false)
   is_archived                 Boolean  @default(false)
   created_by_tenant_member_id String?  @db.Uuid

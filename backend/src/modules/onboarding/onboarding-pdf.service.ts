@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as pdfkit from 'pdfkit';
+import { DocNode } from './rich-document';
+import { drawDocument, LayoutDoc } from './rich-pdf-layout';
 
 // pdfkit is a CommonJS class export: the build (CommonJS) gets it directly, the ES-module test runner as `default`.
 const PDFDocument = ((pdfkit as unknown as { default?: unknown }).default ?? pdfkit) as unknown as typeof import('pdfkit');
@@ -11,11 +13,44 @@ export interface LetterPdf {
   dateText: string;
   title: string;
   body: string;
+  /**
+   * The formatted letter (placeholders filled). When given it is the whole
+   * letter, drawn as formatted in place of the heading and text above (which
+   * then only name the file), and the reference and date are wherever it puts them.
+   */
+  document?: DocNode;
   /** An optional table of amounts, such as the offered pay. */
   table?: { heading: string; rows: [string, string][]; total?: [string, string] };
   footer?: string;
   /** Printed faintly across every page, for samples and previews that are not the final document. */
   watermark?: string;
+}
+
+/**
+ * Where an image sits, set in the letterhead editor: millimetres from the
+ * top-left corner of the header (or footer) area, which starts at the page
+ * margins. `stretch` fills the box exactly; otherwise the image keeps its
+ * proportions inside it.
+ */
+export interface ImageBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  stretch: boolean;
+}
+
+/**
+ * A box placed in an area (both in points): where the editor put it, kept
+ * inside the area: moved back in if it would run past an edge, and no larger
+ * than the area. The editor applies the same rule, so what it shows is what prints.
+ */
+export function placeBox(box: ImageBox, area: { left: number; top: number; width: number; height: number }) {
+  const width = Math.min(box.width * MM, area.width);
+  const height = Math.min(box.height * MM, area.height);
+  const left = Math.min(Math.max(area.left, area.left + box.x * MM), area.left + area.width - width);
+  const top = Math.min(Math.max(area.top, area.top + box.y * MM), area.top + area.height - height);
+  return { left, top, width, height };
 }
 
 /** A letterhead ready to draw: its details and the bytes of its images. */
@@ -33,6 +68,10 @@ export interface PdfLetterhead {
   footerImage: Buffer | null;
   headerHeightMm: number;
   footerHeightMm: number;
+  /** Boxes set in the editor; none (or absent): the automatic layout. */
+  logoBox?: ImageBox | null;
+  headerArtBox?: ImageBox | null;
+  footerArtBox?: ImageBox | null;
 }
 
 export interface PdfLayout {
@@ -110,26 +149,33 @@ export class OnboardingPdfService {
       if (doc.y + height > bottom() && height <= usable()) doc.addPage();
     };
 
-    if (!letterhead) doc.font('Helvetica-Bold').fontSize(15).text(pdfSafe(letter.companyName), margin, doc.y, { width }).moveDown(0.3);
-    doc.font('Helvetica').fontSize(9).fillColor(GREY).text(`Ref: ${letter.reference}    Date: ${letter.dateText}`, margin, doc.y, { width });
-    doc.moveDown(1.2).fillColor('#000000').font('Helvetica-Bold').fontSize(13);
-    const title = pdfSafe(letter.title);
-    keepTogether(doc.heightOfString(title, { width }) + 40);
-    doc.text(title, margin, doc.y, { width });
-    doc.moveDown(0.8).font('Helvetica').fontSize(10.5);
-    for (const paragraph of pdfSafe(letter.body).split(/\n\s*\n/)) {
-      const text = paragraph.trim();
-      if (!text) continue;
-      const height = doc.heightOfString(text, { width, lineGap: 2 });
-      // Short blocks (a signature, a clause) stay whole; long ones flow across pages.
-      if (height <= usable() * 0.5) keepTogether(height);
-      doc.text(text, margin, doc.y, { width, align: 'left', lineGap: 2 });
-      doc.moveDown(0.7);
+    const table = letter.table;
+    if (letter.document) {
+      drawDocument(doc as unknown as LayoutDoc, letter.document, { left: margin, width, table: table ? () => this.table(doc, table, margin, width, keepTogether) : undefined }, pdfSafe);
+      // A letter that doesn't place the pay table gets it at the end, as before.
+      if (table && !letter.document.content?.some((n) => n.type === 'compensationTable')) this.table(doc, table, margin, width, keepTogether);
+    } else {
+      if (!letterhead) doc.font('Helvetica-Bold').fontSize(15).text(pdfSafe(letter.companyName), margin, doc.y, { width }).moveDown(0.3);
+      doc.font('Helvetica').fontSize(9).fillColor(GREY).text(`Ref: ${letter.reference}    Date: ${letter.dateText}`, margin, doc.y, { width });
+      doc.moveDown(1.2).fillColor('#000000').font('Helvetica-Bold').fontSize(13);
+      const title = pdfSafe(letter.title);
+      keepTogether(doc.heightOfString(title, { width }) + 40);
+      doc.text(title, margin, doc.y, { width });
+      doc.moveDown(0.8).font('Helvetica').fontSize(10.5);
+      for (const paragraph of pdfSafe(letter.body).split(/\n\s*\n/)) {
+        const text = paragraph.trim();
+        if (!text) continue;
+        const height = doc.heightOfString(text, { width, lineGap: 2 });
+        // Short blocks (a signature, a clause) stay whole; long ones flow across pages.
+        if (height <= usable() * 0.5) keepTogether(height);
+        doc.text(text, margin, doc.y, { width, align: 'left', lineGap: 2 });
+        doc.moveDown(0.7);
+      }
+      if (table) this.table(doc, table, margin, width, keepTogether);
     }
 
-    if (letter.table) this.table(doc, letter.table, margin, width, keepTogether);
-
     if (letter.footer) {
+      doc.x = margin;
       doc.moveDown(1.5).font('Helvetica').fontSize(8.5).fillColor(GREY);
       const note = pdfSafe(letter.footer);
       keepTogether(doc.heightOfString(note, { width }));
@@ -197,10 +243,21 @@ export class OnboardingPdfService {
     doc.x = margin;
   }
 
+  /** An image in its editor box within an area: stretched to fill it, or kept in proportion and centred in it. */
+  private placed(doc: Doc, image: Buffer, box: ImageBox, area: { left: number; top: number; width: number; height: number }) {
+    const rect = placeBox(box, area);
+    if (box.stretch) doc.image(image, rect.left, rect.top, { width: rect.width, height: rect.height });
+    else doc.image(image, rect.left, rect.top, { fit: [rect.width, rect.height], align: 'center', valign: 'center' });
+    return rect;
+  }
+
   /** The letterhead's top: its artwork, or the logo with the company's name, address and contacts. */
   private header(doc: Doc, letterhead: PdfLetterhead, margin: number, width: number, height: number) {
     const top = margin;
-    if (letterhead.headerImage) {
+    const area = { left: margin, top, width, height };
+    if (letterhead.headerImage && letterhead.headerArtBox) {
+      this.placed(doc, letterhead.headerImage, letterhead.headerArtBox, area);
+    } else if (letterhead.headerImage) {
       // fit keeps the image's proportions inside the header area.
       doc.image(letterhead.headerImage, margin, top, { fit: [width, height], align: 'center', valign: 'center' });
     } else {
@@ -217,7 +274,20 @@ export class OnboardingPdfService {
       let textWidth = width;
       let textTop = top;
       let align: 'left' | 'right' | 'center' = 'left';
-      if (letterhead.logo) {
+      if (letterhead.logo && letterhead.logoBox) {
+        // The logo where the editor put it; the details take the space beside (or, centred, below) it.
+        const rect = this.placed(doc, letterhead.logo, letterhead.logoBox, area);
+        if (centered) {
+          textTop = rect.top + rect.height + 4;
+          align = 'center';
+        } else if (letterhead.logoPosition === 'LEFT') {
+          textX = rect.left + rect.width + 12;
+          textWidth = Math.max(40, margin + width - textX);
+          align = 'right';
+        } else {
+          textWidth = Math.max(40, rect.left - 12 - margin);
+        }
+      } else if (letterhead.logo) {
         if (centered) {
           doc.image(letterhead.logo, margin + (width - logoWidth) / 2, top, { fit: [logoWidth, logoHeight], align: 'center', valign: 'center' });
           textTop = top + logoHeight + 4;
@@ -252,6 +322,10 @@ export class OnboardingPdfService {
   private footer(doc: Doc, letterhead: PdfLetterhead, margin: number, width: number, height: number) {
     const top = doc.page.height - margin - height;
     doc.moveTo(margin, top).lineTo(margin + width, top).strokeColor('#CCCCCC').lineWidth(0.5).stroke();
+    if (letterhead.footerImage && letterhead.footerArtBox) {
+      this.placed(doc, letterhead.footerImage, letterhead.footerArtBox, { left: margin, top, width, height });
+      return;
+    }
     if (letterhead.footerImage) {
       doc.image(letterhead.footerImage, margin, top + 3, { fit: [width, height - 3], align: 'center', valign: 'center' });
       return;

@@ -7,6 +7,21 @@ import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.
 import { AVAILABLE_TEMPLATE_KINDS, PLACEHOLDERS, renderTemplate, SAMPLE_OFFER_TABLE, sampleValues, templateProblem, TemplateKind, TEMPLATE_KINDS } from './document-templates';
 import { LetterheadsService } from './letterheads.service';
 import { OnboardingPdfService, PdfLetterhead } from './onboarding-pdf.service';
+import { defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, FONT_FAMILIES, FONT_SIZE_RANGE, legacyDocument, parseDocument } from './rich-document';
+
+/** A letter as sent by the editor: a formatted document, or (from before formatting) a heading and plain text. */
+export interface ContentInput {
+  title?: string;
+  body?: string;
+  document?: Record<string, unknown>;
+}
+
+/** What the editor needs to show documents as they print: the fonts it may offer and how unformatted text looks. */
+const DOCUMENT_FORMAT = {
+  style: DOCUMENT_STYLE,
+  fonts: Object.entries(FONT_FAMILIES).map(([key, f]) => ({ key, label: f.label, css: f.css })),
+  fontSizes: { ...FONT_SIZE_RANGE, presets: [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36, 40, 48] },
+};
 
 /** A version's page layout as sent by the editor; a field left out is kept as it is. */
 export interface LayoutInput {
@@ -80,12 +95,16 @@ export class TemplatesService {
       name: row.template_name,
       isArchived: row.is_archived,
       placeholders: PLACEHOLDERS[row.template_kind as TemplateKind].map(({ key, description }) => ({ key, description })),
+      format: DOCUMENT_FORMAT,
       versions: row.rndtechnosoft_document_template_versions.map((v) => ({
         id: v.id,
         number: v.version_number,
         status: v.version_status,
         title: v.title,
         body: v.body,
+        /** FORMATTED: made in the document editor. PLAIN: plain text from before, shown converted and printed as it always was. */
+        format: v.body_document ? 'FORMATTED' : 'PLAIN',
+        document: (v.body_document as unknown as DocNode | null) ?? legacyDocument(row.template_kind as TemplateKind, v.title, v.body),
         createdBy: nameOf(v.created_by),
         approvedBy: nameOf(v.approved_by),
         approvedAt: v.approved_at,
@@ -102,12 +121,13 @@ export class TemplatesService {
     };
   }
 
-  async create(tenantId: string, input: { kind: string; name: string; title: string; body: string } & LayoutInput, actor: AuthenticatedTenantUser) {
+  async create(tenantId: string, input: { kind: string; name: string } & ContentInput & LayoutInput, actor: AuthenticatedTenantUser) {
     if (!(AVAILABLE_TEMPLATE_KINDS as readonly string[]).includes(input.kind)) throw new BadRequestException('Only offer letter templates can be created for now.');
     const kind = input.kind as TemplateKind;
     const name = input.name.trim();
     if (!name) throw new BadRequestException('Enter a template name.');
-    this.assertUsable(kind, input.title, input.body);
+    // Without wording, a template starts from the standard letter.
+    const content = this.content(kind, input.document || input.title || input.body ? input : { document: defaultDocument(kind) as unknown as Record<string, unknown> });
     const layout = await this.layoutColumns(tenantId, DEFAULT_LAYOUT, input);
     const templateId = randomUUID();
     try {
@@ -116,7 +136,7 @@ export class TemplatesService {
           data: { id: templateId, tenant_id: tenantId, template_kind: kind, template_name: name, created_by_tenant_member_id: actor.tenantMemberId },
         });
         await tx.rndtechnosoft_document_template_versions.create({
-          data: { id: randomUUID(), tenant_id: tenantId, template_id: templateId, version_number: 1, title: input.title.trim(), body: input.body, ...layout, created_by_tenant_member_id: actor.tenantMemberId },
+          data: { id: randomUUID(), tenant_id: tenantId, template_id: templateId, version_number: 1, ...content, ...layout, created_by_tenant_member_id: actor.tenantMemberId },
         });
       });
     } catch (error) {
@@ -127,16 +147,16 @@ export class TemplatesService {
   }
 
   /** Saves the draft wording, starting a new draft (the next version) when there is none. */
-  async saveDraft(tenantId: string, templateId: string, input: { title: string; body: string } & LayoutInput, actor: AuthenticatedTenantUser) {
+  async saveDraft(tenantId: string, templateId: string, input: ContentInput & LayoutInput, actor: AuthenticatedTenantUser) {
     const template = await this.get(tenantId, templateId);
     if (template.isArchived) throw new ConflictException('Restore the template before editing it.');
-    this.assertUsable(template.kind as TemplateKind, input.title, input.body);
+    const content = this.content(template.kind as TemplateKind, input);
     await this.prisma.$transaction(async (tx) => {
       await this.lockTemplate(tx, tenantId, templateId);
       const draft = await tx.rndtechnosoft_document_template_versions.findFirst({ where: { tenant_id: tenantId, template_id: templateId, version_status: 'DRAFT' } });
       if (draft) {
         const layout = await this.layoutColumns(tenantId, draft, input);
-        await tx.rndtechnosoft_document_template_versions.update({ where: { id: draft.id }, data: { title: input.title.trim(), body: input.body, ...layout, updated_at: new Date() } });
+        await tx.rndtechnosoft_document_template_versions.update({ where: { id: draft.id }, data: { ...content, ...layout, updated_at: new Date() } });
         return;
       }
       // A new draft starts from the layout of the latest version.
@@ -149,8 +169,7 @@ export class TemplatesService {
           tenant_id: tenantId,
           template_id: templateId,
           version_number: (latest._max.version_number ?? 0) + 1,
-          title: input.title.trim(),
-          body: input.body,
+          ...content,
           ...layout,
           created_by_tenant_member_id: actor.tenantMemberId,
         },
@@ -196,20 +215,24 @@ export class TemplatesService {
     return this.get(tenantId, templateId);
   }
 
-  /** The text filled with sample values, to check wording before approving it. */
-  preview(kind: string, title: string, body: string) {
+  /** The letter filled with sample values (the document too, when formatted), to check it before approving it. */
+  preview(kind: string, input: ContentInput) {
     if (!(TEMPLATE_KINDS as readonly string[]).includes(kind)) throw new BadRequestException('Choose a template kind.');
-    this.assertUsable(kind as TemplateKind, title, body);
+    const content = this.content(kind as TemplateKind, input);
     const values = sampleValues(kind as TemplateKind);
-    return { title: renderTemplate(title, values), body: renderTemplate(body, values) };
+    return {
+      title: renderTemplate(content.title, values),
+      body: renderTemplate(content.body, values),
+      document: content.body_document === Prisma.DbNull ? undefined : fillDocument(content.body_document as unknown as DocNode, values),
+    };
   }
 
   /**
    * The template as a PDF, filled with sample data and laid out as the editor
    * currently has it (saved or not). Marked as a sample; nothing is stored.
    */
-  async previewPdf(tenantId: string, input: { kind: string; title: string; body: string } & LayoutInput) {
-    const text = this.preview(input.kind, input.title, input.body);
+  async previewPdf(tenantId: string, input: { kind: string } & ContentInput & LayoutInput) {
+    const text = this.preview(input.kind, input);
     const layout = await this.layoutColumns(tenantId, DEFAULT_LAYOUT, input, { allowArchived: true });
     const company = (await this.prisma.rndtechnosoft_tenants.findUniqueOrThrow({ where: { id: tenantId }, select: { legal_name: true } })).legal_name;
     return this.pdf.render(
@@ -219,6 +242,7 @@ export class TemplatesService {
         dateText: sampleValues(input.kind as TemplateKind).today ?? '',
         title: text.title,
         body: text.body,
+        document: text.document,
         table: input.kind === 'OFFER_LETTER' ? SAMPLE_OFFER_TABLE : undefined,
         footer: 'Sample preview with made-up data. This is not a real document.',
         watermark: 'SAMPLE',
@@ -262,11 +286,29 @@ export class TemplatesService {
     };
   }
 
-  private assertUsable(kind: TemplateKind, title: string, body: string) {
+  /**
+   * A version's wording as columns: a formatted document (checked and rebuilt),
+   * with its plain text in title and body; or a plain-text heading and text.
+   */
+  private content(kind: TemplateKind, input: ContentInput): { title: string; body: string; body_document: Prisma.InputJsonValue | typeof Prisma.DbNull } {
+    if (input.document !== undefined) {
+      let document: DocNode;
+      try {
+        document = parseDocument(kind, input.document);
+      } catch (error) {
+        if (error instanceof DocumentProblem) throw new BadRequestException(error.message);
+        throw error;
+      }
+      const text = documentText(document);
+      return { title: text.title || 'Untitled letter', body: text.body, body_document: document as unknown as Prisma.InputJsonValue };
+    }
+    const title = input.title ?? '';
+    const body = input.body ?? '';
     if (!title.trim()) throw new BadRequestException('Enter the letter heading.');
     if (!body.trim()) throw new BadRequestException('Enter the letter text.');
     const problem = templateProblem(kind, title, body);
     if (problem) throw new BadRequestException(problem);
+    return { title: title.trim(), body, body_document: Prisma.DbNull };
   }
 
   private async lockTemplate(tx: Prisma.TransactionClient, tenantId: string, templateId: string) {

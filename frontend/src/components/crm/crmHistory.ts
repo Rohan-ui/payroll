@@ -23,6 +23,13 @@ export const ACTION_LABELS: Record<string, string> = {
   CADENCE_BRANCHED: 'Recorded a reply',
   OUTREACH_EMAIL_SENT: 'Sent email',
   OUTREACH_EMAIL_FAILED: 'Email send failed',
+  // Opened for sending by hand: not a send.
+  OUTREACH_WHATSAPP_OPENED: 'Opened WhatsApp',
+  OUTREACH_LINKEDIN_OPENED: 'Opened LinkedIn',
+  OUTREACH_LINKEDIN_MESSAGE_COPIED: 'Copied LinkedIn message',
+  // Sent by hand in WhatsApp or LinkedIn, confirmed by the member.
+  OUTREACH_WHATSAPP_SENT: 'Sent WhatsApp message',
+  OUTREACH_LINKEDIN_SENT: 'Sent LinkedIn message',
   CONVERT_OPPORTUNITY: 'Converted to opportunity',
   CONVERT_WON: 'Marked deal won',
   WEBHOOK_INGEST: 'Received from a webhook',
@@ -39,6 +46,8 @@ export const ACTION_FILTERS: { label: string; value: string }[] = [
   { label: 'Assigned / unassigned', value: 'LEAD_ASSIGNED,LEAD_UNASSIGNED' },
   { label: 'Email sent', value: 'OUTREACH_EMAIL_SENT' },
   { label: 'Email failed', value: 'OUTREACH_EMAIL_FAILED' },
+  { label: 'WhatsApp / LinkedIn sent', value: 'OUTREACH_WHATSAPP_SENT,OUTREACH_LINKEDIN_SENT' },
+  { label: 'WhatsApp / LinkedIn opened', value: 'OUTREACH_WHATSAPP_OPENED,OUTREACH_LINKEDIN_OPENED,OUTREACH_LINKEDIN_MESSAGE_COPIED' },
   { label: 'Touchpoints and replies', value: 'CADENCE_ENROLLED,TOUCHPOINT_COMPLETED,CADENCE_BRANCHED' },
   { label: 'Converted / won', value: 'CONVERT_OPPORTUNITY,CONVERT_WON' },
   { label: 'Deleted', value: 'DELETE' },

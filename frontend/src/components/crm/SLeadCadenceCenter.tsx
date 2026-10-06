@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Sparkles, Clock, Send, CheckCircle2, AlertCircle, Calendar,
-  ArrowRight, ExternalLink, Copy, Check, PhoneCall, MessageSquare,
+  ArrowRight, Copy, Check, PhoneCall, MessageSquare,
   Mail, Users, Filter, Search, RefreshCw, Play, Pause, Building2,
   Tag, ChevronRight, ChevronLeft, X, UserCheck, Flame, Phone, Globe, HelpCircle, MapPin,
   TrendingUp, Layers, CheckSquare, ShieldCheck, Kanban, List, Trophy,
@@ -27,6 +27,9 @@ import {
 } from '@/lib/industryTaxonomy';
 import { LeadImportWizard } from './LeadImportWizard';
 import { OutreachEmailComposer, type OutreachEmailSent } from './OutreachEmailComposer';
+import { OutreachLinkedInPanel, OutreachWhatsAppPanel, type ChannelRecorded } from './OutreachManualChannels';
+import { useAuth } from '../../context/AuthContext';
+import { COPY_FAILED, copyText } from '../../lib/outreachChannels';
 import { RescheduleDialog } from './RescheduleDialog';
 import { OutreachCalendar } from './OutreachCalendar';
 import { DUE_FILTERS, dueText, shortDate, type DueFilter } from './outreachDue';
@@ -84,6 +87,7 @@ export default function SLeadCadenceCenter({
   useEffect(() => {
     setPageSelection(current => current.key === filterKey ? current : { key: filterKey, page: 1 });
   }, [filterKey]);
+  const { can } = useAuth();
   const [sendingWhatsAppApi, setSendingWhatsAppApi] = useState(false);
 
   // Execution Modal State
@@ -192,6 +196,25 @@ export default function SLeadCadenceCenter({
     if (onRefreshParent) onRefreshParent();
   };
 
+  /**
+   * An opened chat, copied message or confirmed send, as the server recorded it
+   * on the touchpoint. A confirmed send can also complete the day, as an email can.
+   */
+  const handleChannelRecorded = (result: ChannelRecorded) => {
+    if (result.action === 'MARKED_SENT') showToast(result.message, 'success');
+    if (result.touchpointCompleted) {
+      setSelectedLeadForAction(null);
+    } else {
+      setSelectedLeadForAction((current: any) => current && {
+        ...current,
+        currentStep: { ...current.currentStep, channelActions: result.channelActions, dayStatus: 'IN_PROGRESS' },
+      });
+      if (result.action === 'MARKED_SENT' && !executionNotes) setExecutionNotes(`${result.channel === 'WHATSAPP' ? 'WhatsApp' : 'LinkedIn'} message sent (marked sent)`);
+    }
+    fetchCadenceData();
+    if (result.touchpointCompleted && onRefreshParent) onRefreshParent();
+  };
+
   const handleSendViaWhatsAppApi = async () => {
     const recipientPhone = selectedLeadForAction?.whatsapp_number || selectedLeadForAction?.phone;
     if (!recipientPhone) {
@@ -272,8 +295,12 @@ export default function SLeadCadenceCenter({
     return () => { requestVersion.current++; };
   }, [fetchCadenceData]);
 
-  const handleCopy = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
+  // Says "copied" only once the clipboard has the text.
+  const handleCopy = async (text: string, key: string) => {
+    if (!(await copyText(text))) {
+      showToast(COPY_FAILED, 'error');
+      return;
+    }
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
     showToast('Copied to clipboard!', 'success');
@@ -657,7 +684,7 @@ export default function SLeadCadenceCenter({
                                 {/* Contact Links & Deal Value */}
                                 <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#2e2c43]">
                                   <div className="flex items-center gap-1.5">
-                                    {item.whatsapp_number || item.phone ? (
+                                    {generateWhatsAppUrl(item.whatsapp_number || item.phone, '') ? (
                                       <a
                                         href={generateWhatsAppUrl(item.whatsapp_number || item.phone, '')}
                                         target="_blank"
@@ -1291,7 +1318,7 @@ export default function SLeadCadenceCenter({
 
                           {/* Contact quick links */}
                           <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                            {item.whatsapp_number || item.phone ? (
+                            {generateWhatsAppUrl(item.whatsapp_number || item.phone, '') ? (
                               <a
                                 href={generateWhatsAppUrl(item.whatsapp_number || item.phone, '')}
                                 target="_blank"
@@ -1301,6 +1328,11 @@ export default function SLeadCadenceCenter({
                                 <MessageSquare className="w-3 h-3" />
                                 <span>{item.whatsapp_number || item.phone}</span>
                               </a>
+                            ) : item.whatsapp_number || item.phone ? (
+                              <span className="flex items-center gap-1" title="Invalid WhatsApp number.">
+                                <MessageSquare className="w-3 h-3" />
+                                <span>{item.whatsapp_number || item.phone}</span>
+                              </span>
                             ) : null}
 
                             {item.email && (
@@ -1545,62 +1577,26 @@ export default function SLeadCadenceCenter({
               {/* CHANNEL 1: WHATSAPP                                           */}
               {/* ------------------------------------------------------------- */}
               {selectedLeadForAction.currentStep.templates?.whatsapp && (
-                <div className="border border-emerald-200 bg-emerald-50/20 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-bold text-emerald-800 text-sm">
-                      <MessageSquare className="w-4 h-4 text-emerald-600" />
-                      <span>WhatsApp Message</span>
-                      <span className="text-[10px] font-normal text-slate-500">
-                        ({selectedLeadForAction.whatsapp_number || selectedLeadForAction.phone || 'No phone provided'})
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleCopy(
-                          interpolateText(selectedLeadForAction.currentStep.templates.whatsapp.message, getInterpolationVars()),
-                          'wa_msg'
-                        )}
-                        className="px-2.5 py-1 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                      >
-                        {copiedKey === 'wa_msg' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        <span>Copy Text</span>
-                      </button>
-
-                      {(selectedLeadForAction.whatsapp_number || selectedLeadForAction.phone) && (
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={handleSendViaWhatsAppApi}
-                            disabled={sendingWhatsAppApi}
-                            className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
-                            title="Directly send template via WhatsApp Cloud API"
-                          >
-                            <Send className={`w-3 h-3 ${sendingWhatsAppApi ? 'animate-spin' : ''}`} />
-                            <span>{sendingWhatsAppApi ? 'Sending API...' : '🚀 Send via WhatsApp API'}</span>
-                          </button>
-
-                          <a
-                            href={generateWhatsAppUrl(
-                              selectedLeadForAction.whatsapp_number || selectedLeadForAction.phone,
-                              interpolateText(selectedLeadForAction.currentStep.templates.whatsapp.message, getInterpolationVars())
-                            )}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs transition-all"
-                            title="Open in WhatsApp Web or App"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            <span>Web Chat</span>
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-3 rounded-lg border border-emerald-100 font-sans text-xs text-slate-800 whitespace-pre-wrap leading-relaxed shadow-2xs">
-                    {interpolateText(selectedLeadForAction.currentStep.templates.whatsapp.message, getInterpolationVars())}
-                  </div>
-                </div>
+                <OutreachWhatsAppPanel
+                  key={`wa-${selectedLeadForAction.id}-${selectedLeadForAction.currentStep.dayNumber}`}
+                  leadId={selectedLeadForAction.id}
+                  day={selectedLeadForAction.currentStep.dayNumber}
+                  phone={selectedLeadForAction.whatsapp_number || selectedLeadForAction.phone || null}
+                  message={interpolateText(selectedLeadForAction.currentStep.templates.whatsapp.message, getInterpolationVars())}
+                  saved={selectedLeadForAction.currentStep.channelActions?.WHATSAPP ?? null}
+                  onRecorded={handleChannelRecorded}
+                  apiSend={
+                            <button
+                              onClick={handleSendViaWhatsAppApi}
+                              disabled={sendingWhatsAppApi}
+                              className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                              title="Directly send template via WhatsApp Cloud API"
+                            >
+                              <Send className={`w-3 h-3 ${sendingWhatsAppApi ? 'animate-spin' : ''}`} />
+                              <span>{sendingWhatsAppApi ? 'Sending API...' : '🚀 Send via WhatsApp API'}</span>
+                            </button>
+                  }
+                />
               )}
 
               {/* ------------------------------------------------------------- */}
@@ -1627,63 +1623,24 @@ export default function SLeadCadenceCenter({
               {/* CHANNEL 3: LINKEDIN                                           */}
               {/* ------------------------------------------------------------- */}
               {selectedLeadForAction.currentStep.templates?.linkedin && (
-                <div className="border border-blue-200 bg-blue-50/20 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-bold text-blue-900 text-sm">
-                      <Globe className="w-4 h-4 text-blue-600" />
-                      <span>LinkedIn Action: {selectedLeadForAction.currentStep.templates.linkedin.actionType}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {selectedLeadForAction.currentStep.templates.linkedin.message && (
-                        <button
-                          onClick={() => handleCopy(
-                            interpolateText(selectedLeadForAction.currentStep.templates.linkedin.message, getInterpolationVars()),
-                            'li_msg'
-                          )}
-                          className="px-2.5 py-1 bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                        >
-                          {copiedKey === 'li_msg' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                          <span>Copy Note</span>
-                        </button>
-                      )}
-
-                      {selectedLeadForAction.linkedin_url ? (
-                        <a
-                          href={selectedLeadForAction.linkedin_url.startsWith('http') ? selectedLeadForAction.linkedin_url : `https://${selectedLeadForAction.linkedin_url}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          <span>Open LinkedIn Profile</span>
-                        </a>
-                      ) : (
-                        <a
-                          href={`https://www.google.com/search?q=${encodeURIComponent(`${[selectedLeadForAction.first_name, selectedLeadForAction.last_name, selectedLeadForAction.company_name].filter(Boolean).join(' ')} linkedin`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1"
-                        >
-                          <Search className="w-3 h-3" />
-                          <span>Find on LinkedIn</span>
-                        </a>
-                      )}
-                    </div>
-                  </div>
-
-                  {selectedLeadForAction.currentStep.templates.linkedin.actionNote && (
-                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-[11px] leading-relaxed">
-                      💡 <strong>Action Instruction:</strong> {selectedLeadForAction.currentStep.templates.linkedin.actionNote}
-                    </div>
-                  )}
-
-                  {selectedLeadForAction.currentStep.templates.linkedin.message && (
-                    <div className="bg-white p-3 rounded-lg border border-blue-100 font-sans text-xs text-slate-800 whitespace-pre-wrap leading-relaxed shadow-2xs">
-                      {interpolateText(selectedLeadForAction.currentStep.templates.linkedin.message, getInterpolationVars())}
-                    </div>
-                  )}
-                </div>
+                <OutreachLinkedInPanel
+                  key={`li-${selectedLeadForAction.id}-${selectedLeadForAction.currentStep.dayNumber}`}
+                  leadId={selectedLeadForAction.id}
+                  day={selectedLeadForAction.currentStep.dayNumber}
+                  leadName={[selectedLeadForAction.first_name, selectedLeadForAction.last_name].filter(Boolean).join(' ') || selectedLeadForAction.company_name}
+                  linkedinUrl={selectedLeadForAction.linkedin_url ?? null}
+                  actionType={selectedLeadForAction.currentStep.templates.linkedin.actionType}
+                  actionNote={selectedLeadForAction.currentStep.templates.linkedin.actionNote}
+                  message={selectedLeadForAction.currentStep.templates.linkedin.message ? interpolateText(selectedLeadForAction.currentStep.templates.linkedin.message, getInterpolationVars()) : ''}
+                  saved={selectedLeadForAction.currentStep.channelActions?.LINKEDIN ?? null}
+                  canEditLead={can('leads.update')}
+                  onLinkedInSaved={(url) => {
+                    setSelectedLeadForAction((current: any) => current && { ...current, linkedin_url: url });
+                    showToast('LinkedIn URL saved', 'success');
+                    fetchCadenceData();
+                  }}
+                  onRecorded={handleChannelRecorded}
+                />
               )}
 
               {/* ------------------------------------------------------------- */}

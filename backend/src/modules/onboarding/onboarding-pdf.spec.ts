@@ -1,6 +1,6 @@
 import { makePng } from '../../../test/support/png';
 import { inspectPdf as inspect } from '../../../test/support/pdf-content';
-import { OnboardingPdfService, PdfLayout, PdfLetterhead, readableImage } from './onboarding-pdf.service';
+import { OnboardingPdfService, PdfLayout, PdfLetterhead, placeBox, readableImage } from './onboarding-pdf.service';
 
 const A4_HEIGHT = 841.89;
 const MM = 72 / 25.4;
@@ -63,6 +63,73 @@ describe('letter PDFs', () => {
     expect(header.width / header.height).toBeCloseTo(1200 / 180, 2);
     expect(footer.width / footer.height).toBeCloseTo(1200 / 90, 2);
     expect(pages[0].texts.some((t) => t.text === 'Acme Letterhead Pvt Ltd')).toBe(false);
+  });
+
+  describe('images placed in the letterhead editor', () => {
+    const doc = { companyName: 'Acme', reference: 'R', dateText: 'd', title: 'T', body: 'Short.' };
+    const close = (actual: number, expected: number) => expect(actual).toBeCloseTo(expected, 1);
+
+    it('draws the logo at the box’s millimetres from the header’s top-left, and still prints the details', async () => {
+      const lh = letterhead({ logoBox: { x: 10, y: 5, width: 40, height: 10, stretch: false } });
+      const [page] = inspect(await pdf.render(doc, layout({ letterhead: lh })), A4_HEIGHT);
+      const [logo] = page.images;
+      close(logo.left, 30 * MM);
+      close(logo.top, 25 * MM);
+      close(logo.width, 40 * MM);
+      close(logo.height, 10 * MM);
+      const name = page.texts.find((t) => t.text === 'Acme Letterhead Pvt Ltd');
+      expect(name).toBeDefined();
+    });
+
+    it('draws an unplaced logo where the editor shows it (its autoBox: 0, 8.625 mm; 51 × 12.75 mm)', async () => {
+      const [page] = inspect(await pdf.render(doc, layout()), A4_HEIGHT);
+      const [logo] = page.images;
+      close(logo.left, 20 * MM);
+      close(logo.top, (20 + 8.625) * MM);
+      close(logo.width, 51 * MM);
+      close(logo.height, 12.75 * MM);
+    });
+
+    it('measures from the template’s own margins, on any page size', async () => {
+      const lh = letterhead({ logoBox: { x: 0, y: 0, width: 40, height: 10, stretch: false } });
+      const [page] = inspect(await pdf.render(doc, layout({ pageSize: 'LETTER', marginMm: 30, letterhead: lh })), 792);
+      close(page.images[0].left, 30 * MM);
+      close(page.images[0].top, 30 * MM);
+    });
+
+    it('keeps an image’s proportions inside its box unless it is set to stretch', async () => {
+      const box = { x: 0, y: 2, width: 170, height: 20 };
+      const fitted = inspect(await pdf.render(doc, layout({ letterhead: letterhead({ logo: null, headerImage: makePng(1200, 180), headerArtBox: { ...box, stretch: false } }) })), A4_HEIGHT)[0].images[0];
+      expect(fitted.width / fitted.height).toBeCloseTo(1200 / 180, 2);
+      close(fitted.height, 20 * MM);
+      const stretched = inspect(await pdf.render(doc, layout({ letterhead: letterhead({ logo: null, headerImage: makePng(1200, 180), headerArtBox: { ...box, stretch: true } }) })), A4_HEIGHT)[0].images[0];
+      close(stretched.left, 20 * MM);
+      close(stretched.top, 22 * MM);
+      close(stretched.width, 170 * MM);
+      close(stretched.height, 20 * MM);
+    });
+
+    it('places footer artwork from the footer’s top-left', async () => {
+      const lh = letterhead({ logo: null, footerImage: makePng(1200, 90), footerArtBox: { x: 15, y: 3, width: 140, height: 10, stretch: true } });
+      const [page] = inspect(await pdf.render(doc, layout({ letterhead: lh })), A4_HEIGHT);
+      const footer = page.images[0];
+      close(footer.left, 35 * MM);
+      close(footer.top, A4_HEIGHT - 20 * MM - 16 * MM + 3 * MM);
+      close(footer.width, 140 * MM);
+      close(footer.height, 10 * MM);
+    });
+
+    it('keeps a box inside its area, so a letterhead saved for a wider page still prints', () => {
+      const area = { left: 10, top: 20, width: 100, height: 50 };
+      expect(placeBox({ x: 0, y: 0, width: 10, height: 5, stretch: false }, area)).toEqual({ left: 10, top: 20, width: 10 * MM, height: 5 * MM });
+      const wide = placeBox({ x: 30, y: 15, width: 60, height: 30, stretch: false }, area);
+      expect(wide.width).toBe(100);
+      expect(wide.height).toBe(50);
+      expect(wide.left).toBe(10);
+      expect(wide.top).toBe(20);
+      const offRight = placeBox({ x: 40, y: 0, width: 10, height: 5, stretch: false }, area);
+      expect(offRight.left + offRight.width).toBeCloseTo(110, 6);
+    });
   });
 
   it('never splits a signature block or a table row across pages', async () => {

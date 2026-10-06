@@ -18,6 +18,8 @@ import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { CrmLeadImportService } from './crm-lead-import.service';
 import { CrmOutreachEmailService } from './crm-outreach-email.service';
+import { CrmOutreachChannelService } from './crm-outreach-channel.service';
+import { OutreachChannelActionDto } from './dto/outreach-channel.dto';
 import { SendOutreachEmailDto } from './dto/outreach-email.dto';
 import { CrmHistoryQueryDto } from './dto/history-query.dto';
 import { ImportLeadsDto } from './dto/lead-import.dto';
@@ -46,6 +48,7 @@ export class CrmController {
     private readonly assignments: CrmLeadAssignmentService,
     private readonly leadImport: CrmLeadImportService,
     private readonly outreachEmail: CrmOutreachEmailService,
+    private readonly outreachChannels: CrmOutreachChannelService,
   ) {}
 
   /** Which leads this member sees: all of them with leads.view_all, otherwise only those assigned to them. */
@@ -411,6 +414,19 @@ export class CrmController {
   @RequirePermissions('outreach.update')
   async sendOutreachEmail(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: SendOutreachEmailDto) {
     const data = await this.outreachEmail.send(tenantId, actor.tenantMemberId, await this.visibility(tenantId, actor), body);
+    return { success: true, data, message: data.message };
+  }
+
+  /**
+   * Records that this member opened the lead's WhatsApp chat or LinkedIn page
+   * for the current touchpoint, or copied its LinkedIn message. Not a send:
+   * the message is sent by hand in WhatsApp or LinkedIn.
+   */
+  @Post('cadence/channel-action')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('outreach.update')
+  async recordOutreachChannelAction(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: OutreachChannelActionDto) {
+    const data = await this.outreachChannels.record(tenantId, actor.tenantMemberId, await this.visibility(tenantId, actor), body);
     return { success: true, data, message: data.message };
   }
 

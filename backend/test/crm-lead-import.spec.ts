@@ -247,7 +247,8 @@ describe('CRM lead import', () => {
         last_name: 'Kulkarni', designation: 'Director', phone: '+91 9820012345', alternate_phone: '+91 9820099999', whatsapp_number: '+91 9820012345',
         alternate_email: 'asha.alt@client.test', industry: 'Packaging', sub_industry: 'Corrugated Boxes', city: 'Pune', state: 'Maharashtra',
         country_code: 'IN', address: 'Plot 4, MIDC Bhosari', postal_code: '411026', website_url: 'https://asha.example', website_status: 'Outdated',
-        linkedin_url: 'https://linkedin.com/in/asha', linkedin_company_url: 'https://linkedin.com/company/asha', source_id: ids.sourceId,
+        // Stored normalized.
+        linkedin_url: 'https://www.linkedin.com/in/asha/', linkedin_company_url: 'https://www.linkedin.com/company/asha', source_id: ids.sourceId,
         assigned_tenant_member_id: neha.memberId, requirement_brief: 'New website', internal_notes: 'Met at expo\nDate: 15-09-2026',
       });
       expect(asha.budget_amount.toString()).toBe('150000.5');
@@ -409,8 +410,8 @@ describe('CRM lead import', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
         'Company Name *': `Asha Industries ${SUFFIX}`, 'Email *': email('asha'), 'Secondary Email': 'asha.alt@client.test',
-        'Country Code *': '+91', Phone: '9820012345', 'Alternate Phone': '9820099999', 'Personal LinkedIn URL': 'https://linkedin.com/in/asha',
-        'LinkedIn Company URL': 'https://linkedin.com/company/asha', Country: 'India', 'Website Status': 'Outdated',
+        'Country Code *': '+91', Phone: '9820012345', 'Alternate Phone': '9820099999', 'Personal LinkedIn URL': 'https://www.linkedin.com/in/asha/',
+        'LinkedIn Company URL': 'https://www.linkedin.com/company/asha', Country: 'India', 'Website Status': 'Outdated',
         'Assigned To': 'Neha Mishra', 'Lead Source': 'LinkedIn', Designation: 'Director', 'Industry *': 'Packaging',
       });
     });
@@ -520,6 +521,22 @@ describe('CRM lead import', () => {
       const response = await call('post', '/crm/leads', ravi.token, { companyName: 'Big', firstName: 'Big', email: email('big'), internalNotes: 'x'.repeat(110 * 1024) });
       expect(response.status).toBe(413);
       expect(response.body.message).toBe('The request is too large. Send less data at a time.');
+    });
+  });
+
+  describe('LinkedIn addresses', () => {
+    it('are stored normalized, and anything that is not LinkedIn is left out with a warning', async () => {
+      const preview = await importInto(ravi.token, {
+        destination: 'CLIENT_OUTREACH', pipelineId: ids.outreach, dryRun: true,
+        rows: [
+          row(2, 'Lina', { linkedinUrl: 'linkedin.com/in/lina-rao?trk=public', linkedinCompanyUrl: 'https://www.linkedin.com/company/lina-co/' }),
+          row(3, 'Omar', { linkedinUrl: 'https://example.com/in/omar' }),
+        ],
+      });
+      expect(preview.status).toBe(200);
+      const byRow = Object.fromEntries(preview.body.data.rows.map((r: { rowNumber: number }) => [r.rowNumber, r]));
+      expect(byRow[2]).toMatchObject({ outcome: 'READY', warnings: [] });
+      expect(byRow[3]).toMatchObject({ outcome: 'READY', warnings: ['LinkedIn profile "https://example.com/in/omar" is not a LinkedIn address, so it was not imported.'] });
     });
   });
 });

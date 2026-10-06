@@ -1,0 +1,164 @@
+{
+ "type": "doc",
+ "content": [
+  {
+   "type": "paragraph",
+   "attrs": {
+    "textAlign": "justify",
+    "lineHeight": 1.5,
+    "spaceBefore": 12,
+    "spaceAfter": 18,
+    "indent": 10
+   },
+   "content": [
+    {
+     "type": "text",
+     "marks": [
+      {
+       "type": "textStyle",
+       "attrs": {
+        "fontFamily": "times",
+        "fontSize": 13,
+        "color": "#c00000",
+        "backgroundColor": "#fff59d"
+       }
+      },
+      {
+       "type": "bold"
+      },
+      {
+       "type": "italic"
+      },
+      {
+       "type": "strike"
+      },
+      {
+       "type": "underline"
+      },
+      {
+       "type": "superscript"
+      }
+     ],
+     "text": "Hello"
+    },
+    {
+     "type": "text",
+     "text": " world here"
+    },
+    {
+     "type": "placeholder",
+     "attrs": {
+      "key": "candidate_name"
+     }
+    },
+    {
+     "type": "hardBreak"
+    },
+    {
+     "type": "text",
+     "text": "Next"
+    }
+   ]
+  },
+  {
+   "type": "heading",
+   "attrs": {
+    "textAlign": null,
+    "lineHeight": null,
+    "spaceBefore": null,
+    "spaceAfter": null,
+    "indent": null,
+    "level": 4
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Sub"
+    }
+   ]
+  },
+  {
+   "type": "orderedList",
+   "attrs": {
+    "start": 1,
+    "type": null
+   },
+   "content": [
+    {
+     "type": "listItem",
+     "content": [
+      {
+       "type": "paragraph",
+       "attrs": {
+        "textAlign": null,
+        "lineHeight": null,
+        "spaceBefore": null,
+        "spaceAfter": null,
+        "indent": null
+       },
+       "content": [
+        {
+         "type": "text",
+         "text": "One"
+        }
+       ]
+      },
+      {
+       "type": "bulletList",
+       "content": [
+        {
+         "type": "listItem",
+         "content": [
+          {
+           "type": "paragraph",
+           "attrs": {
+            "textAlign": null,
+            "lineHeight": null,
+            "spaceBefore": null,
+            "spaceAfter": null,
+            "indent": null
+           },
+           "content": [
+            {
+             "type": "text",
+             "text": "Nested"
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "horizontalRule"
+  },
+  {
+   "type": "compensationTable"
+  },
+  {
+   "type": "paragraph",
+   "attrs": {
+    "textAlign": null,
+    "lineHeight": null,
+    "spaceBefore": null,
+    "spaceAfter": null,
+    "indent": null
+   },
+   "content": [
+    {
+     "type": "text",
+     "marks": [
+      {
+       "type": "subscript"
+      }
+     ],
+     "text": "x"
+    }
+   ]
+  }
+ ]
+}

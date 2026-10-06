@@ -32,6 +32,7 @@ import {
 } from '@/lib/industryTaxonomy';
 import { PhoneInputWithCountryCode } from './PhoneInputWithCountryCode';
 
+import { LINKEDIN_INVALID, normalizeLinkedInUrl } from '../../lib/outreachChannels';
 import { apiFetch } from '../../api/client';
 interface CreateLeadModalProps {
   isOpen: boolean;
@@ -192,6 +193,11 @@ export default function CreateLeadModal({
     e.preventDefault();
     if (!formData.companyName.trim() || !formData.firstName.trim() || !formData.email.trim()) {
       setErrorMsg('Company Name, Contact First Name, and Business Email are required.');
+      return;
+    }
+    // Checked again (and normalized) by the server.
+    if (formData.linkedinUrl.trim() && !normalizeLinkedInUrl(formData.linkedinUrl)) {
+      setErrorMsg(`${LINKEDIN_INVALID} Use the address of the person's LinkedIn page, such as https://www.linkedin.com/in/name.`);
       return;
     }
 

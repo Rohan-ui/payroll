@@ -8,6 +8,8 @@
  * Layer 3: Reply-Based Branching Strategies
  */
 
+import { whatsAppChatUrl, whatsAppDigits } from './outreachChannels';
+
 export type CadenceChannel = 'WHATSAPP' | 'EMAIL' | 'LINKEDIN' | 'PHONE';
 
 export interface CadenceTemplate {
@@ -790,16 +792,12 @@ export function evaluateStepDueStatus(dueDate: Date | string): 'OVERDUE' | 'DUE_
 }
 
 /**
- * Generate a WhatsApp Web/App click-to-chat URL with pre-filled message
+ * A WhatsApp chat URL with the message filled in (see outreachChannels.ts for
+ * why it is not a wa.me link). An empty string when the number is unusable.
  */
 export function generateWhatsAppUrl(phone: string, text: string): string {
-  // Strip non-digits except leading +
-  let cleanPhone = (phone || '').replace(/[^\d]/g, '');
-  // Default to India (+91) if 10 digits
-  if (cleanPhone.length === 10) {
-    cleanPhone = '91' + cleanPhone;
-  }
-  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+  const phoneDigits = whatsAppDigits(phone);
+  return 'digits' in phoneDigits ? whatsAppChatUrl(phoneDigits.digits, text) : '';
 }
 
 /**

@@ -6,8 +6,8 @@ import { AuditService } from '@/modules/audit/audit.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { PrivateStorageService } from '@/common/storage/private-storage.service';
 import { sniffFileKind } from './candidate-documents';
-import { PdfLayout, PdfLetterhead, readableImage } from './onboarding-pdf.service';
-import { LetterheadInputDto } from './dto/onboarding.dto';
+import { ImageBox, PdfLayout, PdfLetterhead, readableImage } from './onboarding-pdf.service';
+import { LetterheadBoxDto, LetterheadInputDto } from './dto/onboarding.dto';
 
 export const LETTERHEAD_IMAGE_SLOTS = ['logo', 'header', 'footer'] as const;
 export type LetterheadImageSlot = (typeof LETTERHEAD_IMAGE_SLOTS)[number];
@@ -20,6 +20,23 @@ const COLUMN: Record<LetterheadImageSlot, 'logo_storage_key' | 'header_image_sto
 };
 const SLOT_NAME: Record<LetterheadImageSlot, string> = { logo: 'logo', header: 'header artwork', footer: 'footer artwork' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The widest a header or footer area gets: a Letter page (215.9 mm) less the smallest margins (2 × 10 mm). */
+const WIDEST_AREA_MM = 195.9;
+const BOX_PREFIX = { logoBox: 'logo', headerArtBox: 'header_art', footerArtBox: 'footer_art' } as const;
+type BoxField = keyof typeof BOX_PREFIX;
+type BoxColumns = {
+  [K in `${(typeof BOX_PREFIX)[BoxField]}_${'x_mm' | 'y_mm' | 'width_mm' | 'height_mm'}`]?: number | Prisma.Decimal | null;
+} & { [K in `${(typeof BOX_PREFIX)[BoxField]}_stretch`]?: boolean };
+
+/** A saved box as the editor and PDF use it; none until all four measures are set. */
+function boxOf(row: Record<string, unknown>, field: BoxField): ImageBox | null {
+  const prefix = BOX_PREFIX[field];
+  const measure = (name: string) => (row[`${prefix}_${name}_mm`] === null || row[`${prefix}_${name}_mm`] === undefined ? null : Number(row[`${prefix}_${name}_mm`]));
+  const [x, y, width, height] = ['x', 'y', 'width', 'height'].map(measure);
+  if (x === null || y === null || width === null || height === null) return null;
+  return { x, y, width, height, stretch: Boolean(row[`${prefix}_stretch`]) };
+}
 
 type Row = Prisma.rndtechnosoft_letterheadsGetPayload<object>;
 
@@ -139,6 +156,7 @@ export class LetterheadsService {
     const saved = letterheadId ? await this.row(tenantId, letterheadId) : null;
     const columns = this.columns(input);
     return this.forPdf(tenantId, {
+      ...(saved ?? {}),
       ...columns,
       logo_storage_key: saved?.logo_storage_key ?? null,
       header_image_storage_key: saved?.header_image_storage_key ?? null,
@@ -156,7 +174,7 @@ export class LetterheadsService {
 
   private async forPdf(
     tenantId: string,
-    row: Pick<Row, 'company_name' | 'address_text' | 'phone' | 'email' | 'website' | 'registration_text' | 'footer_text' | 'logo_position' | 'logo_storage_key' | 'header_image_storage_key' | 'footer_image_storage_key' | 'header_height_mm' | 'footer_height_mm'>,
+    row: Pick<Row, 'company_name' | 'address_text' | 'phone' | 'email' | 'website' | 'registration_text' | 'footer_text' | 'logo_position' | 'logo_storage_key' | 'header_image_storage_key' | 'footer_image_storage_key' | 'header_height_mm' | 'footer_height_mm'> & BoxColumns,
   ): Promise<PdfLetterhead> {
     const read = (key: string | null) => (key ? this.storage.read(tenantId, key) : Promise.resolve(null));
     const [logo, headerImage, footerImage] = await Promise.all([read(row.logo_storage_key), read(row.header_image_storage_key), read(row.footer_image_storage_key)]);
@@ -174,7 +192,31 @@ export class LetterheadsService {
       footerImage,
       headerHeightMm: row.header_height_mm,
       footerHeightMm: row.footer_height_mm,
+      logoBox: boxOf(row, 'logoBox'),
+      headerArtBox: boxOf(row, 'headerArtBox'),
+      footerArtBox: boxOf(row, 'footerArtBox'),
     };
+  }
+
+  /**
+   * A box's columns: its measures (rounded to 0.1 mm), or none for the automatic
+   * layout, after checking it fits its area's height and the widest page.
+   * A box left out of the input is not touched.
+   */
+  private boxColumns(field: BoxField, box: LetterheadBoxDto | null | undefined, areaHeightMm: number, areaName: string): BoxColumns {
+    if (box === undefined) return {};
+    const prefix = BOX_PREFIX[field];
+    if (box === null) {
+      return { [`${prefix}_x_mm`]: null, [`${prefix}_y_mm`]: null, [`${prefix}_width_mm`]: null, [`${prefix}_height_mm`]: null, [`${prefix}_stretch`]: false } as BoxColumns;
+    }
+    const round = (n: number) => Math.round(n * 10) / 10;
+    const [x, y, width, height] = [box.x, box.y, box.width, box.height].map(round);
+    const label = { logoBox: 'The logo', headerArtBox: 'The header artwork', footerArtBox: 'The footer artwork' }[field];
+    if (y + height > areaHeightMm + 0.05) {
+      throw new BadRequestException(`${label} reaches below the ${areaName} (${areaHeightMm} mm tall). Make it smaller, move it up, or make the ${areaName} taller.`);
+    }
+    if (x + width > WIDEST_AREA_MM + 0.05) throw new BadRequestException(`${label} is wider than the page. Make it narrower or move it left.`);
+    return { [`${prefix}_x_mm`]: x, [`${prefix}_y_mm`]: y, [`${prefix}_width_mm`]: width, [`${prefix}_height_mm`]: height, [`${prefix}_stretch`]: box.stretch } as BoxColumns;
   }
 
   private columns(input: LetterheadInputDto) {
@@ -196,6 +238,9 @@ export class LetterheadsService {
       header_height_mm: input.headerHeightMm,
       footer_height_mm: input.footerHeightMm,
       is_default: input.isDefault,
+      ...this.boxColumns('logoBox', input.logoBox, input.headerHeightMm, 'header'),
+      ...this.boxColumns('headerArtBox', input.headerArtBox, input.headerHeightMm, 'header'),
+      ...this.boxColumns('footerArtBox', input.footerArtBox, input.footerHeightMm, 'footer'),
     };
   }
 
@@ -213,6 +258,9 @@ export class LetterheadsService {
       logoPosition: row.logo_position,
       headerHeightMm: row.header_height_mm,
       footerHeightMm: row.footer_height_mm,
+      logoBox: boxOf(row, 'logoBox'),
+      headerArtBox: boxOf(row, 'headerArtBox'),
+      footerArtBox: boxOf(row, 'footerArtBox'),
       isDefault: row.is_default,
       isArchived: row.is_archived,
       images: { logo: Boolean(row.logo_storage_key), header: Boolean(row.header_image_storage_key), footer: Boolean(row.footer_image_storage_key) },

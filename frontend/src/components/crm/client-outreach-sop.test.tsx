@@ -11,6 +11,7 @@ import SLeadCadenceCenter from './SLeadCadenceCenter';
  * milestones.
  */
 
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ can: () => true }) }));
 vi.mock('../../api/client', () => ({ apiFetch: vi.fn(), apiClient: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('@/lib/industryTaxonomy', () => ({
   useTenantIndustries: () => ({ industries: [], getSubIndustries: () => [] }),

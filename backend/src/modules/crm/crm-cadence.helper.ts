@@ -8,6 +8,8 @@
  * Layer 3: Reply-Based Branching Strategies
  */
 
+import { whatsAppChatUrl, whatsAppDigits } from './outreach-channels';
+
 export type CadenceChannel = 'WHATSAPP' | 'EMAIL' | 'LINKEDIN' | 'PHONE';
 
 export interface CadenceTemplate {
@@ -101,9 +103,14 @@ export interface CadenceState {
   channelActions?: Record<string, Partial<Record<CadenceChannel, CadenceChannelAction>>>;
 }
 
-/** One channel of one touchpoint: SENDING while the send is in flight, then SENT or FAILED. */
+/**
+ * One channel of one touchpoint. Email: SENDING while the send is in flight,
+ * then SENT or FAILED. WhatsApp and LinkedIn, sent by hand outside the CRM:
+ * OPENED (the chat or profile was opened), COPIED (the message was copied),
+ * and SENT only when the member confirms sending it (confirmation USER).
+ */
 export type CadenceChannelAction = {
-  status: 'SENDING' | 'SENT' | 'FAILED';
+  status: 'SENDING' | 'SENT' | 'FAILED' | 'OPENED' | 'COPIED';
   attempt: number;
   executedBy: { memberId: string; name: string };
   startedAt: string;
@@ -116,6 +123,14 @@ export type CadenceChannelAction = {
   subject?: string;
   messageId?: string | null;
   activityId?: string;
+  openedAt?: string;
+  copiedAt?: string;
+  /** WhatsApp and LinkedIn: SENT is the member's confirmation that they sent it there (the CRM can't see it). */
+  confirmation?: 'USER';
+  /** WhatsApp and LinkedIn: the message as sent (clipped). */
+  message?: string;
+  /** LinkedIn: whether a conversation or the profile (or another LinkedIn page) was opened. */
+  destination?: 'CONVERSATION' | 'PROFILE' | 'PAGE';
 };
 
 // -------------------------------------------------------------------------
@@ -839,16 +854,12 @@ export function evaluateStepDueStatus(dueDate: Date | string): 'OVERDUE' | 'DUE_
 }
 
 /**
- * Generate a WhatsApp Web/App click-to-chat URL with pre-filled message
+ * A WhatsApp chat URL with the message filled in (see outreach-channels.ts for
+ * why it is not a wa.me link). An empty string when the number is unusable.
  */
 export function generateWhatsAppUrl(phone: string, text: string): string {
-  // Strip non-digits except leading +
-  let cleanPhone = (phone || '').replace(/[^\d]/g, '');
-  // Default to India (+91) if 10 digits
-  if (cleanPhone.length === 10) {
-    cleanPhone = '91' + cleanPhone;
-  }
-  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+  const phoneDigits = whatsAppDigits(phone);
+  return 'digits' in phoneDigits ? whatsAppChatUrl(phoneDigits.digits, text) : '';
 }
 
 /**

@@ -8,6 +8,8 @@ import {
   IsDateString,
   IsEmail,
   IsIn,
+  IsNumber,
+  IsObject,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -442,15 +444,23 @@ export class CreateTemplateDto {
   @MaxLength(160)
   name!: string;
 
+  /** Plain-text letters (from before formatting): the heading and the text. Not sent with a document. */
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
-  title!: string;
+  title?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(20000)
-  body!: string;
+  body?: string;
+
+  /** The formatted letter (editor document JSON); checked and rebuilt by the server. */
+  @IsOptional()
+  @IsObject()
+  document?: Record<string, unknown>;
 
   /** Page layout. Left out when saving a draft: kept as it is. */
   @IsOptional()
@@ -474,15 +484,23 @@ export class CreateTemplateDto {
 }
 
 export class TemplateDraftDto {
+  /** Plain-text letters (from before formatting): the heading and the text. Not sent with a document. */
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
-  title!: string;
+  title?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(20000)
-  body!: string;
+  body?: string;
+
+  /** The formatted letter (editor document JSON); checked and rebuilt by the server. */
+  @IsOptional()
+  @IsObject()
+  document?: Record<string, unknown>;
 
   /** Page layout. Left out when saving a draft: kept as it is. */
   @IsOptional()
@@ -565,6 +583,37 @@ export class RejectDocumentDto {
 
 // ── Letterheads and previews ──────────────────────────────────
 
+/** Where an image sits on the letterhead: mm from the header (or footer) area's top-left corner. */
+export class LetterheadBoxDto {
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 }, { message: 'Positions are in millimetres, to one decimal place.' })
+  @Min(0, { message: 'An image starts inside its area.' })
+  @Max(250)
+  x!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 }, { message: 'Positions are in millimetres, to one decimal place.' })
+  @Min(0, { message: 'An image starts inside its area.' })
+  @Max(100)
+  y!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 }, { message: 'Sizes are in millimetres, to one decimal place.' })
+  @Min(3, { message: 'An image is at least 3 mm wide.' })
+  @Max(250)
+  width!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 }, { message: 'Sizes are in millimetres, to one decimal place.' })
+  @Min(3, { message: 'An image is at least 3 mm tall.' })
+  @Max(100)
+  height!: number;
+
+  /** Fill the box exactly, changing the image's proportions; off by default. */
+  @IsBoolean()
+  stretch!: boolean;
+}
+
 export class LetterheadInputDto {
   @IsString()
   @MinLength(1, { message: 'Enter a name for the letterhead.' })
@@ -621,6 +670,24 @@ export class LetterheadInputDto {
   @Min(8, { message: 'The footer is between 8 and 50 mm tall.' })
   @Max(50, { message: 'The footer is between 8 and 50 mm tall.' })
   footerHeightMm!: number;
+
+  /** The logo's box; null: placed automatically by logoPosition. Left out: unchanged. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LetterheadBoxDto)
+  logoBox?: LetterheadBoxDto | null;
+
+  /** The header artwork's box; null: fitted to the whole header. Left out: unchanged. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LetterheadBoxDto)
+  headerArtBox?: LetterheadBoxDto | null;
+
+  /** The footer artwork's box; null: fitted to the whole footer. Left out: unchanged. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LetterheadBoxDto)
+  footerArtBox?: LetterheadBoxDto | null;
 
   @IsBoolean()
   isDefault!: boolean;

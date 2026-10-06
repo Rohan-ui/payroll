@@ -251,6 +251,37 @@ describe('HRMS letterheads and document previews', () => {
       expect((await call('post', '/onboarding/letterheads/preview-pdf', viewer.token, letterheadInput())).status).toBe(403);
       expect((await asB('post', '/onboarding/letterheads/preview-pdf', { ...letterheadInput(), letterheadId: ids.letterhead })).status).toBe(404);
     });
+    it('keep where the editor placed each image, checked against the header and footer, and preview with it', async () => {
+      const url = `/onboarding/letterheads/${ids.letterhead}`;
+      const logoBox = { x: 10, y: 5, width: 40, height: 10, stretch: false };
+      const saved = await asA('put', url, letterheadInput({ logoBox, headerArtBox: null, footerArtBox: null }));
+      expect(saved.status).toBe(200);
+      expect(saved.body.data).toMatchObject({ logoBox, headerArtBox: null, footerArtBox: null });
+      // Saving without boxes leaves them as they are; reloading returns them.
+      await asA('put', url, letterheadInput({ footerHeightMm: 20 }));
+      expect((await asA('get', url)).body.data).toMatchObject({ logoBox, footerHeightMm: 20 });
+
+      const tooTall = await asA('put', url, letterheadInput({ logoBox: { ...logoBox, y: 25 } }));
+      expect([tooTall.status, tooTall.body.message]).toEqual([400, 'The logo reaches below the header (30 mm tall). Make it smaller, move it up, or make the header taller.']);
+      const tooWide = await asA('put', url, letterheadInput({ footerArtBox: { x: 100, y: 0, width: 120, height: 10, stretch: true } }));
+      expect([tooWide.status, tooWide.body.message]).toEqual([400, 'The footer artwork is wider than the page. Make it narrower or move it left.']);
+      for (const bad of [{ ...logoBox, width: 1 }, { ...logoBox, x: -1 }, { ...logoBox, x: 1.25 }, { ...logoBox, unit: 'px' }, { x: 1, y: 1 }]) {
+        expect((await asA('put', url, letterheadInput({ logoBox: bad }))).status).toBe(400);
+      }
+      expect((await asA('get', url)).body.data.logoBox).toEqual(logoBox);
+
+      const MM = 72 / 25.4;
+      const previewWith = async (extra: Record<string, unknown>) =>
+        inspectPdf((await binary(call('post', '/onboarding/letterheads/preview-pdf', writer.token, { ...letterheadInput(extra), letterheadId: ids.letterhead }))).body, 841.89)[0].images[0];
+      // The sample letter uses A4 with 20 mm margins.
+      const savedBox = await previewWith({});
+      expect([savedBox.left, savedBox.top, savedBox.width, savedBox.height].map((n) => Math.round(n / MM))).toEqual([30, 25, 40, 10]);
+      const moved = await previewWith({ logoBox: { ...logoBox, x: 50, width: 60, height: 15 } });
+      expect([moved.left, moved.top, moved.width, moved.height].map((n) => Math.round(n / MM))).toEqual([70, 25, 60, 15]);
+      const automatic = await previewWith({ logoBox: null });
+      expect(Math.round(automatic.left / MM)).toBe(20);
+      expect((await asA('get', url)).body.data.logoBox).toEqual(logoBox);
+    });
   });
 
   describe('templates', () => {
@@ -301,6 +332,9 @@ describe('HRMS letterheads and document previews', () => {
       expect([shown.status, shown.headers['content-type']]).toEqual([200, 'application/pdf']);
       expect(shown.headers['content-disposition']).toMatch(/^inline;/);
       expect(text(shown.body)).toEqual(expect.arrayContaining(['PREVIEW', 'Acme Technologies Pvt Ltd', 'Offer: Payroll Analyst', 'Page 1 of 1']));
+      // The letterhead prints as placed in its editor, from the template's 18 mm margins.
+      const [logo] = inspectPdf(shown.body, 841.89)[0].images;
+      expect([logo.left, logo.top, logo.width, logo.height].map((n) => Math.round(n / (72 / 25.4)))).toEqual([28, 23, 40, 10]);
       const saved = await binary(asA('get', `/onboarding/offers/${ids.offer}/pdf?download=1`));
       expect(saved.headers['content-disposition']).toMatch(/^attachment;/);
       expect((await asB('get', `/onboarding/offers/${ids.offer}/pdf`)).status).toBe(404);
@@ -336,6 +370,106 @@ describe('HRMS letterheads and document previews', () => {
       expect(withoutMarks(sent)).toEqual(withoutMarks(preview));
       expect(sent.flat()).not.toContain('PREVIEW');
       expect(sent.flat()).toContain('Acme Technologies Pvt Ltd');
+    });
+  });
+
+  describe('formatted templates', () => {
+    const MM = 72 / 25.4;
+    const text = (t: string, marks?: unknown[]) => ({ type: 'text', text: t, ...(marks ? { marks } : {}) });
+    const style = (attrs: Record<string, unknown>) => ({ type: 'textStyle', attrs: { fontFamily: null, fontSize: null, color: null, backgroundColor: null, ...attrs } });
+    const block = { textAlign: null, lineHeight: null, spaceBefore: null, spaceAfter: null, indent: null };
+    const placeholder = (key: string, marks?: unknown[]) => ({ type: 'placeholder', attrs: { key }, ...(marks ? { marks } : {}) });
+    const DOCUMENT = {
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 1, ...block, textAlign: 'center' }, content: [text('Offer of employment: ', [style({ fontFamily: 'times', fontSize: 24 })]), placeholder('job_title', [style({ fontFamily: 'times', fontSize: 24 })])] },
+        { type: 'paragraph', attrs: { ...block, spaceAfter: 14 }, content: [text('Dear '), placeholder('candidate_name', [{ type: 'bold' }, style({ fontSize: 12 })]), text(',')] },
+        { type: 'paragraph', attrs: { ...block, textAlign: 'justify', lineHeight: 1.5 }, content: [text('We are '), text('pleased to offer you', [{ type: 'bold' }, { type: 'italic' }, style({ fontSize: 13 })]), text(' the role.')] },
+        { type: 'compensationTable' },
+      ],
+    };
+    const fonts = (pdf: Buffer) => inspectPdf(pdf, 841.89).flatMap((p) => p.texts);
+
+    it('start from the standard wording, and keep formatting and placeholders exactly as saved', async () => {
+      const created = await asA('post', '/onboarding/templates', { kind: 'OFFER_LETTER', name: 'Formatted', letterheadId: ids.letterhead, pageSize: 'A4', marginMm: 20, showPageNumbers: true });
+      expect(created.status).toBe(201);
+      ids.formatted = created.body.data.id;
+      const first = created.body.data.versions[0];
+      expect(first).toMatchObject({ format: 'FORMATTED', title: 'OFFER LETTER' });
+      expect(first.document.content[0]).toMatchObject({ type: 'heading', attrs: { level: 1, textAlign: 'center' } });
+      expect(created.body.data.format.fonts.map((f: { key: string }) => f.key)).toEqual(['helvetica', 'times', 'courier']);
+
+      const saved = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: DOCUMENT });
+      expect(saved.status).toBe(200);
+      const reloaded = (await asA('get', `/onboarding/templates/${ids.formatted}`)).body.data.versions[0];
+      expect(reloaded.document).toEqual(DOCUMENT);
+      expect(reloaded.title).toBe('Offer of employment: {{job_title}}');
+      expect(reloaded.body).toContain('Dear {{candidate_name}},');
+
+      const bad = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: { type: 'doc', content: [{ type: 'paragraph', content: [text('x', [style({ fontFamily: 'Papyrus' })])] }] } });
+      expect([bad.status, bad.body.message]).toEqual([400, 'Choose one of the listed fonts; other fonts can’t be printed in the PDF.']);
+      const unknown = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: { type: 'doc', content: [{ type: 'paragraph', content: [placeholder('salary_bank_account')] }] } });
+      expect(unknown.status).toBe(400);
+      expect((await asA('get', `/onboarding/templates/${ids.formatted}`)).body.data.versions[0].document).toEqual(DOCUMENT);
+    });
+
+    it('preview the document as it prints, filled with sample values', async () => {
+      const preview = await binary(call('post', '/onboarding/templates/preview-pdf', writer.token, { kind: 'OFFER_LETTER', document: DOCUMENT, letterheadId: ids.letterhead, marginMm: 25, showPageNumbers: true }));
+      expect(preview.status).toBe(200);
+      const texts = fonts(preview.body);
+      // Headings are bold unless changed; this one wraps onto a second line.
+      expect(texts.find((t) => t.text.startsWith('Senior Backend'))).toMatchObject({ font: 'Times-Bold', size: 24 });
+      expect(texts.find((t) => t.text === 'Priya Rao')).toMatchObject({ font: 'Helvetica-Bold', size: 12 });
+      expect(texts.find((t) => t.text === 'pleased to offer you')).toMatchObject({ font: 'Helvetica-BoldOblique', size: 13 });
+      expect(texts.find((t) => t.text === 'Dear ')?.x).toBeCloseTo(25 * MM, 1);
+      expect(texts.map((t) => t.text)).toEqual(expect.arrayContaining(['Annual compensation', 'SAMPLE', 'Page 1 of 1']));
+      // Nothing was saved.
+      expect((await asA('get', `/onboarding/templates/${ids.formatted}`)).body.data.versions).toHaveLength(1);
+    });
+
+    it('fix the approved version: edits go to a new draft, and offers print the version they were made from', async () => {
+      const approved = await asA('post', `/onboarding/templates/${ids.formatted}/approve`);
+      const v1 = approved.body.data.versions[0];
+      expect(v1).toMatchObject({ number: 1, status: 'APPROVED', document: DOCUMENT });
+
+      const candidate = await asA('post', '/onboarding/candidates', { fullName: 'Rohan Mehta', email: `rohan.${SUFFIX}@candidate.test`, appliedPosition: 'Payroll Analyst' });
+      await asA('post', `/onboarding/candidates/${candidate.body.data.id}/override`, { status: 'SELECTED', reason: 'Selected in an earlier process' });
+      const offer = await asA('post', `/onboarding/candidates/${candidate.body.data.id}/offers`, offerInput({ templateVersionId: v1.id, jobTitle: 'Data Engineer' }));
+      expect(offer.status).toBe(201);
+      await asA('post', `/onboarding/offers/${offer.body.data.id}/submit`, { approverMemberIds: [approver.memberId] });
+
+      // A new draft changes the wording; the approved version and the submitted offer don't change.
+      const changed = { ...DOCUMENT, content: [{ type: 'paragraph', attrs: block, content: [text('Completely rewritten '), placeholder('candidate_name')] }] };
+      const drafted = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: changed });
+      expect(drafted.body.data.versions.map((v: { number: number; status: string }) => [v.number, v.status])).toEqual([[2, 'DRAFT'], [1, 'APPROVED']]);
+      expect(drafted.body.data.versions[1].document).toEqual(DOCUMENT);
+      await asA('post', `/onboarding/templates/${ids.formatted}/approve`);
+
+      const pdf = await binary(asA('get', `/onboarding/offers/${offer.body.data.id}/pdf`));
+      const texts = fonts(pdf.body);
+      expect(texts.find((t) => t.text === 'Data Engineer')).toMatchObject({ font: 'Times-Bold', size: 24 });
+      expect(texts.find((t) => t.text === 'Rohan Mehta')).toMatchObject({ font: 'Helvetica-Bold', size: 12 });
+      expect(texts.some((t) => t.text.startsWith('Completely rewritten'))).toBe(false);
+      const row = await prisma.rndtechnosoft_offers.findFirstOrThrow({ where: { id: offer.body.data.id } });
+      expect(JSON.stringify(row.rendered_document)).toContain('Rohan Mehta');
+      expect(row.rendered_body).toContain('Dear Rohan Mehta,');
+    });
+
+    it('still show plain-text versions as they were, and keep them printing as before', async () => {
+      const legacy = (await asA('get', `/onboarding/templates/${ids.template}`)).body.data.versions.find((v: { status: string }) => v.status === 'APPROVED');
+      expect(legacy.format).toBe('PLAIN');
+      expect(legacy.document.content[1]).toMatchObject({ type: 'heading' });
+      expect(JSON.stringify(legacy.document)).toContain('"key":"candidate_name"');
+      const row = await prisma.rndtechnosoft_document_template_versions.findFirstOrThrow({ where: { id: legacy.id } });
+      expect(row.body_document).toBeNull();
+    });
+
+    it('belong to their workspace only', async () => {
+      expect((await asB('get', `/onboarding/templates/${ids.formatted}`)).status).toBe(404);
+      expect((await asB('put', `/onboarding/templates/${ids.formatted}/draft`, { document: DOCUMENT })).status).toBe(404);
+      expect((await asB('post', '/onboarding/templates/preview-pdf', { kind: 'OFFER_LETTER', document: DOCUMENT, letterheadId: ids.letterhead })).status).toBe(404);
+      expect((await call('put', `/onboarding/templates/${ids.formatted}/draft`, viewer.token, { document: DOCUMENT })).status).toBe(403);
+      expect((await call('post', `/onboarding/templates/${ids.formatted}/approve`, writer.token)).status).toBe(403);
     });
   });
 });

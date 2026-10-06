@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { COUNTRY_CODES, CountryCodeItem } from '@/common/utils/country-codes.util';
+import { normalizeLinkedInUrl } from './outreach-channels';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
@@ -365,6 +366,16 @@ export class CrmLeadImportService {
       if (text.length <= limit.max) kept[field] = text;
       else if (REQUIRED.some((r) => r.field === field)) result.reasons.push(`${limit.label} is longer than ${limit.max} characters.`);
       else result.warnings.push(`${limit.label} is longer than ${limit.max} characters, so it was not imported.`);
+    }
+    // LinkedIn addresses are stored normalized; anything else is not a LinkedIn address.
+    for (const [field, label] of [['linkedinUrl', 'LinkedIn profile'], ['linkedinCompanyUrl', 'Company LinkedIn']] as const) {
+      if (!kept[field]) continue;
+      const linkedIn = normalizeLinkedInUrl(kept[field]);
+      if (linkedIn) kept[field] = linkedIn.url;
+      else {
+        result.warnings.push(`${label} "${kept[field]}" is not a LinkedIn address, so it was not imported.`);
+        delete kept[field];
+      }
     }
     if (kept.alternateEmail && !EMAIL.test(kept.alternateEmail)) {
       result.warnings.push(`Secondary email "${kept.alternateEmail}" is not a valid email address, so it was not imported.`);

@@ -1,6 +1,8 @@
 import React, { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Editor } from '@tiptap/react';
+import { LETTER_FORMAT, letter, paragraph, stubLayout, text } from '../../test-support/letterDocument';
 import { totalOf } from './OfferEditor';
 
 /**
@@ -46,6 +48,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  stubLayout();
   granted = new Set(['onboarding.view', 'onboarding.offers.manage', 'onboarding.offers.approve', 'onboarding.offers.send', 'onboarding.templates.manage', 'onboarding.templates.approve']);
   calls = [];
   currentOffer = offer('PENDING_APPROVAL');
@@ -63,8 +66,8 @@ beforeEach(() => {
       if (url === '/api/v1/onboarding/candidates/c1') return json({ success: true, data: CANDIDATE });
       if (url.startsWith('/api/v1/onboarding/templates?kind=OFFER_LETTER')) return json({ success: true, data: [{ id: 't1', kind: 'OFFER_LETTER', name: 'Standard', isArchived: false, approvedVersion: { id: 'tv2', number: 2, title: 'Offer' }, draftVersion: null }, { id: 't2', kind: 'OFFER_LETTER', name: 'Unapproved', isArchived: false, approvedVersion: null, draftVersion: { id: 'tv9', number: 1 } }] });
       if (url === '/api/v1/onboarding/candidates/c1/offers') return json({ success: true, data: offer('DRAFT') }, 201);
-      if (url === '/api/v1/onboarding/templates' && method === 'POST') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } }, 201);
-      if (url === '/api/v1/onboarding/templates/t3') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } });
+      if (url === '/api/v1/onboarding/templates' && method === 'POST') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], format: LETTER_FORMAT, versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', format: 'FORMATTED', document: letter(paragraph(text('Dear '))), layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginMm: 20, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } }, 201);
+      if (url === '/api/v1/onboarding/templates/t3') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], format: LETTER_FORMAT, versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', format: 'FORMATTED', document: letter(paragraph(text('Dear '))), layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginMm: 20, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } });
       if (url.startsWith('/api/v1/onboarding/templates')) return json({ success: true, data: [] });
       return json({ success: true, data: [] });
     }),
@@ -174,11 +177,14 @@ describe('templates', () => {
     await settle();
     expect(calls.find((c) => c.url === '/api/v1/onboarding/templates' && c.method === 'POST')?.body).toMatchObject({ kind: 'OFFER_LETTER', name: 'Standard offer letter' });
     await settle();
-    // With the cursor at the end of the text, the placeholder goes there.
-    const text = byLabel('Letter text');
-    act(() => text.setSelectionRange(text.value.length, text.value.length));
+    // New templates start from the standard letter, chosen by the server.
+    expect(calls.find((c) => c.url === '/api/v1/onboarding/templates' && c.method === 'POST')?.body).not.toHaveProperty('document');
+    // With the cursor at the end of the text, the placeholder goes there, as a placeholder.
+    const editor = (container.querySelector('.ProseMirror') as HTMLElement & { editor: Editor }).editor;
+    act(() => { editor.commands.setTextSelection(editor.state.doc.content.size - 1); });
     act(() => button('{{candidate_name}}')?.click());
-    expect(byLabel('Letter text').value).toBe('Dear {{candidate_name}}');
+    expect(editor.getJSON().content?.[0].content).toEqual([{ type: 'text', text: 'Dear ' }, { type: 'placeholder', attrs: { key: 'candidate_name' } }]);
+    expect(container.querySelector('.ProseMirror')?.textContent).toBe('Dear {{candidate_name}}');
   });
 });
 

@@ -13,6 +13,7 @@ import { OnboardingPdfService } from './onboarding-pdf.service';
 import { LetterheadsService } from './letterheads.service';
 import { CandidateStatus } from './onboarding-workflow';
 import { formatInr, formatLetterDate, renderTemplate } from './document-templates';
+import { DocNode, fillDocument } from './rich-document';
 import { ListOffersQueryDto, OfferInputDto, OfferPreviewDto, SubmitOfferDto } from './dto/onboarding.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -184,6 +185,7 @@ export class OffersService {
         dateText: formatLetterDate(todayDate()),
         title: letter.title,
         body: letter.body,
+        document: letter.document,
         table: {
           heading: 'Annual compensation',
           rows: data.components.map((c) => [c.component_label, formatInr(c.annual_amount)] as [string, string]),
@@ -258,7 +260,7 @@ export class OffersService {
       const submission = offer.submission_number + 1;
       await tx.rndtechnosoft_offers.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: offer.id } },
-        data: { offer_status: 'PENDING_APPROVAL', submission_number: submission, rendered_title: letter.title, rendered_body: letter.body, submitted_at: new Date(), updated_at: new Date() },
+        data: { offer_status: 'PENDING_APPROVAL', submission_number: submission, rendered_title: letter.title, rendered_body: letter.body, rendered_document: (letter.document ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull, submitted_at: new Date(), updated_at: new Date() },
       });
       await tx.rndtechnosoft_offer_approvals.createMany({
         data: input.approverMemberIds.map((memberId, index) => ({
@@ -324,7 +326,7 @@ export class OffersService {
       // Back to draft: the fixed text is released so the draft can be corrected.
       await tx.rndtechnosoft_offers.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: offer.id } },
-        data: { offer_status: 'DRAFT', rendered_title: null, rendered_body: null, updated_at: new Date() },
+        data: { offer_status: 'DRAFT', rendered_title: null, rendered_body: null, rendered_document: Prisma.DbNull, updated_at: new Date() },
       });
       await this.candidates.recordEvent(tx, tenantId, offer.candidate_id, {
         type: 'OFFER_APPROVAL',
@@ -677,7 +679,7 @@ export class OffersService {
     offer: { offer_code: string; candidate_id: string; template_version_id: string; job_title: string; department_id: string | null; designation_id: string | null; employment_type_id: string | null; reporting_manager_employee_id: string | null; work_location: string | null; annual_ctc: Prisma.Decimal; probation_months: number | null; joining_date: Date; expires_on: Date; special_terms: string | null },
   ) {
     const [version, candidate, department, designation, employmentType, manager, company] = await Promise.all([
-      db.rndtechnosoft_document_template_versions.findFirstOrThrow({ where: { tenant_id: tenantId, id: offer.template_version_id }, select: { title: true, body: true } }),
+      db.rndtechnosoft_document_template_versions.findFirstOrThrow({ where: { tenant_id: tenantId, id: offer.template_version_id }, select: { title: true, body: true, body_document: true } }),
       db.rndtechnosoft_candidates.findFirstOrThrow({ where: { tenant_id: tenantId, id: offer.candidate_id }, select: { full_name: true } }),
       offer.department_id ? db.rndtechnosoft_departments.findFirst({ where: { tenant_id: tenantId, id: offer.department_id }, select: { department_name: true } }) : null,
       offer.designation_id ? db.rndtechnosoft_designations.findFirst({ where: { tenant_id: tenantId, id: offer.designation_id }, select: { designation_name: true } }) : null,
@@ -704,19 +706,26 @@ export class OffersService {
       offer_reference: offer.offer_code,
       today: formatLetterDate(todayDate()),
     };
-    return { title: renderTemplate(version.title, values), body: renderTemplate(version.body, values) };
+    // A formatted version is filled as a document, keeping each placeholder's formatting.
+    const document = version.body_document ? fillDocument(version.body_document as unknown as DocNode, values) : undefined;
+    return { title: renderTemplate(version.title, values), body: renderTemplate(version.body, values), document };
   }
 
   /** The offer's letter as a PDF, laid out as its template version says (letterhead, page, margins). */
   private async buildPdf(db: Db, tenantId: string, offer: Awaited<ReturnType<OffersService['load']>>, marks: { footer?: string; watermark?: string } = {}) {
     const footer = marks.footer;
-    const letter = offer.rendered_body !== null ? { title: offer.rendered_title ?? '', body: offer.rendered_body } : await this.renderLetter(db, tenantId, offer);
+    // A submitted offer prints the letter fixed at submission; a draft, its letter as it would be now.
+    const letter =
+      offer.rendered_body !== null
+        ? { title: offer.rendered_title ?? '', body: offer.rendered_body, document: (offer.rendered_document as unknown as DocNode | null) ?? undefined }
+        : await this.renderLetter(db, tenantId, offer);
     return this.pdf.render({
       companyName: await this.companyName(tenantId),
       reference: offer.offer_code,
       dateText: formatLetterDate(offer.submitted_at ? new Date(offer.submitted_at.toISOString().slice(0, 10)) : todayDate()),
       title: letter.title,
       body: letter.body,
+      document: letter.document,
       table: {
         heading: 'Annual compensation',
         rows: offer.rndtechnosoft_offer_components.map((c) => [c.component_label, formatInr(c.annual_amount)] as [string, string]),

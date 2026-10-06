@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { apiFetch } from '../../api/client';
 import SLeadCadenceCenter from './SLeadCadenceCenter';
 
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ can: () => true }) }));
 vi.mock('../../api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/industryTaxonomy', () => ({
   useTenantIndustries: () => ({

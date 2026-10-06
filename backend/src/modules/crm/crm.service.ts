@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ConflictExc
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { LeadVisibility, onVisibleLead, visibleLeads } from './lead-visibility';
+import { LINKEDIN_INVALID, normalizeLinkedInUrl } from './outreach-channels';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CrmHistoryQueryDto } from './dto/history-query.dto';
 import { OutreachCalendar, addDays, dueInstant, dueRange, dueState, nextDueAt, validTimeZone, type DueFilter } from './crm-outreach-schedule';
@@ -164,6 +165,17 @@ const LEAD_LIST_INCLUDE = {
 
 type LeadListRow = Prisma.rndtechnosoft_crm_leadsGetPayload<{ include: typeof LEAD_LIST_INCLUDE }>;
 
+
+/**
+ * A LinkedIn address for a lead's column: normalized (https://www.linkedin.com/…),
+ * null when left empty, refused when it is not a LinkedIn address.
+ */
+function linkedInColumn(value: unknown, kind: 'profile' | 'company'): string | null {
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return null;
+  const linkedIn = typeof value === 'string' ? normalizeLinkedInUrl(value) : null;
+  if (!linkedIn) throw new BadRequestException(kind === 'profile' ? LINKEDIN_INVALID : 'Invalid LinkedIn company URL.');
+  return linkedIn.url;
+}
 @Injectable()
 export class CrmService {
   private readonly logger = new Logger(CrmService.name);
@@ -560,8 +572,8 @@ export class CrmService {
         alternate_email: data.alternateEmail || data.alternate_email || null,
         alternate_phone: data.alternatePhone || data.alternate_phone || null,
         website_url: data.websiteUrl || data.website_url || null,
-        linkedin_url: data.linkedinUrl || data.linkedin_url || null,
-        linkedin_company_url: data.linkedinCompanyUrl || data.linkedin_company_url || null,
+        linkedin_url: linkedInColumn(data.linkedinUrl ?? data.linkedin_url, 'profile'),
+        linkedin_company_url: linkedInColumn(data.linkedinCompanyUrl ?? data.linkedin_company_url, 'company'),
         website_status: text(data.websiteStatus ?? data.website_status),
         city: data.city || null,
         state: data.state || null,
@@ -613,8 +625,8 @@ export class CrmService {
     if (data.phone !== undefined) updateData.phone = data.phone;
     if (data.whatsappNumber !== undefined || data.whatsapp_number !== undefined) updateData.whatsapp_number = data.whatsappNumber || data.whatsapp_number;
     if (data.websiteUrl !== undefined || data.website_url !== undefined) updateData.website_url = data.websiteUrl || data.website_url;
-    if (data.linkedinUrl !== undefined || data.linkedin_url !== undefined) updateData.linkedin_url = data.linkedinUrl || data.linkedin_url;
-    if (data.linkedinCompanyUrl !== undefined || data.linkedin_company_url !== undefined) updateData.linkedin_company_url = data.linkedinCompanyUrl || data.linkedin_company_url;
+    if (data.linkedinUrl !== undefined || data.linkedin_url !== undefined) updateData.linkedin_url = linkedInColumn(data.linkedinUrl ?? data.linkedin_url, 'profile');
+    if (data.linkedinCompanyUrl !== undefined || data.linkedin_company_url !== undefined) updateData.linkedin_company_url = linkedInColumn(data.linkedinCompanyUrl ?? data.linkedin_company_url, 'company');
     if (data.primaryService !== undefined || data.primary_service !== undefined) updateData.primary_service = data.primaryService || data.primary_service;
     if (data.designation !== undefined) updateData.designation = data.designation;
     if (data.city !== undefined) updateData.city = data.city;
@@ -1566,7 +1578,8 @@ export class CrmService {
           overdueDays: cadence.status === 'ACTIVE' ? dueInfo.overdueDays : 0,
           // What has been done on this day's channels; the day itself completes only when marked complete.
           channelActions: cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {},
-          dayStatus: Object.values(cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {}).some((a) => a?.status === 'SENT') ? 'IN_PROGRESS' : 'PENDING',
+          // Started once a channel was sent, or opened or copied for sending by hand.
+          dayStatus: Object.values(cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {}).some((a) => a && ['SENT', 'OPENED', 'COPIED'].includes(a.status)) ? 'IN_PROGRESS' : 'PENDING',
           interpolatedTemplates: {
             linkedin: currentMasterStep.templates.linkedin
               ? {

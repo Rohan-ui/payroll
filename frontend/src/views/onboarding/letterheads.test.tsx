@@ -1,6 +1,7 @@
 import React, { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LETTER_FORMAT, heading, letter, paragraph, placeholder, stubLayout, text } from '../../test-support/letterDocument';
 
 /**
  * Letterheads, template layouts and previews through the real screens (API
@@ -27,9 +28,11 @@ const LETTERHEAD = {
   id: 'l1', name: 'Official', companyName: 'Acme Technologies Pvt Ltd', addressText: 'Pune', phone: null, email: null, website: null, registrationText: null, footerText: null,
   logoPosition: 'LEFT', headerHeightMm: 30, footerHeightMm: 16, isDefault: true, isArchived: false, images: { logo: false, header: false, footer: false }, updatedAt: '2026-10-01T00:00:00Z',
 };
+const DOCUMENT = letter(heading(1, text('Offer')), paragraph(text('Dear '), placeholder('candidate_name'), text(',')));
 const TEMPLATE = {
   id: 't1', kind: 'OFFER_LETTER', name: 'Standard', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }],
-  versions: [{ id: 'tv1', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear {{candidate_name}},', layout: { letterheadId: 'l1', letterheadName: 'Official', pageSize: 'A4', marginMm: 20, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }],
+  format: LETTER_FORMAT,
+  versions: [{ id: 'tv1', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear {{candidate_name}},', format: 'FORMATTED', document: DOCUMENT, layout: { letterheadId: 'l1', letterheadName: 'Official', pageSize: 'A4', marginMm: 20, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }],
 };
 const OFFER = {
   id: 'o1', offerCode: 'OFR-2026-100001', status: 'DRAFT', candidate: { id: 'c1', name: 'Priya Rao', code: 'CAN', email: 'p@x.test', status: 'SELECTED' }, templateVersionId: 'tv2', templateName: 'Standard', templateVersion: 2,
@@ -44,6 +47,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  stubLayout();
   granted = new Set(['onboarding.view', 'onboarding.templates.manage', 'onboarding.templates.approve', 'onboarding.offers.manage']);
   fake.current = fakePdfjs(2);
   calls = [];
@@ -151,38 +155,34 @@ describe('letterheads', () => {
 });
 
 describe('template layout and preview', () => {
-  it('previews the unsaved text and layout as a sample in the viewer, and saves the layout with the draft', async () => {
+  it('previews the unsaved document and layout as a sample in the viewer, and saves them with the draft', async () => {
     const clicks = downloads();
     await act(async () => root.render(<TemplatesView />));
     await settle();
     act(() => button('Standard')?.click());
     await settle();
     expect(byLabel('Letterhead').value).toBe('l1');
-    expect([...byLabel('Letterhead').options].map((o) => o.textContent)).toEqual(['None: plain page with the company name', 'Official (default)']);
+    expect([...byLabel('Letterhead').options].map((o) => o.textContent)).toEqual(['None: plain page', 'Official (default)']);
+    expect(container.querySelector('.ProseMirror')?.textContent).toBe('OfferDear {{candidate_name}},');
 
-    setValue(byLabel('Letter heading'), '');
-    await act(async () => button('Preview PDF')?.click());
-    expect(container.querySelector('[role=alert]')?.textContent).toBe('Enter the letter heading before previewing.');
-    expect(calls.some((c) => c.url.endsWith('/preview-pdf'))).toBe(false);
-
-    setValue(byLabel('Letter heading'), 'Unsaved heading');
     setValue(byLabel('Margins (mm)'), '25');
     setValue(byLabel('Page size'), 'LETTER');
+    expect(container.textContent).toContain('Unsaved changes');
     await act(async () => button('Preview PDF')?.click());
     await settle();
-    expect(calls.find((c) => c.url.endsWith('/templates/preview-pdf'))?.body).toEqual({
-      kind: 'OFFER_LETTER', title: 'Unsaved heading', body: 'Dear {{candidate_name}},', letterheadId: 'l1', pageSize: 'LETTER', marginMm: 25, showPageNumbers: true,
-    });
+    const sent = calls.find((c) => c.url.endsWith('/templates/preview-pdf'))?.body as Record<string, unknown>;
+    expect(sent).toMatchObject({ kind: 'OFFER_LETTER', letterheadId: 'l1', pageSize: 'LETTER', marginMm: 25, showPageNumbers: true });
+    expect(sent.document).toMatchObject({ type: 'doc', content: [{ type: 'heading', attrs: { level: 1 } }, { type: 'paragraph', content: [{ text: 'Dear ' }, { type: 'placeholder', attrs: { key: 'candidate_name' } }, { text: ',' }] }] });
     expect(viewer()?.textContent).toContain('Sample preview: made-up data');
     expect(viewer()?.querySelectorAll('[data-page]')).toHaveLength(2);
     expect(calls.some((c) => c.url.endsWith('/draft'))).toBe(false);
     expect(clicks).not.toHaveBeenCalled();
     act(() => (viewer()?.querySelector('[aria-label="Close"]') as HTMLButtonElement).click());
-    expect(byLabel('Letter heading').value).toBe('Unsaved heading');
+    expect(byLabel('Margins (mm)').value).toBe('25');
 
     await act(async () => button('Save draft')?.click());
     await settle();
-    expect(calls.find((c) => c.url.endsWith('/t1/draft'))?.body).toMatchObject({ title: 'Unsaved heading', letterheadId: 'l1', pageSize: 'LETTER', marginMm: 25, showPageNumbers: true });
+    expect(calls.find((c) => c.url.endsWith('/t1/draft'))?.body).toMatchObject({ document: sent.document, letterheadId: 'l1', pageSize: 'LETTER', marginMm: 25, showPageNumbers: true });
   });
 });
 
