@@ -1596,6 +1596,7 @@ model rndtechnosoft_tenants {
   rndtechnosoft_onboarding_notifications       rndtechnosoft_onboarding_notifications[]
   rndtechnosoft_document_templates             rndtechnosoft_document_templates[]
   rndtechnosoft_letterheads                    rndtechnosoft_letterheads[]
+  rndtechnosoft_cosec_sync_states              rndtechnosoft_cosec_sync_states?
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
@@ -2830,4 +2831,22 @@ model rndtechnosoft_user_mail_accounts {
 
   @@unique([tenant_id, user_id], map: "uq_user_mail_accounts_tenant_user")
   @@index([tenant_id, smtp_status], map: "ix_user_mail_accounts_status")
+}
+
+/// COSEC automatic sync, per workspace: on or off, the worker holding it (claimed_until), and the last run's outcome.
+model rndtechnosoft_cosec_sync_states {
+  id                   String    @id @db.Uuid
+  tenant_id            String    @unique(map: "uq_cosec_sync_states_tenant") @db.Uuid
+  is_auto_sync_enabled Boolean   @default(true)
+  claimed_until        DateTime? @db.Timestamptz(6)
+  last_started_at      DateTime? @db.Timestamptz(6)
+  last_finished_at     DateTime? @db.Timestamptz(6)
+  last_sync_status     String?   @db.VarChar(16)
+  last_sync_error      String?   @db.VarChar(500)
+  last_changed_records Int       @default(0)
+  last_unmatched_users Int       @default(0)
+  created_at           DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at           DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cosec_sync_states_tenant")
 }

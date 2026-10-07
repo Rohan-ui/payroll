@@ -9,14 +9,51 @@ import {
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { ExternalApiService, CosecApiSettings } from './external-api.service';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
+import { CurrentUser } from '@/common/decorators/auth.decorators';
+import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
+import { CosecSyncService } from './cosec-sync.service';
+import { CosecAutoSyncDto, CosecRefreshEmployeeDto } from './dto/cosec-sync.dto';
 
 @Controller('external-api')
 export class ExternalApiController {
-  constructor(private readonly externalApiService: ExternalApiService) {}
+  constructor(
+    private readonly externalApiService: ExternalApiService,
+    private readonly cosecSync: CosecSyncService,
+  ) {}
+
+  /**
+   * GET /external-api/cosec/sync-status
+   * Whether the every-minute sync is on, how its last run went, and whether the worker is running.
+   */
+  @Get('cosec/sync-status')
+  @RequirePermissions('attendance.integration.view')
+  async getSyncStatus(@CurrentTenant() tenantId: string) {
+    return this.cosecSync.status(tenantId);
+  }
+
+  /** PUT /external-api/cosec/auto-sync — switch the every-minute sync on or off. */
+  @Put('cosec/auto-sync')
+  @RequirePermissions('attendance.integration.update')
+  async setAutoSync(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: CosecAutoSyncDto) {
+    return this.cosecSync.setAutoSync(tenantId, body.enabled, { userId: actor.userId, tenantMemberId: actor.tenantMemberId });
+  }
+
+  /**
+   * POST /external-api/cosec/refresh-employee
+   * Fetches one employee's month from COSEC into their attendance (called when it is opened).
+   * Only changed days are written; finalized or corrected days are left alone.
+   */
+  @Post('cosec/refresh-employee')
+  @RequirePermissions('attendance.view')
+  @HttpCode(HttpStatus.OK)
+  async refreshEmployee(@CurrentTenant() tenantId: string, @Body() body: CosecRefreshEmployeeDto) {
+    return this.cosecSync.refreshEmployee(tenantId, body.employeeId, body.month);
+  }
 
   /**
    * GET /external-api/cosec/config
@@ -58,12 +95,14 @@ export class ExternalApiController {
     @CurrentTenant() tenantId: string,
     @Body() body?: Partial<CosecApiSettings>,
   ) {
-    // If caller passed full override credentials (e.g. pre-save test), use those
-    if (body?.baseUrl && body?.username && body?.password) {
+    // The address and username as typed (before saving); without a new password, with the saved one.
+    if (body?.baseUrl && body?.username) {
+      const password = body.password || (await this.externalApiService.getCosecConfig(tenantId).catch(() => null))?.password;
+      if (!password) throw new BadRequestException('Enter the COSEC password to test the connection.');
       return this.externalApiService.testConnectionWithConfig({
         baseUrl: body.baseUrl,
         username: body.username,
-        password: body.password,
+        password,
       });
     }
     // Otherwise use saved config

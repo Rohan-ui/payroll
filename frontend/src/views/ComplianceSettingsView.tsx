@@ -21,6 +21,7 @@ import {
   Clock,
   Calendar,
 } from 'lucide-react';
+import { CosecAutoSyncCard } from './attendance/CosecAutoSyncCard';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -83,6 +84,8 @@ function ApiConfigTab() {
   const [previewDaily, setPreviewDaily] = useState<CosecDailyAttendance[]>([]);
   const [previewTab, setPreviewTab] = useState<'users' | 'daily' | 'monthly'>('users');
   const [loadingPreview, setLoadingPreview] = useState(false);
+  // Why COSEC data could not be loaded (a wrong password, an unreachable server), shown rather than an empty list.
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const baseUrlRef = useRef<HTMLInputElement>(null);
   const { refreshData } = usePayroll();
 
@@ -97,6 +100,8 @@ function ApiConfigTab() {
       if (uRes.status === 'fulfilled') setPreviewUsers(uRes.value.data || []);
       if (aRes.status === 'fulfilled') setPreviewAttendance(aRes.value.data || []);
       if (dRes.status === 'fulfilled') setPreviewDaily(dRes.value.data || []);
+      const failed = [uRes, aRes, dRes].find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      setPreviewError(failed ? (failed.reason instanceof Error ? failed.reason.message : 'COSEC data could not be loaded.') : null);
     } catch {
       // preview error non-blocking
     } finally {
@@ -132,10 +137,11 @@ function ApiConfigTab() {
     setTestStatus('testing');
     setTestMessage('');
     try {
+      // A blank password tests the saved one, with the address and username as typed.
       const result = await externalApiClient.testConnection({
         baseUrl: baseUrl.trim(),
         username: username.trim(),
-        password,
+        ...(password ? { password } : {}),
       });
       setTestStatus(result.ok ? 'ok' : 'fail');
       setTestMessage(result.message);
@@ -160,16 +166,18 @@ function ApiConfigTab() {
     setSaving(true);
     setSaveSuccess(false);
     try {
+      // A blank password is not sent: the saved one is kept.
+      const replacing = Boolean(password);
       const saved = await externalApiClient.saveCosecConfig({
         baseUrl: baseUrl.trim(),
         username: username.trim(),
-        password,
+        ...(replacing ? { password } : {}),
       });
       setSavedConfig(saved);
       setPassword('');
       setSaveSuccess(true);
       setTestStatus('ok');
-      setTestMessage('Configuration saved successfully.');
+      setTestMessage(replacing ? 'Configuration saved with the new password.' : 'Configuration saved. The saved password was kept.');
       loadPreview();
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
@@ -279,7 +287,11 @@ function ApiConfigTab() {
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="admin"
                 className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                autoComplete="username"
+                // The COSEC account, not this app's login: the browser must not fill in a saved sign-in.
+                name="cosec-api-username"
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
               />
             </div>
 
@@ -293,9 +305,14 @@ function ApiConfigTab() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder={savedConfig?.passwordSet ? '••••••••  (saved)' : 'Enter password'}
+                  // Not dots: an empty box must not look like a filled-in password.
+                  placeholder={savedConfig?.passwordSet ? 'Saved — type a new password to replace it' : 'Enter password'}
                   className="w-full text-sm px-3 py-2 pr-9 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                  autoComplete="current-password"
+                  // "new-password": browsers don't fill in a saved password here, which would replace the COSEC password on Save.
+                  name="cosec-api-password"
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
                 />
                 <button
                   type="button"
@@ -308,6 +325,9 @@ function ApiConfigTab() {
               </div>
               {savedConfig?.passwordSet && !password && (
                 <p className="text-[11px] text-teal-600 mt-1">A password is saved. Leave blank to keep it unchanged.</p>
+              )}
+              {savedConfig?.passwordSet && password && (
+                <p className="text-[11px] text-amber-700 mt-1">This replaces the saved password when you save.</p>
               )}
             </div>
           </div>
@@ -372,6 +392,9 @@ function ApiConfigTab() {
         </div>
       </Card>
 
+      {/* Every-minute sync, run by the cosec-sync worker */}
+      {savedConfig && <CosecAutoSyncCard />}
+
       {/* Live Data from COSEC */}
       <Card>
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
@@ -383,6 +406,11 @@ function ApiConfigTab() {
             <p className="text-xs text-slate-500 mt-0.5">
               Pull real users and attendance from your Matrix COSEC server and sync directly into the system.
             </p>
+            {previewError && (
+              <p role="alert" className="mt-2 p-2.5 rounded-lg border border-red-200 bg-red-50 text-xs text-red-800 break-words">
+                COSEC data could not be loaded: {previewError}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button

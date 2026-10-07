@@ -15,6 +15,7 @@ import { Avatar } from '../components/ui/Avatar';
 import { StatRing } from '../components/ui/StatRing';
 import { CalendarHeatmap } from '../components/ui/CalendarHeatmap';
 import { attendanceApi } from '../api/attendance.api';
+import { CosecRefreshNote, useCosecRefresh } from './attendance/CosecRefresh';
 import type { Employee, AttendanceDay } from '../types/payroll.types';
 
 /* ── Helpers ──────────────────────────────────────────────── */
@@ -102,6 +103,8 @@ export const EmployeeDetailView: React.FC = () => {
   const [liveAttendanceDays, setLiveAttendanceDays] = useState<AttendanceDay[]>([]);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | undefined>();
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(false);
+  // Bumped when COSEC brought changes, to load the month again.
+  const [attendanceReload, setAttendanceReload] = useState(0);
 
   const isCurrentLiveMonth = selectedYear === liveYear && selectedMonth === liveMonth;
   const currentMonthName = new Date(selectedYear, selectedMonth - 1, 1).toLocaleString('en-IN', { month: 'long' });
@@ -161,7 +164,9 @@ export const EmployeeDetailView: React.FC = () => {
       });
 
     return () => { isMounted = false; };
-  }, [emp?.id, selectedYear, selectedMonth]);
+  }, [emp?.id, selectedYear, selectedMonth, attendanceReload]);
+
+  const cosecRefresh = useCosecRefresh(emp?.id, `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`, () => setAttendanceReload((n) => n + 1));
 
   const handleManageAttendance = (targetDate?: string) => {
     if (emp?.id) setSelectedEmployeeId(emp.id);
@@ -528,6 +533,7 @@ export const EmployeeDetailView: React.FC = () => {
                 </Button>
               </div>
             </div>
+            <div className="-mt-2 mb-3"><CosecRefreshNote state={cosecRefresh} /></div>
             <CalendarHeatmap
               year={selectedYear}
               month={selectedMonth}

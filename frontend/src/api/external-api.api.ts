@@ -7,7 +7,8 @@ import { apiClient } from './client';
 export interface CosecConfig {
   baseUrl: string;
   username: string;
-  password: string;
+  /** Left out to keep the saved password. */
+  password?: string;
 }
 
 export interface CosecConfigPublic {
@@ -15,6 +16,25 @@ export interface CosecConfigPublic {
   username: string;
   passwordSet: boolean;
 }
+
+/** The every-minute COSEC sync of this workspace: on or off, and how its last run went. */
+export interface CosecSyncStatus {
+  configured: boolean;
+  autoSyncEnabled: boolean;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastStatus: 'SUCCEEDED' | 'FAILED' | null;
+  lastError: string | null;
+  lastChangedRecords: number;
+  lastUnmatchedUsers: number;
+  /** Switched on, but no run for over 5 minutes: the cosec-sync worker isn't running. */
+  workerSilent: boolean;
+}
+
+/** One employee's month refreshed from COSEC. */
+export type CosecRefreshResult =
+  | { status: 'NOT_CONFIGURED' }
+  | { status: 'RECENT' | 'SYNCED'; syncedAt: string; changedRecords: number; skippedLocked?: number; matched?: boolean };
 
 export interface TestConnectionResult {
   ok: boolean;
@@ -211,5 +231,18 @@ export const externalApiClient = {
   async syncAll(month?: string): Promise<SyncAllResult> {
     const qs = month ? `?month=${month}` : '';
     return apiClient.post<SyncAllResult>(`/external-api/cosec/sync-all${qs}`);
+  },
+
+  async getSyncStatus(): Promise<CosecSyncStatus> {
+    return apiClient.get<CosecSyncStatus>('/external-api/cosec/sync-status');
+  },
+
+  async setAutoSync(enabled: boolean): Promise<CosecSyncStatus> {
+    return apiClient.put<CosecSyncStatus>('/external-api/cosec/auto-sync', { enabled });
+  },
+
+  /** Brings one employee's month (so far) from COSEC into their attendance. */
+  async refreshEmployee(employeeId: string, month: string): Promise<CosecRefreshResult> {
+    return apiClient.post<CosecRefreshResult>('/external-api/cosec/refresh-employee', { employeeId, month });
   },
 };

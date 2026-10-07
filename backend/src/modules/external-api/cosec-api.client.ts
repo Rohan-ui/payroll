@@ -47,6 +47,53 @@ function buildCosecUrl(
   return `${normalizedBase}/api.svc/v2/${requestType}?${queryParts}`;
 }
 
+/** How long one COSEC call may take before it is given up, so a hung server can't stall a sync. */
+export const COSEC_TIMEOUT_MS = 30_000;
+/** Waits before trying again after a connection failure that may be momentary. */
+export const COSEC_RETRY_DELAYS_MS = [1_000, 2_000];
+/** Connection failures worth one more try: refused, reset or dropped connections. Not a wrong address or certificate. */
+const TRANSIENT_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET', 'EAI_AGAIN']);
+
+/**
+ * Why a COSEC server could not be reached, in words an administrator can act on.
+ * fetch reports every connection failure as "fetch failed"; the reason is on
+ * its cause (a socket error code). Names the server (host and port), never the credentials.
+ */
+export function networkProblem(url: string, error: unknown): string {
+  let where = 'the COSEC server';
+  try {
+    const u = new URL(url);
+    where = `the COSEC server at ${u.hostname}:${u.port || (u.protocol === 'https:' ? '443' : '80')}`;
+  } catch {
+    // Keep the generic name.
+  }
+  const cause = (error as { cause?: { code?: string; message?: string } } | null)?.cause;
+  const code = cause?.code ?? (error as { code?: string } | null)?.code ?? '';
+  switch (code) {
+    case 'ECONNREFUSED':
+      return `COSEC network error: ${where} refused the connection. Check that COSEC is running and that the address and port in the COSEC settings are right.`;
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+      return `COSEC network error: the name in ${where.replace('the COSEC server at ', '')} could not be found. Check the address in the COSEC settings.`;
+    case 'ETIMEDOUT':
+    case 'UND_ERR_CONNECT_TIMEOUT':
+      return `COSEC network error: ${where} did not respond. It may not be reachable from this server's network (firewall, VPN or a private address).`;
+    case 'EHOSTUNREACH':
+    case 'ENETUNREACH':
+      return `COSEC network error: ${where} is not reachable from this server's network. A private address (such as 192.168.x.x) only works from the same network.`;
+    case 'ECONNRESET':
+      return `COSEC network error: ${where} closed the connection. Check that the address uses the right protocol (http or https) and port.`;
+    case 'DEPTH_ZERO_SELF_SIGNED_CERT':
+    case 'SELF_SIGNED_CERT_IN_CHAIN':
+    case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
+    case 'CERT_HAS_EXPIRED':
+    case 'ERR_TLS_CERT_ALTNAME_INVALID':
+      return `COSEC network error: the HTTPS certificate of ${where} is not trusted (${code}). Use a trusted certificate, or the http address if COSEC is on a private network.`;
+    default:
+      return `COSEC network error: ${where} could not be reached (${code || cause?.message || (error as Error | null)?.message || 'unknown reason'}).`;
+  }
+}
+
 function buildBasicAuthHeader(username: string, password: string): string {
   const credentials = Buffer.from(`${username}:${password}`).toString('base64');
   return `Basic ${credentials}`;
@@ -66,19 +113,30 @@ export async function cosecGet<T = unknown>(
     format: 'json',
   });
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: buildBasicAuthHeader(config.username, config.password),
-        Accept: 'application/json, text/plain',
-      },
-    });
-  } catch (networkErr: any) {
-    throw buildCosecError(
-      `COSEC network error: ${networkErr?.message ?? 'Cannot reach COSEC server'}`,
-    );
+  let response!: Response;
+  // A connection refused or dropped can be a moment's blip: tried again after 1 s, then 2 s.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: buildBasicAuthHeader(config.username, config.password),
+          Accept: 'application/json, text/plain',
+        },
+        signal: AbortSignal.timeout(COSEC_TIMEOUT_MS),
+      });
+      break;
+    } catch (networkErr: any) {
+      if (networkErr?.name === 'TimeoutError') {
+        throw buildCosecError(`COSEC server did not answer within ${COSEC_TIMEOUT_MS / 1000} seconds`);
+      }
+      const code = networkErr?.cause?.code ?? '';
+      if (attempt < COSEC_RETRY_DELAYS_MS.length && TRANSIENT_CODES.has(code)) {
+        await new Promise((resolve) => setTimeout(resolve, COSEC_RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      throw buildCosecError(networkProblem(url, networkErr));
+    }
   }
 
   if (response.status === 401 || response.status === 403) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { CosecRefreshNote, useCosecRefresh } from './CosecRefresh';
 import {
   CalendarDays,
   ChevronLeft,
@@ -270,6 +271,9 @@ export const AttendanceModule: React.FC = () => {
     }
   }, [activeEmployeeId, monthStr, selectedDate, refreshTrigger]);
 
+  // Opening an employee brings their month from COSEC; a change reloads it.
+  const cosecRefresh = useCosecRefresh(activeEmployeeId, monthStr, () => setRefreshTrigger((c) => c + 1));
+
   useEffect(() => {
     if (activeEmployeeId) {
       fetchEmployeeDetailData();
@@ -345,6 +349,7 @@ export const AttendanceModule: React.FC = () => {
         <div>
           {/* Breadcrumbs */}
           {activeEmployeeId ? (
+            <>
             <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-1.5">
               <button
                 type="button"
@@ -361,6 +366,8 @@ export const AttendanceModule: React.FC = () => {
               <span>›</span>
               <span className="font-bold text-slate-800 dark:text-white">{employeeMonthData?.employee.fullName}</span>
             </div>
+            <CosecRefreshNote state={cosecRefresh} />
+            </>
           ) : (
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">

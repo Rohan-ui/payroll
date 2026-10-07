@@ -63,6 +63,8 @@ export interface CosecRawMonthlyAttendance {
 export interface CosecRawDailyAttendance {
   userid?: string;
   username?: string;
+  /** The attendance day the row is for (dd/mm/yyyy), with or without punches. */
+  processdate?: string;
   punch1_date?: string;   // e.g. "21/09/2026"
   punch1_time?: string;
   punch2_time?: string;
@@ -95,6 +97,8 @@ export interface CosecRawDailyAttendance {
 
 export interface CosecPunchDetail {
   index: number;
+  /** The punch's own date (YYYY-MM-DD) when COSEC gives it: after midnight on a night shift it is the next day. */
+  date: string | null;
   time: string;
   type: 'CHECK_IN' | 'CHECK_OUT';
   label: string; // "Shift In", "Break Out", "Break In", "Shift Out / Break", etc.
@@ -188,7 +192,8 @@ export function parseCosecClock(val: string | undefined): string | null {
  */
 export function parseCosecDate(val: string | undefined): string | null {
   if (!val || !val.trim()) return null;
-  const s = val.trim();
+  // A date may come with a time ("21/09/2026 09:30"): only the date is read.
+  const s = val.trim().split(/\s+/)[0];
   // Format 1: DD/MM/YYYY
   if (s.includes('/')) {
     const parts = s.split('/');
@@ -315,8 +320,10 @@ export function serializeCosecDailyAttendance(
 ): SerializedCosecDailyAttendance[] {
   return rawRecords
     .filter((r) => r.userid)
+    // A row is for its process date. Without one it can only be placed when one day was asked for (the fallback).
+    .filter((r) => parseCosecDate(r.processdate) || parseCosecDate(r.punch1_date) || fallbackDate)
     .map((r) => {
-      const dateStr = parseCosecDate(r.punch1_date) || fallbackDate || new Date().toISOString().slice(0, 10);
+      const dateStr = (parseCosecDate(r.processdate) || parseCosecDate(r.punch1_date) || fallbackDate) as string;
       const fHalf = (r.firsthalf || '').trim().toUpperCase();
       const sHalf = (r.secondhalf || '').trim().toUpperCase();
 
@@ -342,6 +349,7 @@ export function serializeCosecDailyAttendance(
 
           punches.push({
             index: i,
+            date: parseCosecDate(r[`punch${i}_date`]),
             time: pTime,
             type: isOdd ? 'CHECK_IN' : 'CHECK_OUT',
             label,

@@ -17,6 +17,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { cosecGet, cosecTestConnection } from './cosec-api.client';
+import { decryptPlatformSecret, encryptPlatformSecret } from '../super-admin/auth/platform-crypto.util';
 import {
   serializeCosecUsers,
   serializeCosecMonthlyAttendance,
@@ -30,13 +31,46 @@ import {
   SerializedCosecDailyAttendance,
 } from './cosec.serializer';
 
-/** Shape stored at settings.cosecApi in tenant_settings */
+/** COSEC connection details as used to call the server (the password decrypted). */
 export interface CosecApiSettings {
   baseUrl: string;
   username: string;
-  /** Stored password — never returned to client */
+  /** Never returned to the client. */
   password: string;
 }
+
+/**
+ * Stored at settings.cosecApi in tenant_settings: the password encrypted
+ * (passwordEncrypted). `password` is plain text saved before encryption; it is
+ * still read, and replaced by the encrypted copy on the next save.
+ */
+interface StoredCosecApiSettings {
+  baseUrl: string;
+  username: string;
+  passwordEncrypted?: string;
+  password?: string;
+}
+
+/** What one sync of daily attendance did. */
+export interface CosecDailySyncResult {
+  /** Days returned by COSEC for known employees. */
+  syncedRecords: number;
+  /** Punches written (only on days that changed). */
+  syncedPunches: number;
+  /** Days whose times, status or punches changed and were updated. */
+  changedRecords: number;
+  unchangedRecords: number;
+  /** Days left alone: locked by finalized payroll, or corrected by an approved adjustment. */
+  skippedLocked: number;
+  /** COSEC user IDs with no employee of that Employee Code. */
+  unmatchedUsers: string[];
+}
+
+/** COSEC works in its server's local time: India. */
+const COSEC_OFFSET = '+05:30';
+/** Today in COSEC's time zone, as YYYY-MM-DD. */
+export const cosecToday = (now = new Date()) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 
 /** What we return to the frontend (never includes password plaintext) */
 export interface CosecConfigPublic {
@@ -44,6 +78,9 @@ export interface CosecConfigPublic {
   username: string;
   passwordSet: boolean;
 }
+
+/** Punch sources written by COSEC syncs, past and present. */
+const COSEC_PUNCH_SOURCES = ['COSEC_SYNC', 'COSEC_DEVICE'];
 
 @Injectable()
 export class ExternalApiService {
@@ -59,15 +96,28 @@ export class ExternalApiService {
     });
 
     const raw = settings?.settings as Record<string, any> | null;
-    const cosecApi = raw?.cosecApi as CosecApiSettings | undefined;
+    const cosecApi = raw?.cosecApi as StoredCosecApiSettings | undefined;
+    const password = cosecApi ? this.readPassword(cosecApi) : null;
 
-    if (!cosecApi?.baseUrl || !cosecApi?.username || !cosecApi?.password) {
+    if (!cosecApi?.baseUrl || !cosecApi?.username || !password) {
       throw new BadRequestException(
         'COSEC API is not configured. Please add the base URL, username, and password in Settings → API Configuration.',
       );
     }
 
-    return cosecApi;
+    return { baseUrl: cosecApi.baseUrl, username: cosecApi.username, password };
+  }
+
+  /** Whether this workspace has COSEC set up (without reading the password). */
+  async isCosecConfigured(tenantId: string): Promise<boolean> {
+    const row = await this.prisma.rndtechnosoft_tenant_settings.findUnique({ where: { tenant_id: tenantId }, select: { settings: true } });
+    const cosecApi = (row?.settings as Record<string, any> | null)?.cosecApi as StoredCosecApiSettings | undefined;
+    return Boolean(cosecApi?.baseUrl && cosecApi?.username && (cosecApi.passwordEncrypted || cosecApi.password));
+  }
+
+  private readPassword(stored: StoredCosecApiSettings): string | null {
+    if (stored.passwordEncrypted) return decryptPlatformSecret(stored.passwordEncrypted);
+    return stored.password || null;
   }
 
   /** Save COSEC config into tenant_settings.cosecApi */
@@ -86,9 +136,10 @@ export class ExternalApiService {
     });
 
     const existingSettings = (existing?.settings ?? {}) as Record<string, any>;
-    const prevCosec = existingSettings?.cosecApi as CosecApiSettings | undefined;
+    const prevCosec = existingSettings?.cosecApi as StoredCosecApiSettings | undefined;
 
-    const finalPassword = (config.password && config.password.trim()) || prevCosec?.password;
+    // A new password, or the saved one; stored encrypted either way.
+    const finalPassword = (config.password && config.password.trim()) || (prevCosec ? this.readPassword(prevCosec) : null);
     if (!finalPassword) {
       throw new BadRequestException('Password is required.');
     }
@@ -99,7 +150,7 @@ export class ExternalApiService {
       cosecApi: {
         baseUrl: config.baseUrl.trim().replace(/\/+$/, ''),
         username: config.username.trim(),
-        password: finalPassword,
+        passwordEncrypted: encryptPlatformSecret(finalPassword),
       },
     };
 
@@ -446,11 +497,13 @@ export class ExternalApiService {
       dRange = `01${mm}${yyyy}-${dd}${mm}${yyyy}`;
     }
 
+    // Each punch with its own date (a night shift's punch-out falls on the next day), and the day's process date.
+    const punchFields = Array.from({ length: 12 }, (_, i) => `punch${i + 1}_date,punch${i + 1}_time`).join(',');
     const params: Record<string, string> = {
       action: 'get',
       'date-range': dRange,
       range,
-      'field-name': 'userid,username,punch1_date,punch1_time,punch2_time,punch3_time,punch4_time,punch5_time,punch6_time,punch7_time,punch8_time,punch9_time,punch10_time,punch11_time,punch12_time,outpunch_time,firsthalf,secondhalf,worktime_hhmm,shiftstart,shiftend,scheduleshift,workingshift',
+      'field-name': `userid,username,processdate,${punchFields},outpunch_time,firsthalf,secondhalf,worktime_hhmm,shiftstart,shiftend,scheduleshift,workingshift`,
     };
     if (range !== 'all' && rangeId) {
       params['id'] = rangeId;
@@ -463,7 +516,9 @@ export class ExternalApiService {
         params,
       );
       const records = this.unwrapCosecList<CosecRawDailyAttendance>(raw);
-      return serializeCosecDailyAttendance(records);
+      // A row without a date can only be placed when a single day was asked for.
+      const singleDay = startDate && startDate === endDate ? startDate : undefined;
+      return serializeCosecDailyAttendance(records, singleDay);
     } catch (err: any) {
       throw new BadRequestException(
         err?.message || 'Failed to fetch daily attendance from COSEC server.',
@@ -472,120 +527,127 @@ export class ExternalApiService {
   }
 
   /**
-   * Sync daily attendance & punches into DB for a date range (defaults to month-to-date).
+   * Brings daily attendance and punches from COSEC into our records for a date
+   * range (month to date by default), for everyone or one employee
+   * (`employeeCode`, which is also their COSEC user ID).
+   *
+   * Only days that differ are written: a day is compared with COSEC (status,
+   * times, shift, and its COSEC punches) and left alone when equal, so this can
+   * run every minute. A changed day gets COSEC's punches in place of the ones
+   * synced before. Days locked by finalized payroll, or corrected by an
+   * approved adjustment, are never overwritten.
    */
   async syncDailyAttendance(
     tenantId: string,
     startDate?: string,
     endDate?: string,
-  ): Promise<{ syncedRecords: number; syncedPunches: number }> {
-    const dailyList = await this.getDailyAttendance(tenantId, startDate, endDate);
-    if (!dailyList.length) {
-      return { syncedRecords: 0, syncedPunches: 0 };
-    }
+    options: { employeeCode?: string } = {},
+  ): Promise<CosecDailySyncResult> {
+    const dailyList = await this.getDailyAttendance(tenantId, startDate, endDate, options.employeeCode ? 'user' : 'all', options.employeeCode);
+    const result: CosecDailySyncResult = { syncedRecords: 0, syncedPunches: 0, changedRecords: 0, unchangedRecords: 0, skippedLocked: 0, unmatchedUsers: [] };
+    const items = dailyList.filter((item) => item.employeeCode && item.date);
+    if (!items.length) return result;
 
-    let syncedRecords = 0;
-    let syncedPunches = 0;
+    // Employees and their days in one go, not one query per row.
+    const codes = [...new Set(items.map((item) => item.employeeCode))];
+    const employees = await this.prisma.rndtechnosoft_employees.findMany({
+      where: { tenant_id: tenantId, employee_code: { in: codes } },
+      select: { id: true, employee_code: true },
+    });
+    const employeeByCode = new Map(employees.map((e) => [e.employee_code, e.id]));
+    result.unmatchedUsers = codes.filter((code) => !employeeByCode.has(code));
+    const dates = items.map((item) => item.date).sort();
+    const existing = await this.prisma.rndtechnosoft_attendance_records.findMany({
+      where: {
+        tenant_id: tenantId,
+        employee_id: { in: employees.map((e) => e.id) },
+        attendance_date: { gte: new Date(`${dates[0]}T00:00:00.000Z`), lte: new Date(`${dates[dates.length - 1]}T00:00:00.000Z`) },
+      },
+      include: {
+        rndtechnosoft_attendance_punches: { where: { source: { in: COSEC_PUNCH_SOURCES } }, orderBy: { punch_at: 'asc' } },
+        rndtechnosoft_attendance_adjustments: { where: { adjustment_status: 'APPROVED' }, select: { id: true } },
+      },
+    });
+    const recordByDay = new Map(existing.map((rec) => [`${rec.employee_id}|${rec.attendance_date.toISOString().slice(0, 10)}`, rec]));
 
-    for (const item of dailyList) {
-      if (!item.employeeCode || !item.date) continue;
+    // A COSEC local time ("HH:MM" or "HH:MM:SS") on a date, as an instant.
+    const parseLocalTime = (dateStr: string, timeStr: string | null | undefined): Date | null => {
+      const clean = timeStr?.trim();
+      if (!clean) return null;
+      const at = new Date(`${dateStr}T${clean.length === 5 ? `${clean}:00` : clean}${COSEC_OFFSET}`);
+      return Number.isNaN(at.getTime()) ? null : at;
+    };
+    // Postgres TIME columns: Prisma represents them as a Date on 1970-01-01 UTC
+    const toTimeOfDay = (hhmm: string | null): Date | null => (hhmm ? new Date(`1970-01-01T${hhmm}:00.000Z`) : null);
+    const time = (d: Date | null | undefined) => (d ? d.getTime() : null);
 
-      const employee = await this.prisma.rndtechnosoft_employees.findFirst({
-        where: { tenant_id: tenantId, employee_code: item.employeeCode },
-      });
-      if (!employee) continue;
+    for (const item of items) {
+      const employeeId = employeeByCode.get(item.employeeCode);
+      if (!employeeId) continue;
+      result.syncedRecords++;
+      const current = recordByDay.get(`${employeeId}|${item.date}`);
+      if (current && (current.finalized_at || current.rndtechnosoft_attendance_adjustments.length)) {
+        result.skippedLocked++;
+        continue;
+      }
 
-      const attDate = new Date(`${item.date}T00:00:00.000Z`);
-
-      // Parse local time in tenant timezone (Asia/Kolkata +05:30)
-      const parseLocalTime = (dateStr: string, timeStr: string | null | undefined): Date | null => {
-        if (!timeStr) return null;
-        const clean = timeStr.trim();
-        if (!clean) return null;
-        const normalized = clean.length === 5 ? `${clean}:00` : clean;
-        return new Date(`${dateStr}T${normalized}+05:30`);
-      };
-
-      // Postgres TIME columns: Prisma represents them as a Date on 1970-01-01 UTC
-      const toTimeOfDay = (hhmm: string | null): Date | null =>
-        hhmm ? new Date(`1970-01-01T${hhmm}:00.000Z`) : null;
-      const scheduledShift = {
+      const workedMinutes = item.workedMinutes > 0 ? item.workedMinutes : item.status === 'PRESENT' ? 480 : item.status === 'HALF_DAY' ? 240 : 0;
+      const fields = {
+        attendance_status: item.status,
+        first_check_in_at: parseLocalTime(item.punches[0]?.date ?? item.date, item.firstCheckInTime),
+        last_check_out_at: item.lastCheckOutTime && !item.isCurrentlyInside
+          ? parseLocalTime(item.punches[item.punches.length - 1]?.date ?? item.date, item.lastCheckOutTime)
+          : null,
+        worked_minutes: workedMinutes,
+        payable_minutes: item.status === 'PRESENT' ? 480 : item.status === 'HALF_DAY' ? 240 : 0,
         scheduled_shift_code: item.scheduledShiftCode,
         working_shift_code: item.workingShiftCode,
         scheduled_shift_start_time: toTimeOfDay(item.shiftStart),
         scheduled_shift_end_time: toTimeOfDay(item.shiftEnd),
       };
+      // Punch 1 IN, Punch 2 OUT, Punch 3 IN, …, each on its own date.
+      const punches = item.punches
+        .map((p) => ({ punch_at: parseLocalTime(p.date ?? item.date, p.time), punch_type: p.type, device_reference: `COSEC_PUNCH_${p.index}_${p.label}` }))
+        .filter((p): p is { punch_at: Date; punch_type: 'CHECK_IN' | 'CHECK_OUT'; device_reference: string } => p.punch_at !== null);
 
-      const firstCheckInAt: Date | null = parseLocalTime(item.date, item.firstCheckInTime);
-      let lastCheckOutAt: Date | null = null;
-      if (item.lastCheckOutTime && !item.isCurrentlyInside) {
-        lastCheckOutAt = parseLocalTime(item.date, item.lastCheckOutTime);
+      const unchanged = current
+        && current.source === 'COSEC_SYNC'
+        && current.attendance_status === fields.attendance_status
+        && time(current.first_check_in_at) === time(fields.first_check_in_at)
+        && time(current.last_check_out_at) === time(fields.last_check_out_at)
+        && current.worked_minutes === fields.worked_minutes
+        && current.payable_minutes === fields.payable_minutes
+        && current.scheduled_shift_code === fields.scheduled_shift_code
+        && current.working_shift_code === fields.working_shift_code
+        && time(current.scheduled_shift_start_time) === time(fields.scheduled_shift_start_time)
+        && time(current.scheduled_shift_end_time) === time(fields.scheduled_shift_end_time)
+        && current.rndtechnosoft_attendance_punches.length === punches.length
+        && current.rndtechnosoft_attendance_punches.every((p, i) =>
+          p.punch_at.getTime() === punches[i].punch_at.getTime() && p.punch_type === punches[i].punch_type && p.device_reference === punches[i].device_reference);
+      if (unchanged) {
+        result.unchangedRecords++;
+        continue;
       }
 
-      // Upsert daily attendance record
-      const record = await this.prisma.rndtechnosoft_attendance_records.upsert({
-        where: {
-          tenant_id_employee_id_attendance_date: {
-            tenant_id: tenantId,
-            employee_id: employee.id,
-            attendance_date: attDate,
-          },
-        },
-        update: {
-          attendance_status: item.status,
-          first_check_in_at: firstCheckInAt,
-          last_check_out_at: lastCheckOutAt,
-          worked_minutes: item.workedMinutes > 0 ? item.workedMinutes : (item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0)),
-          payable_minutes: item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0),
-          source: 'COSEC_SYNC',
-          ...scheduledShift,
-        },
-        create: {
-          id: randomUUID(),
-          tenant_id: tenantId,
-          employee_id: employee.id,
-          attendance_date: attDate,
-          attendance_status: item.status,
-          first_check_in_at: firstCheckInAt,
-          last_check_out_at: lastCheckOutAt,
-          worked_minutes: item.workedMinutes > 0 ? item.workedMinutes : (item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0)),
-          payable_minutes: item.status === 'PRESENT' ? 480 : (item.status === 'HALF_DAY' ? 240 : 0),
-          source: 'COSEC_SYNC',
-          ...scheduledShift,
-        },
-      });
-      syncedRecords++;
-
-      // Clean up old COSEC punches for this record before inserting fresh ones to prevent stale/shifted duplicates
-      await this.prisma.rndtechnosoft_attendance_punches.deleteMany({
-        where: {
-          attendance_record_id: record.id,
-          source: { in: ['COSEC_SYNC', 'COSEC_DEVICE'] },
-        },
-      });
-
-      // Create/sync each individual punch in sequence (Punch 1 IN, Punch 2 OUT, Punch 3 IN, etc.)
-      for (const p of item.punches) {
-        const punchAt = parseLocalTime(item.date, p.time);
-        if (!punchAt) continue;
-
-        await this.prisma.rndtechnosoft_attendance_punches.create({
-          data: {
-            id: randomUUID(),
-            tenant_id: tenantId,
-            employee_id: employee.id,
-            attendance_record_id: record.id,
-            punch_at: punchAt,
-            punch_type: p.type,
-            source: 'COSEC_SYNC',
-            device_reference: `COSEC_PUNCH_${p.index}_${p.label}`,
-          },
+      // The day and its punches change together.
+      await this.prisma.$transaction(async (tx) => {
+        const record = await tx.rndtechnosoft_attendance_records.upsert({
+          where: { tenant_id_employee_id_attendance_date: { tenant_id: tenantId, employee_id: employeeId, attendance_date: new Date(`${item.date}T00:00:00.000Z`) } },
+          update: { ...fields, source: 'COSEC_SYNC', updated_at: new Date() },
+          create: { id: randomUUID(), tenant_id: tenantId, employee_id: employeeId, attendance_date: new Date(`${item.date}T00:00:00.000Z`), ...fields, source: 'COSEC_SYNC' },
         });
-        syncedPunches++;
-      }
+        await tx.rndtechnosoft_attendance_punches.deleteMany({ where: { tenant_id: tenantId, attendance_record_id: record.id, source: { in: COSEC_PUNCH_SOURCES } } });
+        if (punches.length) {
+          await tx.rndtechnosoft_attendance_punches.createMany({
+            data: punches.map((p) => ({ id: randomUUID(), tenant_id: tenantId, employee_id: employeeId, attendance_record_id: record.id, ...p, source: 'COSEC_SYNC' })),
+          });
+        }
+      });
+      result.changedRecords++;
+      result.syncedPunches += punches.length;
     }
 
-    return { syncedRecords, syncedPunches };
+    return result;
   }
 
   /* ── Monthly Attendance ───────────────────────────────────── */
