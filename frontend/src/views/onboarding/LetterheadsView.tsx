@@ -1,18 +1,20 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, Redo2, Undo2, ZoomIn, ZoomOut } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
+import { Dialog } from '../../components/ui/Dialog';
 import { PdfViewer } from '../../components/ui/PdfViewer';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from '../../lib/toast';
-import { MAX_LETTERHEAD_IMAGE_BYTES, onboardingApi, type Letterhead, type LetterheadBox, type LetterheadImageSlot, type LetterheadInput } from '../../api/onboarding.api';
+import { MAX_LETTERHEAD_IMAGE_BYTES, onboardingApi, type Letterhead, type LetterheadBox, type LetterheadElement, type LetterheadImageSlot, type LetterheadInput } from '../../api/onboarding.api';
 import { fieldClass, labelClass } from './onboarding-format';
-import { IMAGE_LABEL, LetterheadCanvas, effectiveBox, type CanvasImage, type LetterheadDetails } from './LetterheadCanvas';
+import { IMAGE_LABEL, LetterheadCanvas, effectiveBox, printedImages, type CanvasImage, type LetterheadDetails } from './LetterheadCanvas';
+import { Field, ImagePicker, LayersPanel, MmInput, SelectionPanel, actionClass, type ElementSelection, type SlotSelection } from './LetterheadPanels';
+import { MAX_ELEMENTS, WATERMARK_PRESETS, imageWatermark, layerLimits, moveLayer, onPage, textWatermark, withDuplicate, withElement, withGrid, type GridSpec, type LayerMove } from './letterhead-design';
 import {
-  BOX_OF, PAGE_SIZES, ZOOM, clampZoom, fitInside, fitLayout, fitZoom, footerArea, footerLimits, headerArea, headerLimits, imageSize,
+  BOX_OF, MARGIN_LIMITS, PAGE_SIZES, ZOOM, clampZoom, fitInside, fitLayout, fitZoom, footerLimits, headerLimits, imageSize, letterheadAreas, uniformMargins,
   type LetterheadLayout, type PageSizeName,
 } from './letterhead-geometry';
 
-const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50';
 const primaryClass = 'px-4 py-2 text-sm font-semibold rounded-xl bg-teal-500 hover:bg-teal-600 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50';
 
 const SLOTS: { slot: LetterheadImageSlot; label: string; hint: string }[] = [
@@ -84,12 +86,16 @@ export const LetterheadsView: React.FC = () => {
   );
 };
 
-type EditorTab = 'layout' | 'images' | 'details';
+type EditorTab = 'layout' | 'selection' | 'layers' | 'images' | 'details';
 const EDITOR_TABS: { id: EditorTab; label: string }[] = [
   { id: 'layout', label: 'Layout' },
+  { id: 'selection', label: 'Selected' },
+  { id: 'layers', label: 'Layers' },
   { id: 'images', label: 'Images' },
   { id: 'details', label: 'Company details' },
 ];
+const isSlot = (key: string): key is LetterheadImageSlot => key === 'logo' || key === 'header' || key === 'footer';
+const round1 = (n: number) => Math.round(n * 10) / 10;
 
 type DetailKey = 'name' | 'companyName' | 'addressText' | 'phone' | 'email' | 'website' | 'registrationText' | 'footerText' | 'isDefault';
 
@@ -109,9 +115,13 @@ export const toLayout = (l: Letterhead | null): LetterheadLayout => ({
   logoPosition: l?.logoPosition ?? 'LEFT',
   headerHeightMm: l?.headerHeightMm ?? 30,
   footerHeightMm: l?.footerHeightMm ?? 16,
+  placement: l?.placement ?? null,
   logoBox: l?.logoBox ?? null,
   headerArtBox: l?.headerArtBox ?? null,
   footerArtBox: l?.footerArtBox ?? null,
+  hiddenImages: l?.hiddenImages ?? [],
+  lockedImages: l?.lockedImages ?? [],
+  elements: l?.elements ?? [],
 });
 
 const sameLayout = (a: LetterheadLayout, b: LetterheadLayout) => JSON.stringify(a) === JSON.stringify(b);
@@ -154,6 +164,36 @@ export function useLetterheadImages(letterhead: Letterhead | null) {
   return { images, errors };
 }
 
+/**
+ * The images of a letterhead's page elements, by image id: each loaded once
+ * through the authenticated API, with its pixel size, while the page is open.
+ */
+export function useElementImages(letterheadId: string | undefined, imageIds: string[]) {
+  const [images, setImages] = useState<Record<string, CanvasImage>>({});
+  const requested = useRef(new Set<string>());
+  const urls = useRef<string[]>([]);
+  const wanted = [...new Set(imageIds)].sort().join(',');
+  useEffect(() => {
+    if (!letterheadId || !wanted) return;
+    for (const id of wanted.split(',')) {
+      if (requested.current.has(id)) continue;
+      requested.current.add(id);
+      onboardingApi
+        .letterheadAsset(letterheadId, id)
+        .then((bytes) => {
+          const size = imageSize(bytes);
+          const url = URL.createObjectURL(new Blob([bytes]));
+          urls.current.push(url);
+          setImages((all) => ({ ...all, [id]: { url, width: size?.width ?? 0, height: size?.height ?? 0 } }));
+        })
+        // Not loaded: the element shows an empty box, and the next change asks again.
+        .catch(() => requested.current.delete(id));
+    }
+  }, [letterheadId, wanted]);
+  useEffect(() => () => urls.current.forEach((url) => URL.revokeObjectURL(url)), []);
+  return images;
+}
+
 const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => void }> = ({ letterhead, onBack }) => {
   const ids = useId();
   const { can } = useAuth();
@@ -164,10 +204,11 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
   const [preview, setPreview] = useState<ArrayBuffer | null>(null);
   const canEdit = can('onboarding.templates.approve') && !saved?.isArchived;
 
-  // The page the editor shows. Templates choose their own page size and margins; positions are measured from the margins.
+  // The page the editor shows. Templates choose their own page size and margins.
   const [pageName, setPageName] = useState<PageSizeName>('A4');
   const [marginMm, setMarginMm] = useState(20);
   const page = PAGE_SIZES[pageName];
+  const margins = uniformMargins(marginMm);
   const [zoom, setZoom] = useState(0.6);
   const stage = useRef<HTMLDivElement>(null);
   const fit = useCallback(() => {
@@ -187,7 +228,7 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
   };
   const changeLayout = (patch: Partial<LetterheadLayout>, key: string) => {
     const e = current.current;
-    const next = fitLayout({ ...e.layout, ...patch }, page, marginMm);
+    const next = fitLayout({ ...e.layout, ...patch }, page, margins);
     if (sameLayout(next, e.layout)) return;
     const now = Date.now();
     const previous = lastChange.current;
@@ -212,12 +253,26 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
 
   const { images, errors: imageErrors } = useLetterheadImages(saved);
   const placeable = Object.fromEntries(Object.entries(images).filter(([, i]) => i.width > 0 && i.height > 0)) as Partial<Record<LetterheadImageSlot, CanvasImage>>;
-  const [selected, setSelected] = useState<LetterheadImageSlot | null>(null);
+  const elementImages = useElementImages(saved?.id, layout.elements.flatMap((e) => (e.imageId ? [e.imageId] : [])));
+  const [selected, setSelected] = useState<string | null>(null);
+  const [snap, setSnap] = useState(true);
+  const [removing, setRemoving] = useState<LetterheadImageSlot | null>(null);
+  const [objectError, setObjectError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [preset, setPreset] = useState(WATERMARK_PRESETS[0]);
+  const actions = useRef(0);
+  /** A key for a one-off change: its own undo step. */
+  const step = () => `action:${(actions.current += 1)}`;
   // A new letterhead starts with its details; an existing one with its layout.
   const [tab, setTab] = useState<EditorTab>(letterhead ? 'layout' : 'details');
-  // The logo isn't printed when there is header artwork.
-  const selectable = (slot: LetterheadImageSlot) => Boolean(placeable[slot]) && !(slot === 'logo' && placeable.header);
-  const selection = selected && selectable(selected) ? selected : null;
+  // An uploaded image, or an element of the layout.
+  const exists = (key: string) => (isSlot(key) ? Boolean(placeable[key]) : layout.elements.some((e) => e.id === key));
+  const selection = selected && exists(selected) ? selected : null;
+  const select = (key: string | null, showSettings: boolean) => {
+    setSelected(key);
+    setObjectError(null);
+    if (key && showSettings) setTab('selection');
+  };
 
   const set = (name: DetailKey) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setValues((v) => ({ ...v, [name]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }));
@@ -234,6 +289,7 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
       registrationText: text('registrationText'),
       footerText: text('footerText'),
       ...layout,
+      elements: layout.elements.map(({ id, ...element }) => element),
       isDefault: Boolean(values.isDefault),
     };
   };
@@ -243,17 +299,19 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
     if (!i.companyName) return 'Enter the company name.';
     if (!(i.headerHeightMm >= 15 && i.headerHeightMm <= 70)) return 'The header is between 15 and 70 mm tall.';
     if (!(i.footerHeightMm >= 8 && i.footerHeightMm <= 50)) return 'The footer is between 8 and 50 mm tall.';
+    if (i.placement && Object.values(i.placement).some((mm) => !(mm >= MARGIN_LIMITS.min && mm <= MARGIN_LIMITS.max))) return 'Distances from the page edges are between 0 and 60 mm.';
     return null;
   };
 
-  const act = async (run: () => Promise<void>) => {
+  /** Runs one server call at a time, showing a failure where it is given to (the page's alert unless said). */
+  const act = async (run: () => Promise<void>, showError: (message: string | null) => void = setError) => {
     if (busy) return;
     setBusy(true);
-    setError(null);
+    showError(null);
     try {
       await run();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'That did not work.');
+      showError(e instanceof Error ? e.message : 'That did not work.');
     } finally {
       setBusy(false);
     }
@@ -280,21 +338,121 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
     act(async () => setPreview(await onboardingApi.previewLetterheadPdf(input(), saved?.id)));
   };
 
-  // The selected image's box, as shown on the page.
-  const selectedArea = selection === 'footer' ? footerArea(page, marginMm, layout.footerHeightMm) : headerArea(page, marginMm, layout.headerHeightMm);
-  const selectedBox = selection ? effectiveBox(selection, layout, placeable[selection]!, selectedArea) : null;
+  // The selected object, as shown on the page.
+  const areas = letterheadAreas(page, margins, layout);
+  const slotImage = selection && isSlot(selection) ? placeable[selection] : undefined;
+  const slotSelection: SlotSelection | null = (() => {
+    if (!selection || !isSlot(selection) || !slotImage) return null;
+    const area = selection === 'footer' ? areas.footer : areas.header;
+    const { box, automatic } = effectiveBox(selection, layout, slotImage, area);
+    return { kind: 'slot', slot: selection, box, automatic, area, hidden: layout.hiddenImages.includes(selection), locked: layout.lockedImages.includes(selection) };
+  })();
+  const selectedElement = selection && !isSlot(selection) ? layout.elements.find((e) => e.id === selection) ?? null : null;
+  const elementSelection: ElementSelection | null = selectedElement ? { kind: 'element', element: selectedElement, page, ...layerLimits(layout.elements, selectedElement.id) } : null;
   const setBox = (patch: Partial<LetterheadBox>, field: string) => {
-    if (!selection || !selectedBox) return;
-    const image = placeable[selection]!;
-    let next: LetterheadBox = { ...selectedBox.box, ...patch };
+    if (!slotSelection || !slotImage) return;
+    let next: LetterheadBox = { ...slotSelection.box, ...patch };
     // In proportion, a new width sets the height and a new height the width.
-    if (!next.stretch && patch.width !== undefined) next.height = Math.round((patch.width * image.height * 10) / image.width) / 10;
-    if (!next.stretch && patch.height !== undefined) next.width = Math.round((patch.height * image.width * 10) / image.height) / 10;
-    next = fitInside(next, selectedArea);
-    changeLayout({ [BOX_OF[selection]]: next }, `field:${selection}:${field}`);
+    if (!next.stretch && patch.width !== undefined) next.height = round1((patch.width * slotImage.height) / slotImage.width);
+    if (!next.stretch && patch.height !== undefined) next.width = round1((patch.height * slotImage.width) / slotImage.height);
+    next = fitInside(next, slotSelection.area);
+    changeLayout({ [BOX_OF[slotSelection.slot]]: next }, `field:${slotSelection.slot}:${field}`);
   };
-  const hLimits = headerLimits(page, marginMm, layout.footerHeightMm);
-  const fLimits = footerLimits(page, marginMm, layout.headerHeightMm);
+  const replaceElement = (id: string, next: LetterheadElement, key: string) => changeLayout({ elements: layout.elements.map((e) => (e.id === id ? onPage(next, page) : e)) }, key);
+  const setElement = (patch: Partial<LetterheadElement>, field: string) => {
+    if (!selectedElement) return;
+    const next = { ...selectedElement, ...patch };
+    // An image keeps its proportions: a new width sets the height and a new height the width.
+    const image = selectedElement.imageId ? elementImages[selectedElement.imageId] : undefined;
+    if (selectedElement.kind === 'IMAGE' && image && image.width > 0 && image.height > 0) {
+      if (patch.width !== undefined) next.height = round1((patch.width * image.height) / image.width);
+      if (patch.height !== undefined) next.width = round1((patch.height * image.width) / image.height);
+    }
+    replaceElement(selectedElement.id, next, `field:${selectedElement.id}:${field}`);
+  };
+  const toggle = (key: string, flag: 'hidden' | 'locked') => {
+    if (isSlot(key)) {
+      const list = flag === 'hidden' ? 'hiddenImages' : 'lockedImages';
+      const current = layout[list];
+      changeLayout({ [list]: current.includes(key) ? current.filter((s) => s !== key) : [...current, key] }, step());
+    } else {
+      changeLayout({ elements: layout.elements.map((e) => (e.id === key ? { ...e, [flag]: !e[flag] } : e)) }, step());
+    }
+  };
+  const remove = (key: string) => {
+    if (!canEdit) return;
+    // The logo and artwork are removed from the server, so they are confirmed first; a watermark comes back with Undo.
+    if (isSlot(key)) return setRemoving(key);
+    changeLayout({ elements: layout.elements.filter((e) => e.id !== key) }, step());
+    setSelected(null);
+  };
+  const confirmRemove = () => {
+    const slot = removing;
+    if (!slot || !saved) return;
+    setRemoving(null);
+    act(async () => {
+      const result = await onboardingApi.removeLetterheadImage(saved.id, slot);
+      setSaved(result);
+      setSelected(null);
+      toast.success(`${IMAGE_LABEL[slot]} removed`);
+    });
+  };
+  const replaceImage = (file: File) => {
+    const refused = imageProblem(file);
+    if (refused) return setObjectError(refused);
+    if (!saved) return;
+    if (slotSelection) {
+      const slot = slotSelection.slot;
+      act(async () => {
+        setSaved(await onboardingApi.uploadLetterheadImage(saved.id, slot, file));
+        toast.success(`${IMAGE_LABEL[slot]} replaced`);
+      }, setObjectError);
+    } else if (selectedElement?.kind === 'IMAGE') {
+      const element = selectedElement;
+      act(async () => {
+        const asset = await onboardingApi.uploadLetterheadAsset(saved.id, file);
+        // Same width, the new image's proportions.
+        replaceElement(element.id, { ...element, imageId: asset.id, height: round1(Math.max(3, (element.width * asset.heightPx) / asset.widthPx)) }, step());
+      }, setObjectError);
+    }
+  };
+  const addElement = (element: LetterheadElement) => {
+    if (layout.elements.length >= MAX_ELEMENTS) return setAddError(`A letterhead has at most ${MAX_ELEMENTS} elements. Delete one to add another.`);
+    setAddError(null);
+    changeLayout({ elements: withElement(layout.elements, element) }, step());
+    select(element.id, true);
+  };
+  const addImageWatermark = (file: File) => {
+    const refused = imageProblem(file);
+    if (refused) return setAddError(refused);
+    if (!saved) return;
+    if (layout.elements.length >= MAX_ELEMENTS) return setAddError(`A letterhead has at most ${MAX_ELEMENTS} elements. Delete one to add another.`);
+    act(async () => addElement(imageWatermark(await onboardingApi.uploadLetterheadAsset(saved.id, file), page)), setAddError);
+  };
+  const duplicateSelected = () => {
+    if (!selectedElement) return;
+    if (layout.elements.length >= MAX_ELEMENTS) return setObjectError(`A letterhead has at most ${MAX_ELEMENTS} elements. Delete one to add another.`);
+    const result = withDuplicate(layout.elements, selectedElement.id, page);
+    if (!result) return;
+    changeLayout({ elements: result.elements }, step());
+    select(result.id, true);
+  };
+  const gridSelected = (spec: GridSpec) => {
+    if (!selectedElement) return 'Select a watermark first.';
+    const result = withGrid(layout.elements, selectedElement.id, spec, page);
+    if (typeof result === 'string') return result;
+    changeLayout({ elements: result }, step());
+    return null;
+  };
+  const moveSelected = (id: string, move: LayerMove) => changeLayout({ elements: moveLayer(layout.elements, id, move) }, step());
+  const printed = printedImages(placeable, layout);
+  const layerSlots = SLOTS.filter((s) => placeable[s.slot]).map((s) => ({ slot: s.slot, hidden: layout.hiddenImages.includes(s.slot), locked: layout.lockedImages.includes(s.slot), printed: Boolean(printed[s.slot]) || layout.hiddenImages.includes(s.slot) }));
+  const hLimits = headerLimits(page, margins, layout);
+  const fLimits = footerLimits(page, margins, layout);
+  const placement = layout.placement;
+  const setPlacement = (patch: Partial<NonNullable<LetterheadLayout['placement']>>, field: string) => {
+    if (placement) changeLayout({ placement: { ...placement, ...patch } }, `field:placement:${field}`);
+  };
   const details: LetterheadDetails = {
     companyName: String(values.companyName),
     addressText: String(values.addressText),
@@ -350,6 +508,10 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
                 <button type="button" onClick={() => setZoom((z) => clampZoom(z + ZOOM.step))} disabled={zoom >= ZOOM.max} aria-label="Zoom in" className={iconButton}><ZoomIn className="w-4 h-4" aria-hidden="true" /></button>
               </div>
               <button type="button" onClick={fit} className={actionClass}>Fit width</button>
+              <label className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
+                Snap to guides
+              </label>
             </div>
           </div>
           {/* Scrolls sideways only when zoomed past the width; the page itself scrolls normally. */}
@@ -365,19 +527,22 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
           >
             <LetterheadCanvas
               page={page}
-              marginMm={marginMm}
+              margins={margins}
               zoom={zoom}
               layout={layout}
               details={details}
               images={placeable}
+              elementImages={elementImages}
               editable={canEdit}
               selected={selection}
-              onSelect={(slot) => { setSelected(slot); if (slot) setTab('layout'); }}
+              onSelect={(key) => select(key, true)}
               onChange={changeLayout}
+              onDelete={remove}
+              snap={snap}
             />
           </div>
           <p className="px-4 py-2 text-xs text-slate-500 border-t border-slate-200 dark:border-[#2B293E]">
-            Drag the dashed lines to resize the header and footer. Select an image to move it, or drag its corners to resize it.
+            Drag the dashed lines to resize the header and footer. Select an image or watermark to move it, drag its corners to resize it (hold Shift to resize freely), or drag the round handle to turn it (hold Shift for 15° steps).
           </p>
         </section>
 
@@ -412,43 +577,41 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
               <MmInput id={`${ids}-footer-height`} label="Footer height (mm)" hint={`${fLimits.min} to ${fLimits.max}`} value={layout.footerHeightMm} min={fLimits.min} max={fLimits.max} step={1} readOnly={!canEdit} onCommit={(n) => changeLayout({ footerHeightMm: n }, 'field:footer')} />
             </div>
 
-            {saved && Object.keys(placeable).length > 0 && (
-              <div className="pt-4 border-t border-slate-200 dark:border-[#2B293E] space-y-3">
-                <h4 className="text-sm font-bold">{selection ? `Selected: ${IMAGE_LABEL[selection]}` : 'Image position'}</h4>
-                {!selection || !selectedBox ? (
-                  <p className="text-sm text-slate-500">Select an image on the page to place it exactly.</p>
-                ) : (
-                  <>
-                    <p className="text-xs text-slate-500">
-                      {selectedBox.automatic ? 'Placed automatically. Move or resize it to place it yourself.' : 'Placed by you.'} Measured from the top-left of the {selection === 'footer' ? 'footer' : 'header'}.
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <MmInput id={`${ids}-box-x`} label="From left (mm)" value={selectedBox.box.x} min={0} max={selectedArea.width} step={0.5} readOnly={!canEdit} onCommit={(n) => setBox({ x: n }, 'x')} />
-                      <MmInput id={`${ids}-box-y`} label="From top (mm)" value={selectedBox.box.y} min={0} max={selectedArea.height} step={0.5} readOnly={!canEdit} onCommit={(n) => setBox({ y: n }, 'y')} />
-                      <MmInput id={`${ids}-box-width`} label="Width (mm)" value={selectedBox.box.width} min={3} max={selectedArea.width} step={0.5} readOnly={!canEdit} onCommit={(n) => setBox({ width: n }, 'width')} />
-                      <MmInput id={`${ids}-box-height`} label="Height (mm)" value={selectedBox.box.height} min={3} max={selectedArea.height} step={0.5} readOnly={!canEdit} onCommit={(n) => setBox({ height: n }, 'height')} />
-                    </div>
-                    <div>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={!selectedBox.box.stretch}
-                          disabled={!canEdit}
-                          // Back in proportion, the height follows the width.
-                          onChange={(e) => setBox(e.target.checked ? { stretch: false, width: selectedBox.box.width } : { stretch: true }, 'stretch')}
-                        />
-                        Keep proportions
-                      </label>
-                      <p className="mt-1 text-xs text-slate-500">Untick to stretch the image to fill its box exactly.</p>
-                    </div>
-                    {canEdit && !selectedBox.automatic && (
-                      <button type="button" onClick={() => changeLayout({ [BOX_OF[selection]]: null }, `field:${selection}:reset`)} className={actionClass}>Place automatically</button>
-                    )}
-                  </>
-                )}
-                {placeable.header && placeable.logo && <p className="text-xs text-slate-500">Header artwork is used, so the logo and company details aren’t printed.</p>}
-              </div>
-            )}
+            <fieldset className="pt-4 border-t border-slate-200 dark:border-[#2B293E] space-y-2">
+              <legend className="text-sm font-bold">Position on the page</legend>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="radio" name={`${ids}-placement`} className="mt-1" checked={!placement} disabled={!canEdit} onChange={() => changeLayout({ placement: null }, 'field:placement')} />
+                <span>
+                  At the template’s margins
+                  <span className="block text-xs text-slate-500">The header and footer sit inside the margins each template sets.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name={`${ids}-placement`}
+                  className="mt-1"
+                  checked={Boolean(placement)}
+                  disabled={!canEdit}
+                  // Starts where it is now, so nothing moves until a distance is changed.
+                  onChange={() => changeLayout({ placement: { headerOffsetMm: margins.top, footerOffsetMm: margins.bottom, sideOffsetMm: margins.left } }, 'field:placement')}
+                />
+                <span>
+                  At set distances from the page edges
+                  <span className="block text-xs text-slate-500">Use 0 to run the letterhead to the edge of the paper, such as a full-width banner. The letter text still keeps the template’s margins.</span>
+                </span>
+              </label>
+              {placement && (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <MmInput id={`${ids}-offset-top`} label="Header from top (mm)" hint="0 to 60" value={placement.headerOffsetMm} min={MARGIN_LIMITS.min} max={MARGIN_LIMITS.max} step={1} readOnly={!canEdit} onCommit={(n) => setPlacement({ headerOffsetMm: Math.round(n) }, 'top')} />
+                  <MmInput id={`${ids}-offset-bottom`} label="Footer from bottom (mm)" hint="0 to 60" value={placement.footerOffsetMm} min={MARGIN_LIMITS.min} max={MARGIN_LIMITS.max} step={1} readOnly={!canEdit} onCommit={(n) => setPlacement({ footerOffsetMm: Math.round(n) }, 'bottom')} />
+                  <MmInput id={`${ids}-offset-side`} label="Sides from edge (mm)" hint="0 to 60" value={placement.sideOffsetMm} min={MARGIN_LIMITS.min} max={MARGIN_LIMITS.max} step={1} readOnly={!canEdit} onCommit={(n) => setPlacement({ sideOffsetMm: Math.round(n) }, 'side')} />
+                </div>
+              )}
+              {placement && Object.values(placement).some((mm) => mm < 5) && (
+                <p className="text-xs text-slate-500">Most office printers leave the outer 3 to 5 mm blank, so anything that close to the edge may be cut off on paper. The PDF shows it in full.</p>
+              )}
+            </fieldset>
 
             <div className="pt-4 border-t border-slate-200 dark:border-[#2B293E] space-y-3">
               <h4 className="text-sm font-bold">Preview page</h4>
@@ -460,15 +623,75 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
                     <option value="LETTER">Letter</option>
                   </select>
                 </div>
-                <MmInput id={`${ids}-margins`} label="Margins (mm)" value={marginMm} min={10} max={40} step={1} onCommit={(n) => setMarginMm(Math.round(n))} />
+                <MmInput id={`${ids}-margins`} label="Margins (mm)" value={marginMm} min={MARGIN_LIMITS.min} max={MARGIN_LIMITS.max} step={1} onCommit={(n) => setMarginMm(Math.round(n))} />
               </div>
-              <p className="text-xs text-slate-500">Only changes this view. Each template sets its own page size and margins; positions are measured from the margins, so they carry over.</p>
+              <p className="text-xs text-slate-500">Only changes this view. Each template sets its own page size and margins. Images are placed within the header and footer, so their positions carry over.</p>
             </div>
 
             <label className="flex items-center gap-2 text-sm pt-4 border-t border-slate-200 dark:border-[#2B293E]">
               <input type="checkbox" checked={Boolean(values.isDefault)} onChange={set('isDefault')} disabled={!canEdit} />
               Use as the default for new templates
             </label>
+          </div>
+
+          <div role="tabpanel" id={`${ids}-panel-selection`} aria-labelledby={`${ids}-tab-selection`} hidden={tab !== 'selection'} className="p-4">
+            <SelectionPanel
+              id={`${ids}-object`}
+              selection={slotSelection ?? elementSelection}
+              editable={canEdit}
+              busy={busy}
+              error={objectError}
+              onBox={setBox}
+              onAutomatic={() => slotSelection && changeLayout({ [BOX_OF[slotSelection.slot]]: null }, `field:${slotSelection.slot}:reset`)}
+              onElement={setElement}
+              onLayer={(move) => selectedElement && moveSelected(selectedElement.id, move)}
+              onDuplicate={duplicateSelected}
+              onGrid={gridSelected}
+              onToggle={(flag) => selection && toggle(selection, flag)}
+              onReplace={replaceImage}
+              onDelete={() => selection && remove(selection)}
+            />
+            {placeable.header && placeable.logo && !layout.hiddenImages.includes('header') && <p className="mt-4 text-xs text-slate-500">Header artwork is used, so the logo and company details aren’t printed. Hide the header artwork to print them.</p>}
+          </div>
+
+          <div role="tabpanel" id={`${ids}-panel-layers`} aria-labelledby={`${ids}-tab-layers`} hidden={tab !== 'layers'} className="p-4 space-y-4">
+            {canEdit && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-bold">Add a watermark</h4>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex-1 min-w-[8rem]">
+                    <label htmlFor={`${ids}-preset`} className={labelClass}>Text</label>
+                    <select id={`${ids}-preset`} value={preset} onChange={(e) => setPreset(e.target.value)} className={fieldClass}>
+                      {WATERMARK_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <button type="button" onClick={() => addElement(textWatermark(preset, page))} className={actionClass}>Add text watermark</button>
+                </div>
+                <div>
+                  {saved ? (
+                    <ImagePicker label={busy ? 'Uploading…' : 'Add image watermark'} disabled={busy} onFile={addImageWatermark} />
+                  ) : (
+                    <p className="text-xs text-slate-500">Create the letterhead first, then add image watermarks.</p>
+                  )}
+                  <p className="mt-1 text-xs text-slate-500">A company seal, logo or mark; PNG or JPEG up to 2 MB. Every watermark can be changed afterwards.</p>
+                </div>
+                {addError && <p role="alert" className="text-xs text-red-700">{addError}</p>}
+              </div>
+            )}
+            <div className={canEdit ? 'pt-4 border-t border-slate-200 dark:border-[#2B293E]' : ''}>
+              <h4 className="text-sm font-bold mb-2">Layers</h4>
+              <LayersPanel
+                elements={layout.elements}
+                slots={layerSlots}
+                selected={selection}
+                editable={canEdit}
+                onSelect={(key) => select(key, false)}
+                onToggle={toggle}
+                onLayer={moveSelected}
+                onDelete={remove}
+                limits={(id) => layerLimits(layout.elements, id)}
+              />
+            </div>
           </div>
 
           <div role="tabpanel" id={`${ids}-panel-images`} aria-labelledby={`${ids}-tab-images`} hidden={tab !== 'images'} className="p-4 space-y-3">
@@ -507,6 +730,18 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
         </section>
       </div>
 
+      {removing && (
+        <Dialog
+          title={`Remove the ${IMAGE_LABEL[removing].toLowerCase()}?`}
+          description={`It is removed from this letterhead now, and documents generated from now on print without it. Documents already sent keep it. Upload it again to put it back.`}
+          onClose={() => setRemoving(null)}
+          size="sm"
+          footer={<><button type="button" onClick={() => setRemoving(null)} className={actionClass}>Keep it</button><button type="button" onClick={confirmRemove} className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-600 hover:bg-red-700 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2">Remove {IMAGE_LABEL[removing].toLowerCase()}</button></>}
+        >
+          <p className="text-sm text-slate-600 dark:text-slate-300">To keep it but not print it, hide it in Layers instead.</p>
+        </Dialog>
+      )}
+
       {preview && (
         <PdfViewer
           title={`Sample: ${String(values.name) || 'letterhead'}`}
@@ -518,48 +753,6 @@ const LetterheadEditor: React.FC<{ letterhead: Letterhead | null; onBack: () => 
         />
       )}
     </div>
-  );
-};
-
-const Field: React.FC<{ id: string; label: string; hint?: string; children: React.ReactNode }> = ({ id, label, hint, children }) => (
-  <div>
-    <label htmlFor={id} className={labelClass}>{label}</label>
-    {children}
-    {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
-  </div>
-);
-
-/**
- * A millimetre field kept in step with the page: it shows the current value,
- * passes on what is typed once it is a number in range, and shows the current
- * value again when left.
- */
-const MmInput: React.FC<{ id: string; label: string; hint?: string; value: number; min: number; max: number; step: number; readOnly?: boolean; onCommit: (mm: number) => void }> = ({
-  id, label, hint, value, min, max, step, readOnly, onCommit,
-}) => {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft((d) => (d.trim() !== '' && Number(d) === value ? d : String(value))), [value]);
-  const inRange = (text: string) => text.trim() !== '' && Number.isFinite(Number(text)) && Number(text) >= min && Number(text) <= max;
-  return (
-    <Field id={id} label={label} hint={hint}>
-      <input
-        id={id}
-        type="number"
-        inputMode="decimal"
-        min={min}
-        max={max}
-        step={step}
-        value={draft}
-        readOnly={readOnly}
-        aria-invalid={!inRange(draft)}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          if (inRange(e.target.value)) onCommit(Number(e.target.value));
-        }}
-        onBlur={() => setDraft(String(value))}
-        className={fieldClass}
-      />
-    </Field>
   );
 };
 

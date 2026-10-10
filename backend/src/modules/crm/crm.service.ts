@@ -6,6 +6,7 @@ import { LINKEDIN_INVALID, normalizeLinkedInUrl } from './outreach-channels';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CrmHistoryQueryDto } from './dto/history-query.dto';
 import { OutreachCalendar, addDays, dueInstant, dueRange, dueState, nextDueAt, validTimeZone, type DueFilter } from './crm-outreach-schedule';
+import { loadOutreachCalendar } from './outreach-calendar';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
@@ -1666,6 +1667,16 @@ export class CrmService {
       const [firstStep] = await this.getCadenceSteps(tenantId);
       const dueDate = nextDueAt(firstStep.dayOffset, await this.outreachCalendar(tenantId), now);
 
+      // A lead in a drip sequence gets its emails from there: it joins Client Outreach only once the sequence is stopped.
+      const inSequence = await this.prisma.rndtechnosoft_email_sequence_enrollments.findMany({
+        where: { tenant_id: tenantId, lead_id: { in: targetIds }, enrollment_status: 'ACTIVE' },
+        select: { rndtechnosoft_crm_leads: { select: { company_name: true } }, rndtechnosoft_email_sequences: { select: { sequence_name: true } } },
+      });
+      if (inSequence.length) {
+        const names = inSequence.map((e) => `${e.rndtechnosoft_crm_leads.company_name} (“${e.rndtechnosoft_email_sequences.sequence_name}”)`);
+        throw new ConflictException(`${names.length === 1 ? 'This lead is' : 'These leads are'} in a drip sequence: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}. Stop the sequence first (Email & Marketing → Drip Sequences), or move the lead from there.`);
+      }
+
       for (const id of targetIds) {
         const lead = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id, ...scope } });
         if (!lead) continue;
@@ -1682,13 +1693,20 @@ export class CrmService {
           completedSteps: [],
         };
 
-        await this.prisma.rndtechnosoft_crm_leads.update({
-          where: { id },
-          data: {
-            temperature: 'COLD',
-            custom_attributes: { ...customAttr, cadence },
-          },
+        // Under the lead's lock, so a drip enrollment made meanwhile is seen and the two can't both start.
+        const joined = await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM rndtechnosoft_crm_leads WHERE tenant_id = ${tenantId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+          if (await tx.rndtechnosoft_email_sequence_enrollments.findFirst({ where: { tenant_id: tenantId, lead_id: id, enrollment_status: 'ACTIVE' }, select: { id: true } })) return false;
+          await tx.rndtechnosoft_crm_leads.update({
+            where: { id },
+            data: {
+              temperature: 'COLD',
+              custom_attributes: { ...customAttr, cadence },
+            },
+          });
+          return true;
         });
+        if (!joined) throw new ConflictException(`${lead.company_name} joined a drip sequence just now. Stop the sequence first to enroll it in Client Outreach.`);
         await this.logActivity(tenantId, id, 'NOTE', 'Enrolled in 30-Day Outbound Cadence', `Target industry: ${industry || 'general'}`, memberId);
         await this.logAudit(tenantId, 'CADENCE_ENROLLED', 'LEAD', id, {
           funnel: cadence.funnelName, industry: cadence.industry,
@@ -2649,23 +2667,7 @@ export class CrmService {
    * active; optional holidays are working days), for due dates.
    */
   async outreachCalendar(tenantId: string): Promise<OutreachCalendar> {
-    const [settings, holidays] = await Promise.all([
-      this.prisma.rndtechnosoft_tenant_settings.findUnique({ where: { tenant_id: tenantId }, select: { settings: true } }),
-      this.prisma.rndtechnosoft_holidays.findMany({
-        where: {
-          tenant_id: tenantId,
-          is_optional: false,
-          holiday_date: { gte: new Date(Date.now() - 400 * 86_400_000), lte: new Date(Date.now() + 800 * 86_400_000) },
-          rndtechnosoft_holiday_calendars: { calendar_status: 'ACTIVE', archived_at: null },
-        },
-        select: { holiday_date: true },
-      }),
-    ]);
-    const saved = (settings?.settings ?? {}) as { timezone?: unknown; profile?: { timezone?: unknown } };
-    return {
-      timeZone: validTimeZone(saved.profile?.timezone ?? saved.timezone),
-      holidays: new Set(holidays.map((h) => h.holiday_date.toISOString().slice(0, 10))),
-    };
+    return loadOutreachCalendar(this.prisma, tenantId);
   }
 
   async getCadenceSteps(tenantId: string): Promise<(CadenceStep & { id: string })[]> {

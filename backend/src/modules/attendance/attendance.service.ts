@@ -69,6 +69,14 @@ export interface RequestAdjustmentDto {
   requestedValues: Record<string, any>;
 }
 
+/** Attendance times are India time, as the biometric device records them (+05:30). */
+const ATTENDANCE_TIME_ZONE = 'Asia/Kolkata';
+
+/** A check-in or check-out as a clock time in India time, to the second: "09:31:07 AM". */
+function clockTime(at: Date): string {
+  return at.toLocaleTimeString('en-US', { timeZone: ATTENDANCE_TIME_ZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+}
+
 @Injectable()
 export class AttendanceService {
   constructor(private readonly prisma: PrismaService) {}
@@ -1731,19 +1739,11 @@ export class AttendanceService {
       });
 
       const inTime = currentDayRec?.first_check_in_at
-        ? new Date(currentDayRec.first_check_in_at).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
-          })
+        ? clockTime(new Date(currentDayRec.first_check_in_at))
         : null;
 
       const outTime = currentDayRec?.last_check_out_at
-        ? new Date(currentDayRec.last_check_out_at).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
-          })
+        ? clockTime(new Date(currentDayRec.last_check_out_at))
         : null;
 
       return {
@@ -1756,6 +1756,8 @@ export class AttendanceService {
         dayStatus: currentDayRec ? currentDayRec.attendance_status : 'ABSENT',
         inTime,
         outTime,
+        firstCheckInAt: currentDayRec?.first_check_in_at?.toISOString() ?? null,
+        lastCheckOutAt: currentDayRec?.last_check_out_at?.toISOString() ?? null,
         workedMinutes: currentDayRec ? currentDayRec.worked_minutes : 0,
         lateMinutes: currentDayRec ? currentDayRec.late_minutes : 0,
         isLate: currentDayRec ? currentDayRec.late_minutes > 0 : false,
@@ -1932,18 +1934,10 @@ export class AttendanceService {
           source = r.source;
 
           if (r.first_check_in_at) {
-            inTime = new Date(r.first_check_in_at).toLocaleTimeString('en-US', {
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true,
-            });
+            inTime = clockTime(new Date(r.first_check_in_at));
           }
           if (r.last_check_out_at) {
-            outTime = new Date(r.last_check_out_at).toLocaleTimeString('en-US', {
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true,
-            });
+            outTime = clockTime(new Date(r.last_check_out_at));
           }
 
           if (status === 'PRESENT') {

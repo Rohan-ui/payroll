@@ -4,10 +4,10 @@ import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Baseline, Bold, Highlighter, IndentDecrease, IndentIncrease, Italic, List, ListOrdered,
   Redo2, RemoveFormatting, SeparatorHorizontal, Strikethrough, Subscript, Superscript, Table2, Underline, Undo2, X,
 } from 'lucide-react';
-import type { DocumentFormat, Letterhead, LetterDocument } from '../../api/onboarding.api';
+import type { DocumentFormat, Letterhead, LetterDocument, PageMargins } from '../../api/onboarding.api';
 import { letterCss, letterExtensions } from './letter-document';
-import { LetterheadCanvas, type CanvasImage } from './LetterheadCanvas';
-import { PT, type Page } from './letterhead-geometry';
+import { LetterheadCanvas, PageElements, type CanvasImage } from './LetterheadCanvas';
+import { PT, pageFrame, type Page } from './letterhead-geometry';
 import { toLayout } from './LetterheadsView';
 
 /**
@@ -224,22 +224,24 @@ export const LetterToolbar: React.FC<{ editor: Editor; format: DocumentFormat; d
 /** The sheet: page size and margins in millimetres, the letterhead drawn as it prints, the letter in between. */
 const LetterPage: React.FC<{
   page: Page;
-  marginMm: number;
+  margins: PageMargins;
   letterhead: Letterhead | null;
   images: Partial<Record<'logo' | 'header' | 'footer', CanvasImage>>;
+  /** Images of the letterhead's page elements, by image id. */
+  elementImages: Record<string, CanvasImage>;
   showPageNumbers: boolean;
   children: React.ReactNode;
-}> = ({ page, marginMm, letterhead, images, showPageNumbers, children }) => {
-  const header = letterhead?.headerHeightMm ?? 0;
-  const footer = letterhead?.footerHeightMm ?? 0;
-  // Where the PDF's text starts and stops: 12 pt below the header, 8 pt above the footer.
-  const top = marginMm + (letterhead ? header + 12 * PT : 0);
-  const bottom = marginMm + (letterhead ? footer + 8 * PT : 0);
-  const bodyMm = page.height - 2 * marginMm - header - footer - (letterhead ? 20 * PT : 0);
+}> = ({ page, margins, letterhead, images, elementImages, showPageNumbers, children }) => {
+  // Where the PDF's text starts and stops: inside the margins, 12 pt below the header and 8 pt above the footer.
+  const { header, footer, body } = pageFrame(page, margins, letterhead && toLayout(letterhead));
+  const bodyMm = Math.max(1, body.height);
+  // Page numbers sit below the footer (or the text), or just above the footer when there is no room below it.
+  const below = footer ? page.height - footer.top - footer.height : margins.bottom;
+  const numberBottom = below >= 10 * PT ? Math.max(1, (below - 3) / 2) : (footer ? page.height - footer.top : below) + 1;
   const canvas = letterhead && (
     <LetterheadCanvas
       page={page}
-      marginMm={marginMm}
+      margins={margins}
       zoom={1}
       layout={toLayout(letterhead)}
       details={{ companyName: letterhead.companyName, addressText: letterhead.addressText ?? '', phone: letterhead.phone ?? '', email: letterhead.email ?? '', website: letterhead.website ?? '', registrationText: letterhead.registrationText ?? '', footerText: letterhead.footerText ?? '' }}
@@ -253,10 +255,12 @@ const LetterPage: React.FC<{
   );
   return (
     <div data-letter-page className="letter-page relative bg-white shadow-md ring-1 ring-slate-300" style={{ width: `${page.width}mm`, minHeight: `${page.height}mm` }}>
+      {/* Watermarks behind the text, as on the first page of the PDF (which repeats them on every page). */}
+      {letterhead && <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="behind" />}
       {canvas && (
         <>
-          <div aria-hidden="true" className="absolute inset-x-0 top-0 overflow-hidden pointer-events-none" style={{ height: `${marginMm + header + 2}mm` }}>{canvas}</div>
-          <div aria-hidden="true" className="absolute inset-x-0 bottom-0 overflow-hidden pointer-events-none" style={{ height: `${marginMm + footer}mm` }}>
+          <div aria-hidden="true" className="absolute inset-x-0 top-0 overflow-hidden pointer-events-none" style={{ height: `${(header?.top ?? 0) + (header?.height ?? 0) + 2}mm` }}>{canvas}</div>
+          <div aria-hidden="true" className="absolute inset-x-0 bottom-0 overflow-hidden pointer-events-none" style={{ height: `${page.height - (footer?.top ?? page.height)}mm` }}>
             <div className="absolute left-0 bottom-0">{canvas}</div>
           </div>
         </>
@@ -264,10 +268,10 @@ const LetterPage: React.FC<{
       <div
         className="relative"
         style={{
-          paddingTop: `${top}mm`,
-          paddingBottom: `${bottom}mm`,
-          paddingLeft: `${marginMm}mm`,
-          paddingRight: `${marginMm}mm`,
+          paddingTop: `${body.top}mm`,
+          paddingBottom: `${page.height - body.top - body.height}mm`,
+          paddingLeft: `${body.left}mm`,
+          paddingRight: `${page.width - body.left - body.width}mm`,
           // Faint lines where pages break, roughly; the PDF preview shows the exact pages.
           backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent calc(${bodyMm}mm - 1px), #cbd5e1 calc(${bodyMm}mm - 1px), #cbd5e1 ${bodyMm}mm)`,
           backgroundOrigin: 'content-box',
@@ -276,8 +280,10 @@ const LetterPage: React.FC<{
       >
         {children}
       </div>
+      {/* Watermarks in front of the text: shown, but never in the way of typing or selecting. */}
+      {letterhead && <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="front" />}
       {showPageNumbers && (
-        <span aria-hidden="true" className="absolute text-[8pt] text-[#555555]" style={{ right: `${marginMm}mm`, bottom: `${Math.max(1, (marginMm - 3) / 2)}mm`, fontFamily: 'Helvetica, Arial, sans-serif' }}>Page 1</span>
+        <span aria-hidden="true" className="absolute text-[8pt] text-[#555555]" style={{ right: `${margins.right}mm`, bottom: `${numberBottom}mm`, fontFamily: 'Helvetica, Arial, sans-serif' }}>Page 1</span>
       )}
     </div>
   );
@@ -290,16 +296,17 @@ export const LetterEditor: React.FC<{
   editable: boolean;
   payTable: boolean;
   page: Page;
-  marginMm: number;
+  margins: PageMargins;
   letterhead: Letterhead | null;
   letterheadImages: Partial<Record<'logo' | 'header' | 'footer', CanvasImage>>;
+  elementImages: Record<string, CanvasImage>;
   showPageNumbers: boolean;
   zoom: number;
   stageRef?: React.Ref<HTMLDivElement>;
   zoomControls: React.ReactNode;
   onReady: (editor: Editor, document: LetterDocument) => void;
   onChange: (document: LetterDocument) => void;
-}> = ({ document, format, editable, payTable, page, marginMm, letterhead, letterheadImages, showPageNumbers, zoom, stageRef, zoomControls, onReady, onChange }) => {
+}> = ({ document, format, editable, payTable, page, margins, letterhead, letterheadImages, elementImages, showPageNumbers, zoom, stageRef, zoomControls, onReady, onChange }) => {
   const extensions = useMemo(() => letterExtensions(format), [format]);
   const editor = useEditor({
     extensions,
@@ -315,13 +322,14 @@ export const LetterEditor: React.FC<{
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] min-w-0">
       <style>{css}</style>
-      <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-1 border-b border-slate-200 dark:border-[#2B293E] bg-white/95 dark:bg-[#181724]/95 backdrop-blur rounded-t-2xl">
+      {/* Sticks flush with the top of the scrolling page: the offsets cancel main's padding (p-4 sm:p-6 lg:p-8 in App), which a sticky element otherwise stays below. */}
+      <div className="sticky -top-4 sm:-top-6 lg:-top-8 z-20 flex flex-wrap items-center justify-between gap-1 border-b border-slate-200 dark:border-[#2B293E] bg-white/95 dark:bg-[#181724]/95 backdrop-blur rounded-t-2xl">
         {editor && editable ? <LetterToolbar editor={editor} format={format} disabled={!editable} payTable={payTable} /> : <p className="px-3 py-2.5 text-xs text-slate-500">Read only</p>}
         <div className="px-2 py-1.5">{zoomControls}</div>
       </div>
       <div ref={stageRef} className="overflow-x-auto bg-slate-100 dark:bg-[#12111B] p-4 sm:p-6 rounded-b-2xl">
         <div className="mx-auto w-fit" style={{ zoom }}>
-          <LetterPage page={page} marginMm={marginMm} letterhead={letterhead} images={letterheadImages} showPageNumbers={showPageNumbers}>
+          <LetterPage page={page} margins={margins} letterhead={letterhead} images={letterheadImages} elementImages={elementImages} showPageNumbers={showPageNumbers}>
             <EditorContent editor={editor} />
           </LetterPage>
         </div>

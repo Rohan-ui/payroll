@@ -191,6 +191,7 @@ describe('Workspace role-based access control', () => {
         'Sales Pipelines',
         'Leads',
         'Email & Marketing',
+        'Drip Sequences',
         'Follow-ups & Meetings',
         'Quotations',
         'Clients',
@@ -208,6 +209,8 @@ describe('Workspace role-based access control', () => {
       ]);
       expect(sections.find((s) => s.section === 'Finance')?.groups.map((g) => g.group)).toEqual([
         'Payroll',
+        'Payroll policies',
+        'Payroll inputs',
         'Salary setup',
         'Payslips',
         'Bookkeeping',

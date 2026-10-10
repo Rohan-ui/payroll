@@ -30,13 +30,20 @@ export interface MailMessage {
   inReplyTo?: string;
   references?: string;
   attachments?: { filename: string; content: Buffer; contentType: string }[];
+  /** A Message-ID chosen by the sender, so what comes back can be matched to this email. */
+  messageId?: string;
+  headers?: Record<string, string>;
 }
 
 /** A send the mail server refused, with a reason safe to show: it names no credential. */
 export class MailSendError extends Error {
-  constructor(readonly safeReason: string) {
+  /** `cause` keeps the server's error code and stage (never shown) so callers can tell whether anything was sent. */
+  readonly cause?: unknown;
+
+  constructor(readonly safeReason: string, options?: { cause?: unknown }) {
     super(safeReason);
     this.name = 'MailSendError';
+    this.cause = options?.cause;
   }
 }
 
@@ -119,7 +126,7 @@ export class MailSenderService {
       const code = error && typeof error === 'object' ? String((error as { code?: unknown }).code ?? 'none') : 'none';
       // Codes only: a server's reply can echo account details.
       this.logger.warn(`Email send failed sender=${sender.kind} code=${code}`);
-      throw new MailSendError(describeSmtpFailure(error, sender.smtp.host, sender.smtp.port, [sender.smtp.username, sender.smtp.password]));
+      throw new MailSendError(describeSmtpFailure(error, sender.smtp.host, sender.smtp.port, [sender.smtp.username, sender.smtp.password]), { cause: error });
     } finally {
       transport.close();
     }

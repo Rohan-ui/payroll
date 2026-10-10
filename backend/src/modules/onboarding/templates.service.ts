@@ -6,7 +6,7 @@ import { AuditService } from '@/modules/audit/audit.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { AVAILABLE_TEMPLATE_KINDS, PLACEHOLDERS, renderTemplate, SAMPLE_OFFER_TABLE, sampleValues, templateProblem, TemplateKind, TEMPLATE_KINDS } from './document-templates';
 import { LetterheadsService } from './letterheads.service';
-import { OnboardingPdfService, PdfLetterhead } from './onboarding-pdf.service';
+import { OnboardingPdfService, PageMargins, PdfLetterhead, uniformMargins } from './onboarding-pdf.service';
 import { defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, FONT_FAMILIES, FONT_SIZE_RANGE, legacyDocument, parseDocument } from './rich-document';
 
 /** A letter as sent by the editor: a formatted document, or (from before formatting) a heading and plain text. */
@@ -27,11 +27,21 @@ const DOCUMENT_FORMAT = {
 export interface LayoutInput {
   letterheadId?: string | null;
   pageSize?: 'A4' | 'LETTER';
-  marginMm?: number;
+  marginsMm?: PageMargins;
   showPageNumbers?: boolean;
 }
 
-const DEFAULT_LAYOUT = { letterhead_id: null as string | null, page_size: 'A4', margin_mm: 20, show_page_numbers: false };
+type LayoutColumns = {
+  letterhead_id: string | null;
+  page_size: string;
+  margin_top_mm: number;
+  margin_right_mm: number;
+  margin_bottom_mm: number;
+  margin_left_mm: number;
+  show_page_numbers: boolean;
+};
+
+const DEFAULT_LAYOUT: LayoutColumns = { letterhead_id: null, page_size: 'A4', margin_top_mm: 20, margin_right_mm: 20, margin_bottom_mm: 20, margin_left_mm: 20, show_page_numbers: false };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MEMBER_NAME = { select: { rndtechnosoft_users: { select: { display_name: true, email: true } } } } as const;
@@ -112,7 +122,7 @@ export class TemplatesService {
           letterheadId: v.letterhead_id,
           letterheadName: v.rndtechnosoft_letterheads?.letterhead_name ?? null,
           pageSize: v.page_size,
-          marginMm: v.margin_mm,
+          marginsMm: { top: v.margin_top_mm, right: v.margin_right_mm, bottom: v.margin_bottom_mm, left: v.margin_left_mm },
           showPageNumbers: v.show_page_numbers,
         },
         createdAt: v.created_at,
@@ -265,14 +275,14 @@ export class TemplatesService {
         footer: 'Sample preview with made-up data. This is not a real document.',
         watermark: 'SAMPLE',
       },
-      { pageSize: 'A4', marginMm: 20, showPageNumbers: true, letterhead },
+      { pageSize: 'A4', marginsMm: uniformMargins(20), showPageNumbers: true, letterhead },
     );
   }
 
   /** Layout columns: the given fields over the current ones, with a chosen letterhead checked to be this workspace's. */
   private async layoutColumns(
     tenantId: string,
-    current: { letterhead_id: string | null; page_size: string; margin_mm: number; show_page_numbers: boolean },
+    current: LayoutColumns,
     input: LayoutInput,
     options: { allowArchived?: boolean } = {},
   ) {
@@ -281,7 +291,10 @@ export class TemplatesService {
     return {
       letterhead_id: letterheadId ?? null,
       page_size: input.pageSize ?? current.page_size,
-      margin_mm: input.marginMm ?? current.margin_mm,
+      margin_top_mm: input.marginsMm?.top ?? current.margin_top_mm,
+      margin_right_mm: input.marginsMm?.right ?? current.margin_right_mm,
+      margin_bottom_mm: input.marginsMm?.bottom ?? current.margin_bottom_mm,
+      margin_left_mm: input.marginsMm?.left ?? current.margin_left_mm,
       show_page_numbers: input.showPageNumbers ?? current.show_page_numbers,
     };
   }

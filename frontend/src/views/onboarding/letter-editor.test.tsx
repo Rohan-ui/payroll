@@ -28,12 +28,15 @@ const DOCUMENT = letter(
 );
 const LETTERHEAD = {
   id: 'l1', name: 'Official', companyName: 'Acme Technologies Pvt Ltd', addressText: null, phone: null, email: null, website: null, registrationText: null, footerText: null,
-  logoPosition: 'LEFT', headerHeightMm: 30, footerHeightMm: 16, logoBox: null, headerArtBox: null, footerArtBox: null, isDefault: true, isArchived: false,
+  logoPosition: 'LEFT', headerHeightMm: 30, footerHeightMm: 16, placement: null, hiddenImages: [], lockedImages: [], elements: [], logoBox: null, headerArtBox: null, footerArtBox: null, isDefault: true, isArchived: false,
   images: { logo: false, header: false, footer: false }, updatedAt: '2026-10-01T00:00:00Z',
 };
+/** A letterhead printed to the edges of the paper. */
+const BANNER = { ...LETTERHEAD, id: 'l2', name: 'Banner', isDefault: false, placement: { headerOffsetMm: 0, footerOffsetMm: 0, sideOffsetMm: 0 } };
+const TALL = { ...LETTERHEAD, id: 'l3', name: 'Tall', isDefault: false, headerHeightMm: 70, footerHeightMm: 50 };
 const version = (extra: Record<string, unknown> = {}) => ({
   id: 'tv1', number: 1, status: 'DRAFT', title: 'Offer of employment: {{job_title}}', body: '', format: 'FORMATTED', document: DOCUMENT,
-  layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginMm: 20, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '', ...extra,
+  layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '', ...extra,
 });
 const template = (versions = [version()]) => ({
   id: 't1', kind: 'OFFER_LETTER', name: 'Standard offer letter', isArchived: false, format: LETTER_FORMAT,
@@ -67,7 +70,7 @@ beforeEach(() => {
         return json({ success: true, data: detail });
       }
       if (url === '/api/v1/onboarding/templates/t1') return json({ success: true, data: detail });
-      if (url === '/api/v1/onboarding/letterheads') return json({ success: true, data: [LETTERHEAD] });
+      if (url === '/api/v1/onboarding/letterheads') return json({ success: true, data: [LETTERHEAD, BANNER, TALL] });
       return json({ success: true, data: [] });
     }),
   );
@@ -139,21 +142,40 @@ describe('offer letter editor', () => {
     expect(container.textContent).toContain('All changes saved');
 
     setValue(byLabel('Page size'), 'LETTER');
-    setValue(byLabel('Margins (mm)'), '30');
+    setValue(byLabel('Top'), '30');
+    setValue(byLabel('Right'), '10');
+    setValue(byLabel('Bottom'), '0');
+    setValue(byLabel('Left'), '35');
     expect(page().style.width).toBe('215.9mm');
-    expect(padding()).toEqual([30, 30, 30, 30]);
+    expect(padding()).toEqual([30, 10, 0, 35]);
 
     // A letterhead takes its header and footer; the letter starts below the header, as in the PDF.
     setValue(byLabel('Letterhead'), 'l1');
     await settle();
     const pt = 25.4 / 72;
     const [top, right, bottom, left] = padding();
-    expect([right, left]).toEqual([30, 30]);
+    expect([right, left]).toEqual([10, 35]);
     expect(top).toBeCloseTo(30 + 30 + 12 * pt, 3);
-    expect(bottom).toBeCloseTo(30 + 16 + 8 * pt, 3);
+    expect(bottom).toBeCloseTo(0 + 16 + 8 * pt, 3);
     expect(page().textContent).toContain('Acme Technologies Pvt Ltd');
+
+    // Placed from the paper's edges, the header sits at the very top: the text starts below it, or lower when the top margin says so.
+    setValue(byLabel('Letterhead'), 'l2');
+    await settle();
+    setValue(byLabel('Top'), '0');
+    expect(padding()[0]).toBeCloseTo(30 + 12 * pt, 3);
+    setValue(byLabel('Top'), '45');
+    expect(padding()[0]).toBe(45);
+    expect(container.textContent).not.toContain('needs at least');
+    // Margins that leave the text too little room are flagged before the PDF refuses them.
+    setValue(byLabel('Letterhead'), 'l3');
+    await settle();
+    setValue(byLabel('Top'), '60');
+    setValue(byLabel('Bottom'), '60');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('it needs at least 60 mm');
+
     setValue(byLabel('Letterhead'), '');
-    expect(padding()).toEqual([30, 30, 30, 30]);
+    expect(padding()).toEqual([60, 10, 60, 35]);
   });
 
   it('formats only the selected words, and placeholders without making them text', async () => {
@@ -259,7 +281,7 @@ describe('offer letter editor', () => {
     const edited = json$();
     await act(async () => button('Save draft').click());
     await settle();
-    expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ document: edited, letterheadId: null, pageSize: 'A4', marginMm: 20, showPageNumbers: true });
+    expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ document: edited, letterheadId: null, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true });
     expect(container.textContent).toContain('All changes saved');
     expect(button('Approve draft v1').disabled).toBe(false);
     // The editor still has the saved letter, formatting and all.
@@ -272,7 +294,7 @@ describe('offer letter editor', () => {
     click('Bold');
     await act(async () => button('Preview PDF').click());
     await settle();
-    expect(calls.find((c) => c.url.endsWith('/templates/preview-pdf'))?.body).toEqual({ kind: 'OFFER_LETTER', document: json$(), letterheadId: null, pageSize: 'A4', marginMm: 20, showPageNumbers: true });
+    expect(calls.find((c) => c.url.endsWith('/templates/preview-pdf'))?.body).toEqual({ kind: 'OFFER_LETTER', document: json$(), letterheadId: null, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true });
     expect(document.querySelector('[role=dialog][aria-modal=true]')?.textContent).toContain('Sample preview');
   });
 

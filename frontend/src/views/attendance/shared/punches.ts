@@ -18,6 +18,8 @@ export interface PunchSession {
   out: AttendancePunch | null;
   /** Null while the session is missing its IN or OUT punch. */
   minutes: number | null;
+  /** Exact length in milliseconds; null while the session is missing its IN or OUT punch. */
+  ms: number | null;
 }
 
 /**
@@ -44,7 +46,7 @@ export const getPunchSessions = (punches: AttendancePunch[]): PunchSession[] => 
   for (const p of punches) {
     let s = sessions[sessions.length - 1];
     if (!s || s.number !== p.session) {
-      s = { number: p.session, in: null, out: null, minutes: null };
+      s = { number: p.session, in: null, out: null, minutes: null, ms: null };
       sessions.push(s);
     }
     if (p.direction === 'IN') s.in = p;
@@ -52,7 +54,8 @@ export const getPunchSessions = (punches: AttendancePunch[]): PunchSession[] => 
   }
   for (const s of sessions) {
     if (s.in && s.out) {
-      s.minutes = Math.round((new Date(s.out.punchAt).getTime() - new Date(s.in.punchAt).getTime()) / 60000);
+      s.ms = Math.max(0, new Date(s.out.punchAt).getTime() - new Date(s.in.punchAt).getTime());
+      s.minutes = Math.round(s.ms / 60000);
     }
   }
   return sessions;

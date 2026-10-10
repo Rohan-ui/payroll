@@ -21,6 +21,7 @@ import { StatusPill } from './StatusPill';
 import { PunchTimeline } from './PunchTimeline';
 import { getAttendancePunches, getPunchSessions } from './punches';
 import { formatShiftClock, shiftClockToHours, shiftDisplayName } from './shift';
+import { attendanceToday, clockTime, formatDuration, formatMinutes, useNow, workedFromBounds, workedFromPunches } from './duration';
 import type { EmployeeMonthDayRecord } from '../../../api/attendance.api';
 
 export interface DayDetailProps {
@@ -61,6 +62,12 @@ export const DayDetail: React.FC<DayDetailProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [displayMode, isOpen, onClose]);
 
+  // A day still in progress today counts up every second from this computer's clock.
+  const lastPunch = dayRecord?.punches?.[dayRecord.punches.length - 1];
+  const inProgress = !!dayRecord && dayRecord.date === attendanceToday() && !dayRecord.lastCheckOutAt
+    && (lastPunch ? lastPunch.punchType === 'IN' || lastPunch.punchType === 'CHECK_IN' : !!dayRecord.firstCheckInAt);
+  const now = useNow(inProgress);
+
   if (!dayRecord) {
     if (displayMode === 'panel') {
       return (
@@ -92,8 +99,7 @@ export const DayDetail: React.FC<DayDetailProps> = ({
   const isHolidayOrOff = dayRecord.status === 'HOLIDAY' || dayRecord.status === 'WEEKEND';
 
   const requiredMinutes = dayRecord.shift?.standardMinutes || 480;
-  const workedMinutes = dayRecord.workedMinutes || 0;
-  const progressPct = Math.min(100, Math.round((workedMinutes / requiredMinutes) * 100));
+  const recordedMs = (dayRecord.workedMinutes || 0) * 60_000;
 
   // 24-Hour Bar: scheduled shift window from the API (cross-midnight shifts clipped at end of day)
   const shiftStartText = formatShiftClock(dayRecord.shift?.startTime);
@@ -118,11 +124,17 @@ export const DayDetail: React.FC<DayDetailProps> = ({
 
   const punches = getAttendancePunches(dayRecord.punches);
   const sessions = getPunchSessions(punches);
+  // Time inside, to the second: from the punches when there are some, else the recorded figure.
+  const inside = punches.length ? workedFromPunches(punches, dayRecord.date, now) : null;
+  const workedMs = inside ? inside.ms : recordedMs;
+  const progressPct = Math.min(100, Math.round((workedMs / (requiredMinutes * 60_000)) * 100));
+  const gross = workedFromBounds(dayRecord.firstCheckInAt, dayRecord.lastCheckOutAt, dayRecord.date, now);
 
   // Worked segments: one per completed IN→OUT session; without punches, first check-in → last check-out
   const segmentBounds: Array<{ from?: string | null; to?: string | null }> = punches.length > 0
     ? sessions.filter((s) => s.in && s.out).map((s) => ({ from: s.in?.punchAt, to: s.out?.punchAt }))
     : [{ from: dayRecord.firstCheckInAt, to: dayRecord.lastCheckOutAt }];
+  if (inside?.since) segmentBounds.push({ from: inside.since, to: new Date(now).toISOString() });
   const workedSegments = segmentBounds.flatMap(({ from, to }) => {
     const inHour = getKolkataHour(from);
     const outHour = getKolkataHour(to);
@@ -136,32 +148,9 @@ export const DayDetail: React.FC<DayDetailProps> = ({
   const todayKolkata = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const openSessionText = dayRecord.date === todayKolkata ? 'Currently inside' : 'Missing check-out punch';
 
-  // Format time in Asia/Kolkata
-  const formatTimeDisplay = (dateStr?: string | null): string => {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    return d.toLocaleTimeString('en-US', {
-      timeZone: 'Asia/Kolkata',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-    });
-  };
-
-  const formattedInTime = formatTimeDisplay(dayRecord.firstCheckInAt);
-  const formattedOutTime = formatTimeDisplay(dayRecord.lastCheckOutAt);
-
-  let grossElapsedText = '—';
-  if (dayRecord.firstCheckInAt && dayRecord.lastCheckOutAt) {
-    const diffMs = new Date(dayRecord.lastCheckOutAt).getTime() - new Date(dayRecord.firstCheckInAt).getTime();
-    if (diffMs > 0) {
-      const grossMins = Math.round(diffMs / 60000);
-      const gh = Math.floor(grossMins / 60);
-      const gm = grossMins % 60;
-      grossElapsedText = `${gh}h ${gm}m`;
-    }
-  }
+  const formattedInTime = clockTime(dayRecord.firstCheckInAt);
+  const formattedOutTime = clockTime(dayRecord.lastCheckOutAt);
+  const grossElapsedText = gross ? formatDuration(gross.ms) : '—';
 
   // Inner Day Detail Content
   const content = (
@@ -232,8 +221,9 @@ export const DayDetail: React.FC<DayDetailProps> = ({
                   <Clock className="w-4 h-4 text-teal-600" />
                   Worked vs Net Required Time
                 </span>
-                <span className="text-teal-800 font-mono">
-                  {dayRecord.workedHours} hrs / {(requiredMinutes / 60).toFixed(1)} hrs ({progressPct}%)
+                <span className="text-teal-800 font-mono tabular-nums">
+                  {formatDuration(workedMs)} / {formatMinutes(requiredMinutes)} ({progressPct}%)
+                  {inside?.running && <span className="ml-1.5 rounded bg-teal-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">LIVE</span>}
                 </span>
               </div>
               <div className="w-full h-2.5 bg-teal-100/60 rounded-full overflow-hidden">
@@ -305,12 +295,12 @@ export const DayDetail: React.FC<DayDetailProps> = ({
                   <Clock className="w-3.5 h-3.5 text-slate-500" />
                   Gross Duration
                 </span>
-                <p className="text-sm font-bold font-mono text-slate-800">
+                <p className="text-sm font-bold font-mono tabular-nums text-slate-800">
                   {grossElapsedText}
                 </p>
-                <span className="text-[10px] text-teal-700 font-medium block">
-                  Net worked: {dayRecord.workedHours} hrs
-                </span>
+                {gross?.running && <span className="text-[10px] font-semibold text-teal-700 block">First check-in to now · still inside</span>}
+                {inside && <span className="text-[10px] text-teal-700 font-medium block">Time inside: <span className="font-mono tabular-nums">{formatDuration(inside.ms)}</span></span>}
+                <span className="text-[10px] text-slate-500 block">Recorded worked: {formatMinutes(dayRecord.workedMinutes)}</span>
               </div>
             </div>
 
@@ -365,7 +355,7 @@ export const DayDetail: React.FC<DayDetailProps> = ({
               <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                 Daily Punch Log
               </h4>
-              <PunchTimeline punches={punches} />
+              <PunchTimeline punches={punches} date={dayRecord.date} />
             </div>
 
             {/* Shift Details Card */}

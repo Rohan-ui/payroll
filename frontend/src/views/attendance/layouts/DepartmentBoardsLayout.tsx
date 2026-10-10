@@ -16,6 +16,8 @@ import { MiniBars } from '../shared/MiniBars';
 import { DepartmentWidget } from '../shared/DepartmentWidget';
 import { MonthCalendar } from '../shared/MonthCalendar';
 import { DayDetail } from '../shared/DayDetail';
+import { LiveTimes, isInsideNow } from '../shared/LiveTimes';
+import { useNow } from '../shared/duration';
 import { YearGlance } from '../shared/YearGlance';
 import type {
   DepartmentSummaryResponse,
@@ -60,6 +62,8 @@ export const DepartmentBoardsLayout: React.FC<DepartmentBoardsLayoutProps> = ({
   onRegularize,
   onEditPunches,
 }) => {
+  // One clock for the whole board: rows of people still inside today count up every second.
+  const now = useNow(employees.some((e) => isInsideNow(e.firstCheckInAt, e.lastCheckOutAt)));
   // Slide-over drawer state in employee detail view
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -315,9 +319,7 @@ export const DepartmentBoardsLayout: React.FC<DepartmentBoardsLayoutProps> = ({
                   <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
                     {emp.departmentName}
                   </span>
-                  <span className="font-mono">
-                    {emp.inTime ? `${emp.inTime} – ${emp.outTime || '...'}` : 'No punch today'}
-                  </span>
+                  <LiveTimes firstCheckInAt={emp.firstCheckInAt} lastCheckOutAt={emp.lastCheckOutAt} now={now} className="text-right" />
                 </div>
 
                 {/* 14-Day Mini Bar Chart */}

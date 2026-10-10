@@ -15,7 +15,7 @@ import { AuthView } from './views/AuthView';
 import { Toaster } from './components/ui/Toaster';
 import { ChangeTemporaryPasswordView } from './views/ChangeTemporaryPasswordView';
 import { DashboardView } from './views/DashboardView';
-import { RunPayrollWizardView } from './views/RunPayrollWizardView';
+import { PayrollView } from './views/payroll/PayrollView';
 import { EmployeesView } from './views/EmployeesView';
 import { EmployeeDetailView } from './views/EmployeeDetailView';
 import { AttendanceView } from './views/AttendanceView';
@@ -85,7 +85,7 @@ const MainContent: React.FC = () => {
       case 'emails':          return <EmailMarketingView />;
       case 'organization':    return <OrganizationSettingsView initialTab="organization" />;
       case 'users':           return <OrganizationSettingsView initialTab="users" />;
-      case 'payroll':         return <RunPayrollWizardView />;
+      case 'payroll':         return <PayrollView />;
       case 'people':          return <EmployeesView />;
       case 'add-employee':    return <AddEmployeeView />;
       case 'edit-employee':   return <AddEmployeeView />;

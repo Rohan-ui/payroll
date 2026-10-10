@@ -575,10 +575,6 @@ export const ClockInView: React.FC = () => {
               <Layers className="w-3 h-3 mr-1" />
               Multi-Session Punching
             </Badge>
-            <Badge variant="success" size="sm">
-              <ShieldCheck className="w-3 h-3 mr-1" />
-              Live PostgreSQL
-            </Badge>
           </div>
           <p className="text-sm text-slate-500 mt-1">
             Support for multiple clock-in and clock-out sessions throughout the day with automated inter-session break calculation.

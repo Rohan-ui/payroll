@@ -8,15 +8,7 @@ import { inflateSync } from 'zlib';
  */
 export function inspectPdf(pdf: Buffer, pageHeight: number) {
   const raw = pdf.toString('latin1');
-  const pages = [...raw.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)]
-    .map((m) => {
-      try {
-        return inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1');
-      } catch {
-        return '';
-      }
-    })
-    .filter((content) => /\nBT\n/.test(content));
+  const pages = pageContents(pdf);
   // Stretched spaces (justified text) are drawn as gaps of a few hundred thousandths of an em: read back as spaces.
   const decode = (tj: string) =>
     [...tj.matchAll(/<([0-9a-f]*)>|(-?[\d.]+)/g)].map((m) => (m[1] !== undefined ? Buffer.from(m[1], 'hex').toString('latin1') : Number(m[2]) <= -200 ? ' ' : '')).join('');
@@ -33,6 +25,19 @@ export function inspectPdf(pdf: Buffer, pageHeight: number) {
       width: Number(m[1]), height: Number(m[2]), left: Number(m[3]), top: Number(m[4]) - Number(m[2]), name: m[5],
     })),
   }));
+}
+
+/** Each page's content stream, inflated: the drawing operators in the order they paint. */
+export function pageContents(pdf: Buffer) {
+  return [...pdf.toString('latin1').matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)]
+    .map((m) => {
+      try {
+        return inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1');
+      } catch {
+        return '';
+      }
+    })
+    .filter((content) => /\nBT\n/.test(content));
 }
 
 /** All text of a PDF, page by page, for comparing two documents' content. */

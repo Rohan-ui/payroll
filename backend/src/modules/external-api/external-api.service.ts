@@ -68,6 +68,20 @@ export interface CosecDailySyncResult {
 
 /** COSEC works in its server's local time: India. */
 const COSEC_OFFSET = '+05:30';
+
+/** Whole minutes between each check-in and the check-out that follows it. */
+export function workedFromPunches(punches: { punch_at: Date; punch_type: 'CHECK_IN' | 'CHECK_OUT' }[]): number {
+  let total = 0;
+  let openSince: Date | null = null;
+  for (const p of punches) {
+    if (p.punch_type === 'CHECK_IN') openSince = p.punch_at;
+    else if (openSince) {
+      total += Math.max(0, p.punch_at.getTime() - openSince.getTime());
+      openSince = null;
+    }
+  }
+  return Math.floor(total / 60_000);
+}
 /** Today in COSEC's time zone, as YYYY-MM-DD. */
 export const cosecToday = (now = new Date()) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -591,7 +605,14 @@ export class ExternalApiService {
         continue;
       }
 
-      const workedMinutes = item.workedMinutes > 0 ? item.workedMinutes : item.status === 'PRESENT' ? 480 : item.status === 'HALF_DAY' ? 240 : 0;
+      // Punch 1 IN, Punch 2 OUT, Punch 3 IN, …, each on its own date.
+      const punches = item.punches
+        .map((p) => ({ punch_at: parseLocalTime(p.date ?? item.date, p.time), punch_type: p.type, device_reference: `COSEC_PUNCH_${p.index}_${p.label}` }))
+        .filter((p): p is { punch_at: Date; punch_type: 'CHECK_IN' | 'CHECK_OUT'; device_reference: string } => p.punch_at !== null);
+      // The device's work time when it gives one; otherwise the time between each
+      // check-in and the check-out after it. Nothing is assumed: a day still open
+      // (checked in, not yet out) counts only its completed pairs so far.
+      const workedMinutes = item.workedMinutes > 0 ? item.workedMinutes : workedFromPunches(punches);
       const fields = {
         attendance_status: item.status,
         first_check_in_at: parseLocalTime(item.punches[0]?.date ?? item.date, item.firstCheckInTime),
@@ -605,10 +626,6 @@ export class ExternalApiService {
         scheduled_shift_start_time: toTimeOfDay(item.shiftStart),
         scheduled_shift_end_time: toTimeOfDay(item.shiftEnd),
       };
-      // Punch 1 IN, Punch 2 OUT, Punch 3 IN, …, each on its own date.
-      const punches = item.punches
-        .map((p) => ({ punch_at: parseLocalTime(p.date ?? item.date, p.time), punch_type: p.type, device_reference: `COSEC_PUNCH_${p.index}_${p.label}` }))
-        .filter((p): p is { punch_at: Date; punch_type: 'CHECK_IN' | 'CHECK_OUT'; device_reference: string } => p.punch_at !== null);
 
       const unchanged = current
         && current.source === 'COSEC_SYNC'

@@ -391,6 +391,16 @@ export class GmailService {
     }
   }
 
+  /**
+   * Runs an action on a member's inbox (their connected Gmail, else their own
+   * IMAP account from My email settings), for other modules reading it.
+   * Throws a ConflictException when the member has neither.
+   */
+  async withMemberInbox<T>(tenantId: string, userId: string, action: (client: ImapFlow, mailbox: { kind: 'GMAIL' | 'IMAP'; email: string }) => Promise<T>): Promise<T> {
+    const mailbox = await this.mailbox(tenantId, userId);
+    return this.withClient(mailbox, (client) => action(client, { kind: mailbox.kind, email: mailbox.email }));
+  }
+
   /** Sends through a member's connected Gmail, for other modules sending as that member. */
   async sendAsGmail(tenantId: string, userId: string, message: MailMessage) {
     return this.sendViaGmail(await this.connection(tenantId, userId), message as nodemailer.SendMailOptions);
@@ -541,10 +551,10 @@ export class GmailService {
     } catch (error) {
       if (this.isSmtpAuthenticationError(error)) {
         await this.markReauthRequired(connection.id, 'SMTP_AUTH_FAILED');
-        throw new ConflictException('Gmail authorization expired or was revoked. Reconnect Gmail and try again.');
+        throw new ConflictException('Gmail authorization expired or was revoked. Reconnect Gmail and try again.', { cause: error });
       }
       this.logger.warn(`Gmail SMTP operation failed connectionId=${connection.id} code=${this.safeErrorCode(error)}`);
-      throw new ServiceUnavailableException('Gmail could not send this message. Try again shortly.');
+      throw new ServiceUnavailableException('Gmail could not send this message. Try again shortly.', { cause: error });
     } finally {
       transport.close();
     }

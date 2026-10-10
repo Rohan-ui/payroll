@@ -428,9 +428,6 @@ export const AddEmployeeView: React.FC = () => {
               <h1 className="text-2xl font-bold text-slate-800">
                 {isEdit ? `Edit Employee Profile` : 'Add New Employee'}
               </h1>
-              <Badge variant={isEdit ? 'info' : 'success'} size="sm">
-                {isEdit ? 'Live PostgreSQL Update' : 'Live PostgreSQL'}
-              </Badge>
               {isEdit && employeeToEdit && (
                 <Badge variant="neutral" size="sm">
                   {employeeToEdit.code}

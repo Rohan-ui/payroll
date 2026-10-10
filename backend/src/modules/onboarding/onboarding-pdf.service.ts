@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import * as pdfkit from 'pdfkit';
-import { DocNode } from './rich-document';
+import { DocNode, FONT_FAMILIES, FontKey } from './rich-document';
 import { drawDocument, LayoutDoc } from './rich-pdf-layout';
 
 // pdfkit is a CommonJS class export: the build (CommonJS) gets it directly, the ES-module test runner as `default`.
@@ -28,9 +28,8 @@ export interface LetterPdf {
 
 /**
  * Where an image sits, set in the letterhead editor: millimetres from the
- * top-left corner of the header (or footer) area, which starts at the page
- * margins. `stretch` fills the box exactly; otherwise the image keeps its
- * proportions inside it.
+ * top-left corner of the header (or footer) area. `stretch` fills the box
+ * exactly; otherwise the image keeps its proportions inside it.
  */
 export interface ImageBox {
   x: number;
@@ -38,14 +37,49 @@ export interface ImageBox {
   width: number;
   height: number;
   stretch: boolean;
+  /** Degrees clockwise about the box's centre; none: upright. */
+  rotation?: number;
 }
+
+/** A text element's text and how it looks. Lines break only where the text has line breaks. */
+export interface ElementText {
+  content: string;
+  fontFamily: FontKey;
+  fontSizePt: number;
+  bold: boolean;
+  italic: boolean;
+  color: string;
+  align: 'left' | 'center' | 'right';
+}
+
+/**
+ * A design element on every page, such as a watermark: a box in millimetres
+ * from the page's top-left (kept on the page as placeBox keeps it), turned
+ * clockwise about its centre, at an opacity from 0 to 1. Elements behind the
+ * text are drawn before it on each page, those in front after everything else.
+ * An image keeps its proportions inside the box.
+ */
+export interface PdfElement {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  opacity: number;
+  aboveText: boolean;
+  image: Buffer | null;
+  text: ElementText | null;
+}
+
+/** Text elements' line height, as a multiple of the font size; the editor uses the same. */
+export const ELEMENT_LINE_HEIGHT = 1.2;
 
 /**
  * A box placed in an area (both in points): where the editor put it, kept
  * inside the area: moved back in if it would run past an edge, and no larger
  * than the area. The editor applies the same rule, so what it shows is what prints.
  */
-export function placeBox(box: ImageBox, area: { left: number; top: number; width: number; height: number }) {
+export function placeBox(box: Pick<ImageBox, 'x' | 'y' | 'width' | 'height'> & Partial<ImageBox>, area: { left: number; top: number; width: number; height: number }) {
   const width = Math.min(box.width * MM, area.width);
   const height = Math.min(box.height * MM, area.height);
   const left = Math.min(Math.max(area.left, area.left + box.x * MM), area.left + area.width - width);
@@ -68,24 +102,76 @@ export interface PdfLetterhead {
   footerImage: Buffer | null;
   headerHeightMm: number;
   footerHeightMm: number;
+  /** Where the header and footer sit; none (or absent): at the page margins. */
+  placement?: LetterheadPlacement | null;
   /** Boxes set in the editor; none (or absent): the automatic layout. */
   logoBox?: ImageBox | null;
   headerArtBox?: ImageBox | null;
   footerArtBox?: ImageBox | null;
+  /** Elements to draw (hidden ones left out), in paint order. */
+  elements?: PdfElement[];
+}
+
+/**
+ * Where a letterhead sits, in millimetres: its header from the page's top
+ * edge, its footer from the bottom edge, and both from the left and right
+ * edges. 0 puts it at the edge of the paper.
+ */
+export interface LetterheadPlacement {
+  headerOffsetMm: number;
+  footerOffsetMm: number;
+  sideOffsetMm: number;
+}
+
+/** The page margins in millimetres: the letter text stays inside them. */
+export interface PageMargins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
 }
 
 export interface PdfLayout {
   pageSize: 'A4' | 'LETTER';
-  marginMm: number;
+  marginsMm: PageMargins;
   showPageNumbers: boolean;
   letterhead: PdfLetterhead | null;
 }
 
+export const uniformMargins = (mm: number): PageMargins => ({ top: mm, right: mm, bottom: mm, left: mm });
+
 /** The layout of documents made before layouts existed: plain A4. */
-export const PLAIN_LAYOUT: PdfLayout = { pageSize: 'A4', marginMm: 20, showPageNumbers: false, letterhead: null };
+export const PLAIN_LAYOUT: PdfLayout = { pageSize: 'A4', marginsMm: uniformMargins(20), showPageNumbers: false, letterhead: null };
 
 const MM = 72 / 25.4;
 const GREY = '#555555';
+/** Page sizes in points, as pdfkit has them. */
+const PAGE_POINTS = { A4: { width: 595.28, height: 841.89 }, LETTER: { width: 612, height: 792 } };
+/** The letter text always keeps at least this much of the page's height (margins of at most 60 mm leave it at least 90 mm wide). */
+export const MIN_TEXT_MM = 60;
+
+type Rect = { left: number; top: number; width: number; height: number };
+
+/**
+ * Where things go on a page, in points: the header and footer where the
+ * letterhead is placed (at the page margins unless it says otherwise), and the
+ * text inside the margins, at least 12 pt below the header and 8 pt above the
+ * footer. The template editor applies the same rule.
+ */
+export function pageFrame(layout: PdfLayout) {
+  const page = PAGE_POINTS[layout.pageSize];
+  const m = layout.marginsMm;
+  const lh = layout.letterhead;
+  const at = lh?.placement;
+  const left = (at ? at.sideOffsetMm : m.left) * MM;
+  const width = page.width - left - (at ? at.sideOffsetMm : m.right) * MM;
+  const header: Rect | null = lh ? { left, top: (at ? at.headerOffsetMm : m.top) * MM, width, height: lh.headerHeightMm * MM } : null;
+  const footerHeight = lh ? lh.footerHeightMm * MM : 0;
+  const footer: Rect | null = lh ? { left, top: page.height - (at ? at.footerOffsetMm : m.bottom) * MM - footerHeight, width, height: footerHeight } : null;
+  const top = Math.max(m.top * MM, header ? header.top + header.height + 12 : 0);
+  const bottom = Math.min(page.height - m.bottom * MM, footer ? footer.top - 8 : page.height);
+  return { page, header, footer, body: { left: m.left * MM, top, width: page.width - (m.left + m.right) * MM, height: bottom - top } };
+}
 
 /**
  * The built-in PDF font covers Latin text only. Other characters are replaced
@@ -118,17 +204,25 @@ export function readableImage(bytes: Buffer): { width: number; height: number } 
 export class OnboardingPdfService {
   render(letter: LetterPdf, layout: PdfLayout = PLAIN_LAYOUT): Promise<Buffer> {
     const letterhead = layout.letterhead;
-    const margin = layout.marginMm * MM;
-    const headerHeight = letterhead ? letterhead.headerHeightMm * MM : 0;
-    const footerHeight = letterhead ? letterhead.footerHeightMm * MM : 0;
+    const frame = pageFrame(layout);
+    const { page, body } = frame;
+    // Text squeezed into a sliver would print a line or two a page, or never fit at all.
+    if (body.height < MIN_TEXT_MM * MM - 0.01) {
+      return Promise.reject(
+        new BadRequestException(
+          `The letter text needs at least ${MIN_TEXT_MM} mm of the page’s height. Make the template’s margins smaller, or the letterhead’s header or footer shorter or closer to the page edge.`,
+        ),
+      );
+    }
+    const margin = body.left;
     const doc = new PDFDocument({
       size: layout.pageSize,
       bufferPages: true,
       margins: {
-        top: margin + (letterhead ? headerHeight + 12 : 0),
-        bottom: margin + (letterhead ? footerHeight + 8 : 0),
-        left: margin,
-        right: margin,
+        top: body.top,
+        bottom: page.height - body.top - body.height,
+        left: body.left,
+        right: page.width - body.left - body.width,
       },
       info: { Title: pdfSafe(letter.title), Author: pdfSafe(letterhead?.companyName ?? letter.companyName), Subject: letter.reference },
     });
@@ -140,8 +234,23 @@ export class OnboardingPdfService {
     });
 
     // Each image is read once and placed on every page as the same embedded object.
-    const images = letterhead ? { ...letterhead, logo: this.open(doc, letterhead.logo), headerImage: this.open(doc, letterhead.headerImage), footerImage: this.open(doc, letterhead.footerImage) } : null;
-    const width = doc.page.width - margin * 2;
+    const opened = new Map<Buffer, Buffer>();
+    const open = (bytes: Buffer | null) => {
+      if (!bytes) return null;
+      if (!opened.has(bytes)) opened.set(bytes, this.open(doc, bytes));
+      return opened.get(bytes) ?? null;
+    };
+    const images = letterhead ? { ...letterhead, logo: open(letterhead.logo), headerImage: open(letterhead.headerImage), footerImage: open(letterhead.footerImage) } : null;
+    const elements = (letterhead?.elements ?? []).map((e) => ({ ...e, image: open(e.image) }));
+    const behind = elements.filter((e) => !e.aboveText);
+    const inFront = elements.filter((e) => e.aboveText);
+    // Elements behind the text go on each page as it starts, before any of its text.
+    if (behind.length) {
+      const drawBehind = () => this.background(doc, behind);
+      drawBehind();
+      doc.on('pageAdded', drawBehind);
+    }
+    const width = body.width;
     const bottom = () => doc.page.height - doc.page.margins.bottom;
     const usable = () => bottom() - doc.page.margins.top;
     /** Starts a new page when a block of this height would not fit, unless it is taller than a page anyway. */
@@ -189,13 +298,18 @@ export class OnboardingPdfService {
       const kept = { ...doc.page.margins };
       // Drawing inside the margins must not start new pages.
       doc.page.margins = { top: 0, bottom: 0, left: 0, right: 0 };
-      if (images) {
-        this.header(doc, images, margin, width, headerHeight);
-        this.footer(doc, images, margin, width, footerHeight);
+      if (images && frame.header && frame.footer) {
+        this.header(doc, images, frame.header);
+        this.footer(doc, images, frame.footer);
       }
       if (layout.showPageNumbers) {
-        doc.font('Helvetica').fontSize(8).fillColor(GREY).text(`Page ${index - range.start + 1} of ${range.count}`, margin, doc.page.height - margin + Math.max(2, (margin - 8) / 2), { width, align: 'right', lineBreak: false });
+        // In the space below the footer (or the text); just above the footer when that space is too small.
+        const below = frame.footer ? frame.footer.top + frame.footer.height : body.top + body.height;
+        const room = page.height - below;
+        const y = room >= 10 ? below + Math.max(2, (room - 8) / 2) : (frame.footer?.top ?? below) - 10;
+        doc.font('Helvetica').fontSize(8).fillColor(GREY).text(`Page ${index - range.start + 1} of ${range.count}`, margin, y, { width, align: 'right', lineBreak: false });
       }
+      for (const element of inFront) this.element(doc, element);
       if (letter.watermark) this.watermark(doc, pdfSafe(letter.watermark));
       doc.page.margins = kept;
     }
@@ -208,9 +322,49 @@ export class OnboardingPdfService {
    * image in place of the bytes (and then embeds it once), which its type
    * definitions leave out; hence the cast.
    */
-  private open(doc: Doc, bytes: Buffer | null): Buffer | null {
-    if (!bytes) return null;
+  private open(doc: Doc, bytes: Buffer): Buffer {
     return (doc as unknown as { openImage(data: Buffer): Buffer }).openImage(bytes);
+  }
+
+  /**
+   * Elements drawn on a page as it starts, leaving the text where it was: the
+   * position, the font (pdfkit keeps it outside the page's graphics state, and
+   * a paragraph running onto this page goes on in it) and the margins.
+   */
+  private background(doc: Doc, elements: PdfElement[]) {
+    const state = doc as unknown as { x: number; y: number; _font: unknown; _fontSize: number };
+    const kept = { x: state.x, y: state.y, font: state._font, fontSize: state._fontSize, margins: { ...doc.page.margins } };
+    doc.page.margins = { top: 0, bottom: 0, left: 0, right: 0 };
+    for (const element of elements) this.element(doc, element);
+    doc.page.margins = kept.margins;
+    state._font = kept.font;
+    state._fontSize = kept.fontSize;
+    state.x = kept.x;
+    state.y = kept.y;
+  }
+
+  /** One element, on the page, turned about its centre and at its opacity. */
+  private element(doc: Doc, element: PdfElement) {
+    const { left, top, width, height } = placeBox(element, { left: 0, top: 0, width: doc.page.width, height: doc.page.height });
+    doc.save();
+    if (element.rotation) doc.rotate(element.rotation, { origin: [left + width / 2, top + height / 2] });
+    doc.opacity(element.opacity);
+    if (element.image) {
+      doc.image(element.image, left, top, { fit: [width, height], align: 'center', valign: 'center' });
+    } else if (element.text) {
+      const t = element.text;
+      const family = FONT_FAMILIES[t.fontFamily];
+      doc.font(t.bold && t.italic ? family.boldItalic : t.bold ? family.bold : t.italic ? family.italic : family.regular).fontSize(t.fontSizePt).fillColor(t.color);
+      const lines = pdfSafe(t.content).split('\n');
+      const lineHeight = t.fontSizePt * ELEMENT_LINE_HEIGHT;
+      // The lines centred in the box's height, each centred in its line height, as the editor shows them.
+      let y = top + (height - lines.length * lineHeight) / 2 + (lineHeight - doc.currentLineHeight()) / 2;
+      for (const line of lines) {
+        doc.text(line, left, y, { width, align: t.align, lineBreak: false });
+        y += lineHeight;
+      }
+    }
+    doc.restore();
   }
 
   private table(doc: Doc, table: NonNullable<LetterPdf['table']>, margin: number, width: number, keepTogether: (height: number) => void) {
@@ -246,20 +400,22 @@ export class OnboardingPdfService {
   /** An image in its editor box within an area: stretched to fill it, or kept in proportion and centred in it. */
   private placed(doc: Doc, image: Buffer, box: ImageBox, area: { left: number; top: number; width: number; height: number }) {
     const rect = placeBox(box, area);
+    doc.save();
+    if (box.rotation) doc.rotate(box.rotation, { origin: [rect.left + rect.width / 2, rect.top + rect.height / 2] });
     if (box.stretch) doc.image(image, rect.left, rect.top, { width: rect.width, height: rect.height });
     else doc.image(image, rect.left, rect.top, { fit: [rect.width, rect.height], align: 'center', valign: 'center' });
+    doc.restore();
     return rect;
   }
 
   /** The letterhead's top: its artwork, or the logo with the company's name, address and contacts. */
-  private header(doc: Doc, letterhead: PdfLetterhead, margin: number, width: number, height: number) {
-    const top = margin;
-    const area = { left: margin, top, width, height };
+  private header(doc: Doc, letterhead: PdfLetterhead, area: Rect) {
+    const { left, top, width, height } = area;
     if (letterhead.headerImage && letterhead.headerArtBox) {
       this.placed(doc, letterhead.headerImage, letterhead.headerArtBox, area);
     } else if (letterhead.headerImage) {
       // fit keeps the image's proportions inside the header area.
-      doc.image(letterhead.headerImage, margin, top, { fit: [width, height], align: 'center', valign: 'center' });
+      doc.image(letterhead.headerImage, left, top, { fit: [width, height], align: 'center', valign: 'center' });
     } else {
       const contact = [letterhead.phone, letterhead.email, letterhead.website].filter(Boolean).join('  |  ');
       const lines: { text: string; bold?: boolean; size: number }[] = [
@@ -270,7 +426,7 @@ export class OnboardingPdfService {
       const centered = letterhead.logoPosition === 'CENTER';
       const logoHeight = centered ? height * 0.45 : height;
       const logoWidth = letterhead.logo ? Math.min(width * 0.3, 170) : 0;
-      let textX = margin;
+      let textX = left;
       let textWidth = width;
       let textTop = top;
       let align: 'left' | 'right' | 'center' = 'left';
@@ -282,23 +438,23 @@ export class OnboardingPdfService {
           align = 'center';
         } else if (letterhead.logoPosition === 'LEFT') {
           textX = rect.left + rect.width + 12;
-          textWidth = Math.max(40, margin + width - textX);
+          textWidth = Math.max(40, left + width - textX);
           align = 'right';
         } else {
-          textWidth = Math.max(40, rect.left - 12 - margin);
+          textWidth = Math.max(40, rect.left - 12 - left);
         }
       } else if (letterhead.logo) {
         if (centered) {
-          doc.image(letterhead.logo, margin + (width - logoWidth) / 2, top, { fit: [logoWidth, logoHeight], align: 'center', valign: 'center' });
+          doc.image(letterhead.logo, left + (width - logoWidth) / 2, top, { fit: [logoWidth, logoHeight], align: 'center', valign: 'center' });
           textTop = top + logoHeight + 4;
           align = 'center';
         } else if (letterhead.logoPosition === 'LEFT') {
-          doc.image(letterhead.logo, margin, top, { fit: [logoWidth, logoHeight], valign: 'center' });
-          textX = margin + logoWidth + 12;
+          doc.image(letterhead.logo, left, top, { fit: [logoWidth, logoHeight], valign: 'center' });
+          textX = left + logoWidth + 12;
           textWidth = width - logoWidth - 12;
           align = 'right';
         } else {
-          doc.image(letterhead.logo, margin + width - logoWidth, top, { fit: [logoWidth, logoHeight], align: 'right', valign: 'center' });
+          doc.image(letterhead.logo, left + width - logoWidth, top, { fit: [logoWidth, logoHeight], align: 'right', valign: 'center' });
           textWidth = width - logoWidth - 12;
         }
       } else if (centered) {
@@ -315,23 +471,23 @@ export class OnboardingPdfService {
         y = doc.y + 2;
       }
     }
-    doc.moveTo(margin, top + height + 5).lineTo(margin + width, top + height + 5).strokeColor('#CCCCCC').lineWidth(0.5).stroke();
+    doc.moveTo(left, top + height + 5).lineTo(left + width, top + height + 5).strokeColor('#CCCCCC').lineWidth(0.5).stroke();
   }
 
   /** The letterhead's bottom: its artwork, or the registration details and footer text. */
-  private footer(doc: Doc, letterhead: PdfLetterhead, margin: number, width: number, height: number) {
-    const top = doc.page.height - margin - height;
-    doc.moveTo(margin, top).lineTo(margin + width, top).strokeColor('#CCCCCC').lineWidth(0.5).stroke();
+  private footer(doc: Doc, letterhead: PdfLetterhead, area: Rect) {
+    const { left, top, width, height } = area;
+    doc.moveTo(left, top).lineTo(left + width, top).strokeColor('#CCCCCC').lineWidth(0.5).stroke();
     if (letterhead.footerImage && letterhead.footerArtBox) {
-      this.placed(doc, letterhead.footerImage, letterhead.footerArtBox, { left: margin, top, width, height });
+      this.placed(doc, letterhead.footerImage, letterhead.footerArtBox, area);
       return;
     }
     if (letterhead.footerImage) {
-      doc.image(letterhead.footerImage, margin, top + 3, { fit: [width, height - 3], align: 'center', valign: 'center' });
+      doc.image(letterhead.footerImage, left, top + 3, { fit: [width, height - 3], align: 'center', valign: 'center' });
       return;
     }
     const text = [letterhead.registrationText, letterhead.footerText].filter(Boolean).join('\n');
-    if (text) doc.font('Helvetica').fontSize(7.5).fillColor(GREY).text(pdfSafe(text), margin, top + 4, { width, align: 'center', height: height - 4, ellipsis: true });
+    if (text) doc.font('Helvetica').fontSize(7.5).fillColor(GREY).text(pdfSafe(text), left, top + 4, { width, align: 'center', height: height - 4, ellipsis: true });
   }
 
   private watermark(doc: Doc, text: string) {

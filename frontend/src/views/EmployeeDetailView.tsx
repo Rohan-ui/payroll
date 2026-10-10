@@ -16,6 +16,7 @@ import { StatRing } from '../components/ui/StatRing';
 import { CalendarHeatmap } from '../components/ui/CalendarHeatmap';
 import { attendanceApi } from '../api/attendance.api';
 import { CosecRefreshNote, useCosecRefresh } from './attendance/CosecRefresh';
+import { SalaryPanel } from './payroll/SalaryPanel';
 import type { Employee, AttendanceDay } from '../types/payroll.types';
 
 /* ── Helpers ──────────────────────────────────────────────── */
@@ -66,14 +67,6 @@ const InfoRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, v
   <div className="flex items-start gap-2 py-2 border-b border-slate-50 dark:border-[#2B293E]/50 last:border-0">
     <span className="text-xs text-slate-400 dark:text-slate-500 w-28 shrink-0 pt-0.5">{label}</span>
     <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex-1">{value}</span>
-  </div>
-);
-
-/* ── Salary row ───────────────────────────────────────────── */
-const SalaryRow: React.FC<{ label: string; amount: number; highlight?: boolean }> = ({ label, amount, highlight }) => (
-  <div className={`flex justify-between items-center py-2 border-b border-slate-50 dark:border-[#2B293E]/50 last:border-0 ${highlight ? 'font-bold' : ''}`}>
-    <span className={`text-xs ${highlight ? 'text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>{label}</span>
-    <span className={`text-xs font-mono ${highlight ? 'text-[#0E5A47] dark:text-emerald-300 text-sm' : 'text-slate-700 dark:text-slate-300'}`}>{fmt(amount)}</span>
   </div>
 );
 
@@ -549,33 +542,7 @@ export const EmployeeDetailView: React.FC = () => {
 
         {/* ═══ Column 3 — Salary, Payslip history ═══ */}
         <div className="space-y-4">
-          {/* Salary breakdown */}
-          <Card>
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-1">Salary Breakdown</h3>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Monthly structure</p>
-            {/* CTC badge */}
-            <div className="bg-mint-100 dark:bg-emerald-950/40 border border-teal-200/60 dark:border-emerald-800/40 rounded-2xl px-4 py-3 mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Annual CTC</p>
-                <p className="text-lg font-bold text-[#0E5A47] dark:text-emerald-300">{fmt(salary.ctcAnnual)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Gross Monthly</p>
-                <p className="text-base font-bold text-[#0E5A47] dark:text-emerald-300">{fmt(salary.grossMonthly)}</p>
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Earnings</p>
-              <SalaryRow label="Basic" amount={salary.basicMonthly} />
-              <SalaryRow label="HRA" amount={salary.hraMonthly} />
-              <SalaryRow label="Special Allowance" amount={salary.specialAllowanceMonthly} />
-              <SalaryRow label="Conveyance" amount={salary.conveyanceMonthly} />
-              <SalaryRow label="Medical Allowance" amount={salary.medicalAllowanceMonthly} />
-              <div className="mt-2 pt-2 border-t border-slate-200 dark:border-[#2B293E]">
-                <SalaryRow label="Gross Monthly" amount={salary.grossMonthly} highlight />
-              </div>
-            </div>
-          </Card>
+          <SalaryPanel employeeId={emp.id} />
 
           {/* Payslip history */}
           <Card>
@@ -612,33 +579,6 @@ export const EmployeeDetailView: React.FC = () => {
                 </li>
               )}
             </ul>
-          </Card>
-
-          {/* Employer contributions summary */}
-          <Card>
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-3">Employer Costs (Monthly)</h3>
-            <SalaryRow
-              label="EPF (Employer 12%)"
-              amount={Math.round(Math.min(salary.basicMonthly, statutory.pfCapAtCeiling ? 15000 : salary.basicMonthly) * 0.0833)}
-            />
-            <SalaryRow
-              label="EPS (Employer 8.33%)"
-              amount={Math.round(Math.min(salary.basicMonthly, statutory.pfCapAtCeiling ? 15000 : salary.basicMonthly) * 0.0367)}
-            />
-            {statutory.esiEnrolled && (
-              <SalaryRow label="ESIC (Employer 3.25%)" amount={Math.round(salary.grossMonthly * 0.0325)} />
-            )}
-            <div className="mt-2 pt-2 border-t border-slate-200 dark:border-[#2B293E]">
-              <SalaryRow
-                label="Total Cost to Company"
-                amount={
-                  salary.grossMonthly +
-                  Math.round(Math.min(salary.basicMonthly, 15000) * 0.12) +
-                  (statutory.esiEnrolled ? Math.round(salary.grossMonthly * 0.0325) : 0)
-                }
-                highlight
-              />
-            </div>
           </Card>
         </div>
       </div>

@@ -386,6 +386,8 @@ export interface EmployeeDayItem {
   dayStatus: AttendanceStatus;
   inTime: string | null;
   outTime: string | null;
+  firstCheckInAt: string | null;
+  lastCheckOutAt: string | null;
   workedMinutes: number;
   lateMinutes: number;
   isLate: boolean;

@@ -12,10 +12,12 @@ import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { SalaryModule } from './modules/salary/salary.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
+import { PayrollPoliciesModule } from './modules/payroll/policies/payroll-policies.module';
 import { BookkeepingModule } from './modules/bookkeeping/bookkeeping.module';
 import { ExternalApiModule } from './modules/external-api/external-api.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { CrmModule } from './modules/crm/crm.module';
+import { EmailSequencesModule } from './modules/email-sequences/email-sequences.module';
 import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
 import { TenantAuthGuard } from './common/guards/tenant-auth.guard';
@@ -48,10 +50,12 @@ import { MailModule } from './modules/mail/mail.module';
     LeaveModule,
     SalaryModule,
     PayrollModule,
+    PayrollPoliciesModule,
     BookkeepingModule,
     ExternalApiModule,
     SuperAdminModule,
     CrmModule,
+    EmailSequencesModule,
     HealthModule,
   ],
   providers: [

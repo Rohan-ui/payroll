@@ -25,7 +25,7 @@ const png = (width: number, height: number) => {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const LETTERHEAD = {
   id: 'l1', name: 'Official', companyName: 'Acme Technologies Pvt Ltd', addressText: 'Pune', phone: null, email: null, website: null, registrationText: 'CIN U1', footerText: null,
-  logoPosition: 'LEFT', headerHeightMm: 30, footerHeightMm: 16, logoBox: null, headerArtBox: null, footerArtBox: null,
+  logoPosition: 'LEFT', headerHeightMm: 30, footerHeightMm: 16, placement: null, hiddenImages: [], lockedImages: [], elements: [], logoBox: null, headerArtBox: null, footerArtBox: null,
   isDefault: true, isArchived: false, images: { logo: true, header: false, footer: true }, updatedAt: '2026-10-01T00:00:00Z',
 };
 
@@ -105,7 +105,7 @@ describe('letterhead editor', () => {
     await open();
     expect(slider('header').getAttribute('aria-valuenow')).toBe('30');
     drag(slider('header'), 0, 10, false);
-    expect(live()).toBe('Header 40 mm');
+    expect(live()).toBe('Header: 40 mm');
     pointer('pointerup', window, 0, 0);
     expect(live()).toBeUndefined();
     expect(slider('header').getAttribute('aria-valuenow')).toBe('40');
@@ -253,13 +253,39 @@ describe('letterhead editor', () => {
     expect(byLabel('Company name').closest('[role=tabpanel]')?.hasAttribute('hidden')).toBe(false);
     expect(byLabel('Header height').closest('[role=tabpanel]')?.hasAttribute('hidden')).toBe(true);
     act(() => image('logo').click());
-    expect(tab('Layout').getAttribute('aria-selected')).toBe('true');
+    expect(tab('Selected').getAttribute('aria-selected')).toBe('true');
 
     setValue(byLabel('Company name') as HTMLInputElement, ' ');
     await act(async () => button('Save letterhead').click());
     expect(container.querySelector('[role=alert]')?.textContent).toBe('Enter the company name.');
     expect(tab('Company details').getAttribute('aria-selected')).toBe('true');
     expect(puts).toHaveLength(0);
+  });
+
+  it('places the letterhead at set distances from the page edges, down to the edge of the paper', async () => {
+    await open();
+    const radio = (text: string) => [...container.querySelectorAll('label')].find((l) => l.textContent?.trim().startsWith(text))?.querySelector('input') as HTMLInputElement;
+    expect(radio('At the template’s margins').checked).toBe(true);
+    act(() => radio('At set distances').click());
+    // It starts where it was, so nothing moves until a distance changes.
+    expect([num('Header from top'), num('Footer from bottom'), num('Sides from edge')]).toEqual([20, 20, 20]);
+    expect(parseFloat(slider('header').style.top)).toBeCloseTo((20 + 30) * PPM - 6, 3);
+    expect(container.textContent).not.toContain('Most office printers');
+
+    setValue(byLabel('Header from top'), '0');
+    setValue(byLabel('Sides from edge'), '0');
+    expect(parseFloat(slider('header').style.top)).toBeCloseTo(30 * PPM - 6, 3);
+    expect(parseFloat(slider('header').style.left)).toBe(0);
+    expect(parseFloat(slider('header').style.width)).toBeCloseTo(210 * PPM, 3);
+    expect(container.textContent).toContain('Most office printers leave the outer 3 to 5 mm blank');
+    await act(async () => button('Save letterhead').click());
+    await settle();
+    expect(puts[0]).toMatchObject({ placement: { headerOffsetMm: 0, footerOffsetMm: 20, sideOffsetMm: 0 } });
+
+    act(() => radio('At the template’s margins').click());
+    expect(parseFloat(slider('header').style.top)).toBeCloseTo((20 + 30) * PPM - 6, 3);
+    act(() => button('Undo layout change').click());
+    expect(num('Header from top')).toBe(0);
   });
 
   it('leaves an existing letterhead’s automatic layout alone when only its details change', async () => {

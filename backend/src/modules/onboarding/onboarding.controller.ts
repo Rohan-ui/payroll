@@ -469,4 +469,26 @@ export class OnboardingController {
   async removeLetterheadImage(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Param('slot') slot: string) {
     return { success: true, data: await this.letterheads.removeImage(tenantId, id, slot, actor), message: 'Image removed' };
   }
+
+  /** An image for the letterhead's elements, such as an image watermark; placed when the letterhead is saved with an element that shows it. */
+  @Post('letterheads/:id/assets')
+  @RequirePermissions('onboarding.templates.approve')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_LETTERHEAD_IMAGE_BYTES, files: 1, fields: 0 } }))
+  async uploadLetterheadAsset(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedDocument | undefined,
+  ) {
+    return { success: true, data: await this.letterheads.addAsset(tenantId, id, file, actor), message: 'Image uploaded' };
+  }
+
+  @Get('letterheads/:id/assets/:assetId')
+  @RequirePermissions('onboarding.view')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Cache-Control', 'private, no-store')
+  async letterheadAsset(@CurrentTenant() tenantId: string, @Param('id') id: string, @Param('assetId') assetId: string) {
+    const image = await this.letterheads.asset(tenantId, id, assetId);
+    return fileResponse(image.bytes, image.contentType, `image.${image.contentType === 'image/png' ? 'png' : 'jpg'}`);
+  }
 }

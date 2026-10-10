@@ -27,6 +27,10 @@ import { OnboardingController } from '@/modules/onboarding/onboarding.controller
 import { PublicOffersController } from '@/modules/onboarding/public-offers.controller';
 import { PublicCandidateDocumentsController } from '@/modules/onboarding/public-candidate-documents.controller';
 import { MailAccountsController } from '@/modules/mail/mail-accounts.controller';
+import { EmailSequencesController } from '@/modules/email-sequences/email-sequences.controller';
+import { PublicUnsubscribeController } from '@/modules/email-sequences/public-unsubscribe.controller';
+import { PayrollPoliciesController } from '@/modules/payroll/policies/payroll-policies.controller';
+import { PayrollAdjustmentsController } from '@/modules/payroll/payroll-adjustments.controller';
 
 const PATH_METADATA = 'path';
 const METHOD_METADATA = 'method';
@@ -60,6 +64,10 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['PublicOffersController', PublicOffersController],
   ['PublicCandidateDocumentsController', PublicCandidateDocumentsController],
   ['MailAccountsController', MailAccountsController],
+  ['EmailSequencesController', EmailSequencesController],
+  ['PublicUnsubscribeController', PublicUnsubscribeController],
+  ['PayrollPoliciesController', PayrollPoliciesController],
+  ['PayrollAdjustmentsController', PayrollAdjustmentsController],
 ];
 
 /**
@@ -78,6 +86,10 @@ const EXPECTED_PUBLIC_ROUTES = [
   // showing and answering only that one offer, only on its workspace's address and while HRMS is on.
   'PublicOffersController.view',
   'PublicOffersController.pdf',
+  // A sequence email's unsubscribe link: authorized by that email's 256-bit token (stored only as a hash),
+  // answering only on its workspace's address. GET shows a masked address and changes nothing; POST only unsubscribes.
+  'PublicUnsubscribeController.view',
+  'PublicUnsubscribeController.unsubscribe',
   'PublicOffersController.accept',
   'PublicOffersController.decline',
   // A candidate's document upload link: the same kind of emailed token, expiring after 30 days and replaced by
@@ -169,7 +181,8 @@ describe('Tenant route guard coverage', () => {
       allTenantRoutes.flatMap((route) => (Reflect.getMetadata(REQUIRED_PERMISSIONS, route.handler) ?? []) as string[]),
     );
     // Checked inside a handler because the action decides which permission applies.
-    const CHECKED_IN_HANDLER = ['outreach.create', 'outreach.update', 'leads.delete', 'leads.view_all', 'people.bank.update'];
+    // sequences.logs.view: the sending log leaves out email bodies without it.
+    const CHECKED_IN_HANDLER = ['outreach.create', 'outreach.update', 'leads.delete', 'leads.view_all', 'people.bank.update', 'sequences.logs.view'];
     // Pages whose data is computed in the browser or is sample data; the
     // permission decides only whether the sidebar shows them.
     const PAGE_ONLY = ['dashboard.view', 'marketing.view', 'analytics.view', 'payslips.view', 'reports.view', 'compliance.view', 'help.view'];
@@ -242,6 +255,10 @@ describe('Tenant route guard coverage', () => {
       ['PublicCandidateDocumentsController', []],
       // Mail accounts belong to the workspace, not to a business module.
       ['MailAccountsController', [null]],
+      ['EmailSequencesController', ['CRM']],
+      ['PublicUnsubscribeController', []],
+      ['PayrollPoliciesController', ['FINANCE']],
+      ['PayrollAdjustmentsController', ['FINANCE']],
     ]);
   });
 

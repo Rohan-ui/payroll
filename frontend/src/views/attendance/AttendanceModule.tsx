@@ -373,10 +373,7 @@ export const AttendanceModule: React.FC = () => {
               <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                 Attendance & Shifts
               </h1>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-mint-100 dark:bg-emerald-950/70 text-[#0E5A47] dark:text-emerald-300 border border-teal-200 dark:border-emerald-800/60 shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-                Live PostgreSQL
-              </span>
+
             </div>
           )}
 

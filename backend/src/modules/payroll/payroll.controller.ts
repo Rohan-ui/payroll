@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import {
   PayrollService,
   CreatePayrollPeriodInput,
@@ -8,6 +8,10 @@ import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
+import { PayrollCalculationService } from './calculation/payroll-calculation.service';
+import { CalculationMonthQuery, CalculationPreviewQuery, monthRange } from './calculation/dto/calculation.dto';
+import { PayrollDashboardService } from './dashboard/payroll-dashboard.service';
+import { DashboardEmployeesQuery, DashboardQuery } from './dashboard/payroll-dashboard.dto';
 
 /**
  * Each payroll transition has its own permission, and whoever creates,
@@ -15,7 +19,11 @@ import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.
  */
 @Controller('payroll')
 export class PayrollController {
-  constructor(private readonly payrollService: PayrollService) {}
+  constructor(
+    private readonly payrollService: PayrollService,
+    private readonly calculation: PayrollCalculationService,
+    private readonly dashboard: PayrollDashboardService,
+  ) {}
 
   @Post('periods')
   @RequirePermissions('payroll.create')
@@ -69,5 +77,35 @@ export class PayrollController {
   @RequirePermissions('payroll.view')
   async getRunDetails(@CurrentTenant() tenantId: string, @Param('id') runId: string) {
     return this.payrollService.getRunDetails(tenantId, runId);
+  }
+
+  /** Who can be paid for a month: everyone active or with a salary in it. */
+  @Get('calculation/employees')
+  @RequirePermissions('payroll.view', 'salary.view')
+  async calculationEmployees(@CurrentTenant() tenantId: string, @Query() query: CalculationMonthQuery) {
+    const { start, end } = monthRange(query.month);
+    return { success: true, data: await this.payrollService.payableEmployees(tenantId, start, end) };
+  }
+
+  /** One employee's pay for a month, worked out and explained, without saving anything. */
+  @Get('calculation/preview')
+  @RequirePermissions('payroll.view', 'salary.view')
+  async calculationPreview(@CurrentTenant() tenantId: string, @Query() query: CalculationPreviewQuery) {
+    const { start, end } = monthRange(query.month);
+    return { success: true, data: await this.calculation.calculate(tenantId, query.employeeId, start, end) };
+  }
+
+  /** The month's payroll at a glance: totals, change from last month, the year's cost and readiness. */
+  @Get('dashboard')
+  @RequirePermissions('payroll.view')
+  async dashboardOverview(@CurrentTenant() tenantId: string, @Query() query: DashboardQuery) {
+    return { success: true, data: await this.dashboard.overview(tenantId, query.month) };
+  }
+
+  /** The month's employees in its payroll run, paged, searched and filtered on the server. */
+  @Get('dashboard/employees')
+  @RequirePermissions('payroll.view')
+  async dashboardEmployees(@CurrentTenant() tenantId: string, @Query() query: DashboardEmployeesQuery) {
+    return { success: true, data: await this.dashboard.employees(tenantId, query) };
   }
 }

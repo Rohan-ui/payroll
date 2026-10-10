@@ -103,6 +103,12 @@ export class CrmOutreachEmailService {
     });
     const executedBy = { memberId: actorMemberId, name: executor?.rndtechnosoft_users.display_name || executor?.rndtechnosoft_users.email || 'A team member' };
     const sender = await this.mailSender.organization(tenantId);
+    // The workspace's do-not-email list holds for outreach too: unsubscribed and bounced addresses get nothing.
+    const recipient = await this.prisma.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: dto.leadId }, select: { email: true } });
+    const listed = recipient && (await this.prisma.rndtechnosoft_email_suppressions.findFirst({ where: { tenant_id: tenantId, email: recipient.email.trim().toLowerCase() }, select: { suppression_reason: true } }));
+    if (recipient && listed) {
+      throw new ConflictException(`${recipient.email} is on the workspace’s do-not-email list (${listed.suppression_reason === 'UNSUBSCRIBED' ? 'they unsubscribed' : listed.suppression_reason === 'BOUNCED' ? 'the address bounced' : 'added by an administrator'}), so no email was sent.`);
+    }
 
     // 1. Claim the touchpoint's email: refused if already sent (without an explicit resend) or being sent.
     const claim = await this.prisma.$transaction(async (tx) => {

@@ -9,8 +9,8 @@ import { onboardingApi, type Letterhead, type LetterDocument, type TemplateDetai
 import { PdfViewer } from '../../components/ui/PdfViewer';
 import { fieldClass, formatDateTime, labelClass } from './onboarding-format';
 import { LetterEditor } from './LetterEditor';
-import { PAGE_SIZES, pxPerMm } from './letterhead-geometry';
-import { useLetterheadImages } from './LetterheadsView';
+import { MARGIN_LIMITS, MIN_BODY_MM, PAGE_SIZES, pageFrame, pxPerMm, uniformMargins } from './letterhead-geometry';
+import { toLayout, useElementImages, useLetterheadImages } from './LetterheadsView';
 
 const KIND_LABELS: Record<string, string> = {
   OFFER_LETTER: 'Offer letter',
@@ -91,7 +91,7 @@ const CreateTemplateDialog: React.FC<{ onClose: () => void; onCreated: (t: Templ
         name: name.trim(),
         letterheadId: standard?.id ?? null,
         pageSize: 'A4',
-        marginMm: 20,
+        marginsMm: uniformMargins(20),
         showPageNumbers: true,
       });
       toast.success('Template created as a draft');
@@ -117,6 +117,13 @@ const CreateTemplateDialog: React.FC<{ onClose: () => void; onCreated: (t: Templ
   );
 };
 
+const MARGIN_SIDES: { side: keyof TemplateLayout['marginsMm']; label: string }[] = [
+  { side: 'top', label: 'Top' },
+  { side: 'bottom', label: 'Bottom' },
+  { side: 'left', label: 'Left' },
+  { side: 'right', label: 'Right' },
+];
+
 /** A template's versions, and its draft to edit, preview and approve. */
 type SideTab = 'page' | 'placeholders' | 'versions';
 const SIDE_TABS: { id: SideTab; label: string }[] = [
@@ -133,7 +140,7 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
   const { can } = useAuth();
   const [template, setTemplate] = useState<TemplateDetail | null>(null);
   const [document, setDocument] = useState<LetterDocument | null>(null);
-  const [layout, setLayout] = useState<TemplateLayout>({ letterheadId: null, pageSize: 'A4', marginMm: 20, showPageNumbers: false });
+  const [layout, setLayout] = useState<TemplateLayout>({ letterheadId: null, pageSize: 'A4', marginsMm: uniformMargins(20), showPageNumbers: false });
   const [saved, setSaved] = useState<string | null>(null);
   const [letterheads, setLetterheads] = useState<Letterhead[]>([]);
   const [preview, setPreview] = useState<ArrayBuffer | null>(null);
@@ -152,8 +159,8 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
     setTemplate(t);
     const v = t.versions.find((x) => x.status === 'DRAFT') ?? t.versions.find((x) => x.status === 'APPROVED') ?? t.versions[0];
     if (v) {
-      const { letterheadId, pageSize, marginMm, showPageNumbers } = v.layout;
-      setLayout({ letterheadId, pageSize, marginMm, showPageNumbers });
+      const { letterheadId, pageSize, marginsMm, showPageNumbers } = v.layout;
+      setLayout({ letterheadId, pageSize, marginsMm, showPageNumbers });
     }
   }, []);
   useEffect(() => {
@@ -176,8 +183,12 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
     if (width > 0) setZoom(Math.max(0.25, Math.min(1.5, Math.floor(((width - 48) / pxPerMm(1) / page.width) * 100) / 100)));
   };
   const letterhead = letterheads.find((l) => l.id === layout.letterheadId) ?? null;
+  // The PDF refuses a page that leaves the text too little room.
+  const textRoom = pageFrame(page, layout.marginsMm, letterhead && toLayout(letterhead)).body.height;
+  const tooTight = textRoom < MIN_BODY_MM - 0.01;
   const { images } = useLetterheadImages(letterhead);
   const letterheadImages = Object.fromEntries(Object.entries(images).filter(([, i]) => i.width > 0 && i.height > 0));
+  const elementImages = useElementImages(letterhead?.id, letterhead?.elements.flatMap((e) => (e.imageId ? [e.imageId] : [])) ?? []);
 
   if (!template || !editable) {
     return error ? <div role="alert" className="p-4 rounded-xl border border-red-200 bg-red-50 text-sm text-red-800">{error}</div> : <div className="h-64 rounded-2xl bg-slate-100 dark:bg-[#1E1D2D] animate-pulse motion-reduce:animate-none" aria-busy="true"><span className="sr-only" role="status">Loading template</span></div>;
@@ -285,9 +296,10 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
           editable={canEdit}
           payTable={template.kind === 'OFFER_LETTER'}
           page={page}
-          marginMm={layout.marginMm}
+          margins={layout.marginsMm}
           letterhead={letterhead}
           letterheadImages={letterheadImages}
+          elementImages={elementImages}
           showPageNumbers={layout.showPageNumbers}
           zoom={zoom}
           stageRef={stage}
@@ -332,30 +344,42 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
               </select>
               <p className="mt-1 text-xs text-slate-500">Letterheads are set up in the Letterheads tab.</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor={`${ids}-size`} className={labelClass}>Page size</label>
-                <select id={`${ids}-size`} value={layout.pageSize} disabled={!canEdit} onChange={(e) => setLayout({ ...layout, pageSize: e.target.value as TemplateLayout['pageSize'] })} className={fieldClass}>
-                  <option value="A4">A4</option>
-                  <option value="LETTER">US Letter</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor={`${ids}-margin`} className={labelClass}>Margins (mm)</label>
-                <input
-                  id={`${ids}-margin`}
-                  type="number"
-                  min={10}
-                  max={40}
-                  value={layout.marginMm}
-                  readOnly={!canEdit}
-                  onChange={(e) => { const n = Number(e.target.value); if (e.target.value && n >= 10 && n <= 40) setLayout({ ...layout, marginMm: Math.round(n) }); }}
-                  aria-describedby={`${ids}-margin-hint`}
-                  className={fieldClass}
-                />
-                <p id={`${ids}-margin-hint`} className="mt-1 text-xs text-slate-500">10 to 40</p>
-              </div>
+            <div>
+              <label htmlFor={`${ids}-size`} className={labelClass}>Page size</label>
+              <select id={`${ids}-size`} value={layout.pageSize} disabled={!canEdit} onChange={(e) => setLayout({ ...layout, pageSize: e.target.value as TemplateLayout['pageSize'] })} className={fieldClass}>
+                <option value="A4">A4</option>
+                <option value="LETTER">US Letter</option>
+              </select>
             </div>
+            <fieldset aria-describedby={`${ids}-margin-hint`}>
+              <legend className={labelClass}>Margins (mm)</legend>
+              <div className="grid grid-cols-2 gap-3">
+                {MARGIN_SIDES.map(({ side, label }) => (
+                  <div key={side}>
+                    <label htmlFor={`${ids}-margin-${side}`} className="block text-xs text-slate-600 dark:text-slate-400 mb-1">{label}</label>
+                    <input
+                      id={`${ids}-margin-${side}`}
+                      type="number"
+                      min={MARGIN_LIMITS.min}
+                      max={MARGIN_LIMITS.max}
+                      value={layout.marginsMm[side]}
+                      readOnly={!canEdit}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (e.target.value && n >= MARGIN_LIMITS.min && n <= MARGIN_LIMITS.max) setLayout({ ...layout, marginsMm: { ...layout.marginsMm, [side]: Math.round(n) } });
+                      }}
+                      className={fieldClass}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p id={`${ids}-margin-hint`} className="mt-1 text-xs text-slate-500">0 to 60 each. The letter text stays inside the margins and below the letterhead. Where the letterhead itself sits is set on the letterhead.</p>
+            </fieldset>
+            {tooTight && (
+              <p role="alert" className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-900">
+                The letter text has only {Math.max(0, Math.floor(textRoom))} mm of the page’s height; it needs at least {MIN_BODY_MM} mm. Make the top or bottom margin smaller, or choose a letterhead with a shorter header or footer.
+              </p>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={layout.showPageNumbers} disabled={!canEdit} onChange={(e) => setLayout({ ...layout, showPageNumbers: e.target.checked })} />
               Show page numbers

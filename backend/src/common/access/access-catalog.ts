@@ -104,6 +104,13 @@ export const PERMISSIONS = [
   { key: 'marketing.view', name: 'Open Email & Marketing', section: 'crm', group: 'Email & Marketing', nav: 'crm.emails' },
   { key: 'marketing.manage', name: 'Send Gmail messages and manage templates', section: 'crm', group: 'Email & Marketing', nav: 'crm.emails' },
 
+  { key: 'sequences.view', name: 'View drip sequences, enrollments and reports', section: 'crm', group: 'Drip Sequences', nav: 'crm.emails' },
+  { key: 'sequences.manage', name: 'Create, edit, activate, pause and archive drip sequences, their sender and enrollment rules', section: 'crm', group: 'Drip Sequences', nav: 'crm.emails' },
+  { key: 'sequences.enroll', name: 'Add leads to drip sequences and stop them', section: 'crm', group: 'Drip Sequences', nav: 'crm.emails' },
+  { key: 'sequences.enroll_bulk', name: 'Add many leads to a drip sequence at once', section: 'crm', group: 'Drip Sequences', nav: 'crm.emails' },
+  { key: 'sequences.logs.view', name: 'Read the emails drip sequences sent', section: 'crm', group: 'Drip Sequences', nav: 'crm.emails' },
+  { key: 'sequences.suppression.manage', name: 'Manage the do-not-email list', section: 'crm', group: 'Drip Sequences', nav: 'crm.emails' },
+
   { key: 'followups.view', name: 'View follow-ups', section: 'crm', group: 'Follow-ups & Meetings', nav: 'crm.activities' },
   { key: 'followups.create', name: 'Schedule follow-ups', section: 'crm', group: 'Follow-ups & Meetings', nav: 'crm.activities' },
   { key: 'followups.update', name: 'Update and complete follow-ups', section: 'crm', group: 'Follow-ups & Meetings', nav: 'crm.activities' },
@@ -197,9 +204,15 @@ export const PERMISSIONS = [
   { key: 'payroll.process', name: 'Calculate payroll runs', section: 'finance', group: 'Payroll', nav: 'payroll' },
   { key: 'payroll.approve', name: 'Approve payroll runs', section: 'finance', group: 'Payroll', nav: 'payroll' },
   { key: 'payroll.finalize', name: 'Finalize payroll runs (irreversible)', section: 'finance', group: 'Payroll', nav: 'payroll' },
-  { key: 'salary.view', name: 'View salary components, structures and employee salaries', section: 'finance', group: 'Salary setup', nav: null },
-  { key: 'salary.configure', name: 'Create salary components and structures', section: 'finance', group: 'Salary setup', nav: null },
-  { key: 'salary.assign', name: 'Assign salaries to employees', section: 'finance', group: 'Salary setup', nav: null },
+  { key: 'payroll.policies.view', name: 'View payroll policies', section: 'finance', group: 'Payroll policies', nav: 'payroll' },
+  { key: 'payroll.policies.manage', name: 'Create payroll policies and publish new versions of their rules', section: 'finance', group: 'Payroll policies', nav: 'payroll' },
+  { key: 'payroll.inputs.manage', name: 'Enter monthly payroll amounts such as bonuses, incentives and deductions', section: 'finance', group: 'Payroll inputs', nav: 'payroll' },
+  { key: 'payroll.inputs.approve', name: 'Approve or reject monthly payroll amounts', section: 'finance', group: 'Payroll inputs', nav: 'payroll' },
+  { key: 'payroll.overtime.approve', name: 'Approve or reject overtime for payroll', section: 'finance', group: 'Payroll inputs', nav: 'payroll' },
+  { key: 'payroll.loans.manage', name: 'Give employees loans and advances and manage their recovery', section: 'finance', group: 'Payroll inputs', nav: 'payroll' },
+  { key: 'salary.view', name: 'View salary components, structures and employee salaries', section: 'finance', group: 'Salary setup', nav: 'payroll' },
+  { key: 'salary.configure', name: 'Create salary components and structures', section: 'finance', group: 'Salary setup', nav: 'payroll' },
+  { key: 'salary.assign', name: 'Assign salaries to employees', section: 'finance', group: 'Salary setup', nav: 'payroll' },
 
   { key: 'payslips.view', name: 'View payslips', section: 'finance', group: 'Payslips', nav: 'payslips' },
 

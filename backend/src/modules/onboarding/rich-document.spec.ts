@@ -4,7 +4,7 @@ import * as path from 'path';
 import { makePng } from '../../../test/support/png';
 import { inspectPdf } from '../../../test/support/pdf-content';
 import { sampleValues, SAMPLE_OFFER_TABLE } from './document-templates';
-import { OnboardingPdfService, PdfLayout, PdfLetterhead } from './onboarding-pdf.service';
+import { OnboardingPdfService, PdfLayout, PdfLetterhead, uniformMargins } from './onboarding-pdf.service';
 import { defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, legacyDocument, parseDocument } from './rich-document';
 
 const PDFDocument = ((pdfkit as unknown as { default?: unknown }).default ?? pdfkit) as unknown as typeof import('pdfkit');
@@ -97,7 +97,7 @@ describe('formatted letter PDFs', () => {
   const pdf = new OnboardingPdfService();
   const letter = (document: DocNode, extra: Record<string, unknown> = {}) => ({ companyName: 'Acme', reference: 'R', dateText: 'd', title: documentText(document).title, body: documentText(document).body, document, ...extra });
   const render = async (d: unknown, layout: Partial<PdfLayout> = {}, height = A4_HEIGHT, extra: Record<string, unknown> = {}) =>
-    inspectPdf(await pdf.render(letter(fillDocument(parse(d), sampleValues('OFFER_LETTER')), extra), { pageSize: 'A4', marginMm: 20, showPageNumbers: false, letterhead: null, ...layout }), height);
+    inspectPdf(await pdf.render(letter(fillDocument(parse(d), sampleValues('OFFER_LETTER')), extra), { pageSize: 'A4', marginsMm: uniformMargins(20), showPageNumbers: false, letterhead: null, ...layout }), height);
   const find = (pages: ReturnType<typeof inspectPdf>, t: string) => pages.flatMap((p) => p.texts).find((x) => x.text === t)!;
 
   it('formats only the selected words, and a placeholder’s value as the placeholder', async () => {
@@ -198,7 +198,7 @@ describe('formatted letter PDFs', () => {
   });
 
   it('uses the template’s page size, margins and page numbers', async () => {
-    const pages = await render(doc(para([text('Hello')])), { pageSize: 'LETTER', marginMm: 30, showPageNumbers: true }, 792);
+    const pages = await render(doc(para([text('Hello')])), { pageSize: 'LETTER', marginsMm: uniformMargins(30), showPageNumbers: true }, 792);
     expect(find(pages, 'Hello').x).toBeCloseTo(30 * MM, 2);
     expect(find(pages, 'Hello').top).toBeGreaterThan(30 * MM);
     expect(find(pages, 'Page 1 of 1')).toBeDefined();

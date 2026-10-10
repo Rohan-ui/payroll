@@ -2,6 +2,8 @@ import React from 'react';
 import { cn } from '../../../utils/cn';
 import { StatusPill } from './StatusPill';
 import type { EmployeeMonthDayRecord } from '../../../api/attendance.api';
+import { getAttendancePunches } from './punches';
+import { attendanceToday, clockTime, formatDuration, formatMinutes, useNow, workedFromPunches } from './duration';
 
 interface LogTableProps {
   days: EmployeeMonthDayRecord[];
@@ -10,6 +12,9 @@ interface LogTableProps {
 }
 
 export const LogTable: React.FC<LogTableProps> = ({ days = [], onSelectDay, className }) => {
+  // Today's row counts up while the employee is still checked in.
+  const today = attendanceToday();
+  const now = useNow(days.some((d) => d.date === today && d.firstCheckInAt && !d.lastCheckOutAt));
   return (
     <div className={cn('bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs', className)}>
       <div className="overflow-x-auto max-h-[500px] scrollbar-thin">
@@ -28,21 +33,10 @@ export const LogTable: React.FC<LogTableProps> = ({ days = [], onSelectDay, clas
           </thead>
           <tbody className="divide-y divide-slate-100">
             {days.map((d) => {
-              const inTime = d.firstCheckInAt
-                ? new Date(d.firstCheckInAt).toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true,
-                  })
-                : '–';
-
-              const outTime = d.lastCheckOutAt
-                ? new Date(d.lastCheckOutAt).toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true,
-                  })
-                : '–';
+              const inTime = d.firstCheckInAt ? clockTime(d.firstCheckInAt) : '–';
+              const outTime = d.lastCheckOutAt ? clockTime(d.lastCheckOutAt) : '–';
+              const punches = getAttendancePunches(d.punches);
+              const worked = punches.length ? workedFromPunches(punches, d.date, now) : null;
 
               return (
                 <tr
@@ -72,8 +66,12 @@ export const LogTable: React.FC<LogTableProps> = ({ days = [], onSelectDay, clas
                   <td className="py-2.5 px-3 font-mono text-slate-700">
                     {outTime}
                   </td>
-                  <td className="py-2.5 px-3 font-mono text-right font-semibold text-slate-900">
-                    {d.workedHours > 0 ? `${d.workedHours}h` : '–'}
+                  <td className="py-2.5 px-3 font-mono tabular-nums text-right font-semibold text-slate-900 whitespace-nowrap">
+                    {worked && worked.ms > 0 ? (
+                      <span className={worked.running ? 'text-teal-700' : undefined}>
+                        {formatDuration(worked.ms)}{worked.running && <span className="ml-1 text-[10px] font-semibold">LIVE</span>}
+                      </span>
+                    ) : formatMinutes(d.workedMinutes)}
                   </td>
                   <td className="py-2.5 px-3">
                     {d.isLate ? (

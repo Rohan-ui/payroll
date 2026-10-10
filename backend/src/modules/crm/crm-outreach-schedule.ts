@@ -69,8 +69,13 @@ export function addWorkingDays(from: string, workingDays: number, calendar: Outr
 
 /** The instant 10:30 falls on a calendar date in a time zone. */
 export function dueInstant(date: string, timeZone: string): Date {
+  return wallClockInstant(date, DUE_HOUR * 60 + DUE_MINUTE, timeZone);
+}
+
+/** The instant a wall-clock time (minutes after midnight) falls on a calendar date in a time zone. */
+export function wallClockInstant(date: string, minuteOfDay: number, timeZone: string): Date {
   const [y, m, d] = date.split('-').map(Number);
-  const guess = Date.UTC(y, m - 1, d, DUE_HOUR, DUE_MINUTE);
+  const guess = Date.UTC(y, m - 1, d, Math.floor(minuteOfDay / 60), minuteOfDay % 60);
   // How far the zone's wall clock is from UTC at that moment.
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })

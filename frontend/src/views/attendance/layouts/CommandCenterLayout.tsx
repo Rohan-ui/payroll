@@ -17,6 +17,8 @@ import { MonthStrip } from '../shared/MonthStrip';
 import { DepartmentWidget } from '../shared/DepartmentWidget';
 import { MonthCalendar } from '../shared/MonthCalendar';
 import { DayDetail } from '../shared/DayDetail';
+import { LiveTimes, isInsideNow } from '../shared/LiveTimes';
+import { formatMinutes, useNow } from '../shared/duration';
 import type {
   DepartmentSummaryResponse,
   EmployeeDayItem,
@@ -55,6 +57,8 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
   onRegularize,
   onEditPunches,
 }) => {
+  // One clock for the whole board: rows of people still inside today count up every second.
+  const now = useNow(employees.some((e) => isInsideNow(e.firstCheckInAt, e.lastCheckOutAt)));
   // -------------------------------------------------------------
   // 1. EMPLOYEE DETAIL VIEW (Command Center Style)
   // -------------------------------------------------------------
@@ -244,7 +248,7 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
                       key={d.date}
                       type="button"
                       onClick={() => onSelectDate(d.date)}
-                      title={`Day ${d.day}: ${d.workedHours}h worked (${d.status})`}
+                      title={`Day ${d.day}: ${formatMinutes(d.workedMinutes)} worked (${d.status})`}
                       className="flex-1 h-full flex flex-col items-center justify-end group focus:outline-none relative z-10"
                     >
                       <div
@@ -399,13 +403,7 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
 
                     {/* Timings */}
                     <td className="py-3 px-3 font-mono text-slate-600">
-                      {emp.inTime ? (
-                        <span>
-                          {emp.inTime} – {emp.outTime || 'Working'}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">–</span>
-                      )}
+                      <LiveTimes firstCheckInAt={emp.firstCheckInAt} lastCheckOutAt={emp.lastCheckOutAt} now={now} />
                     </td>
 
                     {/* Month Strip */}

@@ -26,13 +26,13 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const pdf = () => new Response('%PDF-1.7 fake', { status: 200, headers: { 'Content-Type': 'application/pdf' } });
 const LETTERHEAD = {
   id: 'l1', name: 'Official', companyName: 'Acme Technologies Pvt Ltd', addressText: 'Pune', phone: null, email: null, website: null, registrationText: null, footerText: null,
-  logoPosition: 'LEFT', headerHeightMm: 30, footerHeightMm: 16, isDefault: true, isArchived: false, images: { logo: false, header: false, footer: false }, updatedAt: '2026-10-01T00:00:00Z',
+  logoPosition: 'LEFT', headerHeightMm: 30, footerHeightMm: 16, placement: null, hiddenImages: [], lockedImages: [], elements: [], isDefault: true, isArchived: false, images: { logo: false, header: false, footer: false }, updatedAt: '2026-10-01T00:00:00Z',
 };
 const DOCUMENT = letter(heading(1, text('Offer')), paragraph(text('Dear '), placeholder('candidate_name'), text(',')));
 const TEMPLATE = {
   id: 't1', kind: 'OFFER_LETTER', name: 'Standard', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }],
   format: LETTER_FORMAT,
-  versions: [{ id: 'tv1', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear {{candidate_name}},', format: 'FORMATTED', document: DOCUMENT, layout: { letterheadId: 'l1', letterheadName: 'Official', pageSize: 'A4', marginMm: 20, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }],
+  versions: [{ id: 'tv1', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear {{candidate_name}},', format: 'FORMATTED', document: DOCUMENT, layout: { letterheadId: 'l1', letterheadName: 'Official', pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }],
 };
 const OFFER = {
   id: 'o1', offerCode: 'OFR-2026-100001', status: 'DRAFT', candidate: { id: 'c1', name: 'Priya Rao', code: 'CAN', email: 'p@x.test', status: 'SELECTED' }, templateVersionId: 'tv2', templateName: 'Standard', templateVersion: 2,
@@ -165,24 +165,26 @@ describe('template layout and preview', () => {
     expect([...byLabel('Letterhead').options].map((o) => o.textContent)).toEqual(['None: plain page', 'Official (default)']);
     expect(container.querySelector('.ProseMirror')?.textContent).toBe('OfferDear {{candidate_name}},');
 
-    setValue(byLabel('Margins (mm)'), '25');
+    setValue(byLabel('Top'), '0');
+    setValue(byLabel('Left'), '25');
     setValue(byLabel('Page size'), 'LETTER');
     expect(container.textContent).toContain('Unsaved changes');
     await act(async () => button('Preview PDF')?.click());
     await settle();
     const sent = calls.find((c) => c.url.endsWith('/templates/preview-pdf'))?.body as Record<string, unknown>;
-    expect(sent).toMatchObject({ kind: 'OFFER_LETTER', letterheadId: 'l1', pageSize: 'LETTER', marginMm: 25, showPageNumbers: true });
+    const marginsMm = { top: 0, right: 20, bottom: 20, left: 25 };
+    expect(sent).toMatchObject({ kind: 'OFFER_LETTER', letterheadId: 'l1', pageSize: 'LETTER', marginsMm, showPageNumbers: true });
     expect(sent.document).toMatchObject({ type: 'doc', content: [{ type: 'heading', attrs: { level: 1 } }, { type: 'paragraph', content: [{ text: 'Dear ' }, { type: 'placeholder', attrs: { key: 'candidate_name' } }, { text: ',' }] }] });
     expect(viewer()?.textContent).toContain('Sample preview: made-up data');
     expect(viewer()?.querySelectorAll('[data-page]')).toHaveLength(2);
     expect(calls.some((c) => c.url.endsWith('/draft'))).toBe(false);
     expect(clicks).not.toHaveBeenCalled();
     act(() => (viewer()?.querySelector('[aria-label="Close"]') as HTMLButtonElement).click());
-    expect(byLabel('Margins (mm)').value).toBe('25');
+    expect(byLabel('Left').value).toBe('25');
 
     await act(async () => button('Save draft')?.click());
     await settle();
-    expect(calls.find((c) => c.url.endsWith('/t1/draft'))?.body).toMatchObject({ document: sent.document, letterheadId: 'l1', pageSize: 'LETTER', marginMm: 25, showPageNumbers: true });
+    expect(calls.find((c) => c.url.endsWith('/t1/draft'))?.body).toMatchObject({ document: sent.document, letterheadId: 'l1', pageSize: 'LETTER', marginsMm, showPageNumbers: true });
   });
 });
 

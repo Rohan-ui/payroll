@@ -31,6 +31,8 @@ import { conversionDestination, dealWonMessage } from './pipelineBoard';
 import { LeadHistory } from './LeadHistory';
 import { OutreachEmailComposer } from './OutreachEmailComposer';
 import { ConvertDestination } from './ConvertDestination';
+import { useAuth } from '../../context/AuthContext';
+import { LeadSequencesPanel } from '../../views/emails/drip/LeadSequencesPanel';
 interface Lead360DrawerProps {
   leadId: string | null;
   onClose: () => void;
@@ -50,6 +52,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const { can } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'history' | 'followups' | 'meetings' | 'quotes' | 'cadence'>('overview');
 
   // Form states for adding activities / follow-ups
@@ -1658,6 +1661,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
               {/* TAB 6: RND GOLD CADENCE (30-DAY MULTI-CHANNEL FUNNEL) */}
               {activeTab === 'cadence' && (
                 <div className="space-y-5">
+                  {can('sequences.view') && leadId && <LeadSequencesPanel leadId={leadId} onChanged={fetchLead360} />}
                   {!leadCadence ? (
                     <div className="bg-white rounded-2xl border border-indigo-100 p-6 shadow-xs space-y-4 text-center">
                       <div className="w-14 h-14 bg-gradient-to-tr from-amber-400 to-amber-500 rounded-2xl flex items-center justify-center mx-auto text-white shadow-md">

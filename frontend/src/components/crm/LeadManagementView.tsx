@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, ChevronsUpDown, Search } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Dialog } from '../ui/Dialog';
 import { useAuth } from '../../context/AuthContext';
+import { EnrollDialog } from '../../views/emails/drip/EnrollDialog';
 import { toast } from '../../lib/toast';
 import { ApiError } from '../../api/client';
 import {
@@ -52,7 +53,8 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
   const { can } = useAuth();
   const canAssign = can('leads.update');
   const canDelete = can('leads.delete');
-  const canSelect = canAssign || canDelete;
+  const canEnroll = can('sequences.enroll_bulk');
+  const canSelect = canAssign || canDelete || canEnroll;
   // Without leads.view_all the server lists only the leads assigned to this member.
   const seesAll = can('leads.view_all');
   const [query, setQuery] = useState<LeadQuery>(EMPTY_QUERY);
@@ -66,7 +68,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
   const [loading, setLoading] = useState(true);
   /** Selected leads, kept across pages, with what the confirmation needs to know about each. */
   const [selected, setSelected] = useState<Map<string, ManagedLead>>(new Map());
-  const [dialog, setDialog] = useState<'assign' | 'unassign' | 'delete' | null>(null);
+  const [dialog, setDialog] = useState<'assign' | 'unassign' | 'delete' | 'sequence' | null>(null);
   const request = useRef(0);
 
   const load = useCallback(() => {
@@ -206,6 +208,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
           <div className="flex flex-wrap gap-2">
             {canAssign && <button type="button" onClick={() => setDialog('assign')} className={primaryClass}>Assign Leads</button>}
             {canAssign && seesAll && <button type="button" onClick={() => setDialog('unassign')} className={actionClass}>Unassign</button>}
+            {canEnroll && <button type="button" onClick={() => setDialog('sequence')} className={actionClass}>Add to drip sequence</button>}
             {canDelete && <button type="button" onClick={() => setDialog('delete')} className={dangerActionClass}>Delete leads</button>}
             <button type="button" onClick={() => setSelected(new Map())} className={actionClass}>Clear selection</button>
           </div>
@@ -313,6 +316,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
       {dialog === 'assign' && <AssignDialog selected={[...selected.values()]} assignees={assignees} onClose={() => setDialog(null)} onDone={afterAssign} />}
       {dialog === 'unassign' && <UnassignDialog selected={[...selected.values()]} onClose={() => setDialog(null)} onDone={afterAssign} />}
       {dialog === 'delete' && <DeleteDialog selected={[...selected.values()]} onClose={() => setDialog(null)} onDone={afterAssign} />}
+      {dialog === 'sequence' && <EnrollDialog leadIds={[...selected.keys()]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setSelected(new Map()); }} />}
     </div>
   );
 };

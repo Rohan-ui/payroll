@@ -14,15 +14,43 @@ import {
   GmailTemplate,
 } from '../../api/gmail.api';
 import {
-  Mail, Send, Plus, CheckCircle2, Clock, Users,
-  BarChart3, ShieldCheck, Eye, MousePointer, MessageSquare,
-  AlertTriangle, Filter, Search, ArrowUpRight, Copy, Check,
-  Play, Pause, RefreshCw, ChevronLeft, ChevronRight, X, ExternalLink,
-  Layers, FileCode, CheckCircle, Zap, ShieldAlert, Sliders,
-  Inbox, Paperclip, Reply, ReplyAll, Pencil, Trash2, Save
+  Mail,
+  Send,
+  Plus,
+  CheckCircle2,
+  Users,
+  ShieldCheck,
+  Eye,
+  AlertTriangle,
+  Filter,
+  Search,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  ExternalLink,
+  Layers,
+  FileCode,
+  Sliders,
+  Inbox,
+  Paperclip,
+  Reply,
+  ReplyAll,
+  Pencil,
+  Trash2,
+  Save,
+  BarChart3,
+  MousePointer,
+  MessageSquare,
+  Copy,
+  Play,
+  Pause,
+  ShieldAlert,
 } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
 import { useAuth } from '../../context/AuthContext';
+import { DripSequencesView } from './DripSequencesView';
+import { ComingSoon } from './ComingSoon';
 
 const INBOX_REFRESH_INTERVAL_MS = 30_000;
 const INBOX_PAGE_SIZE = 25;
@@ -117,152 +145,6 @@ const TemplateSearchPicker: React.FC<{
   );
 };
 
-interface CampaignItem {
-  id: string;
-  name: string;
-  subject: string;
-  audience: string;
-  audienceCount: number;
-  status: 'ACTIVE' | 'SCHEDULED' | 'COMPLETED' | 'DRAFT' | 'PAUSED';
-  sentDate: string;
-  openRate: number;
-  clickRate: number;
-  replyRate: number;
-  sender: string;
-}
-
-interface DripStep {
-  stepNumber: number;
-  dayOffset: number;
-  name: string;
-  trigger: string;
-  subject: string;
-  openRate: number;
-  replyRate: number;
-  isActive: boolean;
-}
-
-const INITIAL_CAMPAIGNS: CampaignItem[] = [
-  {
-    id: 'camp-1',
-    name: 'SaaS Founders - Q3 Tech Retainers',
-    subject: 'Quick question about {{company}} tech stack roadmap',
-    audience: 'B2B Founders (India & US)',
-    audienceCount: 420,
-    status: 'ACTIVE',
-    sentDate: 'Today, 09:30 AM',
-    openRate: 58.4,
-    clickRate: 22.8,
-    replyRate: 11.2,
-    sender: 'Bhavin Pathak <bhavin@voogyo.com>',
-  },
-  {
-    id: 'camp-2',
-    name: 'Dormant Quotation Follow-up Wave 2',
-    subject: 'Revised pricing & timeline for {{company}} proposal',
-    audience: 'Pending Proposals (>14 days)',
-    audienceCount: 165,
-    status: 'ACTIVE',
-    sentDate: 'Yesterday',
-    openRate: 64.2,
-    clickRate: 31.0,
-    replyRate: 18.5,
-    sender: 'Sales Team <sales@voogyo.com>',
-  },
-  {
-    id: 'camp-3',
-    name: 'Voogyo 2.0 Product Launch Announcement',
-    subject: 'Introducing Voogyo Business OS: All-in-one CRM & Payroll',
-    audience: 'All Active Clients & Leads',
-    audienceCount: 1250,
-    status: 'SCHEDULED',
-    sentDate: 'Tomorrow, 10:00 AM',
-    openRate: 0,
-    clickRate: 0,
-    replyRate: 0,
-    sender: 'Voogyo Product Team <updates@voogyo.com>',
-  },
-  {
-    id: 'camp-4',
-    name: 'E-Commerce Shopify Plus Migration',
-    subject: 'How {{company}} can boost checkout speed by 40%',
-    audience: 'D2C & Retail Brands',
-    audienceCount: 310,
-    status: 'COMPLETED',
-    sentDate: 'Sep 18, 2026',
-    openRate: 51.2,
-    clickRate: 17.6,
-    replyRate: 8.9,
-    sender: 'Growth Team <growth@voogyo.com>',
-  },
-  {
-    id: 'camp-5',
-    name: 'Webinar: Scaling Agency Profitability in 2026',
-    subject: 'Live Workshop: Real-time unit economics for agency owners',
-    audience: 'Design & Development Agencies',
-    audienceCount: 540,
-    status: 'COMPLETED',
-    sentDate: 'Sep 12, 2026',
-    openRate: 49.8,
-    clickRate: 24.5,
-    replyRate: 14.1,
-    sender: 'Events <events@voogyo.com>',
-  },
-];
-
-const INITIAL_DRIP_STEPS: DripStep[] = [
-  {
-    stepNumber: 1,
-    dayOffset: 0,
-    name: 'Cold Introduction & Pain Point Resonance',
-    trigger: 'Immediate upon lead qualification',
-    subject: 'Quick idea regarding {{company}}’s development velocity',
-    openRate: 62.1,
-    replyRate: 7.8,
-    isActive: true,
-  },
-  {
-    stepNumber: 2,
-    dayOffset: 3,
-    name: 'Proof of Work & Client Case Study',
-    trigger: 'If Step 1 opened, no reply in 72 hours',
-    subject: 'Case Study: How we reduced release cycles by 55%',
-    openRate: 54.6,
-    replyRate: 12.3,
-    isActive: true,
-  },
-  {
-    stepNumber: 3,
-    dayOffset: 7,
-    name: 'Executive Teardown & 10-Min Strategy Call',
-    trigger: 'If no reply after Step 2',
-    subject: '10-minute architecture teardown for {{company}}',
-    openRate: 48.2,
-    replyRate: 15.6,
-    isActive: true,
-  },
-  {
-    stepNumber: 4,
-    dayOffset: 14,
-    name: 'Quotation & Flexible Retainer Model',
-    trigger: 'If engaged with previous links',
-    subject: 'Resource pricing & sprint models overview',
-    openRate: 44.0,
-    replyRate: 11.4,
-    isActive: true,
-  },
-  {
-    stepNumber: 5,
-    dayOffset: 24,
-    name: 'Closing the Loop (Break-up Email)',
-    trigger: 'Final touch before archival',
-    subject: 'Permission to close {{company}} file for now?',
-    openRate: 59.8,
-    replyRate: 21.0,
-    isActive: true,
-  },
-];
-
 // const AUDIENCE_CONTACTS = [
 //   { id: '1', name: 'Arjun Mehta', email: 'arjun@zenithtech.io', company: 'Zenith Tech', stage: 'Prospect', score: 94, status: 'Active' },
 //   { id: '2', name: 'Priya Sharma', email: 'priya@cloudcraft.in', company: 'CloudCraft Solutions', stage: 'Proposal Sent', score: 88, status: 'Active' },
@@ -335,19 +217,8 @@ export const EmailMarketingView: React.FC = () => {
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateBody, setTemplateBody] = useState('');
 
-  // Campaign State
-  const [campaigns, setCampaigns] = useState<CampaignItem[]>(INITIAL_CAMPAIGNS);
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false);
   const [isQuickTestOpen, setIsQuickTestOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<GmailTemplate | null>(null);
-
-  // New Campaign Form State
-  const [newCampName, setNewCampName] = useState('');
-  const [newCampSubject, setNewCampSubject] = useState('');
-  const [newCampAudience, setNewCampAudience] = useState('B2B Founders (India & US)');
-  const [newCampSender, setNewCampSender] = useState('Bhavin Pathak <bhavin@voogyo.com>');
 
   // Test Email Form State
   const [testEmailRecipient, setTestEmailRecipient] = useState('test@voogyo.com');
@@ -709,41 +580,6 @@ export const EmailMarketingView: React.FC = () => {
     setIsComposeOpen(true);
   };
 
-  const handleCreateCampaign = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCampName || !newCampSubject) return;
-
-    const newCamp: CampaignItem = {
-      id: `camp-${Date.now()}`,
-      name: newCampName,
-      subject: newCampSubject,
-      audience: newCampAudience,
-      audienceCount: 280,
-      status: 'ACTIVE',
-      sentDate: 'Just now',
-      openRate: 0,
-      clickRate: 0,
-      replyRate: 0,
-      sender: newCampSender,
-    };
-
-    void newCamp;
-    toast.error('Not available yet: this screen is not connected to the server, so nothing was launched.');
-  };
-
-  const filteredCampaigns = campaigns.filter((c) => {
-    if (filterStatus !== 'ALL' && c.status !== filterStatus) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return (
-        c.name.toLowerCase().includes(q) ||
-        c.subject.toLowerCase().includes(q) ||
-        c.audience.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
-
   return (
     <div
       className={
@@ -752,11 +588,6 @@ export const EmailMarketingView: React.FC = () => {
           : 'space-y-5 pb-12'
       }
     >
-      {activeTab !== 'hub' && activeTab !== 'templates' && (
-        <p role="note" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-          Preview only. Campaigns, contacts, and deliverability content on this tab are sample data and are not sent.
-        </p>
-      )}
 
       {/* ── Top Header Card (Matching User Screenshot) ── */}
       <div className="shrink-0 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs">
@@ -869,9 +700,7 @@ export const EmailMarketingView: React.FC = () => {
         >
           <Mail className="w-3.5 h-3.5 text-teal-600" />
           <span>Email Campaigns</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-700 font-bold">
-            {campaigns.length}
-          </span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-600 font-bold">Soon</span>
         </button>
 
         <button
@@ -883,10 +712,7 @@ export const EmailMarketingView: React.FC = () => {
           }`}
         >
           <Layers className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Drip Sequences (Cadence)</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-50 text-indigo-700 font-bold">
-            5 Steps
-          </span>
+          <span>Drip Sequences</span>
         </button>
 
         <button
@@ -914,6 +740,7 @@ export const EmailMarketingView: React.FC = () => {
         >
           <Users className="w-3.5 h-3.5 text-blue-600" />
           <span>Audience &amp; Segments</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-600 font-bold">Soon</span>
         </button>
 
         <button
@@ -926,6 +753,7 @@ export const EmailMarketingView: React.FC = () => {
         >
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
           <span>Deliverability &amp; Senders</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-600 font-bold">Soon</span>
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
         </button>
       </div>
@@ -1325,256 +1153,9 @@ export const EmailMarketingView: React.FC = () => {
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────────────────────
-          TAB: EMAIL CAMPAIGNS (PRESERVED & ENHANCED)
-      ───────────────────────────────────────────────────────────── */}
-      {activeTab === 'campaigns' && (
-        <div className="space-y-4">
-          {/* Global KPIs bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-            <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-100">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Sent Volume</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-xl font-extrabold text-slate-900">24,850</span>
-                <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded">+12%</span>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">Last 30 days total</p>
-            </div>
+      {activeTab === 'campaigns' && <ComingSoon tab="campaigns" />}
 
-            <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-100">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Avg. Open Rate</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-xl font-extrabold text-teal-600">54.8%</span>
-                <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded">+4.2%</span>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">Industry avg: 21.3%</p>
-            </div>
-
-            <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-100">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Click Rate (CTR)</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-xl font-extrabold text-indigo-600">19.4%</span>
-                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">High</span>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">4,820 proposal clicks</p>
-            </div>
-
-            <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-100">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Reply Rate</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-xl font-extrabold text-amber-600">11.8%</span>
-                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">+2.1%</span>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">Direct positive responses</p>
-            </div>
-
-            <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-100 col-span-2 sm:col-span-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Inbox Placement</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-xl font-extrabold text-emerald-600">99.6%</span>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">Optimal</span>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">SPF, DKIM, DMARC valid</p>
-            </div>
-          </div>
-
-          {/* Controls: Search & Filter */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search campaigns, subjects, or audiences…"
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-slate-800 placeholder:text-slate-400"
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
-              {['ALL', 'ACTIVE', 'SCHEDULED', 'COMPLETED'].map((status) => (
-                <button
-                  key={status}
-                  onClick={() => setFilterStatus(status)}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
-                    filterStatus === status
-                      ? 'bg-slate-900 text-white font-bold'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {status}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Campaigns Table */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-600">
-                <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[10px] font-bold">
-                  <tr>
-                    <th className="py-3 px-4">Campaign Name &amp; Subject</th>
-                    <th className="py-3 px-4">Target Audience</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-center">Open Rate</th>
-                    <th className="py-3 px-4 text-center">Click Rate</th>
-                    <th className="py-3 px-4 text-center">Reply Rate</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredCampaigns.map((camp) => (
-                    <tr key={camp.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <div className="font-semibold text-slate-900">{camp.name}</div>
-                        <div className="text-[11px] text-slate-500 truncate max-w-sm mt-0.5">
-                          "{camp.subject}"
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
-                          <span>{camp.sentDate}</span>
-                          <span>•</span>
-                          <span>{camp.sender}</span>
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">
-                          <Users className="w-3 h-3 text-slate-500" />
-                          {camp.audience}
-                        </span>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                          {camp.audienceCount} recipients
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        {camp.status === 'ACTIVE' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            Active
-                          </span>
-                        )}
-                        {camp.status === 'SCHEDULED' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <Clock className="w-3 h-3" />
-                            Scheduled
-                          </span>
-                        )}
-                        {camp.status === 'COMPLETED' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                            <Check className="w-3 h-3 text-slate-500" />
-                            Completed
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-teal-600 text-sm">{camp.openRate}%</span>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-indigo-600 text-sm">{camp.clickRate}%</span>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-amber-600 text-sm">{camp.replyRate}%</span>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right">
-                        <button
-                          onClick={() => toast.error('Not available yet: this screen is not connected to the server, so nothing was refreshed.')}
-                          className="px-2.5 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-                        >
-                          View Report
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          TAB: DRIP SEQUENCES
-      ───────────────────────────────────────────────────────────── */}
-      {activeTab === 'sequences' && (
-        <div className="space-y-4">
-          <div className="bg-white p-5 rounded-xl border border-slate-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Voogyo 30-Day Multi-Touch Sales Sequence
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Automated outreach triggers based on recipient engagement, link tracking, and stage milestone changes.
-                </p>
-              </div>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200 self-start sm:self-auto">
-                <Zap className="w-3.5 h-3.5" />
-                Workflow Active
-              </span>
-            </div>
-
-            <div className="relative pl-6 sm:pl-8 space-y-6 before:absolute before:left-3 sm:before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
-              {INITIAL_DRIP_STEPS.map((step) => (
-                <div key={step.stepNumber} className="relative group">
-                  <div className="absolute -left-6 sm:-left-8 top-1.5 w-6 h-6 rounded-full bg-white border-2 border-teal-500 flex items-center justify-center text-[10px] font-bold text-teal-700 shadow-2xs">
-                    {step.stepNumber}
-                  </div>
-
-                  <div className="bg-slate-50 hover:bg-white p-4 rounded-xl border border-slate-200 transition-all shadow-2xs hover:shadow-xs">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-slate-900 text-white">
-                            Day {step.dayOffset}
-                          </span>
-                          <h3 className="text-sm font-bold text-slate-900">{step.name}</h3>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Trigger: {step.trigger}</span>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-4 text-xs">
-                        <div className="text-right">
-                          <p className="text-[10px] text-slate-400 uppercase font-semibold">Open Rate</p>
-                          <p className="font-bold text-teal-600">{step.openRate}%</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] text-slate-400 uppercase font-semibold">Reply Rate</p>
-                          <p className="font-bold text-amber-600">{step.replyRate}%</p>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          Active
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs">
-                      <div className="text-slate-600 text-[11px] truncate max-w-lg">
-                        <span className="font-semibold text-slate-700">Subject: </span>
-                        {step.subject}
-                      </div>
-                      <button
-                        onClick={() => showToast(`Editing Step ${step.stepNumber}: ${step.name}`)}
-                        className="text-teal-600 font-semibold hover:underline text-xs"
-                      >
-                        Configure Step
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {activeTab === 'sequences' && <DripSequencesView />}
 
       {/* ─────────────────────────────────────────────────────────────
           TAB: TEMPLATES LIBRARY
@@ -1682,252 +1263,9 @@ export const EmailMarketingView: React.FC = () => {
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────────────────────
-          TAB: AUDIENCE & CONTACTS
-      ───────────────────────────────────────────────────────────── */}
-      {activeTab === 'audience' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-            <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Prospect &amp; Client Audiences</h3>
-                <p className="text-xs text-slate-500">Live synced from Voogyo CRM Leads &amp; Clients master database.</p>
-              </div>
-              <button
-                onClick={() => navigateTo('crm', 'cold-funnel')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
-              >
-                <span>View CRM Outreach Leads</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+      {activeTab === 'audience' && <ComingSoon tab="audience" />}
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-600">
-                <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500">
-                  <tr>
-                    <th className="py-3 px-4">Contact</th>
-                    <th className="py-3 px-4">Company</th>
-                    <th className="py-3 px-4">CRM Stage</th>
-                    <th className="py-3 px-4 text-center">Engagement Score</th>
-                    <th className="py-3 px-4 text-right">Status</th>
-                  </tr>
-                </thead>
-                {/* <tbody className="divide-y divide-slate-100">
-                  {AUDIENCE_CONTACTS.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50/60">
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900">{c.name}</div>
-                        <div className="text-slate-400 text-[11px]">{c.email}</div>
-                      </td>
-                      <td className="py-3 px-4 font-medium text-slate-700">{c.company}</td>
-                      <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {c.stage}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="font-bold text-teal-600">{c.score} / 100</span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700">
-                          {c.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody> */}
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          TAB: DELIVERABILITY & SENDER ACCOUNTS
-      ───────────────────────────────────────────────────────────── */}
-      {activeTab === 'deliverability' && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-xl border border-slate-200">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-slate-900">Connected Outbound Senders</h3>
-                <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
-                  <CheckCircle className="w-3.5 h-3.5" /> 3 Active Senders
-                </span>
-              </div>
-
-              <div className="space-y-3">
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">bhavin@voogyo.com</p>
-                    <p className="text-[11px] text-slate-500">Google Workspace OAuth • Primary Personal</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700">
-                      Warmup: 100%
-                    </span>
-                    <p className="text-[10px] text-slate-400 mt-0.5">150/150 sent today</p>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">sales@voogyo.com</p>
-                    <p className="text-[11px] text-slate-500">Microsoft 365 Exchange • Inbound &amp; Quotes</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700">
-                      Warmup: 98%
-                    </span>
-                    <p className="text-[10px] text-slate-400 mt-0.5">82/120 sent today</p>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">updates@voogyo.com</p>
-                    <p className="text-[11px] text-slate-500">Amazon SES • High-Volume Product Announcements</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700">
-                      Bulk SES
-                    </span>
-                    <p className="text-[10px] text-slate-400 mt-0.5">4,200/50,000 sent</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-900 mb-1">Domain DNS Authentication</h3>
-              <p className="text-xs text-slate-500 mb-4">Security records verifying email legitimacy and anti-spoofing compliance.</p>
-
-              <div className="space-y-3 text-xs">
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200/60">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <div>
-                      <span className="font-bold text-slate-900">SPF Record (Sender Policy Framework)</span>
-                      <p className="text-[10px] text-slate-500">v=spf1 include:_spf.google.com ~all</p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase">Valid</span>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200/60">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <div>
-                      <span className="font-bold text-slate-900">DKIM Signature (2048-bit RSA)</span>
-                      <p className="text-[10px] text-slate-500">google._domainkey.voogyo.com</p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase">Valid</span>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200/60">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <div>
-                      <span className="font-bold text-slate-900">DMARC Strict Policy</span>
-                      <p className="text-[10px] text-slate-500">v=DMARC1; p=quarantine; rua=mailto:dmarc@voogyo.com</p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase">Active</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {advancedSearchOpen && createPortal(
-        <div
-          className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/60 p-3 backdrop-blur-xs sm:items-center sm:p-4"
-          onKeyDown={handleAdvancedSearchKeyDown}
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeAdvancedSearch();
-          }}
-        >
-          <form
-            onSubmit={submitAdvancedSearch}
-            className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="gmail-advanced-search-title"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h2 id="gmail-advanced-search-title" className="text-sm font-bold text-slate-900">Advanced Gmail search</h2>
-                <p className="mt-0.5 text-[11px] text-slate-500">Search the current {mailboxFolder} folder on Gmail.</p>
-              </div>
-              <button type="button" onClick={closeAdvancedSearch} aria-label="Close advanced search" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 sm:h-9 sm:w-9"><X className="h-4 w-4" /></button>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label htmlFor="gmail-filter-from" className="mb-1 block text-xs font-semibold text-slate-700">From</label>
-                <input id="gmail-filter-from" type="text" value={advancedFilters.from ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, from: event.target.value || undefined }))} placeholder="sender@example.com" className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-              <div>
-                <label htmlFor="gmail-filter-to" className="mb-1 block text-xs font-semibold text-slate-700">To</label>
-                <input id="gmail-filter-to" type="text" value={advancedFilters.to ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, to: event.target.value || undefined }))} placeholder="recipient@example.com" className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-              <div className="sm:col-span-2">
-                <label htmlFor="gmail-filter-subject" className="mb-1 block text-xs font-semibold text-slate-700">Subject</label>
-                <input id="gmail-filter-subject" type="text" value={advancedFilters.subject ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, subject: event.target.value || undefined }))} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-              <div>
-                <label htmlFor="gmail-filter-include" className="mb-1 block text-xs font-semibold text-slate-700">Includes the words</label>
-                <input id="gmail-filter-include" type="text" value={advancedFilters.search ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, search: event.target.value || undefined }))} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-              <div>
-                <label htmlFor="gmail-filter-exclude" className="mb-1 block text-xs font-semibold text-slate-700">Doesn’t have</label>
-                <input id="gmail-filter-exclude" type="text" value={advancedFilters.exclude ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, exclude: event.target.value || undefined }))} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-
-              <fieldset className="rounded-xl border border-slate-200 p-3 sm:col-span-2">
-                <legend className="px-1 text-xs font-semibold text-slate-700">Size</legend>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_1fr_5rem]">
-                  <select aria-label="Size comparison" value={advancedFilters.sizeOperator ?? 'larger'} onChange={(event) => setAdvancedFilters((current) => ({ ...current, sizeOperator: event.target.value as GmailMessageFilters['sizeOperator'] }))} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                    <option value="larger">Greater than</option>
-                    <option value="smaller">Less than</option>
-                  </select>
-                  <input type="number" min="0.01" max="100000" step="0.01" aria-label="Message size in megabytes" value={advancedFilters.sizeMb ?? ''} onChange={(event) => setAdvancedFilters((current) => event.target.value ? { ...current, sizeMb: Number(event.target.value), sizeOperator: current.sizeOperator ?? 'larger' } : { ...current, sizeMb: undefined, sizeOperator: undefined })} className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  <div className="flex min-h-11 items-center rounded-lg bg-slate-50 px-3 text-xs text-slate-500">MB</div>
-                </div>
-              </fieldset>
-
-              <fieldset className="rounded-xl border border-slate-200 p-3 sm:col-span-2">
-                <legend className="px-1 text-xs font-semibold text-slate-700">Date within</legend>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr]">
-                  <div className="flex items-center gap-2">
-                    <input type="number" min="0" max="3650" aria-label="Days around selected date" value={advancedFilters.dateWithinDays ?? 1} onChange={(event) => setAdvancedFilters((current) => ({ ...current, dateWithinDays: Number(event.target.value) }))} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                    <span className="text-xs text-slate-500">days of</span>
-                  </div>
-                  <input type="date" aria-label="Search date" value={advancedFilters.date ?? ''} onChange={(event) => setAdvancedFilters((current) => ({ ...current, date: event.target.value || undefined, dateRange: 'any', dateWithinDays: current.dateWithinDays ?? 1 }))} className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                </div>
-              </fieldset>
-
-              <div className="flex flex-wrap gap-x-5 gap-y-3 sm:col-span-2">
-                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={Boolean(advancedFilters.hasAttachment)} onChange={(event) => setAdvancedFilters((current) => ({ ...current, hasAttachment: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /> Has attachment</label>
-                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={Boolean(advancedFilters.unread)} onChange={(event) => setAdvancedFilters((current) => ({ ...current, unread: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /> Is unread</label>
-                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={Boolean(advancedFilters.excludePromotions)} onChange={(event) => setAdvancedFilters((current) => ({ ...current, excludePromotions: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /> Exclude Promotions</label>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <button type="button" onClick={() => setAdvancedFilters(EMPTY_GMAIL_FILTERS)} className="min-h-11 rounded-lg px-4 text-xs font-semibold text-slate-600 hover:bg-slate-100">Reset fields</button>
-              <div className="flex gap-2">
-                <button type="button" onClick={closeAdvancedSearch} className="min-h-11 flex-1 rounded-lg px-4 text-xs font-semibold text-slate-600 hover:bg-slate-100 sm:flex-none">Cancel</button>
-                <button type="submit" className="min-h-11 flex-1 rounded-lg bg-indigo-600 px-5 text-xs font-bold text-white hover:bg-indigo-700 sm:flex-none">Search</button>
-              </div>
-            </div>
-          </form>
-        </div>,
-        document.body,
-      )}
+      {activeTab === 'deliverability' && <ComingSoon tab="deliverability" />}
 
       {/* ─────────────────────────────────────────────────────────────
           MODAL: COMPOSE EMAIL
@@ -2040,123 +1378,6 @@ export const EmailMarketingView: React.FC = () => {
                     <span>{composeSending ? 'Sending…' : 'Send'}</span>
                   </button>
                 </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          MODAL: CREATE CAMPAIGN
-      ───────────────────────────────────────────────────────────── */}
-      {isCreateCampaignOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center text-teal-600">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <h3 className="text-base font-bold text-slate-900">Launch New Email Campaign</h3>
-              </div>
-              <button
-                onClick={() => setIsCreateCampaignOpen(false)}
-                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateCampaign} className="space-y-4 mt-4 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Campaign Internal Name</label>
-                <input
-                  type="text"
-                  required
-                  value={newCampName}
-                  onChange={(e) => setNewCampName(e.target.value)}
-                  placeholder="e.g. Q4 CTO Outreach - Cloud Modernization"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Email Subject Line</label>
-                <input
-                  type="text"
-                  required
-                  value={newCampSubject}
-                  onChange={(e) => setNewCampSubject(e.target.value)}
-                  placeholder="e.g. Quick question regarding {{company}}'s next sprint"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-                />
-                <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-slate-500">
-                  <span>Variables:</span>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampSubject((s) => s + ' {{firstName}}')}
-                    className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 font-mono text-slate-700"
-                  >
-                    {"{{firstName}}"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampSubject((s) => s + ' {{company}}')}
-                    className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 font-mono text-slate-700"
-                  >
-                    {"{{company}}"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Target Audience Segment</label>
-                  <select
-                    value={newCampAudience}
-                    onChange={(e) => setNewCampAudience(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-white"
-                  >
-                    <option value="B2B Founders (India & US)">B2B Founders (India &amp; US)</option>
-                    <option value="Pending Proposals (>14 days)">Pending Proposals (&gt;14 days)</option>
-                    <option value="D2C & Retail Brands">D2C &amp; Retail Brands</option>
-                    <option value="Design & Development Agencies">Design &amp; Development Agencies</option>
-                    <option value="All Active Clients & Leads">All Active Clients &amp; Leads</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Sender Profile</label>
-                  <select
-                    value={newCampSender}
-                    onChange={(e) => setNewCampSender(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-white"
-                  >
-                    <option value="Bhavin Pathak <bhavin@voogyo.com>">Bhavin Pathak (bhavin@voogyo.com)</option>
-                    <option value="Sales Team <sales@voogyo.com>">Sales Team (sales@voogyo.com)</option>
-                    <option value="Voogyo Updates <updates@voogyo.com>">Voogyo Updates (updates@voogyo.com)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-lg bg-teal-50/70 border border-teal-200/60 text-teal-800 text-[11px] leading-relaxed">
-                <span className="font-bold">Voogyo Deliverability Safeguard:</span> Emails will be dispatched using smart throttling (1 email every 45-90 seconds) to ensure 0% spam placement.
-              </div>
-
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateCampaignOpen(false)}
-                  className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white font-bold transition-colors shadow-xs"
-                >
-                  Schedule &amp; Launch
-                </button>
               </div>
             </form>
           </div>

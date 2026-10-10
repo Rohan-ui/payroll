@@ -2,9 +2,12 @@ import React from 'react';
 import { LogIn, LogOut, Clock, Smartphone, Globe, Fingerprint } from 'lucide-react';
 import { cn } from '../../../utils/cn';
 import { getPunchSessions, type AttendancePunch } from './punches';
+import { attendanceToday, clockTime, formatDuration, useNow } from './duration';
 
 interface PunchTimelineProps {
   punches: AttendancePunch[];
+  /** The day (YYYY-MM-DD): an open check-in today counts up live. */
+  date?: string;
   className?: string;
 }
 
@@ -16,9 +19,10 @@ const getSourceIcon = (source?: string) => {
   return <Clock className="w-3.5 h-3.5 text-slate-500" />;
 };
 
-const formatMinutes = (mins: number) => `${Math.floor(mins / 60)}h ${mins % 60}m`;
-
-export const PunchTimeline: React.FC<PunchTimelineProps> = ({ punches, className }) => {
+export const PunchTimeline: React.FC<PunchTimelineProps> = ({ punches, date, className }) => {
+  const last = punches[punches.length - 1];
+  const openToday = !!last && last.direction === 'IN' && !!date && date === attendanceToday();
+  const now = useNow(openToday);
   if (punches.length === 0) {
     return (
       <div className={cn('p-4 text-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50', className)}>
@@ -28,20 +32,15 @@ export const PunchTimeline: React.FC<PunchTimelineProps> = ({ punches, className
     );
   }
 
-  const sessionMinutes = new Map(getPunchSessions(punches).map((s) => [s.number, s.minutes]));
+  const sessionLength = new Map(getPunchSessions(punches).map((s) => [s.number, s.ms]));
 
   return (
     <ol className={cn('relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200', className)}>
       {punches.map((p) => {
         const isCheckIn = p.direction === 'IN';
-        const timeStr = new Date(p.punchAt).toLocaleTimeString('en-US', {
-          timeZone: 'Asia/Kolkata',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: true,
-        });
-        const minutes = sessionMinutes.get(p.session);
+        const timeStr = clockTime(p.punchAt);
+        const length = sessionLength.get(p.session);
+        const running = openToday && p === last;
 
         return (
           <li key={p.raw.id || p.number} className="relative flex items-start justify-between gap-3 text-xs">
@@ -64,8 +63,13 @@ export const PunchTimeline: React.FC<PunchTimelineProps> = ({ punches, className
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Punch #{p.number} • Session #{p.session}
-                {!isCheckIn && minutes != null && ` • ${formatMinutes(minutes)}`}
+                {!isCheckIn && length != null && ` • ${formatDuration(length)}`}
               </p>
+              {running && (
+                <p className="mt-0.5 text-[11px] font-semibold text-teal-700" aria-live="off">
+                  Inside for <span className="font-mono tabular-nums">{formatDuration(now - new Date(p.punchAt).getTime())}</span>
+                </p>
+              )}
             </div>
 
             {/* Source badge */}

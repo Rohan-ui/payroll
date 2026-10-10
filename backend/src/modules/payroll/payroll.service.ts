@@ -5,6 +5,8 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { BookkeepingService } from '../bookkeeping/bookkeeping.service';
 import { FinancialYearsService } from '../bookkeeping/financial-years.service';
+import { EmployeePay, PayrollCalculationService } from './calculation/payroll-calculation.service';
+import { isoDate } from './payroll-lock';
 
 export interface CreatePayrollPeriodInput {
   periodCode: string;
@@ -20,16 +22,6 @@ export interface CreatePayrollRunInput {
   createdByTenantMemberId?: string;
 }
 
-interface CalculatedLine {
-  salaryComponentId: string;
-  componentCode: string;
-  componentName: string;
-  componentCategory: 'EARNING' | 'DEDUCTION' | 'STATUTORY';
-  calculationType: string;
-  amount: Prisma.Decimal;
-  displayOrder: number;
-  source: string;
-}
 
 @Injectable()
 export class PayrollService {
@@ -37,6 +29,7 @@ export class PayrollService {
     private readonly prisma: PrismaService,
     private readonly bookkeepingService: BookkeepingService,
     private readonly financialYearsService: FinancialYearsService,
+    private readonly calculation: PayrollCalculationService,
   ) {}
 
   async createPeriod(tenantId: string, input: CreatePayrollPeriodInput) {
@@ -105,7 +98,10 @@ export class PayrollService {
   }
 
   /**
-   * Calculates payroll for all active employees in the tenant using strict Decimal arithmetic.
+   * Calculates the run with the payroll engine. Every employee who is active
+   * or has a salary in the period gets a row: CALCULATED, with explained
+   * lines, or EXCEPTION, with what stops their pay. Nobody is skipped or paid
+   * zero without a reason on record.
    */
   async calculateRun(tenantId: string, runId: string) {
     const run = await this.prisma.rndtechnosoft_payroll_runs.findFirst({
@@ -117,207 +113,65 @@ export class PayrollService {
       throw new NotFoundException('Payroll run not found');
     }
 
-    if (run.run_status === 'FINALIZED') {
-      throw new BadRequestException('Cannot calculate a finalized payroll run');
+    if (!['DRAFT', 'CALCULATED', 'REVIEWED'].includes(run.run_status)) {
+      throw new BadRequestException(`A ${run.run_status.toLowerCase()} payroll run can’t be recalculated.`);
     }
 
     const period = run.rndtechnosoft_payroll_periods;
-    const periodStart = period.period_start;
-    const periodEnd = period.period_end;
-    const totalPeriodDays = Math.ceil(
-      (periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24),
-    ) + 1;
+    const periodStart = isoDate(period.period_start);
+    const periodEnd = isoDate(period.period_end);
+    const employees = await this.payableEmployees(tenantId, periodStart, periodEnd);
 
-    // Fetch active employees with active salary assignments and structure components
-    const employees = await this.prisma.rndtechnosoft_employees.findMany({
-      where: {
-        tenant_id: tenantId,
-        employee_status: 'ACTIVE',
-      },
-      include: {
-        rndtechnosoft_employee_salary_assignments: {
-          where: {
-            effective_from: { lte: periodEnd },
-            OR: [{ effective_to: null }, { effective_to: { gte: periodStart } }],
-          },
-          orderBy: { effective_from: 'desc' },
-          take: 1,
-          include: {
-            rndtechnosoft_salary_structures: {
-              include: {
-                rndtechnosoft_salary_structure_components: {
-                  include: {
-                    rndtechnosoft_salary_components_rndtechnosoft_salary_structure_components_tenant_id_salary_component_idTorndtechnosoft_salary_components: true,
-                  },
-                },
-              },
-            },
-            rndtechnosoft_employee_salary_component_values: {
-              where: {
-                effective_from: { lte: periodEnd },
-                OR: [{ effective_to: null }, { effective_to: { gte: periodStart } }],
-              },
-              include: {
-                rndtechnosoft_salary_components: true,
-              },
-            },
-          },
-        },
-        rndtechnosoft_payroll_inputs: {
-          where: {
-            tenant_id: tenantId,
-            payroll_period_id: period.id,
-            input_status: 'APPROVED',
-          },
-          include: {
-            rndtechnosoft_salary_components: true,
-          },
-        },
-      },
-    });
-
-    const calculationTimestamp = new Date();
+    const calculationStarted = new Date();
+    const results: EmployeePay[] = [];
+    for (const employee of employees) {
+      results.push(await this.calculation.calculate(tenantId, employee.id, periodStart, periodEnd));
+    }
 
     return this.prisma.$transaction(async (tx) => {
-      // Mark calculation started
       await tx.rndtechnosoft_payroll_runs.update({
         // Composite [tenant_id, id] key: the database refuses a write against
         // another tenant's payroll run even if the id is guessed.
         where: { tenant_id_id: { tenant_id: tenantId, id: runId } },
-        data: { calculation_started_at: calculationTimestamp },
+        data: { calculation_started_at: calculationStarted },
       });
 
-      // Clear previous draft employee run entries
+      // A run is recalculated from scratch until it is approved.
       await tx.rndtechnosoft_payroll_run_employees.deleteMany({
         where: { tenant_id: tenantId, payroll_run_id: runId },
       });
 
-      for (const emp of employees) {
-        const salaryAssignment = emp.rndtechnosoft_employee_salary_assignments[0];
-        if (!salaryAssignment) {
-          // Employee has no assigned salary structure, record as failed/skipped
-          await tx.rndtechnosoft_payroll_run_employees.create({
-            data: {
-              id: randomUUID(),
-              tenant_id: tenantId,
-              payroll_run_id: runId,
-              employee_id: emp.id,
-              salary_assignment_id: null,
-              processing_status: 'FAILED',
-              payable_days: DecimalMath.toDecimal(0),
-              loss_of_pay_days: DecimalMath.toDecimal(0),
-              gross_earnings: DecimalMath.toDecimal(0),
-              gross_deductions: DecimalMath.toDecimal(0),
-              net_pay: DecimalMath.toDecimal(0),
-              calculation_error: 'No active salary structure assigned to employee',
-            },
-          });
-          continue;
-        }
-
-        const lines: CalculatedLine[] = [];
-        let grossEarnings = DecimalMath.toDecimal(0);
-        let grossDeductions = DecimalMath.toDecimal(0);
-
-        // Assume full period attendance unless LOP days exist
-        const payableDays = DecimalMath.toDecimal(totalPeriodDays);
-        const lopDays = DecimalMath.toDecimal(0);
-
-        // 1. Process Structure Components
-        const structureComponents =
-          salaryAssignment.rndtechnosoft_salary_structures.rndtechnosoft_salary_structure_components;
-
-        for (const sc of structureComponents) {
-          const component = sc.rndtechnosoft_salary_components_rndtechnosoft_salary_structure_components_tenant_id_salary_component_idTorndtechnosoft_salary_components;
-
-          // Check if employee has a specific override value
-          const overrideVal = salaryAssignment.rndtechnosoft_employee_salary_component_values.find(
-            (v) => v.salary_component_id === component.id,
-          );
-
-          let baseAmount = overrideVal?.amount || sc.default_amount || DecimalMath.toDecimal(0);
-
-          // If percentage-based
-          if (component.calculation_type === 'PERCENTAGE') {
-            const percentage = overrideVal?.percentage || sc.default_percentage || DecimalMath.toDecimal(0);
-            if (salaryAssignment.monthly_gross_target) {
-              baseAmount = DecimalMath.percentageOf(salaryAssignment.monthly_gross_target, percentage);
-            }
-          }
-
-          // Pro-rata based on payable days
-          const proRatedAmount = DecimalMath.calculateProRata(baseAmount, payableDays, totalPeriodDays);
-
-          lines.push({
-            salaryComponentId: component.id,
-            componentCode: component.component_code,
-            componentName: component.component_name,
-            componentCategory: component.component_category as 'EARNING' | 'DEDUCTION' | 'STATUTORY',
-            calculationType: component.calculation_type,
-            amount: proRatedAmount,
-            displayOrder: component.display_order,
-            source: 'STRUCTURE',
-          });
-
-          if (component.component_category === 'EARNING') {
-            grossEarnings = DecimalMath.add(grossEarnings, proRatedAmount);
-          } else {
-            grossDeductions = DecimalMath.add(grossDeductions, proRatedAmount);
-          }
-        }
-
-        // 2. Process variable inputs (bonuses, overtime, manual deductions)
-        for (const input of emp.rndtechnosoft_payroll_inputs) {
-          const comp = input.rndtechnosoft_salary_components;
-          const inputAmount = DecimalMath.roundCurrency(input.amount);
-
-          lines.push({
-            salaryComponentId: comp.id,
-            componentCode: comp.component_code,
-            componentName: comp.component_name,
-            componentCategory: comp.component_category as 'EARNING' | 'DEDUCTION' | 'STATUTORY',
-            calculationType: comp.calculation_type,
-            amount: inputAmount,
-            displayOrder: comp.display_order + 50,
-            source: 'VARIABLE_INPUT',
-          });
-
-          if (comp.component_category === 'EARNING') {
-            grossEarnings = DecimalMath.add(grossEarnings, inputAmount);
-          } else {
-            grossDeductions = DecimalMath.add(grossDeductions, inputAmount);
-          }
-        }
-
-        // 3. Deterministic Net Pay: Gross Earnings - Gross Deductions
-        const netPay = DecimalMath.sub(grossEarnings, grossDeductions);
-
+      for (const result of results) {
         await tx.rndtechnosoft_payroll_run_employees.create({
           data: {
             id: randomUUID(),
             tenant_id: tenantId,
             payroll_run_id: runId,
-            employee_id: emp.id,
-            salary_assignment_id: salaryAssignment.id,
-            processing_status: 'CALCULATED',
-            payable_days: payableDays,
-            loss_of_pay_days: lopDays,
-            gross_earnings: DecimalMath.roundCurrency(grossEarnings),
-            gross_deductions: DecimalMath.roundCurrency(grossDeductions),
-            net_pay: DecimalMath.roundCurrency(netPay),
+            employee_id: result.employee.id,
+            salary_assignment_id: result.salaryAssignmentId,
+            processing_status: result.status === 'READY' ? 'CALCULATED' : 'EXCEPTION',
+            payable_days: DecimalMath.toDecimal(result.attendance.paidDays),
+            loss_of_pay_days: DecimalMath.toDecimal(result.attendance.unpaidDays),
+            gross_earnings: DecimalMath.toDecimal(result.totals.earnings),
+            gross_deductions: DecimalMath.toDecimal(result.totals.deductions),
+            net_pay: DecimalMath.toDecimal(result.totals.net),
+            calculation_error: result.exceptions.length ? result.exceptions.join('\n') : null,
             calculation_snapshot: {
-              currency: salaryAssignment.currency_code,
-              totalPeriodDays,
-              lines: lines.map((l) => ({
-                ...l,
-                amount: l.amount.toString(),
-              })),
-            },
+              engine: 'structure-engine-1',
+              currency: result.currency,
+              period: result.period,
+              lines: result.lines,
+              totals: result.totals,
+              attendance: result.attendance,
+              segments: result.segments,
+              exceptions: result.exceptions,
+              warnings: result.warnings,
+              settles: result.settles,
+            } as unknown as Prisma.InputJsonValue,
           },
         });
       }
 
-      // Update Run Status
       return tx.rndtechnosoft_payroll_runs.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: runId } },
         data: {
@@ -341,6 +195,35 @@ export class PayrollService {
     });
   }
 
+  /** Everyone payroll covers for a period: active employees, and anyone with a salary in it. */
+  async payableEmployees(tenantId: string, periodStart: string, periodEnd: string) {
+    const start = new Date(`${periodStart}T00:00:00.000Z`);
+    const end = new Date(`${periodEnd}T00:00:00.000Z`);
+    const rows = await this.prisma.rndtechnosoft_employees.findMany({
+      where: {
+        tenant_id: tenantId,
+        OR: [
+          { employee_status: 'ACTIVE' },
+          {
+            rndtechnosoft_employee_salary_assignments: {
+              some: { assignment_status: 'ACTIVE', effective_from: { lte: end }, OR: [{ effective_to: null }, { effective_to: { gte: start } }] },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true, employee_code: true, first_name: true, last_name: true, employee_status: true,
+        _count: { select: { rndtechnosoft_employee_salary_assignments: { where: { assignment_status: 'ACTIVE', effective_from: { lte: end }, OR: [{ effective_to: null }, { effective_to: { gte: start } }] } } } },
+      },
+      orderBy: { employee_code: 'asc' },
+      take: 5000,
+    });
+    return rows.map((e) => ({
+      id: e.id, code: e.employee_code, name: [e.first_name, e.last_name].filter(Boolean).join(' '), status: e.employee_status,
+      hasSalary: e._count.rndtechnosoft_employee_salary_assignments > 0,
+    }));
+  }
+
   async approveRun(tenantId: string, runId: string, approverTenantMemberId?: string) {
     const run = await this.prisma.rndtechnosoft_payroll_runs.findFirst({
       where: { id: runId, tenant_id: tenantId },
@@ -352,6 +235,14 @@ export class PayrollService {
 
     if (run.run_status !== 'CALCULATED' && run.run_status !== 'REVIEWED') {
       throw new BadRequestException(`Cannot approve run with status '${run.run_status}'`);
+    }
+
+    // Approving would leave these employees out of payroll without anyone deciding to.
+    const held = await this.prisma.rndtechnosoft_payroll_run_employees.count({
+      where: { tenant_id: tenantId, payroll_run_id: runId, processing_status: { in: ['EXCEPTION', 'FAILED'] } },
+    });
+    if (held) {
+      throw new BadRequestException(`${held} employee${held === 1 ? ' has' : 's have'} pay exceptions. Fix them and recalculate before approving.`);
     }
 
     return this.prisma.rndtechnosoft_payroll_runs.update({
@@ -459,7 +350,34 @@ export class PayrollService {
           },
         });
 
-        // 2. Create immutable line items
+        // 2. Settle what this payslip pays: loan instalments recovered and arrears paid, once each.
+        const settles = (runEmp.calculation_snapshot as { settles?: { loanInstallments?: { id: string; loanId: string; amount: string }[]; arrearsIds?: string[] } } | null)?.settles;
+        for (const installment of settles?.loanInstallments ?? []) {
+          const marked = await tx.rndtechnosoft_loan_installments.updateMany({
+            where: { tenant_id: tenantId, id: installment.id, installment_status: 'SCHEDULED' },
+            data: { installment_status: 'RECOVERED', payroll_period_id: run.payroll_period_id, updated_at: finalizeTimestamp },
+          });
+          if (marked.count !== 1) throw new BadRequestException(`A loan instalment for ${emp.employee_code} was already recovered or changed. Recalculate the run before finalizing.`);
+          await tx.rndtechnosoft_loan_repayments.create({
+            data: {
+              id: randomUUID(), tenant_id: tenantId, employee_loan_id: installment.loanId, loan_installment_id: installment.id, repayment_date: run.rndtechnosoft_payroll_periods.period_end,
+              amount: DecimalMath.toDecimal(installment.amount), repayment_source: 'PAYROLL', payroll_run_employee_id: runEmp.id, notes: `Recovered in payroll ${run.rndtechnosoft_payroll_periods.period_code}`,
+            },
+          });
+          const open = await tx.rndtechnosoft_loan_installments.count({ where: { tenant_id: tenantId, employee_loan_id: installment.loanId, installment_status: 'SCHEDULED' } });
+          if (!open) {
+            await tx.rndtechnosoft_employee_loans.updateMany({ where: { tenant_id: tenantId, id: installment.loanId, loan_status: 'ACTIVE' }, data: { loan_status: 'CLOSED', closed_at: finalizeTimestamp, updated_at: finalizeTimestamp } });
+          }
+        }
+        if (settles?.arrearsIds?.length) {
+          const paid = await tx.rndtechnosoft_salary_arrears.updateMany({
+            where: { tenant_id: tenantId, id: { in: settles.arrearsIds }, arrears_status: 'PENDING' },
+            data: { arrears_status: 'INCLUDED', included_in_run_employee_id: runEmp.id, included_at: finalizeTimestamp, updated_at: finalizeTimestamp },
+          });
+          if (paid.count !== settles.arrearsIds.length) throw new BadRequestException(`Arrears for ${emp.employee_code} were already paid or cancelled. Recalculate the run before finalizing.`);
+        }
+
+        // 3. Create immutable line items
         if (snapshotData?.lines && snapshotData.lines.length > 0) {
           for (const line of snapshotData.lines) {
             await tx.rndtechnosoft_payslip_lines.create({

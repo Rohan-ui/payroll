@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL_REAL")
 }
 
 model rndtechnosoft_attendance_adjustments {
@@ -123,6 +123,7 @@ model rndtechnosoft_branches {
   rndtechnosoft_employee_employments           rndtechnosoft_employee_employments[]
   rndtechnosoft_holiday_calendar_assignments   rndtechnosoft_holiday_calendar_assignments[]
   rndtechnosoft_tenant_statutory_registrations rndtechnosoft_tenant_statutory_registrations[]
+  rndtechnosoft_payroll_policy_scopes          rndtechnosoft_payroll_policy_scopes[]
 
   @@unique([tenant_id, branch_code], map: "uq_branches_1")
   @@unique([tenant_id, id], map: "uq_branches_tenant_id")
@@ -151,22 +152,23 @@ model rndtechnosoft_cost_centers {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model rndtechnosoft_departments {
-  id                                 String                               @id @db.Uuid
-  tenant_id                          String                               @db.Uuid
-  parent_department_id               String?                              @db.Uuid
-  department_code                    String                               @db.VarChar(64)
-  department_name                    String                               @db.VarChar(160)
-  department_status                  String                               @default("ACTIVE") @db.VarChar(32)
-  archived_at                        DateTime?                            @db.Timestamptz(6)
-  created_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_tenants              rndtechnosoft_tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departments_1")
-  rndtechnosoft_departments          rndtechnosoft_departments?           @relation("rndtechnosoft_departmentsTorndtechnosoft_departments", fields: [tenant_id, parent_department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departments_2")
-  other_rndtechnosoft_departments    rndtechnosoft_departments[]          @relation("rndtechnosoft_departmentsTorndtechnosoft_departments")
-  rndtechnosoft_employee_employments rndtechnosoft_employee_employments[]
-  rndtechnosoft_teams                rndtechnosoft_teams[]
-  rndtechnosoft_candidates           rndtechnosoft_candidates[]
-  rndtechnosoft_offers               rndtechnosoft_offers[]
+  id                                  String                                @id @db.Uuid
+  tenant_id                           String                                @db.Uuid
+  parent_department_id                String?                               @db.Uuid
+  department_code                     String                                @db.VarChar(64)
+  department_name                     String                                @db.VarChar(160)
+  department_status                   String                                @default("ACTIVE") @db.VarChar(32)
+  archived_at                         DateTime?                             @db.Timestamptz(6)
+  created_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants               rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departments_1")
+  rndtechnosoft_departments           rndtechnosoft_departments?            @relation("rndtechnosoft_departmentsTorndtechnosoft_departments", fields: [tenant_id, parent_department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departments_2")
+  other_rndtechnosoft_departments     rndtechnosoft_departments[]           @relation("rndtechnosoft_departmentsTorndtechnosoft_departments")
+  rndtechnosoft_employee_employments  rndtechnosoft_employee_employments[]
+  rndtechnosoft_teams                 rndtechnosoft_teams[]
+  rndtechnosoft_candidates            rndtechnosoft_candidates[]
+  rndtechnosoft_offers                rndtechnosoft_offers[]
+  rndtechnosoft_payroll_policy_scopes rndtechnosoft_payroll_policy_scopes[]
 
   @@unique([tenant_id, department_code], map: "uq_departments_1")
   @@unique([tenant_id, id], map: "uq_departments_tenant_id")
@@ -174,19 +176,20 @@ model rndtechnosoft_departments {
 }
 
 model rndtechnosoft_designations {
-  id                                 String                               @id @db.Uuid
-  tenant_id                          String                               @db.Uuid
-  designation_code                   String                               @db.VarChar(64)
-  designation_name                   String                               @db.VarChar(160)
-  designation_level                  String?                              @db.VarChar(64)
-  designation_status                 String                               @default("ACTIVE") @db.VarChar(32)
-  archived_at                        DateTime?                            @db.Timestamptz(6)
-  created_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_tenants              rndtechnosoft_tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_designations_1")
-  rndtechnosoft_employee_employments rndtechnosoft_employee_employments[]
-  rndtechnosoft_candidates           rndtechnosoft_candidates[]
-  rndtechnosoft_offers               rndtechnosoft_offers[]
+  id                                  String                                @id @db.Uuid
+  tenant_id                           String                                @db.Uuid
+  designation_code                    String                                @db.VarChar(64)
+  designation_name                    String                                @db.VarChar(160)
+  designation_level                   String?                               @db.VarChar(64)
+  designation_status                  String                                @default("ACTIVE") @db.VarChar(32)
+  archived_at                         DateTime?                             @db.Timestamptz(6)
+  created_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants               rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_designations_1")
+  rndtechnosoft_employee_employments  rndtechnosoft_employee_employments[]
+  rndtechnosoft_candidates            rndtechnosoft_candidates[]
+  rndtechnosoft_offers                rndtechnosoft_offers[]
+  rndtechnosoft_payroll_policy_scopes rndtechnosoft_payroll_policy_scopes[]
 
   @@unique([tenant_id, designation_code], map: "uq_designations_1")
   @@unique([tenant_id, id], map: "uq_designations_tenant_id")
@@ -454,12 +457,26 @@ model rndtechnosoft_employee_salary_assignments {
   effective_to                                   DateTime?                                        @db.Date
   assignment_status                              String                                           @default("ACTIVE") @db.VarChar(32)
   change_reason                                  String?                                          @db.VarChar(500)
+  payroll_policy_id                              String?                                          @db.Uuid
+  pay_basis                                      String                                           @default("MONTHLY") @db.VarChar(16)
+  base_rate                                      Decimal?                                         @db.Decimal(18, 4)
+  is_overtime_eligible                           Boolean                                          @default(false)
+  payment_method                                 String                                           @default("BANK_TRANSFER") @db.VarChar(16)
+  created_by_tenant_member_id                    String?                                          @db.Uuid
+  cancelled_at                                   DateTime?                                        @db.Timestamptz(6)
+  cancelled_by_tenant_member_id                  String?                                          @db.Uuid
+  cancellation_reason                            String?                                          @db.VarChar(500)
   created_at                                     DateTime                                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                                     DateTime                                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_employees                        rndtechnosoft_employees                          @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_salary_assignments_1")
   rndtechnosoft_salary_structures                rndtechnosoft_salary_structures                  @relation(fields: [tenant_id, salary_structure_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_salary_assignments_2")
+  rndtechnosoft_payroll_policies                 rndtechnosoft_payroll_policies?                  @relation(fields: [tenant_id, payroll_policy_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_salary_assignments_policy")
+  created_by                                     rndtechnosoft_tenant_members?                    @relation("salary_assignment_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_salary_assignments_created_by")
+  cancelled_by                                   rndtechnosoft_tenant_members?                    @relation("salary_assignment_cancelled_by", fields: [tenant_id, cancelled_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_salary_assignments_cancelled_by")
   rndtechnosoft_employee_salary_component_values rndtechnosoft_employee_salary_component_values[]
   rndtechnosoft_payroll_run_employees            rndtechnosoft_payroll_run_employees[]
+
+  rndtechnosoft_salary_arrears rndtechnosoft_salary_arrears[]
 
   @@unique([tenant_id, id], map: "uq_employee_salary_assignments_tenant_id")
   @@index([tenant_id, employee_id, effective_from], map: "ix_employee_salary_assignments_1")
@@ -482,7 +499,7 @@ model rndtechnosoft_employee_salary_component_values {
   rndtechnosoft_salary_components           rndtechnosoft_salary_components           @relation(fields: [tenant_id, salary_component_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_salary_component_values_2")
 
   @@unique([tenant_id, id], map: "uq_employee_salary_component_values_tenant_id")
-  @@index([tenant_id, employee_salary_assignment_id, salary_component_id], map: "ix_employee_salary_component_values_1")
+  @@unique([tenant_id, employee_salary_assignment_id, salary_component_id], map: "uq_employee_salary_component_values_1")
 }
 
 model rndtechnosoft_employee_shift_assignments {
@@ -576,6 +593,9 @@ model rndtechnosoft_employees {
   rndtechnosoft_candidates                                                                                                             rndtechnosoft_candidates?
   managed_offers                                                                                                                       rndtechnosoft_offers[]                            @relation("offer_reporting_manager")
 
+  rndtechnosoft_overtime_approvals rndtechnosoft_overtime_approvals[]
+  rndtechnosoft_salary_arrears     rndtechnosoft_salary_arrears[]
+
   @@unique([tenant_id, employee_code], map: "uq_employees_1")
   @@unique([tenant_id, user_id], map: "uq_employees_2")
   @@unique([tenant_id, id], map: "uq_employees_tenant_id")
@@ -584,17 +604,18 @@ model rndtechnosoft_employees {
 }
 
 model rndtechnosoft_employment_types {
-  id                                 String                               @id @db.Uuid
-  tenant_id                          String                               @db.Uuid
-  employment_type_code               String                               @db.VarChar(64)
-  employment_type_name               String                               @db.VarChar(120)
-  employment_type_status             String                               @default("ACTIVE") @db.VarChar(32)
-  created_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_employee_employments rndtechnosoft_employee_employments[]
-  rndtechnosoft_tenants              rndtechnosoft_tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employment_types_1")
-  rndtechnosoft_candidates           rndtechnosoft_candidates[]
-  rndtechnosoft_offers               rndtechnosoft_offers[]
+  id                                  String                                @id @db.Uuid
+  tenant_id                           String                                @db.Uuid
+  employment_type_code                String                                @db.VarChar(64)
+  employment_type_name                String                                @db.VarChar(120)
+  employment_type_status              String                                @default("ACTIVE") @db.VarChar(32)
+  created_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_employee_employments  rndtechnosoft_employee_employments[]
+  rndtechnosoft_tenants               rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employment_types_1")
+  rndtechnosoft_candidates            rndtechnosoft_candidates[]
+  rndtechnosoft_offers                rndtechnosoft_offers[]
+  rndtechnosoft_payroll_policy_scopes rndtechnosoft_payroll_policy_scopes[]
 
   @@unique([tenant_id, employment_type_code], map: "uq_employment_types_1")
   @@unique([tenant_id, id], map: "uq_employment_types_tenant_id")
@@ -873,13 +894,17 @@ model rndtechnosoft_payroll_inputs {
   reference_id                    String?                         @db.Uuid
   notes                           String?                         @db.VarChar(1000)
   approved_by_tenant_member_id    String?                         @db.Uuid
+  created_by_tenant_member_id     String?                         @db.Uuid
+  rejection_reason                String?                         @db.VarChar(500)
   approved_at                     DateTime?                       @db.Timestamptz(6)
   created_at                      DateTime                        @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                      DateTime                        @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_payroll_periods   rndtechnosoft_payroll_periods   @relation(fields: [tenant_id, payroll_period_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_inputs_1")
   rndtechnosoft_employees         rndtechnosoft_employees         @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_inputs_2")
   rndtechnosoft_salary_components rndtechnosoft_salary_components @relation(fields: [tenant_id, salary_component_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_inputs_3")
-  rndtechnosoft_tenant_members    rndtechnosoft_tenant_members?   @relation(fields: [tenant_id, approved_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_inputs_4")
+  rndtechnosoft_tenant_members    rndtechnosoft_tenant_members?   @relation("payroll_input_approved_by", fields: [tenant_id, approved_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_inputs_4")
+
+  created_by rndtechnosoft_tenant_members? @relation("payroll_input_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_inputs_created_by")
 
   @@unique([tenant_id, id], map: "uq_payroll_inputs_tenant_id")
   @@index([tenant_id, payroll_period_id, employee_id], map: "ix_payroll_inputs_1")
@@ -952,6 +977,8 @@ model rndtechnosoft_payroll_periods {
   rndtechnosoft_payslips            rndtechnosoft_payslips[]
   rndtechnosoft_bookkeeping_entries rndtechnosoft_bookkeeping_entries[]
 
+  rndtechnosoft_salary_arrears rndtechnosoft_salary_arrears[]
+
   @@unique([tenant_id, period_code], map: "uq_payroll_periods_1")
   @@unique([tenant_id, id], map: "uq_payroll_periods_tenant_id")
   @@index([tenant_id, period_start, period_end], map: "ix_payroll_periods_1")
@@ -978,6 +1005,8 @@ model rndtechnosoft_payroll_run_employees {
   rndtechnosoft_employees                   rndtechnosoft_employees                    @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_employees_2")
   rndtechnosoft_employee_salary_assignments rndtechnosoft_employee_salary_assignments? @relation(fields: [tenant_id, salary_assignment_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_employees_3")
   rndtechnosoft_payslips                    rndtechnosoft_payslips?
+
+  rndtechnosoft_salary_arrears rndtechnosoft_salary_arrears[]
 
   @@unique([tenant_id, payroll_run_id, employee_id], map: "uq_payroll_run_employees_1")
   @@unique([tenant_id, id], map: "uq_payroll_run_employees_tenant_id")
@@ -1024,7 +1053,7 @@ model rndtechnosoft_payslip_lines {
   salary_component_id             String?                          @db.Uuid
   component_code_snapshot         String                           @db.VarChar(64)
   component_name_snapshot         String                           @db.VarChar(160)
-  component_category              String                           @db.VarChar(16)
+  component_category              String                           @db.VarChar(32)
   calculation_type_snapshot       String?                          @db.VarChar(32)
   quantity                        Decimal?                         @db.Decimal(18, 4)
   rate                            Decimal?                         @db.Decimal(18, 4)
@@ -1226,7 +1255,7 @@ model rndtechnosoft_salary_components {
   tenant_id                                                                                                                                                   String                                           @db.Uuid
   component_code                                                                                                                                              String                                           @db.VarChar(64)
   component_name                                                                                                                                              String                                           @db.VarChar(160)
-  component_category                                                                                                                                          String                                           @db.VarChar(16)
+  component_category                                                                                                                                          String                                           @db.VarChar(32)
   calculation_type                                                                                                                                            String                                           @db.VarChar(32)
   is_taxable                                                                                                                                                  Boolean                                          @default(true)
   is_recurring                                                                                                                                                Boolean                                          @default(true)
@@ -1236,6 +1265,15 @@ model rndtechnosoft_salary_components {
   rounding_scale                                                                                                                                              Int                                              @default(2)
   formula_key                                                                                                                                                 String?                                          @db.VarChar(120)
   component_status                                                                                                                                            String                                           @default("ACTIVE") @db.VarChar(32)
+  component_description                                                                                                                                       String?                                          @db.VarChar(500)
+  is_statutory                                                                                                                                                Boolean                                          @default(false)
+  system_rule                                                                                                                                                 String?                                          @db.VarChar(32)
+  is_prorated                                                                                                                                                 Boolean                                          @default(true)
+  include_in_gross                                                                                                                                            Boolean                                          @default(true)
+  include_in_ctc                                                                                                                                              Boolean                                          @default(true)
+  min_amount                                                                                                                                                  Decimal?                                         @db.Decimal(18, 2)
+  max_amount                                                                                                                                                  Decimal?                                         @db.Decimal(18, 2)
+  rounding_mode                                                                                                                                               String                                           @default("HALF_UP") @db.VarChar(16)
   archived_at                                                                                                                                                 DateTime?                                        @db.Timestamptz(6)
   created_at                                                                                                                                                  DateTime                                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                                                                                                                                                  DateTime                                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
@@ -1251,23 +1289,25 @@ model rndtechnosoft_salary_components {
 }
 
 model rndtechnosoft_salary_structure_components {
-  id                                                                                                                                                String                           @id @db.Uuid
-  tenant_id                                                                                                                                         String                           @db.Uuid
-  salary_structure_id                                                                                                                               String                           @db.Uuid
-  salary_component_id                                                                                                                               String                           @db.Uuid
-  default_amount                                                                                                                                    Decimal?                         @db.Decimal(18, 2)
-  default_percentage                                                                                                                                Decimal?                         @db.Decimal(9, 4)
-  percentage_base_component_id                                                                                                                      String?                          @db.Uuid
+  id                                                                                                                                                String                                  @id @db.Uuid
+  tenant_id                                                                                                                                         String                                  @db.Uuid
+  salary_structure_version_id                                                                                                                       String                                  @db.Uuid
+  salary_component_id                                                                                                                               String                                  @db.Uuid
+  default_amount                                                                                                                                    Decimal?                                @db.Decimal(18, 2)
+  default_percentage                                                                                                                                Decimal?                                @db.Decimal(9, 4)
+  percentage_base_component_id                                                                                                                      String?                                 @db.Uuid
+  formula_expression                                                                                                                                String?                                 @db.VarChar(1000)
+  percentage_base_variable                                                                                                                          String?                                 @db.VarChar(32)
   formula_config                                                                                                                                    Json?
-  is_mandatory                                                                                                                                      Boolean                          @default(true)
-  display_order                                                                                                                                     Int                              @default(100)
-  created_at                                                                                                                                        DateTime                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                                                                                                                                        DateTime                         @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_salary_structures                                                                                                                   rndtechnosoft_salary_structures  @relation(fields: [tenant_id, salary_structure_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_components_1")
-  rndtechnosoft_salary_components_rndtechnosoft_salary_structure_components_tenant_id_salary_component_idTorndtechnosoft_salary_components          rndtechnosoft_salary_components  @relation("rndtechnosoft_salary_structure_components_tenant_id_salary_component_idTorndtechnosoft_salary_components", fields: [tenant_id, salary_component_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_components_2")
-  rndtechnosoft_salary_components_rndtechnosoft_salary_structure_components_tenant_id_percentage_base_component_idTorndtechnosoft_salary_components rndtechnosoft_salary_components? @relation("rndtechnosoft_salary_structure_components_tenant_id_percentage_base_component_idTorndtechnosoft_salary_components", fields: [tenant_id, percentage_base_component_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_components_3")
+  is_mandatory                                                                                                                                      Boolean                                 @default(true)
+  display_order                                                                                                                                     Int                                     @default(100)
+  created_at                                                                                                                                        DateTime                                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                                                                                                                                        DateTime                                @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_salary_structure_versions                                                                                                           rndtechnosoft_salary_structure_versions @relation(fields: [tenant_id, salary_structure_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_components_version")
+  rndtechnosoft_salary_components_rndtechnosoft_salary_structure_components_tenant_id_salary_component_idTorndtechnosoft_salary_components          rndtechnosoft_salary_components         @relation("rndtechnosoft_salary_structure_components_tenant_id_salary_component_idTorndtechnosoft_salary_components", fields: [tenant_id, salary_component_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_components_2")
+  rndtechnosoft_salary_components_rndtechnosoft_salary_structure_components_tenant_id_percentage_base_component_idTorndtechnosoft_salary_components rndtechnosoft_salary_components?        @relation("rndtechnosoft_salary_structure_components_tenant_id_percentage_base_component_idTorndtechnosoft_salary_components", fields: [tenant_id, percentage_base_component_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_components_3")
 
-  @@unique([tenant_id, salary_structure_id, salary_component_id], map: "uq_salary_structure_components_1")
+  @@unique([tenant_id, salary_structure_version_id, salary_component_id], map: "uq_salary_structure_components_1")
   @@unique([tenant_id, id], map: "uq_salary_structure_components_tenant_id")
 }
 
@@ -1278,13 +1318,11 @@ model rndtechnosoft_salary_structures {
   salary_structure_name                     String                                      @db.VarChar(160)
   pay_frequency                             String                                      @default("MONTHLY") @db.VarChar(32)
   structure_status                          String                                      @default("ACTIVE") @db.VarChar(32)
-  effective_from                            DateTime                                    @db.Date
-  effective_to                              DateTime?                                   @db.Date
   archived_at                               DateTime?                                   @db.Timestamptz(6)
   created_at                                DateTime                                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                                DateTime                                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_employee_salary_assignments rndtechnosoft_employee_salary_assignments[]
-  rndtechnosoft_salary_structure_components rndtechnosoft_salary_structure_components[]
+  rndtechnosoft_salary_structure_versions   rndtechnosoft_salary_structure_versions[]
   rndtechnosoft_tenants                     rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structures_1")
 
   @@unique([tenant_id, salary_structure_code], map: "uq_salary_structures_1")
@@ -1411,7 +1449,7 @@ model rndtechnosoft_tenant_members {
   rndtechnosoft_audit_logs                                                                                                                        rndtechnosoft_audit_logs[]
   rndtechnosoft_employee_documents                                                                                                                rndtechnosoft_employee_documents[]
   rndtechnosoft_leave_approvals                                                                                                                   rndtechnosoft_leave_approvals[]
-  rndtechnosoft_payroll_inputs                                                                                                                    rndtechnosoft_payroll_inputs[]
+  rndtechnosoft_payroll_inputs                                                                                                                    rndtechnosoft_payroll_inputs[]              @relation("payroll_input_approved_by")
   rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members                       rndtechnosoft_payroll_runs[]                @relation("rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members")
   rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members                      rndtechnosoft_payroll_runs[]                @relation("rndtechnosoft_payroll_runs_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members")
   rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members                     rndtechnosoft_payroll_runs[]                @relation("rndtechnosoft_payroll_runs_tenant_id_finalized_by_tenant_member_idTorndtechnosoft_tenant_members")
@@ -1442,6 +1480,19 @@ model rndtechnosoft_tenant_members {
   created_letterheads                                                                                                                             rndtechnosoft_letterheads[]                 @relation("letterhead_created_by")
   uploaded_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_uploaded_by")
   reviewed_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_reviewed_by")
+  email_sequences_created                                                                                                                         rndtechnosoft_email_sequences[]             @relation("email_sequence_created_by")
+  email_sequence_enrollments_made                                                                                                                 rndtechnosoft_email_sequence_enrollments[]  @relation("email_sequence_enrolled_by")
+  email_sequence_enrollments_stopped                                                                                                              rndtechnosoft_email_sequence_enrollments[]  @relation("email_sequence_stopped_by")
+  email_sequence_rules_created                                                                                                                    rndtechnosoft_email_sequence_rules[]        @relation("email_sequence_rule_created_by")
+  payroll_policies_created                                                                                                                        rndtechnosoft_payroll_policies[]            @relation("payroll_policy_created_by")
+  payroll_policy_versions_published                                                                                                               rndtechnosoft_payroll_policy_versions[]     @relation("payroll_policy_version_published_by")
+  salary_structure_versions_published                                                                                                             rndtechnosoft_salary_structure_versions[]   @relation("salary_structure_version_published_by")
+  salary_assignments_created                                                                                                                      rndtechnosoft_employee_salary_assignments[] @relation("salary_assignment_created_by")
+  salary_assignments_cancelled                                                                                                                    rndtechnosoft_employee_salary_assignments[] @relation("salary_assignment_cancelled_by")
+  payroll_inputs_created                                                                                                                          rndtechnosoft_payroll_inputs[]              @relation("payroll_input_created_by")
+  overtime_decisions                                                                                                                              rndtechnosoft_overtime_approvals[]          @relation("overtime_decided_by")
+  salary_arrears_created                                                                                                                          rndtechnosoft_salary_arrears[]              @relation("salary_arrears_created_by")
+  email_suppressions_added                                                                                                                        rndtechnosoft_email_suppressions[]          @relation("email_suppression_created_by")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
@@ -1562,6 +1613,7 @@ model rndtechnosoft_tenants {
   rndtechnosoft_roles                          rndtechnosoft_roles[]
   rndtechnosoft_salary_components              rndtechnosoft_salary_components[]
   rndtechnosoft_salary_structures              rndtechnosoft_salary_structures[]
+  rndtechnosoft_payroll_policies               rndtechnosoft_payroll_policies[]
   rndtechnosoft_shifts                         rndtechnosoft_shifts[]
   rndtechnosoft_teams                          rndtechnosoft_teams[]
   rndtechnosoft_tenant_members                 rndtechnosoft_tenant_members[]
@@ -1597,6 +1649,8 @@ model rndtechnosoft_tenants {
   rndtechnosoft_document_templates             rndtechnosoft_document_templates[]
   rndtechnosoft_letterheads                    rndtechnosoft_letterheads[]
   rndtechnosoft_cosec_sync_states              rndtechnosoft_cosec_sync_states?
+  rndtechnosoft_email_sequences                rndtechnosoft_email_sequences[]
+  rndtechnosoft_email_suppressions             rndtechnosoft_email_suppressions[]
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
@@ -1934,56 +1988,60 @@ model rndtechnosoft_tenant_quotas {
 // ==========================================
 
 model rndtechnosoft_crm_pipelines {
-  id                       String                     @id @db.Uuid
-  tenant_id                String                     @db.Uuid
-  name                     String                     @db.VarChar(120)
-  code                     String                     @db.VarChar(64)
+  id                                 String                               @id @db.Uuid
+  tenant_id                          String                               @db.Uuid
+  name                               String                               @db.VarChar(120)
+  code                               String                               @db.VarChar(64)
   /// SALES (opportunities) or OUTREACH (Client Outreach cadence leads).
-  pipeline_kind            String                     @default("SALES") @db.VarChar(16)
-  is_default               Boolean                    @default(false)
-  sort_order               Int                        @default(0)
-  is_active                Boolean                    @default(true)
-  created_at               DateTime                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at               DateTime                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_tenants    rndtechnosoft_tenants      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_pipelines_tenant")
-  rndtechnosoft_crm_stages rndtechnosoft_crm_stages[]
-  rndtechnosoft_crm_leads  rndtechnosoft_crm_leads[]
+  pipeline_kind                      String                               @default("SALES") @db.VarChar(16)
+  is_default                         Boolean                              @default(false)
+  sort_order                         Int                                  @default(0)
+  is_active                          Boolean                              @default(true)
+  created_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants              rndtechnosoft_tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_pipelines_tenant")
+  rndtechnosoft_crm_stages           rndtechnosoft_crm_stages[]
+  rndtechnosoft_crm_leads            rndtechnosoft_crm_leads[]
+  rndtechnosoft_email_sequence_rules rndtechnosoft_email_sequence_rules[]
 
   @@unique([tenant_id, code], map: "uq_crm_pipelines_code")
   @@unique([tenant_id, id], map: "uq_crm_pipelines_tenant_id")
 }
 
 model rndtechnosoft_crm_stages {
-  id                          String                      @id @db.Uuid
-  tenant_id                   String                      @db.Uuid
-  pipeline_id                 String                      @db.Uuid
-  name                        String                      @db.VarChar(100)
-  color                       String                      @default("#6366f1") @db.VarChar(32)
-  stage_probability           Int                         @default(50)
-  sla_duration_hours          Int                         @default(72)
-  is_won                      Boolean                     @default(false)
-  is_lost                     Boolean                     @default(false)
-  sort_order                  Int                         @default(0)
-  created_at                  DateTime                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                  DateTime                    @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_tenants       rndtechnosoft_tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_stages_tenant")
-  rndtechnosoft_crm_pipelines rndtechnosoft_crm_pipelines @relation(fields: [tenant_id, pipeline_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_stages_pipeline")
-  rndtechnosoft_crm_leads     rndtechnosoft_crm_leads[]
+  id                                       String                                     @id @db.Uuid
+  tenant_id                                String                                     @db.Uuid
+  pipeline_id                              String                                     @db.Uuid
+  name                                     String                                     @db.VarChar(100)
+  color                                    String                                     @default("#6366f1") @db.VarChar(32)
+  stage_probability                        Int                                        @default(50)
+  sla_duration_hours                       Int                                        @default(72)
+  is_won                                   Boolean                                    @default(false)
+  is_lost                                  Boolean                                    @default(false)
+  sort_order                               Int                                        @default(0)
+  created_at                               DateTime                                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                               DateTime                                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_stages_tenant")
+  rndtechnosoft_crm_pipelines              rndtechnosoft_crm_pipelines                @relation(fields: [tenant_id, pipeline_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_stages_pipeline")
+  rndtechnosoft_crm_leads                  rndtechnosoft_crm_leads[]
+  rndtechnosoft_email_sequence_stop_stages rndtechnosoft_email_sequence_stop_stages[]
+  rndtechnosoft_email_sequence_rules       rndtechnosoft_email_sequence_rules[]
 
   @@unique([tenant_id, id], map: "uq_crm_stages_tenant_id")
   @@index([tenant_id, pipeline_id], map: "ix_crm_stages_pipeline")
 }
 
 model rndtechnosoft_crm_lead_sources {
-  id                      String                    @id @db.Uuid
-  tenant_id               String                    @db.Uuid
-  name                    String                    @db.VarChar(100)
-  channel                 String                    @default("INBOUND_WEB") @db.VarChar(64)
-  sort_order              Int                       @default(0)
-  is_active               Boolean                   @default(true)
-  created_at              DateTime                  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_tenants   rndtechnosoft_tenants     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_lead_sources_tenant")
-  rndtechnosoft_crm_leads rndtechnosoft_crm_leads[]
+  id                                 String                               @id @db.Uuid
+  tenant_id                          String                               @db.Uuid
+  name                               String                               @db.VarChar(100)
+  channel                            String                               @default("INBOUND_WEB") @db.VarChar(64)
+  sort_order                         Int                                  @default(0)
+  is_active                          Boolean                              @default(true)
+  created_at                         DateTime                             @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants              rndtechnosoft_tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_lead_sources_tenant")
+  rndtechnosoft_crm_leads            rndtechnosoft_crm_leads[]
+  rndtechnosoft_email_sequence_rules rndtechnosoft_email_sequence_rules[]
 
   @@unique([tenant_id, id], map: "uq_crm_lead_sources_tenant_id")
 }
@@ -2077,73 +2135,76 @@ model rndtechnosoft_crm_sop_industries_master {
 }
 
 model rndtechnosoft_crm_leads {
-  id                                    String                                 @id @db.Uuid
-  tenant_id                             String                                 @db.Uuid
-  lead_code                             String                                 @db.VarChar(64)
-  company_name                          String                                 @db.VarChar(200)
-  first_name                            String?                                @db.VarChar(100)
-  last_name                             String?                                @db.VarChar(100)
-  email                                 String                                 @db.VarChar(320)
-  phone                                 String?                                @db.VarChar(32)
-  whatsapp_number                       String?                                @db.VarChar(32)
-  website_url                           String?                                @db.VarChar(255)
-  linkedin_url                          String?                                @db.VarChar(255)
-  designation                           String?                                @db.VarChar(100)
-  city                                  String?                                @db.VarChar(100)
-  state                                 String?                                @db.VarChar(100)
-  country_code                          String?                                @default("IN") @db.Char(2)
-  address                               String?                                @db.Text
-  postal_code                           String?                                @db.VarChar(20)
-  industry                              String?                                @db.VarChar(80)
-  sub_industry                          String?                                @db.VarChar(100)
-  alternate_email                       String?                                @db.VarChar(320)
-  alternate_phone                       String?                                @db.VarChar(32)
-  linkedin_company_url                  String?                                @db.VarChar(255)
-  website_status                        String?                                @db.VarChar(32)
-  primary_service_id                    String?                                @db.Uuid
-  primary_service                       String?                                @db.VarChar(200)
-  requirement_brief                     String?                                @db.Text
-  internal_notes                        String?                                @db.Text
-  budget_amount                         Decimal                                @default(0) @db.Decimal(14, 2)
-  currency_code                         String                                 @default("INR") @db.Char(3)
-  pipeline_id                           String                                 @db.Uuid
-  stage_id                              String                                 @db.Uuid
-  source_id                             String?                                @db.Uuid
-  assigned_tenant_member_id             String?                                @db.Uuid
-  temperature                           String                                 @default("WARM") @db.VarChar(32)
-  ai_score                              Int                                    @default(50)
-  win_probability                       Decimal?                               @default(20) @db.Decimal(5, 2)
-  urgency                               String?                                @default("MEDIUM") @db.VarChar(32)
-  cadence_step                          Int                                    @default(1)
-  touchpoints_count                     Int                                    @default(0)
-  next_followup_at                      DateTime?                              @db.Timestamptz(6)
-  last_contacted_at                     DateTime?                              @db.Timestamptz(6)
-  sla_status                            String                                 @default("NORMAL") @db.VarChar(32)
-  gstin                                 String?                                @db.VarChar(32)
-  pan                                   String?                                @db.VarChar(32)
-  is_won                                Boolean                                @default(false)
-  is_lost                               Boolean                                @default(false)
-  lost_reason_id                        String?                                @db.Uuid
-  converted_client_id                   String?                                @db.Uuid
-  converted_project_id                  String?                                @db.VarChar(64)
-  closed_at                             DateTime?                              @db.Timestamptz(6)
-  client_id                             String?                                @db.Uuid
-  is_existing_client                    Boolean?                               @default(false)
-  custom_attributes                     Json?
-  stage_entered_at                      DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  created_at                            DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at                            DateTime                               @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  rndtechnosoft_tenants                 rndtechnosoft_tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_tenant")
-  rndtechnosoft_crm_pipelines           rndtechnosoft_crm_pipelines            @relation(fields: [tenant_id, pipeline_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_pipeline")
-  rndtechnosoft_crm_stages              rndtechnosoft_crm_stages               @relation(fields: [tenant_id, stage_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_stage")
-  rndtechnosoft_crm_lead_sources        rndtechnosoft_crm_lead_sources?        @relation(fields: [tenant_id, source_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_source")
-  rndtechnosoft_crm_services_master     rndtechnosoft_crm_services_master?     @relation(fields: [tenant_id, primary_service_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_service")
-  rndtechnosoft_crm_lost_reasons_master rndtechnosoft_crm_lost_reasons_master? @relation(fields: [tenant_id, lost_reason_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_lost_reason")
-  rndtechnosoft_tenant_members          rndtechnosoft_tenant_members?          @relation(fields: [tenant_id, assigned_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_assigned_member")
-  rndtechnosoft_crm_lead_activities     rndtechnosoft_crm_lead_activities[]
-  rndtechnosoft_crm_lead_followups      rndtechnosoft_crm_lead_followups[]
-  rndtechnosoft_crm_meetings            rndtechnosoft_crm_meetings[]
-  rndtechnosoft_crm_quotations          rndtechnosoft_crm_quotations[]
+  id                                       String                                     @id @db.Uuid
+  tenant_id                                String                                     @db.Uuid
+  lead_code                                String                                     @db.VarChar(64)
+  company_name                             String                                     @db.VarChar(200)
+  first_name                               String?                                    @db.VarChar(100)
+  last_name                                String?                                    @db.VarChar(100)
+  email                                    String                                     @db.VarChar(320)
+  phone                                    String?                                    @db.VarChar(32)
+  whatsapp_number                          String?                                    @db.VarChar(32)
+  website_url                              String?                                    @db.VarChar(255)
+  linkedin_url                             String?                                    @db.VarChar(255)
+  designation                              String?                                    @db.VarChar(100)
+  city                                     String?                                    @db.VarChar(100)
+  state                                    String?                                    @db.VarChar(100)
+  country_code                             String?                                    @default("IN") @db.Char(2)
+  address                                  String?                                    @db.Text
+  postal_code                              String?                                    @db.VarChar(20)
+  industry                                 String?                                    @db.VarChar(80)
+  sub_industry                             String?                                    @db.VarChar(100)
+  alternate_email                          String?                                    @db.VarChar(320)
+  alternate_phone                          String?                                    @db.VarChar(32)
+  linkedin_company_url                     String?                                    @db.VarChar(255)
+  website_status                           String?                                    @db.VarChar(32)
+  primary_service_id                       String?                                    @db.Uuid
+  primary_service                          String?                                    @db.VarChar(200)
+  requirement_brief                        String?                                    @db.Text
+  internal_notes                           String?                                    @db.Text
+  budget_amount                            Decimal                                    @default(0) @db.Decimal(14, 2)
+  currency_code                            String                                     @default("INR") @db.Char(3)
+  pipeline_id                              String                                     @db.Uuid
+  stage_id                                 String                                     @db.Uuid
+  source_id                                String?                                    @db.Uuid
+  assigned_tenant_member_id                String?                                    @db.Uuid
+  temperature                              String                                     @default("WARM") @db.VarChar(32)
+  ai_score                                 Int                                        @default(50)
+  win_probability                          Decimal?                                   @default(20) @db.Decimal(5, 2)
+  urgency                                  String?                                    @default("MEDIUM") @db.VarChar(32)
+  cadence_step                             Int                                        @default(1)
+  touchpoints_count                        Int                                        @default(0)
+  next_followup_at                         DateTime?                                  @db.Timestamptz(6)
+  last_contacted_at                        DateTime?                                  @db.Timestamptz(6)
+  sla_status                               String                                     @default("NORMAL") @db.VarChar(32)
+  gstin                                    String?                                    @db.VarChar(32)
+  pan                                      String?                                    @db.VarChar(32)
+  is_won                                   Boolean                                    @default(false)
+  is_lost                                  Boolean                                    @default(false)
+  lost_reason_id                           String?                                    @db.Uuid
+  converted_client_id                      String?                                    @db.Uuid
+  converted_project_id                     String?                                    @db.VarChar(64)
+  closed_at                                DateTime?                                  @db.Timestamptz(6)
+  client_id                                String?                                    @db.Uuid
+  is_existing_client                       Boolean?                                   @default(false)
+  custom_attributes                        Json?
+  stage_entered_at                         DateTime                                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  created_at                               DateTime                                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                               DateTime                                   @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_tenant")
+  rndtechnosoft_crm_pipelines              rndtechnosoft_crm_pipelines                @relation(fields: [tenant_id, pipeline_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_pipeline")
+  rndtechnosoft_crm_stages                 rndtechnosoft_crm_stages                   @relation(fields: [tenant_id, stage_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_stage")
+  rndtechnosoft_crm_lead_sources           rndtechnosoft_crm_lead_sources?            @relation(fields: [tenant_id, source_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_source")
+  rndtechnosoft_crm_services_master        rndtechnosoft_crm_services_master?         @relation(fields: [tenant_id, primary_service_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_service")
+  rndtechnosoft_crm_lost_reasons_master    rndtechnosoft_crm_lost_reasons_master?     @relation(fields: [tenant_id, lost_reason_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_lost_reason")
+  rndtechnosoft_tenant_members             rndtechnosoft_tenant_members?              @relation(fields: [tenant_id, assigned_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_leads_assigned_member")
+  rndtechnosoft_crm_lead_activities        rndtechnosoft_crm_lead_activities[]
+  rndtechnosoft_crm_lead_followups         rndtechnosoft_crm_lead_followups[]
+  rndtechnosoft_crm_meetings               rndtechnosoft_crm_meetings[]
+  rndtechnosoft_crm_quotations             rndtechnosoft_crm_quotations[]
+  rndtechnosoft_email_sequence_enrollments rndtechnosoft_email_sequence_enrollments[]
+  rndtechnosoft_email_sequence_sends       rndtechnosoft_email_sequence_sends[]
+  rndtechnosoft_email_sequence_rule_events rndtechnosoft_email_sequence_rule_events[]
 
   @@unique([tenant_id, lead_code], map: "uq_crm_leads_code")
   @@unique([tenant_id, id], map: "uq_crm_leads_tenant_id")
@@ -2586,7 +2647,11 @@ model rndtechnosoft_document_template_versions {
   /// Page layout, fixed with the wording when the version is approved. No letterhead: a plain page.
   letterhead_id                String?   @db.Uuid
   page_size                    String    @default("A4") @db.VarChar(8)
-  margin_mm                    Int       @default(20)
+  /// Page margins in mm: the letter text stays inside them (and below and above the letterhead).
+  margin_top_mm                Int       @default(20)
+  margin_right_mm              Int       @default(20)
+  margin_bottom_mm             Int       @default(20)
+  margin_left_mm               Int       @default(20)
   show_page_numbers            Boolean   @default(false)
   created_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
@@ -2763,6 +2828,10 @@ model rndtechnosoft_letterheads {
   footer_image_storage_key    String?  @db.VarChar(500)
   header_height_mm            Int      @default(30)
   footer_height_mm            Int      @default(16)
+  /// Where the letterhead sits, in mm from the page's top edge (header), bottom edge (footer) and side edges; none: at each template's margins.
+  header_offset_mm            Int?
+  footer_offset_mm            Int?
+  side_offset_mm              Int?
   /// Image boxes set in the visual editor, in mm from the header/footer area's top-left; none: the automatic layout.
   logo_x_mm                   Decimal? @db.Decimal(6, 1)
   logo_y_mm                   Decimal? @db.Decimal(6, 1)
@@ -2779,6 +2848,17 @@ model rndtechnosoft_letterheads {
   footer_art_width_mm         Decimal? @db.Decimal(6, 1)
   footer_art_height_mm        Decimal? @db.Decimal(6, 1)
   footer_art_stretch          Boolean  @default(false)
+  /// Rotation of each placed image about its box's centre, in degrees clockwise.
+  logo_rotation_deg           Decimal  @default(0) @db.Decimal(5, 1)
+  header_art_rotation_deg     Decimal  @default(0) @db.Decimal(5, 1)
+  footer_art_rotation_deg     Decimal  @default(0) @db.Decimal(5, 1)
+  /// Hidden images are kept but not printed; locked ones can't be moved in the editor.
+  is_logo_hidden              Boolean  @default(false)
+  is_header_art_hidden        Boolean  @default(false)
+  is_footer_art_hidden        Boolean  @default(false)
+  is_logo_locked              Boolean  @default(false)
+  is_header_art_locked        Boolean  @default(false)
+  is_footer_art_locked        Boolean  @default(false)
   is_default                  Boolean  @default(false)
   is_archived                 Boolean  @default(false)
   created_by_tenant_member_id String?  @db.Uuid
@@ -2788,8 +2868,63 @@ model rndtechnosoft_letterheads {
   rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_letterheads_tenant")
   created_by                               rndtechnosoft_tenant_members?              @relation("letterhead_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_letterheads_created_by")
   rndtechnosoft_document_template_versions rndtechnosoft_document_template_versions[]
+  rndtechnosoft_letterhead_assets          rndtechnosoft_letterhead_assets[]
+  rndtechnosoft_letterhead_elements        rndtechnosoft_letterhead_elements[]
 
   @@unique([tenant_id, id], map: "uq_letterheads_tenant_id")
+}
+
+/// An image uploaded for a letterhead's page elements (such as an image watermark), stored privately.
+model rndtechnosoft_letterhead_assets {
+  id            String   @id @db.Uuid
+  tenant_id     String   @db.Uuid
+  letterhead_id String   @db.Uuid
+  storage_key   String   @db.VarChar(500)
+  width_px      Int
+  height_px     Int
+  created_at    DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_letterheads         rndtechnosoft_letterheads           @relation(fields: [tenant_id, letterhead_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_letterhead_assets_letterhead")
+  rndtechnosoft_letterhead_elements rndtechnosoft_letterhead_elements[]
+
+  @@unique([tenant_id, id], map: "uq_letterhead_assets_tenant_id")
+  @@unique([tenant_id, letterhead_id, id], map: "uq_letterhead_assets_letterhead_id")
+}
+
+/// A design element placed on every page of a letterhead, such as a text or image watermark: in mm from the page's top-left, drawn behind or in front of the letter text in layer order.
+model rndtechnosoft_letterhead_elements {
+  id            String   @id @db.Uuid
+  tenant_id     String   @db.Uuid
+  letterhead_id String   @db.Uuid
+  element_kind  String   @db.VarChar(8)
+  /// Paint order, lowest first, within the elements behind (or in front of) the text.
+  layer_order   Int
+  is_above_text Boolean  @default(false)
+  is_hidden     Boolean  @default(false)
+  is_locked     Boolean  @default(false)
+  x_mm          Decimal  @db.Decimal(6, 1)
+  y_mm          Decimal  @db.Decimal(6, 1)
+  width_mm      Decimal  @db.Decimal(6, 1)
+  height_mm     Decimal  @db.Decimal(6, 1)
+  rotation_deg  Decimal  @default(0) @db.Decimal(5, 1)
+  opacity       Decimal  @default(1) @db.Decimal(3, 2)
+  /// IMAGE elements: the uploaded image.
+  asset_id      String?  @db.Uuid
+  /// TEXT elements: the text and how it looks.
+  text_content  String?  @db.VarChar(200)
+  font_family   String?  @db.VarChar(16)
+  font_size_pt  Decimal? @db.Decimal(5, 1)
+  is_bold       Boolean  @default(false)
+  is_italic     Boolean  @default(false)
+  text_color    String?  @db.VarChar(7)
+  text_align    String?  @db.VarChar(6)
+  created_at    DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_letterheads       rndtechnosoft_letterheads        @relation(fields: [tenant_id, letterhead_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_letterhead_elements_letterhead")
+  rndtechnosoft_letterhead_assets rndtechnosoft_letterhead_assets? @relation(fields: [tenant_id, letterhead_id, asset_id], references: [tenant_id, letterhead_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_letterhead_elements_asset")
+
+  @@unique([tenant_id, letterhead_id, layer_order], map: "uq_letterhead_elements_layer")
+  @@index([tenant_id, letterhead_id, asset_id], map: "ix_letterhead_elements_asset")
 }
 
 /// A member's own mail account in a workspace: SMTP to send as them, and optionally IMAP to read their inbox. Passwords are encrypted; one account per member per workspace.
@@ -2849,4 +2984,434 @@ model rndtechnosoft_cosec_sync_states {
   updated_at           DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
   rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cosec_sync_states_tenant")
+}
+
+/// An automatic email sequence (drip): emails sent on a schedule to enrolled CRM leads until they reply, bounce, unsubscribe, close or are stopped.
+model rndtechnosoft_email_sequences {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  sequence_name               String    @db.VarChar(120)
+  description                 String?   @db.VarChar(500)
+  /// DRAFT, ACTIVE, PAUSED or ARCHIVED. Only ACTIVE sends.
+  sequence_status             String    @default("DRAFT") @db.VarChar(16)
+  /// ORGANIZATION: the workspace's account. LEAD_OWNER: the lead owner's own account, when the workspace allows personal accounts.
+  sender_mode                 String    @default("ORGANIZATION") @db.VarChar(16)
+  /// Days emails may go out (0 = Sunday … 6 = Saturday) and the window, in minutes after midnight, workspace time.
+  send_weekdays               Int[]     @default([1, 2, 3, 4, 5])
+  window_start_minute         Int       @default(600)
+  window_end_minute           Int       @default(1020)
+  skip_holidays               Boolean   @default(true)
+  /// Emails this sequence sends from one mailbox in one workspace day.
+  daily_limit                 Int       @default(50)
+  /// Raised on every change to the steps or schedule; each send records the version it was made under.
+  definition_version          Int       @default(1)
+  created_by_tenant_member_id String?   @db.Uuid
+  activated_at                DateTime? @db.Timestamptz(6)
+  paused_at                   DateTime? @db.Timestamptz(6)
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequences_tenant")
+  created_by                               rndtechnosoft_tenant_members?              @relation("email_sequence_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequences_created_by")
+  rndtechnosoft_email_sequence_steps       rndtechnosoft_email_sequence_steps[]
+  rndtechnosoft_email_sequence_stop_stages rndtechnosoft_email_sequence_stop_stages[]
+  rndtechnosoft_email_sequence_enrollments rndtechnosoft_email_sequence_enrollments[]
+  rndtechnosoft_email_sequence_sends       rndtechnosoft_email_sequence_sends[]
+  rndtechnosoft_email_sequence_rules       rndtechnosoft_email_sequence_rules[]
+
+  @@unique([tenant_id, id], map: "uq_email_sequences_tenant_id")
+  @@index([tenant_id, sequence_status], map: "ix_email_sequences_status")
+}
+
+/// One email of a sequence: sent a delay after enrollment (the first) or after the previous email. Its subject and body are its own copy; a library template it started from is only named.
+model rndtechnosoft_email_sequence_steps {
+  id            String    @id @db.Uuid
+  tenant_id     String    @db.Uuid
+  sequence_id   String    @db.Uuid
+  step_order    Int
+  step_name     String    @db.VarChar(120)
+  delay_amount  Int       @default(0)
+  /// WORKING_DAYS (Monday to Friday, not holidays) or CALENDAR_DAYS.
+  delay_unit    String    @default("WORKING_DAYS") @db.VarChar(16)
+  template_id   String?   @db.Uuid
+  template_name String?   @db.VarChar(160)
+  subject       String    @db.VarChar(300)
+  body_text     String    @db.Text
+  is_enabled    Boolean   @default(true)
+  /// Removed from the sequence; kept while emails sent from it are on record.
+  removed_at    DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_email_sequences      rndtechnosoft_email_sequences        @relation(fields: [tenant_id, sequence_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_steps_sequence")
+  rndtechnosoft_email_sequence_sends rndtechnosoft_email_sequence_sends[]
+
+  @@unique([tenant_id, id], map: "uq_email_sequence_steps_tenant_id")
+  @@index([tenant_id, sequence_id, step_order], map: "ix_email_sequence_steps_order")
+}
+
+/// Stages that end a sequence for a lead that enters them (besides won and lost, which always do).
+model rndtechnosoft_email_sequence_stop_stages {
+  tenant_id   String @db.Uuid
+  sequence_id String @db.Uuid
+  stage_id    String @db.Uuid
+
+  rndtechnosoft_email_sequences rndtechnosoft_email_sequences @relation(fields: [tenant_id, sequence_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_stop_stages_sequence")
+  rndtechnosoft_crm_stages      rndtechnosoft_crm_stages      @relation(fields: [tenant_id, stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_stop_stages_stage")
+
+  @@id([sequence_id, stage_id])
+}
+
+/// A lead going through a sequence. A lead is in at most one sequence at a time (enforced by a partial unique index).
+model rndtechnosoft_email_sequence_enrollments {
+  id                           String    @id @db.Uuid
+  tenant_id                    String    @db.Uuid
+  sequence_id                  String    @db.Uuid
+  lead_id                      String    @db.Uuid
+  /// ACTIVE, COMPLETED or STOPPED.
+  enrollment_status            String    @default("ACTIVE") @db.VarChar(16)
+  recipient_email              String    @db.VarChar(320)
+  /// MANUAL, BULK or RULE.
+  enrolled_via                 String    @db.VarChar(16)
+  rule_id                      String?   @db.Uuid
+  enrolled_by_tenant_member_id String?   @db.Uuid
+  /// REPLIED, BOUNCED, UNSUBSCRIBED, WON, LOST, STOP_STAGE, MANUAL, SUPPRESSED, SEQUENCE_ARCHIVED, MOVED_TO_OUTREACH, NO_EMAIL.
+  stop_reason                  String?   @db.VarChar(32)
+  stop_detail                  String?   @db.VarChar(500)
+  stopped_by_tenant_member_id  String?   @db.Uuid
+  stopped_at                   DateTime? @db.Timestamptz(6)
+  completed_at                 DateTime? @db.Timestamptz(6)
+  created_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_email_sequences      rndtechnosoft_email_sequences        @relation(fields: [tenant_id, sequence_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_enrollments_sequence")
+  rndtechnosoft_crm_leads            rndtechnosoft_crm_leads              @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_enrollments_lead")
+  enrolled_by                        rndtechnosoft_tenant_members?        @relation("email_sequence_enrolled_by", fields: [tenant_id, enrolled_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_enrollments_enrolled_by")
+  stopped_by                         rndtechnosoft_tenant_members?        @relation("email_sequence_stopped_by", fields: [tenant_id, stopped_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_enrollments_stopped_by")
+  rndtechnosoft_email_sequence_sends rndtechnosoft_email_sequence_sends[]
+
+  @@unique([tenant_id, id], map: "uq_email_sequence_enrollments_tenant_id")
+  @@index([tenant_id, sequence_id, enrollment_status], map: "ix_email_sequence_enrollments_status")
+  @@index([tenant_id, lead_id], map: "ix_email_sequence_enrollments_lead")
+}
+
+/// Every email of a sequence, from scheduled to sent (or failed or cancelled): the schedule and the send log in one. One row per enrollment and step, so a step is never sent twice.
+model rndtechnosoft_email_sequence_sends {
+  id                     String    @id @db.Uuid
+  tenant_id              String    @db.Uuid
+  sequence_id            String    @db.Uuid
+  step_id                String    @db.Uuid
+  enrollment_id          String    @db.Uuid
+  lead_id                String    @db.Uuid
+  /// SCHEDULED, SENDING, SENT, FAILED, UNCERTAIN (the server may have taken it; a person decides), CANCELLED or BOUNCED.
+  send_status            String    @default("SCHEDULED") @db.VarChar(16)
+  scheduled_at           DateTime  @db.Timestamptz(6)
+  attempt_count          Int       @default(0)
+  claimed_at             DateTime? @db.Timestamptz(6)
+  definition_version     Int
+  recipient_email        String    @db.VarChar(320)
+  /// ORGANIZATION, PERSONAL or GMAIL, and the account's address and (for a member's account) the member.
+  sender_kind            String?   @db.VarChar(16)
+  sender_email           String?   @db.VarChar(320)
+  sender_member_id       String?   @db.Uuid
+  /// What was sent, as sent.
+  subject                String?   @db.VarChar(300)
+  body_text              String?   @db.Text
+  /// The Message-ID this email carries, set before sending; replies and bounces are matched by it.
+  message_id             String?   @db.VarChar(255)
+  provider_message_id    String?   @db.VarChar(255)
+  /// SHA-256 of the email's unsubscribe token; the token itself is only in the email.
+  unsubscribe_token_hash String?   @unique(map: "uq_email_sequence_sends_unsubscribe") @db.Char(64)
+  failure_code           String?   @db.VarChar(48)
+  failure_reason         String?   @db.VarChar(500)
+  cancel_reason          String?   @db.VarChar(32)
+  /// HARD or SOFT, for a bounced email.
+  bounce_kind            String?   @db.VarChar(8)
+  sent_at                DateTime? @db.Timestamptz(6)
+  failed_at              DateTime? @db.Timestamptz(6)
+  cancelled_at           DateTime? @db.Timestamptz(6)
+  replied_at             DateTime? @db.Timestamptz(6)
+  bounced_at             DateTime? @db.Timestamptz(6)
+  created_at             DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at             DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_email_sequences            rndtechnosoft_email_sequences            @relation(fields: [tenant_id, sequence_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_sends_sequence")
+  rndtechnosoft_email_sequence_steps       rndtechnosoft_email_sequence_steps       @relation(fields: [tenant_id, step_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_sends_step")
+  rndtechnosoft_email_sequence_enrollments rndtechnosoft_email_sequence_enrollments @relation(fields: [tenant_id, enrollment_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_sends_enrollment")
+  rndtechnosoft_crm_leads                  rndtechnosoft_crm_leads                  @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_sends_lead")
+  rndtechnosoft_email_sequence_events      rndtechnosoft_email_sequence_events[]
+
+  @@unique([tenant_id, id], map: "uq_email_sequence_sends_tenant_id")
+  @@unique([tenant_id, enrollment_id, step_id], map: "uq_email_sequence_sends_step")
+  @@index([send_status, scheduled_at], map: "ix_email_sequence_sends_due")
+  @@index([tenant_id, sequence_id, send_status], map: "ix_email_sequence_sends_sequence")
+  @@index([tenant_id, sender_email, sent_at], map: "ix_email_sequence_sends_sender_day")
+  @@index([tenant_id, message_id], map: "ix_email_sequence_sends_message")
+}
+
+/// A reply or bounce found in a sending mailbox for a sequence email; one per message, however often the mailbox is read.
+model rndtechnosoft_email_sequence_events {
+  id                 String   @id @db.Uuid
+  tenant_id          String   @db.Uuid
+  send_id            String   @db.Uuid
+  /// REPLY, AUTO_REPLY (out of office and the like; does not stop the sequence) or BOUNCE.
+  event_kind         String   @db.VarChar(16)
+  /// THREAD (the reply names the email) or SENDER (a new email from the recipient's exact address).
+  match_method       String   @db.VarChar(16)
+  bounce_kind        String?  @db.VarChar(8)
+  mailbox_email      String   @db.VarChar(320)
+  inbound_message_id String   @db.VarChar(255)
+  from_email         String?  @db.VarChar(320)
+  subject            String?  @db.VarChar(300)
+  detail             String?  @db.VarChar(500)
+  received_at        DateTime @db.Timestamptz(6)
+  created_at         DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_email_sequence_sends rndtechnosoft_email_sequence_sends @relation(fields: [tenant_id, send_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_events_send")
+
+  @@unique([tenant_id, mailbox_email, inbound_message_id, event_kind], map: "uq_email_sequence_events_message")
+}
+
+/// Where reading a member's inbox for replies and bounces has got to.
+model rndtechnosoft_email_mailbox_scans {
+  id              String    @id @db.Uuid
+  tenant_id       String    @db.Uuid
+  member_id       String    @db.Uuid
+  mailbox_email   String    @db.VarChar(320)
+  uid_validity    BigInt?
+  last_uid        Int?
+  last_scanned_at DateTime? @db.Timestamptz(6)
+  last_error      String?   @db.VarChar(500)
+  updated_at      DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  @@unique([tenant_id, member_id], map: "uq_email_mailbox_scans_member")
+}
+
+/// Addresses the workspace never sends marketing email to: unsubscribed, hard-bounced, or added by hand. Checked just before every send.
+model rndtechnosoft_email_suppressions {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  /// Lowercase.
+  email                       String   @db.VarChar(320)
+  /// UNSUBSCRIBED, BOUNCED or MANUAL.
+  suppression_reason          String   @db.VarChar(16)
+  /// LINK, ONE_CLICK, BOUNCE or MANUAL.
+  suppression_source          String   @db.VarChar(16)
+  note                        String?  @db.VarChar(500)
+  /// The sequence email that led to it, for an unsubscribe or bounce.
+  send_id                     String?  @db.Uuid
+  created_by_tenant_member_id String?  @db.Uuid
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants rndtechnosoft_tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_suppressions_tenant")
+  created_by            rndtechnosoft_tenant_members? @relation("email_suppression_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_suppressions_created_by")
+
+  @@unique([tenant_id, email], map: "uq_email_suppressions_email")
+}
+
+/// Enrolls leads in a sequence automatically: when they are created (from a source, say) or enter a stage, and match its conditions.
+model rndtechnosoft_email_sequence_rules {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  sequence_id                 String    @db.Uuid
+  rule_name                   String    @db.VarChar(120)
+  /// LEAD_CREATED or STAGE_ENTERED.
+  trigger_kind                String    @db.VarChar(16)
+  pipeline_id                 String?   @db.Uuid
+  stage_id                    String?   @db.Uuid
+  source_id                   String?   @db.Uuid
+  /// Extra conditions on lead fields: { match: "ALL" | "ANY", conditions: [{ field, operator, value }] }, checked by the server.
+  conditions                  Json      @default("{}")
+  is_enabled                  Boolean   @default(false)
+  /// Only leads created, or entering the stage, after this are enrolled: switching a rule on never sweeps up old leads.
+  enabled_at                  DateTime? @db.Timestamptz(6)
+  last_run_at                 DateTime? @db.Timestamptz(6)
+  last_error                  String?   @db.VarChar(500)
+  created_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_email_sequences            rndtechnosoft_email_sequences              @relation(fields: [tenant_id, sequence_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_rules_sequence")
+  rndtechnosoft_crm_pipelines              rndtechnosoft_crm_pipelines?               @relation(fields: [tenant_id, pipeline_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_rules_pipeline")
+  rndtechnosoft_crm_stages                 rndtechnosoft_crm_stages?                  @relation(fields: [tenant_id, stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_rules_stage")
+  rndtechnosoft_crm_lead_sources           rndtechnosoft_crm_lead_sources?            @relation(fields: [tenant_id, source_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_rules_source")
+  created_by                               rndtechnosoft_tenant_members?              @relation("email_sequence_rule_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_email_sequence_rules_created_by")
+  rndtechnosoft_email_sequence_rule_events rndtechnosoft_email_sequence_rule_events[]
+
+  @@unique([tenant_id, id], map: "uq_email_sequence_rules_tenant_id")
+}
+
+/// A lead a rule has looked at for one event (created, or entering a stage at a time): enrolled or skipped, never twice.
+model rndtechnosoft_email_sequence_rule_events {
+  id            String   @id @db.Uuid
+  tenant_id     String   @db.Uuid
+  rule_id       String   @db.Uuid
+  lead_id       String   @db.Uuid
+  event_at      DateTime @db.Timestamptz(6)
+  /// ENROLLED or SKIPPED.
+  outcome       String   @db.VarChar(16)
+  skip_reason   String?  @db.VarChar(200)
+  enrollment_id String?  @db.Uuid
+  created_at    DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_email_sequence_rules rndtechnosoft_email_sequence_rules @relation(fields: [tenant_id, rule_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_rule_events_rule")
+  rndtechnosoft_crm_leads            rndtechnosoft_crm_leads            @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_sequence_rule_events_lead")
+
+  @@unique([rule_id, lead_id, event_at], map: "uq_email_sequence_rule_events_event")
+  @@index([tenant_id, rule_id, outcome], map: "ix_email_sequence_rule_events_outcome")
+}
+
+/// A payroll policy: the rules for turning attendance into pay (divisor,
+/// overtime, late arrival, early departure, rounding), held in versions.
+model rndtechnosoft_payroll_policies {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  policy_code                 String    @db.VarChar(64)
+  policy_name                 String    @db.VarChar(160)
+  policy_description          String?   @db.VarChar(1000)
+  /// The policy for employees no other policy covers; at most one per workspace.
+  is_default                  Boolean   @default(false)
+  policy_status               String    @default("ACTIVE") @db.VarChar(16)
+  created_by_tenant_member_id String?   @db.Uuid
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                     rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policies_tenant")
+  created_by                                rndtechnosoft_tenant_members?               @relation("payroll_policy_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policies_created_by")
+  rndtechnosoft_payroll_policy_versions     rndtechnosoft_payroll_policy_versions[]
+  rndtechnosoft_payroll_policy_scopes       rndtechnosoft_payroll_policy_scopes[]
+  rndtechnosoft_employee_salary_assignments rndtechnosoft_employee_salary_assignments[]
+
+  @@unique([tenant_id, id], map: "uq_payroll_policies_tenant_id")
+  @@unique([tenant_id, policy_code], map: "uq_payroll_policies_code")
+}
+
+/// A dated version of a policy's rules. Published versions never change; a
+/// change is a new version from a later date.
+model rndtechnosoft_payroll_policy_versions {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  payroll_policy_id             String    @db.Uuid
+  version_number                Int
+  version_status                String    @default("DRAFT") @db.VarChar(16)
+  effective_from                DateTime  @db.Date
+  /// The last day this version applies (inclusive); null while it is current.
+  effective_to                  DateTime? @db.Date
+  /// Checked against src/modules/payroll/policies/policy-config.ts before saving.
+  policy_config                 Json
+  change_note                   String?   @db.VarChar(500)
+  published_by_tenant_member_id String?   @db.Uuid
+  published_at                  DateTime? @db.Timestamptz(6)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_payroll_policies rndtechnosoft_payroll_policies @relation(fields: [tenant_id, payroll_policy_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policy_versions_policy")
+  published_by                   rndtechnosoft_tenant_members?  @relation("payroll_policy_version_published_by", fields: [tenant_id, published_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policy_versions_published_by")
+
+  @@unique([tenant_id, id], map: "uq_payroll_policy_versions_tenant_id")
+  @@unique([tenant_id, payroll_policy_id, version_number], map: "uq_payroll_policy_versions_number")
+}
+
+/// Who a policy applies to: one department, branch, employment type or
+/// designation per row. Across kinds a policy needs every kind it names to
+/// match; within a kind, any one row.
+model rndtechnosoft_payroll_policy_scopes {
+  id                 String   @id @db.Uuid
+  tenant_id          String   @db.Uuid
+  payroll_policy_id  String   @db.Uuid
+  department_id      String?  @db.Uuid
+  branch_id          String?  @db.Uuid
+  employment_type_id String?  @db.Uuid
+  designation_id     String?  @db.Uuid
+  created_at         DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_payroll_policies rndtechnosoft_payroll_policies  @relation(fields: [tenant_id, payroll_policy_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_payroll_policy_scopes_policy")
+  rndtechnosoft_departments      rndtechnosoft_departments?      @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policy_scopes_department")
+  rndtechnosoft_branches         rndtechnosoft_branches?         @relation(fields: [tenant_id, branch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policy_scopes_branch")
+  rndtechnosoft_employment_types rndtechnosoft_employment_types? @relation(fields: [tenant_id, employment_type_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policy_scopes_employment_type")
+  rndtechnosoft_designations     rndtechnosoft_designations?     @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_policy_scopes_designation")
+
+  @@unique([tenant_id, id], map: "uq_payroll_policy_scopes_tenant_id")
+  @@index([tenant_id, payroll_policy_id], map: "ix_payroll_policy_scopes_policy")
+}
+
+/// A dated version of a salary structure's components. Published versions
+/// never change; a change is a new version from a later date.
+model rndtechnosoft_salary_structure_versions {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  salary_structure_id           String    @db.Uuid
+  version_number                Int
+  version_status                String    @default("DRAFT") @db.VarChar(16)
+  effective_from                DateTime  @db.Date
+  /// The last day this version applies (inclusive); null while it is current.
+  effective_to                  DateTime? @db.Date
+  change_note                   String?   @db.VarChar(500)
+  published_by_tenant_member_id String?   @db.Uuid
+  published_at                  DateTime? @db.Timestamptz(6)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_salary_structures           rndtechnosoft_salary_structures             @relation(fields: [tenant_id, salary_structure_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_versions_structure")
+  published_by                              rndtechnosoft_tenant_members?               @relation("salary_structure_version_published_by", fields: [tenant_id, published_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_structure_versions_published_by")
+  rndtechnosoft_salary_structure_components rndtechnosoft_salary_structure_components[]
+
+  @@unique([tenant_id, id], map: "uq_salary_structure_versions_tenant_id")
+  @@unique([tenant_id, salary_structure_id, version_number], map: "uq_salary_structure_versions_number")
+}
+
+/// A decision on one day's overtime: how many of the recorded minutes are
+/// approved (0 when rejected), against the minutes recorded at the time.
+model rndtechnosoft_overtime_approvals {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  employee_id                 String   @db.Uuid
+  work_date                   DateTime @db.Date
+  recorded_minutes            Int
+  approved_minutes            Int
+  decision                    String   @db.VarChar(16)
+  note                        String?  @db.VarChar(500)
+  decided_by_tenant_member_id String?  @db.Uuid
+  decided_at                  DateTime @db.Timestamptz(6)
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_employees rndtechnosoft_employees       @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_overtime_approvals_employee")
+  decided_by              rndtechnosoft_tenant_members? @relation("overtime_decided_by", fields: [tenant_id, decided_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_overtime_approvals_decided_by")
+
+  @@unique([tenant_id, id], map: "uq_overtime_approvals_tenant_id")
+  @@unique([tenant_id, employee_id, work_date], map: "uq_overtime_approvals_day")
+}
+
+/// Arrears from a salary revision back-dated into finalized payroll: the
+/// finalized month worked out again on the new salary, and the difference,
+/// paid in a later payroll. Finalized payslips are never changed.
+model rndtechnosoft_salary_arrears {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  employee_id                 String    @db.Uuid
+  salary_assignment_id        String    @db.Uuid
+  payroll_period_id           String    @db.Uuid
+  paid_earnings               Decimal   @db.Decimal(18, 2)
+  revised_earnings            Decimal   @db.Decimal(18, 2)
+  arrears_amount              Decimal   @db.Decimal(18, 2)
+  calculation_detail          Json
+  arrears_status              String    @default("PENDING") @db.VarChar(16)
+  included_in_run_employee_id String?   @db.Uuid
+  included_at                 DateTime? @db.Timestamptz(6)
+  created_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_employees                   rndtechnosoft_employees                   @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_arrears_employee")
+  rndtechnosoft_employee_salary_assignments rndtechnosoft_employee_salary_assignments @relation(fields: [tenant_id, salary_assignment_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_arrears_assignment")
+  rndtechnosoft_payroll_periods             rndtechnosoft_payroll_periods             @relation(fields: [tenant_id, payroll_period_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_arrears_period")
+  rndtechnosoft_payroll_run_employees       rndtechnosoft_payroll_run_employees?      @relation(fields: [tenant_id, included_in_run_employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_arrears_run_employee")
+  created_by                                rndtechnosoft_tenant_members?             @relation("salary_arrears_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_salary_arrears_created_by")
+
+  @@unique([tenant_id, id], map: "uq_salary_arrears_tenant_id")
+  @@unique([tenant_id, salary_assignment_id, payroll_period_id], map: "uq_salary_arrears_period")
+  @@index([tenant_id, employee_id, arrears_status], map: "ix_salary_arrears_pending")
 }
