@@ -614,7 +614,8 @@ export class ExternalApiService {
       // (checked in, not yet out) counts only its completed pairs so far.
       const workedMinutes = item.workedMinutes > 0 ? item.workedMinutes : workedFromPunches(punches);
       const fields = {
-        attendance_status: item.status,
+        // COSEC calls a weekly off WEEK_OFF; attendance and payroll know it as WEEKEND.
+        attendance_status: item.status === 'WEEK_OFF' ? 'WEEKEND' : item.status,
         first_check_in_at: parseLocalTime(item.punches[0]?.date ?? item.date, item.firstCheckInTime),
         last_check_out_at: item.lastCheckOutTime && !item.isCurrentlyInside
           ? parseLocalTime(item.punches[item.punches.length - 1]?.date ?? item.date, item.lastCheckOutTime)

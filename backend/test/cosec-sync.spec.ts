@@ -292,7 +292,8 @@ describe('COSEC attendance sync', () => {
     it('refreshes everyone’s month from COSEC in one request, and reuses or shares a refresh already made', async () => {
       const month = addDays(today, -70).slice(0, 7);
       const first = `${month}-01`;
-      rows = [day('EMP001', first, [[first, '09:00'], [first, '18:00']]), day('EMP002', first, [], ['AB', 'AB'])];
+      const second = `${month}-02`;
+      rows = [day('EMP001', first, [[first, '09:00'], [first, '18:00']]), day('EMP002', first, [], ['AB', 'AB']), day('EMP001', second, [], ['WO', 'WO'])];
       asked.length = 0;
       // Two pages opening together: one COSEC request.
       const [one, two] = await Promise.all([
@@ -306,6 +307,8 @@ describe('COSEC attendance sync', () => {
       expect(asked[0].args).toMatchObject({ range: 'all' });
       expect((await record(emp.asha, first))!.attendance_status).toBe('PRESENT');
       expect((await record(emp.ravi, first))!.attendance_status).toBe('ABSENT');
+      // COSEC's weekly off is stored as the status attendance and payroll know.
+      expect((await record(emp.asha, second))!.attendance_status).toBe('WEEKEND');
 
       const again = await call('post', '/external-api/cosec/refresh-month', a.token, { month });
       expect(again.body.status).toBe('RECENT');
