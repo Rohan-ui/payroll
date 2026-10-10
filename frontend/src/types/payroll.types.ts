@@ -111,15 +111,17 @@ export interface Employee {
   department: string;
   designation: string;
   joiningDate: string;
-  workState: 'Maharashtra' | 'Gujarat' | 'Karnataka' | 'Delhi' | 'Tamil Nadu';
+  workState?: 'Maharashtra' | 'Gujarat' | 'Karnataka' | 'Delhi' | 'Tamil Nadu';
   workEmail: string;
   mobileNumber: string;
   status: 'ACTIVE' | 'RESIGNED' | 'ON_NOTICE' | 'INACTIVE' | 'PROBATION' | 'TERMINATED' | 'SUSPENDED' | (string & {});
-  bank: BankDetails;
-  statutory: StatutoryDetails;
-  salary: SalaryBreakdown;
-  leaveBalance: LeaveBalance;
-  netPayTrend: PayTrendPoint[];
+  /** Only what the employee record actually holds; missing means not recorded, never a made-up value. */
+  bank?: BankDetails;
+  statutory?: StatutoryDetails;
+  /** Not carried on the employee: salaries live in Payroll → employee salary (see SalaryPanel). */
+  salary?: SalaryBreakdown;
+  leaveBalance?: LeaveBalance;
+  netPayTrend?: PayTrendPoint[];
   attendanceDays: AttendanceDay[];
   isNewJoiner?: boolean;
 }

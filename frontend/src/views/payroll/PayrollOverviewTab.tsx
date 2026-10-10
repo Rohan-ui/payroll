@@ -7,15 +7,15 @@ import { Button } from '../../components/ui/Button';
 import { payrollOverviewApi, type OverviewEmployee, type OverviewEmployeePage, type PayrollOverview, type RunStatus } from '../../api/payroll-setup.api';
 import { cardClass, day, errorText, money } from './payroll-format';
 
-type Filter = 'ALL' | 'READY' | 'EXCEPTION' | 'FINALIZED';
+export type Filter = 'ALL' | 'READY' | 'EXCEPTION' | 'FINALIZED';
 export type PayrollDestination = 'run' | 'preview' | 'inputs' | 'setup';
 
 const PAGE_SIZE = 20;
-const thisMonth = () => {
+export const thisMonth = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
-const monthName = (month: string, style: 'long' | 'short' = 'long') => {
+export const monthName = (month: string, style: 'long' | 'short' = 'long') => {
   const [y, m] = month.split('-').map(Number);
   return new Intl.DateTimeFormat('en-IN', { month: style, ...(style === 'long' ? { year: 'numeric' } : {}), timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, 1)));
 };
@@ -37,9 +37,8 @@ const EMPLOYEE_STATUS: Record<OverviewEmployee['status'], { label: string; varia
  * calculated or finalized payroll run; nothing is shown as paid unless a
  * payment has been recorded.
  */
-export const PayrollOverviewTab: React.FC<{ onNavigate: (to: PayrollDestination) => void }> = ({ onNavigate }) => {
+export const PayrollOverviewTab: React.FC<{ month: string; onMonthChange: (month: string) => void; onNavigate: (to: PayrollDestination) => void }> = ({ month, onMonthChange: setMonth, onNavigate }) => {
   const id = useId();
-  const [month, setMonth] = useState(thisMonth());
   const [overview, setOverview] = useState<PayrollOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('ALL');
@@ -266,7 +265,7 @@ const TrendCard: React.FC<{ overview: PayrollOverview | null; month: string; onS
   );
 };
 
-const EmployeeTable: React.FC<{ month: string; filter: Filter; onFilter: (f: Filter) => void; hasRun: boolean }> = ({ month, filter, onFilter, hasRun }) => {
+export const EmployeeTable: React.FC<{ month: string; filter: Filter; onFilter: (f: Filter) => void; hasRun: boolean; refreshKey?: string; onOpen?: (employeeId: string) => void }> = ({ month, filter, onFilter, hasRun, refreshKey, onOpen }) => {
   const id = useId();
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -283,7 +282,7 @@ const EmployeeTable: React.FC<{ month: string; filter: Filter; onFilter: (f: Fil
       .then((d) => { if (current) setData(d); })
       .catch((e) => { if (current) setError(errorText(e)); });
     return () => { current = false; };
-  }, [month, filter, query, page, hasRun]);
+  }, [month, filter, query, page, hasRun, refreshKey]);
 
   const tabs: { id: Filter; label: string; count?: number }[] = [
     { id: 'ALL', label: 'All', count: data?.counts.all },
@@ -344,7 +343,9 @@ const EmployeeTable: React.FC<{ month: string; filter: Filter; onFilter: (f: Fil
                       <div className="flex items-center gap-3">
                         <Avatar name={e.name} size="sm" />
                         <div className="min-w-0">
-                          <p className="truncate font-semibold text-slate-900 dark:text-slate-100">{e.name}</p>
+                          {onOpen
+                            ? <button type="button" onClick={() => onOpen(e.employeeId)} className="block max-w-full truncate rounded text-left font-semibold text-slate-900 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-slate-100">{e.name}</button>
+                            : <p className="truncate font-semibold text-slate-900 dark:text-slate-100">{e.name}</p>}
                           <p className="truncate text-xs text-slate-500">{e.designation ?? e.code}</p>
                         </div>
                       </div>

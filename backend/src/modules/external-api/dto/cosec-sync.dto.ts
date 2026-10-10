@@ -17,3 +17,8 @@ export class CosecRefreshEmployeeDto {
   @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Choose a month as YYYY-MM.' })
   month!: string;
 }
+
+export class CosecRefreshMonthDto {
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Choose a month as YYYY-MM.' })
+  month!: string;
+}

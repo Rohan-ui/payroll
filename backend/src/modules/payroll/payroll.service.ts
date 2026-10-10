@@ -7,6 +7,7 @@ import { BookkeepingService } from '../bookkeeping/bookkeeping.service';
 import { FinancialYearsService } from '../bookkeeping/financial-years.service';
 import { EmployeePay, PayrollCalculationService } from './calculation/payroll-calculation.service';
 import { isoDate } from './payroll-lock';
+import { monthRange } from './calculation/dto/calculation.dto';
 
 export interface CreatePayrollPeriodInput {
   periodCode: string;
@@ -82,6 +83,14 @@ export class PayrollService {
       throw new NotFoundException('Payroll period not found');
     }
 
+    // One payroll run per month: recalculate the open one instead of starting another.
+    const existing = await this.prisma.rndtechnosoft_payroll_runs.findFirst({
+      where: { tenant_id: tenantId, payroll_period_id: period.id, run_type: input.runType || 'REGULAR' },
+      orderBy: { created_at: 'desc' },
+    });
+    if (existing?.run_status === 'FINALIZED') throw new BadRequestException(`Payroll for ${period.period_code} is already finalized.`);
+    if (existing) throw new BadRequestException(`Payroll for ${period.period_code} already has a run (${existing.run_number}); recalculate that one instead.`);
+
     const runNumber = `RUN-${period.period_code}-${Date.now().toString().slice(-4)}`;
 
     return this.prisma.rndtechnosoft_payroll_runs.create({
@@ -95,6 +104,66 @@ export class PayrollService {
         created_by_tenant_member_id: input.createdByTenantMemberId || null,
       },
     });
+  }
+
+  /**
+   * Starts a month's payroll: its pay period (created if needed) and its run,
+   * ready to calculate. Returns the open run if there already is one.
+   */
+  async startMonth(tenantId: string, month: string, paymentDate: string | null, createdByTenantMemberId: string) {
+    const { start, end } = monthRange(month);
+    let period = await this.prisma.rndtechnosoft_payroll_periods.findFirst({
+      where: { tenant_id: tenantId, period_start: new Date(`${start}T00:00:00.000Z`), period_end: new Date(`${end}T00:00:00.000Z`) },
+    });
+    if (!period) period = await this.createPeriod(tenantId, { periodCode: month, periodStart: start, periodEnd: end, paymentDate: paymentDate ?? undefined });
+    else if (paymentDate && !period.payment_date) {
+      period = await this.prisma.rndtechnosoft_payroll_periods.update({ where: { tenant_id_id: { tenant_id: tenantId, id: period.id } }, data: { payment_date: new Date(`${paymentDate}T00:00:00.000Z`), updated_at: new Date() } });
+    }
+    const existing = await this.prisma.rndtechnosoft_payroll_runs.findFirst({
+      where: { tenant_id: tenantId, payroll_period_id: period.id, run_type: 'REGULAR' },
+      orderBy: { created_at: 'desc' },
+    });
+    if (existing?.run_status === 'FINALIZED') throw new BadRequestException(`Payroll for ${month} is already finalized.`);
+    return existing ?? this.createRun(tenantId, { payrollPeriodId: period.id, createdByTenantMemberId });
+  }
+
+  /** An employee's issued payslips, newest first (finalized payroll only). */
+  async employeePayslips(tenantId: string, employeeId: string) {
+    const slips = await this.prisma.rndtechnosoft_payslips.findMany({
+      where: { tenant_id: tenantId, employee_id: employeeId, payslip_status: 'FINALIZED' },
+      orderBy: { rndtechnosoft_payroll_periods: { period_start: 'desc' } },
+      take: 12,
+      select: {
+        payslip_number: true, payroll_run_id: true, gross_earnings: true, gross_deductions: true, net_pay: true, finalized_at: true,
+        rndtechnosoft_payroll_periods: { select: { period_start: true, payment_date: true } },
+      },
+    });
+    return slips.map((p) => ({
+      month: isoDate(p.rndtechnosoft_payroll_periods.period_start).slice(0, 7),
+      payslipNumber: p.payslip_number,
+      runId: p.payroll_run_id,
+      gross: p.gross_earnings.toFixed(2),
+      deductions: p.gross_deductions.toFixed(2),
+      net: p.net_pay.toFixed(2),
+      paymentDate: p.rndtechnosoft_payroll_periods.payment_date ? isoDate(p.rndtechnosoft_payroll_periods.payment_date) : null,
+    }));
+  }
+
+  /** One employee's pay in a run, with every line and how it was worked out. */
+  async runEmployee(tenantId: string, runId: string, employeeId: string) {
+    const row = await this.prisma.rndtechnosoft_payroll_run_employees.findFirst({
+      where: { tenant_id: tenantId, payroll_run_id: runId, employee_id: employeeId },
+      include: { rndtechnosoft_employees: { select: { employee_code: true, first_name: true, last_name: true } } },
+    });
+    if (!row) throw new NotFoundException('This employee isn’t in that payroll run.');
+    return {
+      employee: { id: employeeId, code: row.rndtechnosoft_employees.employee_code, name: [row.rndtechnosoft_employees.first_name, row.rndtechnosoft_employees.last_name].filter(Boolean).join(' ') },
+      status: row.processing_status,
+      gross: row.gross_earnings.toFixed(2),
+      deductions: row.gross_deductions.toFixed(2),
+      net: row.net_pay.toFixed(2),
+      snapshot: row.calculation_snapshot,
+    };
   }
 
   /**

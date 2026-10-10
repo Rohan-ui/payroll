@@ -3,18 +3,24 @@ import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { externalApiClient } from '../../api/external-api.api';
 
 /**
- * Opening an employee's attendance brings their month from COSEC first: the
- * page shows what we have at once, asks the server to refresh the month from
- * COSEC, and reloads only when a day changed. Workspaces without COSEC see nothing.
+ * Opening the attendance page, or an employee's attendance, brings the month
+ * from COSEC first: the page shows what we have at once, asks the server to
+ * refresh the month from COSEC, and reloads only when a day changed.
+ * Workspaces without COSEC see nothing.
  */
 
 export type CosecRefreshState =
   | { kind: 'idle' }
   | { kind: 'off' }
   | { kind: 'syncing' }
-  | { kind: 'done'; syncedAt: string; changed: number; matched: boolean }
+  | { kind: 'done'; syncedAt: string; changed: number; matched: boolean; unmatchedUsers: number }
   | { kind: 'failed'; message: string };
 
+/**
+ * Refreshes attendance from COSEC for one employee's month, or, with
+ * `employeeId` set to 'ALL', for everyone's month (the attendance page).
+ * Nothing happens while `employeeId` is empty.
+ */
 export function useCosecRefresh(employeeId: string | null | undefined, month: string, onChanged: () => void): CosecRefreshState {
   const [state, setState] = useState<CosecRefreshState>({ kind: 'idle' });
   const onChangedRef = useRef(onChanged);
@@ -24,12 +30,11 @@ export function useCosecRefresh(employeeId: string | null | undefined, month: st
     if (!employeeId || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return;
     let live = true;
     setState({ kind: 'syncing' });
-    externalApiClient
-      .refreshEmployee(employeeId, month)
+    (employeeId === 'ALL' ? externalApiClient.refreshMonth(month) : externalApiClient.refreshEmployee(employeeId, month))
       .then((result) => {
         if (!live) return;
         if (result.status === 'NOT_CONFIGURED') return setState({ kind: 'off' });
-        setState({ kind: 'done', syncedAt: result.syncedAt, changed: result.changedRecords, matched: result.matched !== false });
+        setState({ kind: 'done', syncedAt: result.syncedAt, changed: result.changedRecords, matched: result.matched !== false, unmatchedUsers: result.unmatchedUsers ?? 0 });
         if (result.changedRecords > 0) onChangedRef.current();
       })
       .catch((error: unknown) => {
@@ -73,6 +78,7 @@ export const CosecRefreshNote: React.FC<{ state: CosecRefreshState }> = ({ state
       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
       Up to date with COSEC · checked {time(state.syncedAt)}
       {state.changed > 0 ? ` · ${state.changed} day${state.changed === 1 ? '' : 's'} updated` : ''}
+      {state.unmatchedUsers > 0 ? ` · ${state.unmatchedUsers} COSEC user${state.unmatchedUsers === 1 ? ' has' : 's have'} no matching Employee Code` : ''}
     </p>
   );
 };

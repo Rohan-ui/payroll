@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { RunPayrollWizardView } from '../RunPayrollWizardView';
-import { PayrollOverviewTab, type PayrollDestination } from './PayrollOverviewTab';
+import { PayrollRunTab } from './PayrollRunTab';
+import { PayrollOverviewTab, thisMonth, type PayrollDestination } from './PayrollOverviewTab';
 import { PoliciesTab } from './PoliciesTab';
 import { StructuresTab } from './StructuresTab';
 import { ComponentsTab } from './ComponentsTab';
@@ -46,6 +46,8 @@ export const PayrollView: React.FC = () => {
   const subs = { inputs: allowed(SUBS.inputs), setup: allowed(SUBS.setup) };
   const sections = allowed(SECTIONS).filter((s) => (s.id === 'inputs' || s.id === 'setup' ? subs[s.id].length > 0 : true));
   const [chosen, setChosen] = useState<Section | null>(null);
+  // One month for the overview and the run, so moving between them keeps your place.
+  const [month, setMonth] = useState(thisMonth());
   const [chosenSub, setChosenSub] = useState<Partial<Record<'inputs' | 'setup', Sub>>>({});
   const section = sections.find((s) => s.id === chosen)?.id ?? sections[0]?.id;
 
@@ -82,8 +84,8 @@ export const PayrollView: React.FC = () => {
         </nav>
       )}
       <div role="tabpanel" id="payroll-panel" aria-labelledby={`payroll-tab-${section}`}>
-        {section === 'overview' && <PayrollOverviewTab onNavigate={navigate} />}
-        {section === 'run' && <RunPayrollWizardView />}
+        {section === 'overview' && <PayrollOverviewTab month={month} onMonthChange={setMonth} onNavigate={navigate} />}
+        {section === 'run' && <PayrollRunTab month={month} onMonthChange={setMonth} />}
         {section === 'preview' && <PayPreviewTab />}
         {sub === 'entries' && <MonthlyEntriesTab />}
         {sub === 'overtime' && <OvertimeTab />}

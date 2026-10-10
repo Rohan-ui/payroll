@@ -101,10 +101,6 @@ export const AddEmployeeView: React.FC = () => {
   const [ifscError, setIfscError] = useState<string | null>(null);
 
   // Salary & Statutory Defaults
-  const [grossSalary, setGrossSalary] = useState('35000');
-  const [panNumber, setPanNumber] = useState('ABCDE1234F');
-  const [pfEnrolled, setPfEnrolled] = useState(true);
-  const [esiEnrolled, setEsiEnrolled] = useState(false);
 
   // Submission State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -144,14 +140,6 @@ export const AddEmployeeView: React.FC = () => {
         }
       }
 
-      if (employeeToEdit.salary) {
-        setGrossSalary(String(employeeToEdit.salary.grossMonthly || 35000));
-      }
-      if (employeeToEdit.statutory) {
-        setPanNumber(employeeToEdit.statutory.pan || 'ABCDE1234F');
-        setPfEnrolled(employeeToEdit.statutory.pfEnrolled ?? true);
-        setEsiEnrolled(employeeToEdit.statutory.esiEnrolled ?? false);
-      }
     } else if (!isEdit) {
       if (!employeeCode) {
         const nextNum = employees.length + 1;
@@ -306,45 +294,26 @@ export const AddEmployeeView: React.FC = () => {
           return;
         }
 
-        const gross = parseInt(grossSalary, 10) || 35000;
         await updateEmployee(employeeToEdit.id, {
           code: employeeCode.trim().toUpperCase(),
           name: fullName.trim(),
           status: employeeStatus as any,
           department: finalDepartment,
-          designation: finalDesignation || 'Specialist',
+          designation: finalDesignation || '',
           workEmail: workEmail.trim().toLowerCase(),
           mobileNumber: mobileNumber.trim(),
           joiningDate: joiningDate || employeeToEdit.joiningDate,
           bankAccountNumber: accountNumber.trim() || undefined,
           bank: {
-            bankName: bankName.trim() || ifscInfo?.bank || employeeToEdit.bank.bankName,
-            branchName: branchName.trim() || ifscInfo?.branch || employeeToEdit.bank.branchName,
-            ifsc: ifsc.trim().toUpperCase() || employeeToEdit.bank.ifsc,
+            bankName: bankName.trim() || ifscInfo?.bank || employeeToEdit.bank?.bankName || '',
+            branchName: branchName.trim() || ifscInfo?.branch || employeeToEdit.bank?.branchName,
+            ifsc: ifsc.trim().toUpperCase() || employeeToEdit.bank?.ifsc || '',
             accountNumber: accountNumber.trim() || undefined,
             accountNumberMasked: accountNumber.trim()
               ? `••••${accountNumber.trim().slice(-4)}`
-              : employeeToEdit.bank.accountNumberMasked,
+              : employeeToEdit.bank?.accountNumberMasked ?? 'Not recorded',
             accountHolder: fullName.trim(),
-            isValidIfsc: !!ifscInfo?.valid || employeeToEdit.bank.isValidIfsc,
-          },
-          salary: {
-            grossMonthly: gross,
-            basicMonthly: Math.round(gross * 0.5),
-            hraMonthly: Math.round(gross * 0.2),
-            specialAllowanceMonthly: Math.round(gross * 0.3),
-            conveyanceMonthly: 0,
-            medicalAllowanceMonthly: 0,
-            ctcAnnual: gross * 12,
-          },
-          statutory: {
-            pan: panNumber.trim().toUpperCase(),
-            aadhaarLast4: employeeToEdit.statutory.aadhaarLast4 || '0000',
-            pfEnrolled,
-            pfCapAtCeiling: true,
-            esiEnrolled,
-            ptApplicable: true,
-            taxRegime: 'NEW',
+            isValidIfsc: !!ifscInfo?.valid || !!employeeToEdit.bank?.isValidIfsc,
           },
         });
 
@@ -359,36 +328,18 @@ export const AddEmployeeView: React.FC = () => {
           code: employeeCode.trim().toUpperCase(),
           name: fullName.trim(),
           department: finalDepartment,
-          designation: finalDesignation || 'Specialist',
+          designation: finalDesignation || '',
           workEmail: workEmail.trim().toLowerCase(),
           mobileNumber: mobileNumber.trim(),
           joiningDate: joiningDate || new Date().toISOString().split('T')[0],
           bank: {
-            bankName: bankName.trim() || ifscInfo?.bank || 'HDFC Bank',
+            bankName: bankName.trim() || ifscInfo?.bank || '',
             branchName: branchName.trim() || ifscInfo?.branch || '',
             ifsc: ifsc.trim().toUpperCase(),
             accountNumber: accountNumber.trim(),
             accountNumberMasked: accountNumber.trim(),
             accountHolder: fullName.trim(),
             isValidIfsc: !!ifscInfo?.valid,
-          },
-          salary: {
-            grossMonthly: parseInt(grossSalary, 10) || 35000,
-            basicMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.5),
-            hraMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.2),
-            specialAllowanceMonthly: Math.round((parseInt(grossSalary, 10) || 35000) * 0.3),
-            conveyanceMonthly: 0,
-            medicalAllowanceMonthly: 0,
-            ctcAnnual: (parseInt(grossSalary, 10) || 35000) * 12,
-          },
-          statutory: {
-            pan: panNumber.trim().toUpperCase(),
-            aadhaarLast4: '0000',
-            pfEnrolled,
-            pfCapAtCeiling: true,
-            esiEnrolled,
-            ptApplicable: true,
-            taxRegime: 'NEW',
           },
         });
 
@@ -849,93 +800,12 @@ export const AddEmployeeView: React.FC = () => {
             </div>
           </Card>
 
-          {/* 3. Salary & Statutory Configuration */}
-          <Card
-            title="3. Compensation & Statutory Enrollments"
-            subtitle="Configured according to standard Indian payroll and tax slabs"
-          >
-            <div className="space-y-4 pt-1">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Gross Monthly Salary (₹)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="500"
-                      value={grossSalary}
-                      onChange={(e) => setGrossSalary(e.target.value)}
-                      className={`${inputClass} pl-8 font-mono font-bold text-slate-900`}
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Annual CTC: ₹{((parseInt(grossSalary, 10) || 0) * 12).toLocaleString('en-IN')}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    PAN Card Number
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={10}
-                    value={panNumber}
-                    onChange={(e) => setPanNumber(e.target.value.toUpperCase())}
-                    placeholder="e.g. ABCDE1234F"
-                    className={`${inputClass} font-mono uppercase`}
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    For TDS withholding and IT compliance
-                  </p>
-                </div>
-              </div>
-
-              {/* Statutory Deductions & Benefits */}
-              <div className="p-3.5 bg-slate-50 border border-slate-200/70 rounded-2xl space-y-2.5">
-                <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                  Mandatory Social Security & Benefits
-                </p>
-                <div className="space-y-2">
-                  <label className="flex items-start gap-2.5 cursor-pointer select-none p-2 rounded-xl hover:bg-white transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={pfEnrolled}
-                      onChange={(e) => setPfEnrolled(e.target.checked)}
-                      className="w-4 h-4 mt-0.5 rounded text-teal-600 focus:ring-teal-500"
-                    />
-                    <div>
-                      <span className="text-xs font-semibold text-slate-800 block">
-                        Enroll in Provident Fund (EPF)
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        12% employee + 12% employer contribution (statutory ceiling: ₹15,000 basic)
-                      </span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer select-none p-2 rounded-xl hover:bg-white transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={esiEnrolled}
-                      onChange={(e) => setEsiEnrolled(e.target.checked)}
-                      className="w-4 h-4 mt-0.5 rounded text-teal-600 focus:ring-teal-500"
-                    />
-                    <div>
-                      <span className="text-xs font-semibold text-slate-800 block">
-                        Enroll in ESIC (Health Insurance)
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        Applicable if gross monthly wage is ≤ ₹21,000
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </div>
+          {/* 3. Salary */}
+          <Card title="3. Salary" subtitle="Kept in Payroll, with its history">
+            <p className="pt-1 text-sm text-slate-600 dark:text-slate-400">
+              Salaries aren’t entered here. After saving, open the employee and use <strong>Set salary</strong> in their Salary panel, or import salaries in <strong>Payroll → Setup → Import salaries</strong>.
+              Each salary is recorded from a date with its structure, so past months keep the pay they were worked out on.
+            </p>
           </Card>
         </div>
 

@@ -17,7 +17,7 @@ import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { CosecSyncService } from './cosec-sync.service';
-import { CosecAutoSyncDto, CosecRefreshEmployeeDto } from './dto/cosec-sync.dto';
+import { CosecAutoSyncDto, CosecRefreshEmployeeDto, CosecRefreshMonthDto } from './dto/cosec-sync.dto';
 
 @Controller('external-api')
 export class ExternalApiController {
@@ -41,6 +41,18 @@ export class ExternalApiController {
   @RequirePermissions('attendance.integration.update')
   async setAutoSync(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Body() body: CosecAutoSyncDto) {
     return this.cosecSync.setAutoSync(tenantId, body.enabled, { userId: actor.userId, tenantMemberId: actor.tenantMemberId });
+  }
+
+  /**
+   * POST /external-api/cosec/refresh-month
+   * Fetches the whole workspace's month from COSEC (called when the attendance page opens).
+   * Only changed days are written; finalized or corrected days are left alone.
+   */
+  @Post('cosec/refresh-month')
+  @RequirePermissions('attendance.view')
+  @HttpCode(HttpStatus.OK)
+  async refreshMonth(@CurrentTenant() tenantId: string, @Body() body: CosecRefreshMonthDto) {
+    return this.cosecSync.refreshMonth(tenantId, body.month);
   }
 
   /**

@@ -280,4 +280,23 @@ describe('Payroll calculation', () => {
     expect((await call('get', '/payroll/dashboard?month=2026-09', b.token)).body.data.summary).toBeNull();
     expect((await call('get', '/payroll/dashboard/employees?month=2026-09', b.token)).body.data.total).toBe(0);
   });
+
+  it('starts a month once, refuses a second run, and explains each employee from the run', async () => {
+    expect((await asA('post', '/payroll/months/2026-09/start', {})).body.message).toBe('Payroll for 2026-09 is already finalized.');
+    const october = await ok('post', '/payroll/months/2026-10/start', { paymentDate: '2026-10-31' });
+    expect(october).toMatchObject({ run_status: 'DRAFT' });
+    expect((await ok('post', '/payroll/months/2026-10/start', {})).id).toBe(october.id);
+    expect((await asA('post', '/payroll/runs', { payrollPeriodId: october.payroll_period_id })).body.message).toMatch(/already has a run/);
+    expect((await asA('post', '/payroll/months/2026-13/start', {})).status).toBe(400);
+
+    const overview = await ok('get', '/payroll/dashboard?month=2026-09');
+    const detail = await ok('get', `/payroll/runs/${overview.run.id}/employees/${ids.ABSENT3}`);
+    expect(detail).toMatchObject({ status: 'CALCULATED', net: '25380.00' });
+    expect(detail.snapshot.lines.map((l: { componentCode: string }) => l.componentCode)).toEqual(['BASIC', 'HRA', 'SPECIAL', 'PF', 'PF_EMPLOYER']);
+    expect((await call('get', `/payroll/runs/${overview.run.id}/employees/${ids.ABSENT3}`, b.token)).status).toBe(404);
+    const slips = await ok('get', `/payroll/employees/${ids.ABSENT3}/payslips`);
+    expect(slips).toEqual([expect.objectContaining({ month: '2026-09', net: '25380.00', runId: overview.run.id })]);
+    expect((await call('get', `/payroll/employees/${ids.ABSENT3}/payslips`, b.token)).body.data).toEqual([]);
+    expect((await call('post', '/payroll/months/2026-11/start', b.token, {})).body.data.run_status).toBe('DRAFT');
+  });
 });

@@ -271,8 +271,8 @@ export const AttendanceModule: React.FC = () => {
     }
   }, [activeEmployeeId, monthStr, selectedDate, refreshTrigger]);
 
-  // Opening an employee brings their month from COSEC; a change reloads it.
-  const cosecRefresh = useCosecRefresh(activeEmployeeId, monthStr, () => setRefreshTrigger((c) => c + 1));
+  // Opening the page brings everyone's month from COSEC, and opening an employee brings theirs; a change reloads it.
+  const cosecRefresh = useCosecRefresh(activeEmployeeId ?? 'ALL', monthStr, () => setRefreshTrigger((c) => c + 1));
 
   useEffect(() => {
     if (activeEmployeeId) {
@@ -375,6 +375,9 @@ export const AttendanceModule: React.FC = () => {
               </h1>
 
             </div>
+          )}
+          {!activeEmployeeId && (
+            <div className="mb-1"><CosecRefreshNote state={cosecRefresh} /></div>
           )}
 
           <p className="text-xs text-slate-500 dark:text-slate-400">

@@ -17,6 +17,12 @@ import { CalendarHeatmap } from '../components/ui/CalendarHeatmap';
 import { attendanceApi } from '../api/attendance.api';
 import { CosecRefreshNote, useCosecRefresh } from './attendance/CosecRefresh';
 import { SalaryPanel } from './payroll/SalaryPanel';
+import { useAuth } from '../context/AuthContext';
+import { apiClient } from '../api/client';
+import { monthName } from './payroll/PayrollOverviewTab';
+import { money } from './payroll/payroll-format';
+
+interface IssuedPayslip { month: string; payslipNumber: string; gross: string; deductions: string; net: string; paymentDate: string | null }
 import type { Employee, AttendanceDay } from '../types/payroll.types';
 
 /* ── Helpers ──────────────────────────────────────────────── */
@@ -98,6 +104,19 @@ export const EmployeeDetailView: React.FC = () => {
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(false);
   // Bumped when COSEC brought changes, to load the month again.
   const [attendanceReload, setAttendanceReload] = useState(0);
+  // Issued payslips from finalized payroll; null while loading or without access.
+  const { can } = useAuth();
+  const canSeePay = can('payroll.view') && can('salary.view');
+  const [payslips, setPayslips] = useState<IssuedPayslip[] | null>(null);
+  useEffect(() => {
+    if (!emp?.id || !canSeePay) return;
+    let current = true;
+    setPayslips(null);
+    apiClient.get<{ data: IssuedPayslip[] }>(`/payroll/employees/${emp.id}/payslips`)
+      .then((r) => { if (current) setPayslips(r.data); })
+      .catch(() => { if (current) setPayslips([]); });
+    return () => { current = false; };
+  }, [emp?.id, canSeePay]);
 
   const isCurrentLiveMonth = selectedYear === liveYear && selectedMonth === liveMonth;
   const currentMonthName = new Date(selectedYear, selectedMonth - 1, 1).toLocaleString('en-IN', { month: 'long' });
@@ -212,66 +231,13 @@ export const EmployeeDetailView: React.FC = () => {
       ? 'resigned'
       : 'none';
 
-  // Safe fallback objects for employee sub-structures
-  const statutory = emp.statutory || {
-    pan: '—',
-    aadhaarLast4: '••••',
-    uan: '',
-    esicNumber: '',
-    pfEnrolled: false,
-    esiEnrolled: false,
-    ptApplicable: false,
-    taxRegime: 'NEW',
-    pfCapAtCeiling: true,
-  };
-
-  const bank = emp.bank || {
-    bankName: 'HDFC Bank',
-    accountNumberMasked: '••••4321',
-    accountHolder: emp.name || 'Account Holder',
-    ifsc: '—',
-    branchName: '',
-    isValidIfsc: false,
-  };
-
-  const salary = emp.salary || {
-    ctcAnnual: 0,
-    grossMonthly: 0,
-    basicMonthly: 0,
-    hraMonthly: 0,
-    specialAllowanceMonthly: 0,
-    conveyanceMonthly: 0,
-    medicalAllowanceMonthly: 0,
-  };
-
-  const leaveBalance = emp.leaveBalance || {
-    earned: 0,
-    usedEarned: 0,
-    sick: 0,
-    usedSick: 0,
-    casual: 0,
-    usedCasual: 0,
-  };
-
-  const netPayTrend = Array.isArray(emp.netPayTrend) && emp.netPayTrend.length > 0
-    ? emp.netPayTrend
-    : [
-        { month: 'Apr', net: 0 },
-        { month: 'May', net: 0 },
-        { month: 'Jun', net: 0 },
-        { month: 'Jul', net: 0 },
-        { month: 'Aug', net: 0 },
-        { month: 'Sep', net: salary.grossMonthly || 0 },
-      ];
+  // Only what the record holds: anything not recorded says so instead of showing an invented value.
+  const statutory = emp.statutory;
+  const bank = emp.bank;
+  const leaveBalance = emp.leaveBalance;
+  const netPayTrend = [...(payslips ?? [])].reverse().map((p) => ({ month: monthName(p.month, 'short'), net: Number(p.net) }));
 
   const attendanceDays = Array.isArray(emp.attendanceDays) ? emp.attendanceDays : [];
-
-  // Payslip history safely derived from netPayTrend
-  const payslipHistory = [...netPayTrend].reverse().slice(0, 3).map((pt, i) => ({
-    month: (pt?.month || 'Period') + ' 2026',
-    net: Number(pt?.net) || 0,
-    status: (i === 0 ? 'PROCESSING' : 'PAID') as 'PAID' | 'PROCESSING',
-  }));
 
   return (
     <div className="space-y-4">
@@ -291,7 +257,7 @@ export const EmployeeDetailView: React.FC = () => {
               <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
               {emp.isNewJoiner && <Badge variant="info">New Joiner</Badge>}
             </div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">{emp.designation || 'Specialist'} · {emp.department || 'General'}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{[emp.designation, emp.department].filter(Boolean).join(' · ') || 'No designation or department set'}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -299,7 +265,7 @@ export const EmployeeDetailView: React.FC = () => {
             <Edit2 className="w-3.5 h-3.5" /> Edit
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setCurrentView('payslips')}>
-            <Download className="w-3.5 h-3.5" /> Payslip
+            <Download className="w-3.5 h-3.5" aria-hidden="true" /> Payslips
           </Button>
           <button
             className="w-9 h-9 flex items-center justify-center rounded-xl bg-white dark:bg-[#181724] border border-slate-200 dark:border-[#2B293E] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
@@ -341,15 +307,16 @@ export const EmployeeDetailView: React.FC = () => {
               }
             />
             <InfoRow label="Mobile" value={emp.mobileNumber || '—'} />
-            <InfoRow label="Work State" value={emp.workState || 'Maharashtra'} />
+            <InfoRow label="Work State" value={emp.workState || '—'} />
             <InfoRow label="Joining Date" value={fmtDate(emp.joiningDate)} />
-            <InfoRow label="Department" value={emp.department || 'General'} />
-            <InfoRow label="Designation" value={emp.designation || 'Specialist'} />
+            <InfoRow label="Department" value={emp.department || '—'} />
+            <InfoRow label="Designation" value={emp.designation || '—'} />
           </Card>
 
           {/* Statutory card */}
           <Card>
             <SectionHeading icon={Shield} title="Statutory" />
+            {!statutory ? <p className="text-xs text-slate-500 dark:text-slate-400">PAN, Aadhaar, PF and ESI details aren’t recorded for this employee yet.</p> : <>
             <InfoRow label="PAN" value={<span className="font-mono">{statutory.pan || '—'}</span>} />
             <InfoRow label="Aadhaar (last 4)" value={<span className="font-mono">XXXX XXXX {statutory.aadhaarLast4 || '••••'}</span>} />
             {statutory.uan && <InfoRow label="UAN" value={<span className="font-mono">{statutory.uan}</span>} />}
@@ -376,11 +343,13 @@ export const EmployeeDetailView: React.FC = () => {
                 </div>
               ))}
             </div>
+            </>}
           </Card>
 
           {/* Bank card */}
           <Card>
             <SectionHeading icon={Banknote} title="Bank Account" />
+            {!bank ? <p className="text-xs text-slate-500 dark:text-slate-400">No bank account is on record. Add one with Edit employee before paying by bank transfer.</p> : <>
             <div className="bg-gradient-to-br from-[#0E5A47] to-teal-600 rounded-2xl p-4 text-white mb-3 shadow-sm">
               <p className="text-xs text-teal-200 mb-1">{bank.bankName || 'Bank'}</p>
               <p className="text-base font-mono font-bold tracking-widest">{bank.accountNumberMasked || '••••••••'}</p>
@@ -396,6 +365,7 @@ export const EmployeeDetailView: React.FC = () => {
                   : <span className="text-red-500 dark:text-red-400 flex items-center gap-1"><XCircle className="w-3.5 h-3.5" />Invalid</span>
               }
             />
+            </>}
           </Card>
         </div>
 
@@ -403,7 +373,8 @@ export const EmployeeDetailView: React.FC = () => {
         <div className="space-y-4">
           {/* Leave balance */}
           <Card>
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-4">Leave Balance — FY 2026-27</h3>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-4">Leave Balance</h3>
+            {!leaveBalance ? <p className="text-xs text-slate-500 dark:text-slate-400">Leave balances aren’t set up for this employee yet.</p> : <>
             <div className="flex justify-around">
               <StatRing
                 label="Earned Leave"
@@ -439,11 +410,13 @@ export const EmployeeDetailView: React.FC = () => {
                 </div>
               ))}
             </div>
+            </>}
           </Card>
 
           {/* Net Pay Trend */}
           <Card>
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-4">Net Pay Trend (6 months)</h3>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-4">Net Pay (finalized payroll)</h3>
+            {!netPayTrend.length ? <p className="text-xs text-slate-500 dark:text-slate-400">{payslips === null && canSeePay ? 'Loading…' : 'No finalized payslips yet.'}</p> : (
             <ResponsiveContainer width="100%" height={140}>
               <AreaChart data={netPayTrend} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                 <defs>
@@ -472,6 +445,7 @@ export const EmployeeDetailView: React.FC = () => {
                 />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </Card>
 
           {/* Attendance calendar */}
@@ -556,28 +530,19 @@ export const EmployeeDetailView: React.FC = () => {
               </button>
             </div>
             <ul className="space-y-2">
-              {payslipHistory.map((ps, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-[#15141F] border border-transparent dark:border-[#2B293E] hover:bg-slate-100 dark:hover:bg-[#1E1D2D] transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#1E1D2D] border border-slate-200 dark:border-[#2B293E] flex items-center justify-center shrink-0">
-                    <Download className="w-3.5 h-3.5 text-slate-400" />
-                  </div>
+              {(payslips ?? []).slice(0, 3).map((ps) => (
+                <li key={ps.payslipNumber} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-[#15141F] border border-transparent dark:border-[#2B293E]">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{ps.month}</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Net {fmt(ps.net)}</p>
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{monthName(ps.month)}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Net {money(ps.net)} · gross {money(ps.gross)}</p>
                   </div>
-                  <Badge variant={ps.status === 'PAID' ? 'success' : 'warning'} size="sm">
-                    {ps.status === 'PAID' ? 'Paid' : 'Processing'}
-                  </Badge>
+                  <Badge variant="success" size="sm">Payslip issued</Badge>
                 </li>
               ))}
-              {payslipHistory.filter((p) => p.net === 0).length === payslipHistory.length && (
-                <li className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">
-                  No payslips generated yet. Run payroll first.
-                </li>
+              {payslips !== null && payslips.length === 0 && (
+                <li className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">No payslips yet. They’re issued when a month’s payroll is finalized.</li>
               )}
+              {!canSeePay && <li className="text-xs text-slate-400 text-center py-4">You don’t have access to pay details.</li>}
             </ul>
           </Card>
         </div>

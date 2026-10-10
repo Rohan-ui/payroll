@@ -73,6 +73,18 @@ describe('opening an employee’s attendance', () => {
   });
 });
 
+describe('opening the attendance page', () => {
+  it('fetches everyone’s month from COSEC, reloads when days changed, and mentions COSEC users with no employee', async () => {
+    const reload = vi.fn();
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ status: 'SYNCED', syncedAt: '2026-10-10T05:51:00Z', changedRecords: 14, unmatchedUsers: 3 });
+    await act(async () => root.render(<Harness employeeId="ALL" month="2026-10" onChanged={reload} />));
+    await flush();
+    expect(apiClient.post).toHaveBeenCalledWith('/external-api/cosec/refresh-month', { month: '2026-10' });
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toMatch(/Up to date with COSEC · checked .+ · 14 days updated · 3 COSEC users have no matching Employee Code/);
+  });
+});
+
 describe('automatic sync settings', () => {
   const STATUS = {
     configured: true, autoSyncEnabled: true, lastStartedAt: '2026-10-07T05:50:00Z', lastFinishedAt: '2026-10-07T05:50:02Z',

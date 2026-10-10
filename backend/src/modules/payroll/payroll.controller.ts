@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseUUIDPipe, Query, BadRequestException } from '@nestjs/common';
 import {
   PayrollService,
   CreatePayrollPeriodInput,
@@ -9,7 +9,7 @@ import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { PayrollCalculationService } from './calculation/payroll-calculation.service';
-import { CalculationMonthQuery, CalculationPreviewQuery, monthRange } from './calculation/dto/calculation.dto';
+import { CalculationMonthQuery, CalculationPreviewQuery, monthRange, StartMonthDto } from './calculation/dto/calculation.dto';
 import { PayrollDashboardService } from './dashboard/payroll-dashboard.service';
 import { DashboardEmployeesQuery, DashboardQuery } from './dashboard/payroll-dashboard.dto';
 
@@ -107,5 +107,27 @@ export class PayrollController {
   @RequirePermissions('payroll.view')
   async dashboardEmployees(@CurrentTenant() tenantId: string, @Query() query: DashboardEmployeesQuery) {
     return { success: true, data: await this.dashboard.employees(tenantId, query) };
+  }
+
+  /** Starts a month's payroll: its pay period and run, ready to calculate (or the open run if there is one). */
+  @Post('months/:month/start')
+  @RequirePermissions('payroll.create')
+  async startMonth(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('month') month: string, @Body() body: StartMonthDto) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BadRequestException('Choose a month (YYYY-MM).');
+    return { success: true, data: await this.payrollService.startMonth(tenantId, month, body.paymentDate ?? null, actor.tenantMemberId) };
+  }
+
+  /** One employee's pay in a run, line by line with how each was worked out. */
+  @Get('runs/:id/employees/:employeeId')
+  @RequirePermissions('payroll.view', 'salary.view')
+  async runEmployee(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) runId: string, @Param('employeeId', ParseUUIDPipe) employeeId: string) {
+    return { success: true, data: await this.payrollService.runEmployee(tenantId, runId, employeeId) };
+  }
+
+  /** An employee's issued payslips, newest first. */
+  @Get('employees/:employeeId/payslips')
+  @RequirePermissions('payroll.view', 'salary.view')
+  async employeePayslips(@CurrentTenant() tenantId: string, @Param('employeeId', ParseUUIDPipe) employeeId: string) {
+    return { success: true, data: await this.payrollService.employeePayslips(tenantId, employeeId) };
   }
 }

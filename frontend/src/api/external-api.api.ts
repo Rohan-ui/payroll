@@ -34,7 +34,7 @@ export interface CosecSyncStatus {
 /** One employee's month refreshed from COSEC. */
 export type CosecRefreshResult =
   | { status: 'NOT_CONFIGURED' }
-  | { status: 'RECENT' | 'SYNCED'; syncedAt: string; changedRecords: number; skippedLocked?: number; matched?: boolean };
+  | { status: 'RECENT' | 'SYNCED'; syncedAt: string; changedRecords: number; skippedLocked?: number; matched?: boolean; unmatchedUsers?: number };
 
 export interface TestConnectionResult {
   ok: boolean;
@@ -244,5 +244,10 @@ export const externalApiClient = {
   /** Brings one employee's month (so far) from COSEC into their attendance. */
   async refreshEmployee(employeeId: string, month: string): Promise<CosecRefreshResult> {
     return apiClient.post<CosecRefreshResult>('/external-api/cosec/refresh-employee', { employeeId, month });
+  },
+
+  /** Brings the whole workspace's month (so far) from COSEC into attendance. */
+  async refreshMonth(month: string): Promise<CosecRefreshResult> {
+    return apiClient.post<CosecRefreshResult>('/external-api/cosec/refresh-month', { month });
   },
 };

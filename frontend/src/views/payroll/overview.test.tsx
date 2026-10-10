@@ -55,8 +55,12 @@ const settle = () => act(async () => { for (let i = 0; i < 20; i += 1) await Pro
 const button = (text: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
 const click = async (el: HTMLElement) => { await act(async () => el.click()); await settle(); };
 const setValue = (el: HTMLInputElement, value: string) => act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); });
+const Harness: React.FC<{ onNavigate: (to: 'run' | 'preview' | 'inputs' | 'setup') => void }> = ({ onNavigate }) => {
+  const [month, setMonth] = React.useState('2026-10');
+  return <PayrollOverviewTab month={month} onMonthChange={setMonth} onNavigate={onNavigate} />;
+};
 const render = async (onNavigate = vi.fn()) => {
-  await act(async () => root.render(<PayrollOverviewTab onNavigate={onNavigate} />));
+  await act(async () => root.render(<Harness onNavigate={onNavigate} />));
   await settle();
   setValue(document.querySelector('input[type=month]') as HTMLInputElement, '2026-09');
   await settle();

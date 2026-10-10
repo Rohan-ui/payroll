@@ -7,7 +7,7 @@ import { cosecToday, ExternalApiService } from './external-api.service';
 
 /** How long one workspace's sync may hold its claim; a worker that dies frees it after this. */
 const CLAIM_MINUTES = 5;
-/** Opening an employee's attendance again within this long reuses the last refresh. */
+/** Opening an employee's attendance (or the attendance page) again within this long reuses the last refresh. */
 const REFRESH_REUSE_MS = 30_000;
 /** A sync not finished for this long (while switched on) means the worker isn't running. */
 export const WORKER_SILENT_AFTER_MS = 5 * 60_000;
@@ -26,8 +26,8 @@ const safeError = (error: unknown) => (error instanceof Error ? error.message : 
  *   COSEC set up, unless switched off, gets yesterday and today synced (a night
  *   shift's day closes after midnight). Only days that changed are written. A
  *   workspace is claimed for the run, so several workers never sync it twice.
- * - On demand: opening an employee's attendance refreshes that employee's month
- *   from COSEC first.
+ * - On demand: opening the attendance page refreshes the whole workspace's
+ *   month from COSEC, and opening an employee's attendance refreshes theirs.
  *
  * Both use ExternalApiService.syncDailyAttendance, the same sync as the
  * "Sync" buttons in settings.
@@ -37,6 +37,8 @@ export class CosecSyncService {
   private readonly logger = new Logger(CosecSyncService.name);
   /** When each employee's month was last refreshed on demand, per API process. */
   private readonly refreshedAt = new Map<string, number>();
+  /** Workspace refreshes in progress: a second page opened meanwhile waits for the same one instead of calling COSEC again. */
+  private readonly monthRefreshes = new Map<string, Promise<MonthRefresh>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -191,4 +193,57 @@ export class CosecSyncService {
       matched: result.syncedRecords > 0,
     };
   }
+
+  /**
+   * Refreshes the whole workspace's month from COSEC (called when the
+   * attendance page opens). Only changed days are written; finalized or
+   * corrected days are left alone. Reuses a refresh from the last moments, and
+   * joins one already running.
+   */
+  async refreshMonth(tenantId: string, month: string, now = new Date()): Promise<MonthRefresh> {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BadRequestException('Choose a month as YYYY-MM.');
+    if (!(await this.externalApi.isCosecConfigured(tenantId))) return { status: 'NOT_CONFIGURED' };
+    const key = `${tenantId}|*|${month}`;
+    const last = this.refreshedAt.get(key);
+    if (last && now.getTime() - last < REFRESH_REUSE_MS) return { status: 'RECENT', syncedAt: new Date(last).toISOString(), changedRecords: 0 };
+    const running = this.monthRefreshes.get(key);
+    if (running) return running;
+
+    const today = cosecToday(now);
+    const [y, m] = month.split('-').map(Number);
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const start = `${month}-01`;
+    const end = monthEnd < today ? monthEnd : today;
+    if (start > today) return { status: 'SYNCED', syncedAt: now.toISOString(), changedRecords: 0, unmatchedUsers: 0 };
+
+    const work = (async (): Promise<MonthRefresh> => {
+      let result;
+      try {
+        result = await this.externalApi.syncDailyAttendance(tenantId, start, end);
+      } catch (error) {
+        this.logger.warn(`COSEC month refresh failed: tenant=${tenantId} month=${month} error=${error instanceof Error ? error.name : 'unknown'}`);
+        throw new ServiceUnavailableException(`The latest punches could not be fetched from COSEC: ${safeError(error)}`);
+      }
+      for (const [k, at] of this.refreshedAt) if (now.getTime() - at > REFRESH_REUSE_MS) this.refreshedAt.delete(k);
+      this.refreshedAt.set(key, now.getTime());
+      return {
+        status: 'SYNCED',
+        syncedAt: now.toISOString(),
+        changedRecords: result.changedRecords,
+        skippedLocked: result.skippedLocked,
+        unmatchedUsers: result.unmatchedUsers.length,
+      };
+    })();
+    this.monthRefreshes.set(key, work);
+    try {
+      return await work;
+    } finally {
+      this.monthRefreshes.delete(key);
+    }
+  }
 }
+
+export type MonthRefresh =
+  | { status: 'NOT_CONFIGURED' }
+  | { status: 'RECENT'; syncedAt: string; changedRecords: number }
+  | { status: 'SYNCED'; syncedAt: string; changedRecords: number; skippedLocked?: number; unmatchedUsers: number };

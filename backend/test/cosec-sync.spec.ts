@@ -288,6 +288,43 @@ describe('COSEC attendance sync', () => {
     expect((await call('get', '/external-api/cosec/sync-status', b.token)).body).toMatchObject({ configured: false, workerSilent: false });
   });
 
+  describe('opening the attendance page', () => {
+    it('refreshes everyone’s month from COSEC in one request, and reuses or shares a refresh already made', async () => {
+      const month = addDays(today, -70).slice(0, 7);
+      const first = `${month}-01`;
+      rows = [day('EMP001', first, [[first, '09:00'], [first, '18:00']]), day('EMP002', first, [], ['AB', 'AB'])];
+      asked.length = 0;
+      // Two pages opening together: one COSEC request.
+      const [one, two] = await Promise.all([
+        call('post', '/external-api/cosec/refresh-month', a.token, { month }),
+        call('post', '/external-api/cosec/refresh-month', a.token, { month }),
+      ]);
+      expect([one.status, two.status]).toEqual([200, 200]);
+      expect(one.body).toMatchObject({ status: 'SYNCED' });
+      expect(two.body).toEqual(one.body);
+      expect(asked).toHaveLength(1);
+      expect(asked[0].args).toMatchObject({ range: 'all' });
+      expect((await record(emp.asha, first))!.attendance_status).toBe('PRESENT');
+      expect((await record(emp.ravi, first))!.attendance_status).toBe('ABSENT');
+
+      const again = await call('post', '/external-api/cosec/refresh-month', a.token, { month });
+      expect(again.body.status).toBe('RECENT');
+      expect(asked).toHaveLength(1);
+    });
+
+    it('only for members who may see attendance, in workspaces with COSEC, and reports failures', async () => {
+      const month = addDays(today, -100).slice(0, 7);
+      expect((await call('post', '/external-api/cosec/refresh-month', b.token, { month })).body).toEqual({ status: 'NOT_CONFIGURED' });
+      expect((await call('post', '/external-api/cosec/refresh-month', blind.token, { month })).status).toBe(403);
+      expect((await call('post', '/external-api/cosec/refresh-month', a.token, { month: '2026-13' })).status).toBe(400);
+      failWith = 'License not available';
+      const failed = await call('post', '/external-api/cosec/refresh-month', a.token, { month });
+      failWith = null;
+      expect(failed.status).toBe(503);
+      expect(failed.body.message).toContain('The latest punches could not be fetched from COSEC');
+    });
+  });
+
   describe('opening an employee’s attendance', () => {
     it('refreshes that employee’s month from COSEC, and placed absent days on their own dates', async () => {
       const month = today.slice(0, 7);
