@@ -15,6 +15,8 @@ export interface PdfViewerProps {
   downloadName?: string;
   /** A note shown above the pages, such as that this is a sample and not the final document. */
   notice?: string;
+  /** Controls shown above the pages, such as a choice of which template to print with. */
+  controls?: React.ReactNode;
   onClose: () => void;
 }
 
@@ -46,7 +48,7 @@ const buttonClass =
  * Keys: + and - zoom, 0 actual size, ← and → previous and next page,
  * Home and End first and last page, Esc closes.
  */
-export const PdfViewer: React.FC<PdfViewerProps> = ({ title, description, load, downloadName, notice, onClose }) => {
+export const PdfViewer: React.FC<PdfViewerProps> = ({ title, description, load, downloadName, notice, controls, onClose }) => {
   const ids = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -442,6 +444,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ title, description, load, 
           </div>
         </div>
 
+        {controls && <div className="px-4 py-2 border-b border-slate-200 dark:border-[#2B293E]">{controls}</div>}
         {notice && <p className="px-4 py-2 text-xs font-semibold border-b border-amber-200 bg-amber-50 text-amber-900">{notice}</p>}
 
         <div ref={scrollRef} tabIndex={0} onScroll={onScroll} aria-label="Document pages" className="relative flex-1 overflow-auto bg-slate-200 dark:bg-[#0F0E17] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500">

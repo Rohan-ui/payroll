@@ -169,6 +169,7 @@ describe('lead import wizard', () => {
     expect(document.body.textContent).toContain('Same email as row 2 of this file.');
     expect(document.body.textContent).toContain('Missing first name.');
     expect(document.body.textContent).toContain('Destination: Client Outreach · 30-Day Multi-Touch SOP');
+    expect(document.body.textContent).toContain('No start dates given: Day 1 of the SOP is due today (or the next working day) for every lead.');
     expect(onImported).not.toHaveBeenCalled();
 
     await click(button('Import 1 lead into Client Outreach'));
@@ -181,6 +182,22 @@ describe('lead import wizard', () => {
     await click(button('View Client Outreach'));
     expect(setCrmTab).toHaveBeenCalledWith('cold-funnel');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('says when Day 1 falls for rows with a start date', async () => {
+    importResponse = (body) => {
+      const data = resultFor(body);
+      data.rows[0] = { ...data.rows[0], day1On: '2026-10-20' } as typeof data.rows[0];
+      return json({ success: true, data });
+    };
+    await render();
+    await upload(spreadsheet(LEAD_ROWS));
+    await click(button('Next: destination'));
+    await act(async () => (document.querySelectorAll('input[type="radio"]')[0] as HTMLInputElement).click());
+    await settle();
+    await click(button('Next: map columns'));
+    await click(button('Next: preview'));
+    expect(document.body.textContent).toContain('Day 1 of the SOP: on 20 Oct 2026 for 1 lead with a start date. Later days follow the SOP from there.');
   });
 
   it('imports into a sales pipeline at the chosen stage', async () => {

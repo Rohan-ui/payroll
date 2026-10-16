@@ -5,7 +5,7 @@ import { LeadVisibility, onVisibleLead, visibleLeads } from './lead-visibility';
 import { LINKEDIN_INVALID, normalizeLinkedInUrl } from './outreach-channels';
 import { CadenceQueryDto } from './dto/cadence-query.dto';
 import { CrmHistoryQueryDto } from './dto/history-query.dto';
-import { OutreachCalendar, addDays, dueInstant, dueRange, dueState, nextDueAt, validTimeZone, type DueFilter } from './crm-outreach-schedule';
+import { OutreachCalendar, addDays, addWorkingDays, dueInstant, dueRange, dueState, nextDueAt, validTimeZone, type DueFilter } from './crm-outreach-schedule';
 import { loadOutreachCalendar } from './outreach-calendar';
 import { randomInt, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -26,6 +26,8 @@ import {
   ReplyBranch,
   nextCadenceStep,
   interpolateText,
+  channelsStillToDo,
+  dayNotReadyMessage,
 } from './crm-cadence.helper';
 
 export const BASELINE_INDUSTRIES = [
@@ -520,7 +522,7 @@ export class CrmService {
    * `firstNameOptional` lets a lead without a contact name in (spreadsheet
    * imports, which require a phone instead).
    */
-  async createLead(tenantId: string, data: any, memberId?: string, options: { outreachFunnel?: string; createdVia?: string; firstNameOptional?: boolean } = {}) {
+  async createLead(tenantId: string, data: any, memberId?: string, options: { outreachFunnel?: string; createdVia?: string; firstNameOptional?: boolean; outreachStartDate?: string } = {}) {
     const leadId = randomUUID();
     const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
     const companyName = text(data.companyName ?? data.company_name);
@@ -542,7 +544,11 @@ export class CrmService {
     if (temperature === 'COLD' && (!customAttributes || !customAttributes.cadence)) {
       const now = new Date();
       const [firstStep] = await this.getCadenceSteps(tenantId);
-      const dueDate = nextDueAt(firstStep?.dayOffset || 0, await this.outreachCalendar(tenantId), now);
+      const calendar = await this.outreachCalendar(tenantId);
+      // Day 1 falls on the start date given (the next working day when it isn't one), else today.
+      const dueDate = options.outreachStartDate
+        ? dueInstant(addWorkingDays(options.outreachStartDate, firstStep?.dayOffset || 0, calendar), calendar.timeZone)
+        : nextDueAt(firstStep?.dayOffset || 0, calendar, now);
       customAttributes = {
         ...(customAttributes || {}),
         cadence: {
@@ -550,6 +556,7 @@ export class CrmService {
           status: 'ACTIVE',
           industry: data.industry || 'general',
           enrolledAt: now.toISOString(),
+          ...(options.outreachStartDate ? { startDate: options.outreachStartDate } : {}),
           currentStepIndex: 0,
           currentDay: 1,
           nextDueAt: dueDate.toISOString(),
@@ -981,6 +988,8 @@ export class CrmService {
       { header: 'Lead Source', key: 'lead_source', width: 28 },
       { header: 'Budget Amount', key: 'budget_amount', width: 20 },
       { header: 'Internal Notes', key: 'internal_notes', width: 36 },
+      // Client Outreach: the date Day 1 of the 30-day SOP is due; today when left empty.
+      { header: 'Start Date (Day 1)', key: 'start_date', width: 20, style: { numFmt: 'dd/mm/yyyy' } },
     ];
 
     const headerRow = ws.getRow(1);
@@ -1580,7 +1589,9 @@ export class CrmService {
           // What has been done on this day's channels; the day itself completes only when marked complete.
           channelActions: cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {},
           // Started once a channel was sent, or opened or copied for sending by hand.
-          dayStatus: Object.values(cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {}).some((a) => a && ['SENT', 'OPENED', 'COPIED'].includes(a.status)) ? 'IN_PROGRESS' : 'PENDING',
+          dayStatus: Object.values(cadence.channelActions?.[String(currentMasterStep.dayNumber)] ?? {}).some((a) => a && ['SENT', 'OPENED', 'COPIED', 'NOT_AVAILABLE'].includes(a.status)) ? 'IN_PROGRESS' : 'PENDING',
+          // The message channels still to send before the day can be marked complete.
+          stillToDo: channelsStillToDo(currentMasterStep, cadence.channelActions?.[String(currentMasterStep.dayNumber)]),
           interpolatedTemplates: {
             linkedin: currentMasterStep.templates.linkedin
               ? {
@@ -1738,6 +1749,9 @@ export class CrmService {
       const steps = await this.getCadenceSteps(tenantId);
       const executedStep = nextCadenceStep(steps, cadence);
       const currentIndex = executedStep ? steps.indexOf(executedStep) : steps.length;
+      // Every message of the day goes out (or is marked not available) before the day can move on.
+      const notReady = executedStep && cadence.status === 'ACTIVE' ? dayNotReadyMessage(executedStep, cadence.channelActions?.[String(executedStep.dayNumber)]) : null;
+      if (notReady) throw new BadRequestException(notReady);
 
       if (executedStep) {
         cadence.completedSteps = [

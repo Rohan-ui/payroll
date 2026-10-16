@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { MailSendError, MailSenderService } from '@/modules/mail/mail-sender.service';
 import { CrmService } from './crm.service';
-import { CadenceChannelAction, CadenceState, interpolateText, nextCadenceStep } from './crm-cadence.helper';
+import { CadenceChannelAction, CadenceState, channelsStillToDo, interpolateText, nextCadenceStep } from './crm-cadence.helper';
 import { SendOutreachEmailDto } from './dto/outreach-email.dto';
 import { LeadVisibility, visibleLeads } from './lead-visibility';
 
@@ -239,9 +239,10 @@ export class CrmOutreachEmailService {
       throw new InternalServerErrorException(`The email was sent to ${lead.email}, but recording it failed. Do not send it again; reload the page, and contact support if it does not show as sent.`);
     }
 
-    // Only now, with the email sent, may the day move on (when asked).
+    // Only now, with the email sent, may the day move on (when asked),
+    // and only when nothing else of the day is still to send.
     let touchpointCompleted = false;
-    if (dto.completeTouchpoint) {
+    if (dto.completeTouchpoint && !channelsStillToDo(step, dayActions).length) {
       await this.crm.executeCadenceAction(tenantId, visibility, {
         action: 'COMPLETE_STEP', leadId: lead.id, channel: 'EMAIL', notes: `Email "${subject}" sent from ${sender.email} to ${lead.email}`,
       }, actorMemberId);
@@ -254,6 +255,7 @@ export class CrmOutreachEmailService {
       email,
       touchpoint: { day: step.dayNumber, title: step.title, channel: 'EMAIL', status: touchpointCompleted ? 'COMPLETED' : 'IN_PROGRESS' },
       channelActions: dayActions,
+      stillToDo: channelsStillToDo(step, dayActions),
       from,
       to: lead.email,
       attempt,

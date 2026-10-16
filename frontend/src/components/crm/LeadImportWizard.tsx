@@ -456,6 +456,7 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
                 ['Ready, with warnings', preview.summary.withWarnings],
               ]} />
               <Placement result={preview} mapping={mapping} />
+              {preview.destination === 'CLIENT_OUTREACH' && <StartDates rows={preview.rows} />}
               <RowTable rows={preview.rows.filter((r) => r.outcome !== 'READY' || r.warnings.length > 0)} empty="Every row is ready to import, with nothing left out." />
             </>
           )}
@@ -483,6 +484,22 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
         </div>
       )}
     </Dialog>
+  );
+}
+
+const dayText = (date: string) => new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`));
+
+/** When Day 1 of the SOP falls: on each row's start date, or today for rows without one. */
+function StartDates({ rows }: { rows: ImportRowResult[] }) {
+  const ready = rows.filter((r) => r.outcome === 'READY');
+  const dated = ready.map((r) => r.day1On).filter((d): d is string => !!d).sort();
+  if (!ready.length) return null;
+  return (
+    <p className="text-xs text-slate-600 dark:text-slate-300">
+      {dated.length === 0
+        ? 'No start dates given: Day 1 of the SOP is due today (or the next working day) for every lead. Map a “Start date” column to choose when it starts.'
+        : `Day 1 of the SOP: ${dated[0] === dated[dated.length - 1] ? `on ${dayText(dated[0])}` : `from ${dayText(dated[0])} to ${dayText(dated[dated.length - 1])}`} for ${plural(dated.length, 'lead')} with a start date${dated.length < ready.length ? `; today for the other ${plural(ready.length - dated.length, 'lead')}` : ''}. Later days follow the SOP from there.`}
+    </p>
   );
 }
 

@@ -63,7 +63,7 @@ const CRM_TABS: CrmTab[] = ['cold-funnel', 'pipeline', 'leads', 'activities', 'p
 
 function CRMEnterpriseContent() {
   const { crmTab, setCrmTab, navigateTo } = usePayroll();
-  const { canOpen } = useAuth();
+  const { canOpen, can } = useAuth();
   const [activeTab, setActiveTab] = useState<CrmTab>(crmTab || 'pipeline');
   const [pipelineView, setPipelineView] = useState<'kanban' | 'list' | 'won'>('kanban');
   // "Show on board" for a lead just created: the board selects its pipeline and highlights it.
@@ -805,6 +805,7 @@ function CRMEnterpriseContent() {
         <QuotationsManager
           leads={leads}
           services={services}
+          canAddServices={can('masters.services.create')}
           initialLeadId={quotationInitialLeadId}
           autoOpenCreate={autoOpenQuotation || isCreateQuotationOpen}
           onCloseCreate={() => {

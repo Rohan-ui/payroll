@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CrmService } from './crm.service';
-import { CadenceChannelAction, CadenceState, nextCadenceStep } from './crm-cadence.helper';
+import { CadenceChannelAction, CadenceState, channelsStillToDo, nextCadenceStep } from './crm-cadence.helper';
 import { OutreachChannelActionDto } from './dto/outreach-channel.dto';
 import { LeadVisibility, visibleLeads } from './lead-visibility';
 import { LINKEDIN_INVALID, LINKEDIN_MISSING, normalizeLinkedInUrl, whatsAppDigits } from './outreach-channels';
@@ -16,6 +16,8 @@ const LABELS = {
   LINKEDIN_MESSAGE_COPIED: { audit: 'OUTREACH_LINKEDIN_MESSAGE_COPIED', title: 'LinkedIn message copied' },
   WHATSAPP_MARKED_SENT: { audit: 'OUTREACH_WHATSAPP_SENT', title: 'WhatsApp message sent' },
   LINKEDIN_MARKED_SENT: { audit: 'OUTREACH_LINKEDIN_SENT', title: 'LinkedIn message sent' },
+  WHATSAPP_NOT_AVAILABLE: { audit: 'OUTREACH_WHATSAPP_NOT_AVAILABLE', title: 'No WhatsApp number' },
+  LINKEDIN_NOT_AVAILABLE: { audit: 'OUTREACH_LINKEDIN_NOT_AVAILABLE', title: 'Not on LinkedIn' },
 } as const;
 
 /** Text kept with a record: enough to see what was sent, never unbounded. */
@@ -44,9 +46,10 @@ export class CrmOutreachChannelService {
 
   async record(tenantId: string, actorMemberId: string, visibility: LeadVisibility, dto: OutreachChannelActionDto) {
     if (dto.channel === 'WHATSAPP' && dto.action === 'MESSAGE_COPIED') throw new BadRequestException('Copying a WhatsApp message is not recorded.');
+    if (dto.action === 'NOT_AVAILABLE') return this.notAvailable(tenantId, actorMemberId, visibility, dto);
+    if (dto.reason !== undefined) throw new BadRequestException('Only marking the lead as not there has a reason.');
     const sending = dto.action === 'MARKED_SENT';
     if (!sending && (dto.message !== undefined || dto.resend || dto.completeTouchpoint)) throw new BadRequestException('Only a sent message has a text, a resend or a completion.');
-    if (sending && !dto.message) throw new BadRequestException('Write the message that was sent.');
     const executor = await this.prisma.rndtechnosoft_tenant_members.findFirst({
       where: { tenant_id: tenantId, id: actorMemberId },
       select: { rndtechnosoft_users: { select: { display_name: true, email: true } } },
@@ -67,6 +70,9 @@ export class CrmOutreachChannelService {
       if (!step) throw new ConflictException(`${lead.company_name} has finished every touchpoint of the cadence.`);
       const channelName = dto.channel === 'WHATSAPP' ? 'WhatsApp' : 'LinkedIn';
       if (!step.channels.includes(dto.channel)) throw new BadRequestException(`Day ${step.dayNumber} (${step.title}) has no ${channelName} touchpoint.`);
+      // A LinkedIn action with no message (engaging with or sharing a post) is recorded as done, without a text.
+      const linkedInAction = dto.channel === 'LINKEDIN' && !step.templates?.linkedin?.message ? step.templates?.linkedin?.actionType ?? 'ACTION' : null;
+      if (sending && !dto.message && !linkedInAction) throw new BadRequestException('Write the message that was sent.');
 
       // Where it opens: the lead's own number or LinkedIn address.
       let to: string;
@@ -102,7 +108,7 @@ export class CrmOutreachChannelService {
             where: { tenant_id: tenantId, entity_id: lead.id, action_type: label.audit, changes_diff: { path: ['touchpoint', 'step_index'], equals: stepIndex } },
           })) + 1
         : null;
-      const message = sending ? dto.message!.replace(/\s+$/, '') : null;
+      const message = sending ? dto.message?.replace(/\s+$/, '') || `LinkedIn action done (${linkedInAction}); no message for this day.` : null;
       await tx.rndtechnosoft_crm_lead_activities.create({
         data: {
           id: activityId,
@@ -181,12 +187,13 @@ export class CrmOutreachChannelService {
           ...(sending ? { last_contacted_at: at, touchpoints_count: { increment: 1 } } : {}),
         },
       });
-      return { channel: dto.channel, action: dto.action, to, destination, channelActions: forDay, state: action, day: step.dayNumber, title, channelName, touchpointLabel };
+      return { channel: dto.channel, action: dto.action, to, destination, channelActions: forDay, state: action, day: step.dayNumber, title, channelName, touchpointLabel, stillToDo: channelsStillToDo(step, forDay) };
     });
 
-    // Only now, with the message recorded as sent, may the day move on (when asked).
+    // Only now, with the message recorded as sent, may the day move on (when asked),
+    // and only when nothing else of the day is still to send.
     let touchpointCompleted = false;
-    if (sending && dto.completeTouchpoint) {
+    if (sending && dto.completeTouchpoint && !recorded.stillToDo.length) {
       await this.crm.executeCadenceAction(tenantId, visibility, {
         action: 'COMPLETE_STEP', leadId: dto.leadId, channel: dto.channel, notes: `${recorded.channelName} message sent to ${recorded.to} (marked sent by ${executedBy.name})`,
       }, actorMemberId);
@@ -201,5 +208,86 @@ export class CrmOutreachChannelService {
         ? `${title}: recorded for ${touchpointLabel}${touchpointCompleted ? `; Day ${recorded.day} is complete` : ''}`
         : `${title} recorded for ${touchpointLabel}`,
     };
+  }
+
+  /**
+   * Marks that the lead isn't on LinkedIn, or has no WhatsApp number, for this
+   * touchpoint, so the day can be completed without that message. WhatsApp
+   * can be marked so only when the lead has no usable number; a message
+   * already sent there can't be undone by it.
+   */
+  private async notAvailable(tenantId: string, actorMemberId: string, visibility: LeadVisibility, dto: OutreachChannelActionDto) {
+    if (dto.message !== undefined || dto.resend || dto.completeTouchpoint) throw new BadRequestException('Only a sent message has a text, a resend or a completion.');
+    const executor = await this.prisma.rndtechnosoft_tenant_members.findFirst({
+      where: { tenant_id: tenantId, id: actorMemberId },
+      select: { rndtechnosoft_users: { select: { display_name: true, email: true } } },
+    });
+    const executedBy = { memberId: actorMemberId, name: executor?.rndtechnosoft_users.display_name || executor?.rndtechnosoft_users.email || 'A team member' };
+    const steps = await this.crm.getCadenceSteps(tenantId);
+    const reason = dto.reason?.trim() || null;
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM rndtechnosoft_crm_leads WHERE tenant_id = ${tenantId}::uuid AND id = ${dto.leadId}::uuid FOR UPDATE`;
+      const lead = await tx.rndtechnosoft_crm_leads.findFirst({ where: { tenant_id: tenantId, id: dto.leadId, ...visibleLeads(visibility) } });
+      if (!lead) throw new NotFoundException('Lead not found');
+      const attributes = (lead.custom_attributes as Record<string, unknown> | null) ?? {};
+      const cadence = attributes.cadence as Cadence | undefined;
+      if (!cadence || cadence.status !== 'ACTIVE' || cadence.convertedToOpportunity) {
+        throw new ConflictException(`${lead.company_name} is not active in Client Outreach, so there is no touchpoint to execute.`);
+      }
+      const step = nextCadenceStep(steps, cadence);
+      if (!step) throw new ConflictException(`${lead.company_name} has finished every touchpoint of the cadence.`);
+      const channelName = dto.channel === 'WHATSAPP' ? 'WhatsApp' : 'LinkedIn';
+      if (!step.channels.includes(dto.channel)) throw new BadRequestException(`Day ${step.dayNumber} (${step.title}) has no ${channelName} touchpoint.`);
+      if (dto.channel === 'WHATSAPP' && !('problem' in whatsAppDigits(lead.whatsapp_number || lead.phone))) {
+        throw new BadRequestException('This lead has a WhatsApp number. Send the message and mark it sent, or correct the number on the lead first.');
+      }
+      const day = String(step.dayNumber);
+      const previous = cadence.channelActions?.[day]?.[dto.channel];
+      if (previous?.status === 'SENT') throw new ConflictException(`The Day ${day} ${channelName} message was already marked sent, so it can’t be marked as not available.`);
+
+      const at = new Date();
+      const label = LABELS[`${dto.channel}_NOT_AVAILABLE`];
+      const touchpointLabel = `Day ${step.dayNumber} — ${step.title}`;
+      const activityId = randomUUID();
+      await tx.rndtechnosoft_crm_lead_activities.create({
+        data: {
+          id: activityId, tenant_id: tenantId, lead_id: lead.id, performed_by_tenant_member_id: actorMemberId, activity_type: dto.channel, title: label.title,
+          description: [
+            `Channel: ${channelName}`,
+            `Touchpoint: ${touchpointLabel}`,
+            `Marked by: ${executedBy.name}`,
+            dto.channel === 'LINKEDIN' ? 'The lead has no LinkedIn profile, so no LinkedIn message is sent for this day.' : 'The lead has no WhatsApp number, so no WhatsApp message is sent for this day.',
+            ...(reason ? ['', reason] : []),
+          ].join('\n'),
+          created_at: at,
+        },
+      });
+      await tx.rndtechnosoft_crm_audit_logs.create({
+        data: {
+          id: randomUUID(), tenant_id: tenantId, action_type: label.audit, entity_type: 'LEAD', entity_id: lead.id, actor_id: actorMemberId, actor_name: executedBy.name.slice(0, 120),
+          changes_diff: {
+            channel: dto.channel, action: dto.action, touchpoint: { day: step.dayNumber, title: step.title, step_index: steps.indexOf(step) },
+            funnel: cadence.funnelName ?? null, executed_by: { member_id: actorMemberId, name: executedBy.name }, at: at.toISOString(), activity_id: activityId, reason,
+          } as Prisma.InputJsonObject,
+          created_at: at,
+        },
+      });
+      const action: CadenceChannelAction = {
+        status: 'NOT_AVAILABLE', attempt: 0, executedBy, startedAt: previous?.startedAt ?? at.toISOString(), markedAt: at.toISOString(), activityId,
+        ...(reason ? { reason } : {}),
+        ...(previous?.openedAt ? { openedAt: previous.openedAt } : {}),
+      };
+      const forDay = { ...(cadence.channelActions?.[day] ?? {}), [dto.channel]: action };
+      const updated: Cadence = { ...cadence, channelActions: { ...(cadence.channelActions ?? {}), [day]: forDay } };
+      await tx.rndtechnosoft_crm_leads.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id: lead.id } },
+        data: { custom_attributes: { ...attributes, cadence: updated } as unknown as Prisma.InputJsonObject },
+      });
+      return {
+        channel: dto.channel, action: dto.action, day: step.dayNumber, channelActions: forDay, state: action, touchpointCompleted: false,
+        stillToDo: channelsStillToDo(step, forDay), message: `${label.title}: recorded for ${touchpointLabel}`,
+      };
+    });
   }
 }

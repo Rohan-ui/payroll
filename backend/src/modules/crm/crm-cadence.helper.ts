@@ -71,6 +71,8 @@ export interface CadenceState {
   funnelName: string;
   status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'BRANCHED' | 'CONVERTED';
   enrolledAt: string; // ISO date
+  /** The date Day 1 was set to start on at import (YYYY-MM-DD), when one was given. */
+  startDate?: string;
   industry: string;
   currentStepIndex: number;
   currentDay: number;
@@ -110,7 +112,8 @@ export interface CadenceState {
  * and SENT only when the member confirms sending it (confirmation USER).
  */
 export type CadenceChannelAction = {
-  status: 'SENDING' | 'SENT' | 'FAILED' | 'OPENED' | 'COPIED';
+  /** NOT_AVAILABLE: the lead has no profile or number there (marked by a member), so the day doesn't wait for it. */
+  status: 'SENDING' | 'SENT' | 'FAILED' | 'OPENED' | 'COPIED' | 'NOT_AVAILABLE';
   attempt: number;
   executedBy: { memberId: string; name: string };
   startedAt: string;
@@ -129,6 +132,9 @@ export type CadenceChannelAction = {
   confirmation?: 'USER';
   /** WhatsApp and LinkedIn: the message as sent (clipped). */
   message?: string;
+  /** NOT_AVAILABLE: when it was marked, and why. */
+  markedAt?: string;
+  reason?: string;
   /** LinkedIn: whether a conversation or the profile (or another LinkedIn page) was opened. */
   destination?: 'CONVERSATION' | 'PROFILE' | 'PAGE';
 };
@@ -804,6 +810,33 @@ export function computeStepDueDate(enrolledAt: string | Date, dayOffset: number)
  * lead none of whose completed steps remain carries on from the first step
  * later than the last day it completed. Null when none is left.
  */
+/** The channels a day's messages go out on; phone calls are logged, not sent. */
+export const MESSAGE_CHANNELS = ['WHATSAPP', 'EMAIL', 'LINKEDIN'] as const;
+const CHANNEL_NAMES: Record<(typeof MESSAGE_CHANNELS)[number], string> = { WHATSAPP: 'WhatsApp', EMAIL: 'email', LINKEDIN: 'LinkedIn' };
+
+/**
+ * The day's message channels not done yet: each channel the step uses and has
+ * a message for must be sent, or (WhatsApp, LinkedIn) marked not available
+ * for the lead. The day can be marked complete only when none is left.
+ */
+export function channelsStillToDo(
+  step: Pick<CadenceStep, 'channels' | 'templates'>,
+  actions: Partial<Record<CadenceChannel, Pick<CadenceChannelAction, 'status'>>> | undefined,
+): (typeof MESSAGE_CHANNELS)[number][] {
+  const hasMessage = { WHATSAPP: !!step.templates?.whatsapp, EMAIL: !!step.templates?.email, LINKEDIN: !!step.templates?.linkedin };
+  return MESSAGE_CHANNELS.filter((channel) => step.channels.includes(channel) && hasMessage[channel])
+    .filter((channel) => !['SENT', 'NOT_AVAILABLE'].includes(actions?.[channel]?.status ?? ''));
+}
+
+/** Why a day can't be completed yet, in words, or null when it can. */
+export function dayNotReadyMessage(step: Pick<CadenceStep, 'dayNumber' | 'channels' | 'templates'>, actions: Parameters<typeof channelsStillToDo>[1]): string | null {
+  const left = channelsStillToDo(step, actions);
+  if (!left.length) return null;
+  const names = left.map((c) => CHANNEL_NAMES[c]);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return `Day ${step.dayNumber} can’t be marked complete yet: send the ${list} message${left.length === 1 ? '' : 's'} first${left.includes('LINKEDIN') ? ', or mark the lead as not on LinkedIn' : ''}.`;
+}
+
 export function nextCadenceStep<T extends CadenceStep & { id?: string }>(steps: T[], cadence: Pick<CadenceState, 'completedSteps'>): T | null {
   const done = cadence.completedSteps ?? [];
   if (done.length === 0) return steps[0] ?? null;

@@ -1,7 +1,10 @@
 import React, { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import QuotationsManager from './QuotationsManager';
+const fake = vi.hoisted(() => ({ current: null as ReturnType<typeof import('../../test-support/fakePdfjs').fakePdfjs> | null }));
+vi.mock('../../lib/pdfjs', () => ({ loadPdfjs: async () => fake.current!.module }));
+const { fakePdfjs } = await import('../../test-support/fakePdfjs');
+const { default: QuotationsManager } = await import('./QuotationsManager');
 import { formatPaise, quotationTotals } from './QuotationBuilder';
 
 /**
@@ -31,6 +34,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  fake.current = fakePdfjs(1);
   calls = [];
   saveReply = () => json({ success: true, data: { id: 'q-new' }, message: 'Quotation created' }, 201);
   vi.stubGlobal(
@@ -38,9 +42,12 @@ beforeEach(() => {
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? 'GET';
       calls.push({ url, method, body: init.body ? JSON.parse(String(init.body)) : null });
+      if (url === '/api/v1/crm/masters/services' && method === 'POST') return json({ success: true, data: { id: 'srv-new', name: JSON.parse(String(init.body)).name, sac_code: '998314', default_rate: '500.00', is_active: true } }, 201);
       if (method !== 'GET') return saveReply();
       if (url.startsWith('/api/v1/crm/quotations?')) return json({ success: true, data: [DRAFT, SENT], pagination: { total: 2, totalPages: 1 } });
       if (url === '/api/v1/crm/quotation-templates') return json({ success: true, data: [TEMPLATE] });
+      if (url === '/api/v1/crm/quotations/document-templates') return json({ success: true, data: [{ id: 'dt1', name: 'Standard quotation', versionNumber: 2 }] });
+      if (url.startsWith('/api/v1/crm/quotations/q-draft/pdf')) return new Response('%PDF-1.7 fake', { status: 200, headers: { 'Content-Type': 'application/pdf' } });
       if (url.startsWith('/api/v1/crm/leads?')) {
         const search = new URL(url, 'http://x').searchParams.get('search') ?? '';
         return json({ success: true, data: { leads: LEADS.filter((l) => l.company_name.toLowerCase().includes(search.toLowerCase())) } });
@@ -79,7 +86,10 @@ const render = async (props: Record<string, unknown> = {}) => {
   await act(async () => root.render(<QuotationsManager leads={[]} services={[{ id: 'srv-1', name: 'SEO retainer', sac_code: '998365', default_rate: '15000.00' }]} onRefreshParent={() => undefined} {...props} />));
   await settle();
 };
-const posts = () => calls.filter((c) => c.method === 'POST');
+const posts = () => calls.filter((c) => c.method === 'POST' && c.url === '/api/v1/crm/quotations');
+const options = () => [...container.querySelectorAll('[role=option]')].map((o) => o.textContent ?? '');
+const option = (text: string) => [...container.querySelectorAll('[role=option]')].find((o) => o.textContent?.includes(text)) as HTMLElement;
+const focus = (el: HTMLElement) => act(() => { el.focus(); el.dispatchEvent(new FocusEvent('focus')); });
 
 describe('quotation totals preview', () => {
   it('gives the same amounts the server saves', () => {
@@ -93,17 +103,19 @@ describe('quotation totals preview', () => {
 });
 
 describe('Quotations', () => {
-  it('lists quotations with their lead, GST type and tax, and previews their lines', async () => {
+  it('lists quotations with their lead, GST type and tax, and views one as its PDF', async () => {
     await render();
     const rows = [...container.querySelectorAll('tbody tr')].map((r) => r.textContent ?? '');
     expect(rows[0]).toContain('Acme Corp');
     expect(rows[0]).toContain('Asha Rao');
     expect(rows[0]).toContain('IGST (18%)');
     expect(rows[1]).toContain('CGST+SGST');
-    act(() => button('QT-2026-000001')?.click());
-    expect(container.textContent).toContain('Audit and report');
-    expect(container.textContent).toContain('751.50');
-    expect(container.textContent).toContain('Phase 1');
+    await act(async () => button('QT-2026-000001')?.click());
+    await settle(0);
+    const viewer = document.querySelector('[role=dialog]') as HTMLElement;
+    expect(viewer.textContent).toContain('Quotation QT-2026-000001');
+    expect(calls.filter((c) => c.url.includes('/pdf')).map((c) => c.url)).toEqual(['/api/v1/crm/quotations/q-draft/pdf?templateId=dt1']);
+    expect([...viewer.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Download')).toBe(true);
   });
 
   it('creates a quotation in the app: lead search, template lines, live totals, then back to the list', async () => {
@@ -118,13 +130,23 @@ describe('Quotations', () => {
     expect(container.querySelector('[role=alert]')?.textContent).toContain('Choose the lead this quotation is for.');
     expect(posts()).toHaveLength(0);
 
-    setValue(byLabel('Find a lead'), 'beta');
+    // One box: type to search, then pick from the list.
+    expect(byLabel('Find a lead')).toBeNull();
+    const lead = byLabel('Lead *') as HTMLInputElement;
+    expect(lead.getAttribute('role')).toBe('combobox');
+    setValue(lead, 'beta');
     await settle(300);
-    expect([...(byLabel('Lead *') as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(['Choose a lead', 'Beta Ltd — Ravi (LD-2)']);
-    setValue(byLabel('Lead *'), 'lead-2');
+    expect(calls.some((c) => c.url.startsWith('/api/v1/crm/leads?search=beta'))).toBe(true);
+    expect(options()).toEqual(['Beta Ltd — Ravi (LD-2)']);
+    // Typed but not picked is not a lead yet.
+    await act(async () => button('Save quotation')?.click());
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('Choose the lead from the list');
+    act(() => option('Beta Ltd').click());
+    expect(lead.value).toBe('Beta Ltd — Ravi (LD-2)');
+    expect(container.querySelector('[role=listbox]')).toBeNull();
     setValue(byLabel('Start from a template'), 't1');
     act(() => button('Use template lines')?.click());
-    expect((byLabel('Description *') as HTMLInputElement).value).toBe('Design');
+    expect((byLabel('Service or description *') as HTMLInputElement).value).toBe('Design');
     expect(container.querySelector('[data-quotation-total]')?.textContent).toBe('₹2,360.63');
 
     await act(async () => button('Save quotation')?.click());
@@ -150,13 +172,59 @@ describe('Quotations', () => {
     await render({ initialLeadId: 'lead-2', autoOpenCreate: true, onCloseCreate: () => undefined });
     await settle(300);
     // Opened from a lead: that lead is already chosen.
-    expect(byLabel('Lead *').value).toBe('lead-2');
-    setValue(byLabel('Service'), 'srv-1');
+    expect(byLabel('Lead *').value).toBe('Beta Ltd — Ravi (LD-2)');
+    const service = byLabel('Service or description *') as HTMLInputElement;
+    setValue(service, 'seo');
+    act(() => option('SEO retainer').click());
+    expect(service.value).toBe('SEO retainer');
+    expect((byLabel('SAC code') as HTMLInputElement).value).toBe('998365');
     expect((byLabel('Rate (₹) *') as HTMLInputElement).value).toBe('15000.00');
     await act(async () => button('Save quotation')?.click());
     await settle();
     expect(container.querySelector('[role=alert]')?.textContent).toContain('Line 1: enter the quantity as a number.');
     expect(container.querySelector('h3')?.textContent).toBe('New quotation');
+  });
+
+  it('takes any typed text as a line, or picks a service with the keyboard, and can add the typed text as a service', async () => {
+    await render({ initialLeadId: 'lead-2', autoOpenCreate: true, onCloseCreate: () => undefined, canAddServices: true });
+    await settle(300);
+    const service = byLabel('Service or description *') as HTMLInputElement;
+    focus(service);
+    expect(options()[0]).toContain('SEO retainer');
+    expect(options()[0]).toContain('SAC 998365');
+
+    // Keyboard: ↓ then Enter picks the highlighted service.
+    act(() => service.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    expect(service.getAttribute('aria-activedescendant')).toBeTruthy();
+    act(() => service.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(service.value).toBe('SEO retainer');
+
+    // Free text: whatever is typed is the line, not linked to a service.
+    setValue(service, 'Custom landing page');
+    expect(options()).toEqual(['Add “Custom landing page” to the Services Master']);
+    setValue(byLabel('Rate (₹) *'), '500');
+    act(() => option('Add “Custom landing page”').click());
+    await settle();
+    const added = calls.find((c) => c.url === '/api/v1/crm/masters/services' && c.method === 'POST');
+    expect(added?.body).toMatchObject({ name: 'Custom landing page', sac_code: '998365', default_rate: '500' });
+
+    await act(async () => button('Save quotation')?.click());
+    await settle();
+    expect(posts()[0].body.items).toEqual([{ serviceId: 'srv-new', description: 'Custom landing page', sacCode: '998365', quantity: '1', unitRate: '500' }]);
+  });
+
+  it('keeps typed text as a custom line when services can’t be added from here', async () => {
+    await render({ initialLeadId: 'lead-2', autoOpenCreate: true, onCloseCreate: () => undefined });
+    await settle(300);
+    const service = byLabel('Service or description *') as HTMLInputElement;
+    focus(service);
+    setValue(service, 'Consulting day');
+    expect(options()).toEqual([]);
+    expect(container.querySelector('[role=listbox]')?.textContent).toContain('What you typed is used as the description');
+    setValue(byLabel('Rate (₹) *'), '8000');
+    await act(async () => button('Save quotation')?.click());
+    await settle();
+    expect(posts()[0].body.items).toEqual([{ description: 'Consulting day', sacCode: '', quantity: '1', unitRate: '8000' }]);
   });
 
   it('edits only draft quotations, with their lines loaded', async () => {
@@ -169,7 +237,7 @@ describe('Quotations', () => {
     act(() => menuOf('QT-2026-000001').click());
     act(() => button('Edit Quotation')?.click());
     expect(container.querySelector('h3')?.textContent).toBe('Edit quotation QT-2026-000001');
-    expect((byLabel('Description *') as HTMLInputElement).value).toBe('Audit and report');
+    expect((byLabel('Service or description *') as HTMLInputElement).value).toBe('Audit and report');
     expect(container.querySelector('[data-quotation-total]')?.textContent).toBe('₹886.77');
     setValue(byLabel('Qty *'), '4');
     await act(async () => button('Save changes')?.click());

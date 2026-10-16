@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL_REAL")
 }
 
 model rndtechnosoft_attendance_adjustments {
@@ -170,6 +170,13 @@ model rndtechnosoft_departments {
   rndtechnosoft_offers                rndtechnosoft_offers[]
   rndtechnosoft_payroll_policy_scopes rndtechnosoft_payroll_policy_scopes[]
 
+  rndtechnosoft_department_heads            rndtechnosoft_department_heads[]
+  rndtechnosoft_performance_kra_scopes      rndtechnosoft_performance_kra_scopes[]
+  rndtechnosoft_performance_template_scopes rndtechnosoft_performance_template_scopes[]
+  rndtechnosoft_performance_workflow_scopes rndtechnosoft_performance_workflow_scopes[]
+  rndtechnosoft_performance_cycle_scopes    rndtechnosoft_performance_cycle_scopes[]
+  rndtechnosoft_performance_appraisals      rndtechnosoft_performance_appraisals[]
+
   @@unique([tenant_id, department_code], map: "uq_departments_1")
   @@unique([tenant_id, id], map: "uq_departments_tenant_id")
   @@index([tenant_id, parent_department_id], map: "ix_departments_1")
@@ -190,6 +197,12 @@ model rndtechnosoft_designations {
   rndtechnosoft_candidates            rndtechnosoft_candidates[]
   rndtechnosoft_offers                rndtechnosoft_offers[]
   rndtechnosoft_payroll_policy_scopes rndtechnosoft_payroll_policy_scopes[]
+
+  rndtechnosoft_performance_kra_scopes      rndtechnosoft_performance_kra_scopes[]
+  rndtechnosoft_performance_template_scopes rndtechnosoft_performance_template_scopes[]
+  rndtechnosoft_performance_workflow_scopes rndtechnosoft_performance_workflow_scopes[]
+  rndtechnosoft_performance_cycle_scopes    rndtechnosoft_performance_cycle_scopes[]
+  rndtechnosoft_performance_appraisals      rndtechnosoft_performance_appraisals[]
 
   @@unique([tenant_id, designation_code], map: "uq_designations_1")
   @@unique([tenant_id, id], map: "uq_designations_tenant_id")
@@ -440,6 +453,16 @@ model rndtechnosoft_employee_reporting_lines {
   rndtechnosoft_employees_rndtechnosoft_employee_reporting_lines_tenant_id_employee_idTorndtechnosoft_employees         rndtechnosoft_employees @relation("rndtechnosoft_employee_reporting_lines_tenant_id_employee_idTorndtechnosoft_employees", fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_reporting_lines_1")
   rndtechnosoft_employees_rndtechnosoft_employee_reporting_lines_tenant_id_manager_employee_idTorndtechnosoft_employees rndtechnosoft_employees @relation("rndtechnosoft_employee_reporting_lines_tenant_id_manager_employee_idTorndtechnosoft_employees", fields: [tenant_id, manager_employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_reporting_lines_2")
 
+  /// ACTIVE, or CANCELLED when made by mistake; a change of manager is a new line, never an edit.
+  line_status                   String                        @default("ACTIVE") @db.VarChar(16)
+  change_reason                 String?                       @db.VarChar(500)
+  created_by_tenant_member_id   String?                       @db.Uuid
+  cancelled_by_tenant_member_id String?                       @db.Uuid
+  cancelled_at                  DateTime?                     @db.Timestamptz(6)
+  cancellation_reason           String?                       @db.VarChar(500)
+  created_by                    rndtechnosoft_tenant_members? @relation("reporting_line_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_reporting_lines_created_by")
+  cancelled_by                  rndtechnosoft_tenant_members? @relation("reporting_line_cancelled_by", fields: [tenant_id, cancelled_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_reporting_lines_cancelled_by")
+
   @@unique([tenant_id, id], map: "uq_employee_reporting_lines_tenant_id")
   @@index([tenant_id, employee_id, effective_from], map: "ix_employee_reporting_lines_1")
   @@index([tenant_id, manager_employee_id], map: "ix_employee_reporting_lines_2")
@@ -595,6 +618,10 @@ model rndtechnosoft_employees {
 
   rndtechnosoft_overtime_approvals rndtechnosoft_overtime_approvals[]
   rndtechnosoft_salary_arrears     rndtechnosoft_salary_arrears[]
+
+  headed_departments                   rndtechnosoft_department_heads[]       @relation("department_head_employee")
+  rndtechnosoft_performance_kra_scopes rndtechnosoft_performance_kra_scopes[]
+  rndtechnosoft_performance_appraisals rndtechnosoft_performance_appraisals[]
 
   @@unique([tenant_id, employee_code], map: "uq_employees_1")
   @@unique([tenant_id, user_id], map: "uq_employees_2")
@@ -1245,6 +1272,9 @@ model rndtechnosoft_roles {
   rndtechnosoft_tenants             rndtechnosoft_tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_roles_1")
   rndtechnosoft_tenant_member_roles rndtechnosoft_tenant_member_roles[]
 
+  performance_stages_reviewing  rndtechnosoft_performance_workflow_stages[] @relation("performance_stage_reviewer_role")
+  performance_stages_escalating rndtechnosoft_performance_workflow_stages[] @relation("performance_stage_escalation_role")
+
   @@unique([tenant_id, role_code], map: "uq_roles_1")
   @@unique([tenant_id, id], map: "uq_roles_tenant_id")
   @@index([tenant_id, role_status], map: "ix_roles_1")
@@ -1494,6 +1524,33 @@ model rndtechnosoft_tenant_members {
   salary_arrears_created                                                                                                                          rndtechnosoft_salary_arrears[]              @relation("salary_arrears_created_by")
   email_suppressions_added                                                                                                                        rndtechnosoft_email_suppressions[]          @relation("email_suppression_created_by")
 
+  department_heads_created                    rndtechnosoft_department_heads[]                   @relation("department_head_created_by")
+  department_heads_cancelled                  rndtechnosoft_department_heads[]                   @relation("department_head_cancelled_by")
+  performance_rating_scales_created           rndtechnosoft_performance_rating_scales[]          @relation("performance_rating_scale_created_by")
+  performance_rating_scale_versions_published rndtechnosoft_performance_rating_scale_versions[]  @relation("performance_rating_scale_version_published_by")
+  performance_kras_created                    rndtechnosoft_performance_kras[]                   @relation("performance_kra_created_by")
+  performance_kras_updated                    rndtechnosoft_performance_kras[]                   @relation("performance_kra_updated_by")
+  performance_kpis_created                    rndtechnosoft_performance_kpis[]                   @relation("performance_kpi_created_by")
+  performance_kpis_updated                    rndtechnosoft_performance_kpis[]                   @relation("performance_kpi_updated_by")
+  performance_templates_created               rndtechnosoft_performance_templates[]              @relation("performance_template_created_by")
+  performance_template_versions_published     rndtechnosoft_performance_template_versions[]      @relation("performance_template_version_published_by")
+  performance_workflows_created               rndtechnosoft_performance_workflows[]              @relation("performance_workflow_created_by")
+  performance_workflow_versions_published     rndtechnosoft_performance_workflow_versions[]      @relation("performance_workflow_version_published_by")
+  performance_stage_memberships               rndtechnosoft_performance_workflow_stage_members[] @relation("performance_stage_member")
+  reporting_lines_created                     rndtechnosoft_employee_reporting_lines[]           @relation("reporting_line_created_by")
+  reporting_lines_cancelled                   rndtechnosoft_employee_reporting_lines[]           @relation("reporting_line_cancelled_by")
+  performance_cycles_launched                 rndtechnosoft_performance_cycles[]                 @relation("performance_cycle_launched_by")
+  performance_cycles_created                  rndtechnosoft_performance_cycles[]                 @relation("performance_cycle_created_by")
+  performance_appraisals_launched             rndtechnosoft_performance_appraisals[]             @relation("performance_appraisal_launched_by")
+  performance_appraisals_cancelled            rndtechnosoft_performance_appraisals[]             @relation("performance_appraisal_cancelled_by")
+  performance_targets_set                     rndtechnosoft_performance_appraisal_targets[]      @relation("performance_target_set_by")
+  performance_assignments                     rndtechnosoft_performance_reviewer_assignments[]   @relation("performance_assignment_reviewer")
+  performance_assignments_made                rndtechnosoft_performance_reviewer_assignments[]   @relation("performance_assignment_assigned_by")
+  performance_nominations_received            rndtechnosoft_performance_nominations[]            @relation("performance_nomination_nominee")
+  performance_nominations_made                rndtechnosoft_performance_nominations[]            @relation("performance_nomination_by")
+  performance_nominations_decided             rndtechnosoft_performance_nominations[]            @relation("performance_nomination_decided_by")
+  performance_review_files_uploaded           rndtechnosoft_performance_review_files[]           @relation("performance_review_file_uploaded_by")
+
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
   @@index([tenant_id, membership_status], map: "ix_tenant_members_1")
@@ -1651,6 +1708,14 @@ model rndtechnosoft_tenants {
   rndtechnosoft_cosec_sync_states              rndtechnosoft_cosec_sync_states?
   rndtechnosoft_email_sequences                rndtechnosoft_email_sequences[]
   rndtechnosoft_email_suppressions             rndtechnosoft_email_suppressions[]
+
+  rndtechnosoft_department_heads          rndtechnosoft_department_heads[]
+  rndtechnosoft_performance_rating_scales rndtechnosoft_performance_rating_scales[]
+  rndtechnosoft_performance_kras          rndtechnosoft_performance_kras[]
+  rndtechnosoft_performance_kpis          rndtechnosoft_performance_kpis[]
+  rndtechnosoft_performance_templates     rndtechnosoft_performance_templates[]
+  rndtechnosoft_performance_workflows     rndtechnosoft_performance_workflows[]
+  rndtechnosoft_performance_cycles        rndtechnosoft_performance_cycles[]
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
@@ -3414,4 +3479,870 @@ model rndtechnosoft_salary_arrears {
   @@unique([tenant_id, id], map: "uq_salary_arrears_tenant_id")
   @@unique([tenant_id, salary_assignment_id, payroll_period_id], map: "uq_salary_arrears_period")
   @@index([tenant_id, employee_id, arrears_status], map: "ix_salary_arrears_pending")
+}
+
+/// Who heads a department, effective-dated. A change of head closes the
+/// current row and adds a new one; active rows of one department never overlap.
+model rndtechnosoft_department_heads {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  department_id                 String    @db.Uuid
+  head_employee_id              String    @db.Uuid
+  effective_from                DateTime  @db.Date
+  /// The last day of the appointment (inclusive); null while it is open-ended.
+  effective_to                  DateTime? @db.Date
+  appointment_status            String    @default("ACTIVE") @db.VarChar(16)
+  change_reason                 String?   @db.VarChar(500)
+  created_by_tenant_member_id   String?   @db.Uuid
+  cancelled_by_tenant_member_id String?   @db.Uuid
+  cancelled_at                  DateTime? @db.Timestamptz(6)
+  cancellation_reason           String?   @db.VarChar(500)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants     rndtechnosoft_tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_department_heads_tenant")
+  rndtechnosoft_departments rndtechnosoft_departments     @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_department_heads_department")
+  head_employee             rndtechnosoft_employees       @relation("department_head_employee", fields: [tenant_id, head_employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_department_heads_employee")
+  created_by                rndtechnosoft_tenant_members? @relation("department_head_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_department_heads_created_by")
+  cancelled_by              rndtechnosoft_tenant_members? @relation("department_head_cancelled_by", fields: [tenant_id, cancelled_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_department_heads_cancelled_by")
+
+  @@unique([tenant_id, id], map: "uq_department_heads_tenant_id")
+  @@index([tenant_id, department_id, effective_from], map: "ix_department_heads_department")
+  @@index([tenant_id, head_employee_id], map: "ix_department_heads_employee")
+}
+
+/// A named rating scale. How it rates lives in its versions; a published
+/// version never changes.
+model rndtechnosoft_performance_rating_scales {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  scale_code                  String    @db.VarChar(64)
+  scale_name                  String    @db.VarChar(160)
+  scale_description           String?   @db.VarChar(1000)
+  scale_status                String    @default("ACTIVE") @db.VarChar(16)
+  created_by_tenant_member_id String?   @db.Uuid
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                           rndtechnosoft_tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_rating_scales_tenant")
+  created_by                                      rndtechnosoft_tenant_members?                     @relation("performance_rating_scale_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_rating_scales_created_by")
+  rndtechnosoft_performance_rating_scale_versions rndtechnosoft_performance_rating_scale_versions[]
+  rndtechnosoft_performance_kras                  rndtechnosoft_performance_kras[]
+  rndtechnosoft_performance_kpis                  rndtechnosoft_performance_kpis[]
+
+  @@unique([tenant_id, id], map: "uq_performance_rating_scales_tenant_id")
+  @@unique([tenant_id, scale_code], map: "uq_performance_rating_scales_code")
+}
+
+/// One version of how a scale rates: LEVELS (pick a level), RANGE (a value from
+/// min to max in steps) or MARKS (0 to the item's maximum marks), and how a
+/// rating becomes a score percentage. Checked by performance/rating-scale.ts.
+model rndtechnosoft_performance_rating_scale_versions {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  rating_scale_id               String    @db.Uuid
+  version_number                Int
+  version_status                String    @default("DRAFT") @db.VarChar(16)
+  input_kind                    String    @db.VarChar(16)
+  conversion_method             String    @db.VarChar(24)
+  min_value                     Decimal?  @db.Decimal(12, 4)
+  max_value                     Decimal?  @db.Decimal(12, 4)
+  step_value                    Decimal?  @db.Decimal(12, 4)
+  unit_label                    String?   @db.VarChar(32)
+  change_note                   String?   @db.VarChar(500)
+  published_by_tenant_member_id String?   @db.Uuid
+  published_at                  DateTime? @db.Timestamptz(6)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_rating_scales       rndtechnosoft_performance_rating_scales         @relation(fields: [tenant_id, rating_scale_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_rating_scale_versions_scale")
+  published_by                                  rndtechnosoft_tenant_members?                   @relation("performance_rating_scale_version_published_by", fields: [tenant_id, published_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_rating_scale_versions_published_by")
+  rndtechnosoft_performance_rating_scale_levels rndtechnosoft_performance_rating_scale_levels[]
+  rndtechnosoft_performance_rating_scale_bands  rndtechnosoft_performance_rating_scale_bands[]
+  templates_using_as_final                      rndtechnosoft_performance_template_versions[]   @relation("template_final_scale")
+  rndtechnosoft_performance_template_kras       rndtechnosoft_performance_template_kras[]
+  rndtechnosoft_performance_template_kpis       rndtechnosoft_performance_template_kpis[]
+  rndtechnosoft_performance_template_fields     rndtechnosoft_performance_template_fields[]
+
+  @@unique([tenant_id, id], map: "uq_performance_rating_scale_versions_tenant_id")
+  @@unique([tenant_id, rating_scale_id, version_number], map: "uq_performance_rating_scale_versions_number")
+}
+
+model rndtechnosoft_performance_rating_scale_levels {
+  id                      String   @id @db.Uuid
+  tenant_id               String   @db.Uuid
+  rating_scale_version_id String   @db.Uuid
+  level_value             Decimal  @db.Decimal(12, 4)
+  level_label             String   @db.VarChar(120)
+  level_description       String?  @db.VarChar(500)
+  /// The score a rating at this level gives, for LEVEL_PERCENT conversion.
+  score_percent           Decimal? @db.Decimal(7, 4)
+  display_order           Int
+  created_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_rating_scale_versions rndtechnosoft_performance_rating_scale_versions @relation(fields: [tenant_id, rating_scale_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_rating_scale_levels_version")
+
+  @@unique([tenant_id, id], map: "uq_performance_rating_scale_levels_tenant_id")
+  @@unique([tenant_id, rating_scale_version_id, level_value], map: "uq_performance_rating_scale_levels_value")
+}
+
+/// A final rating band: scores from min_percent up to (not including)
+/// max_percent; the band ending at 100 includes 100. Bands never overlap.
+model rndtechnosoft_performance_rating_scale_bands {
+  id                      String   @id @db.Uuid
+  tenant_id               String   @db.Uuid
+  rating_scale_version_id String   @db.Uuid
+  band_label              String   @db.VarChar(120)
+  band_description        String?  @db.VarChar(500)
+  min_percent             Decimal  @db.Decimal(7, 4)
+  max_percent             Decimal  @db.Decimal(7, 4)
+  display_order           Int
+  created_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_rating_scale_versions rndtechnosoft_performance_rating_scale_versions @relation(fields: [tenant_id, rating_scale_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_rating_scale_bands_version")
+
+  @@unique([tenant_id, id], map: "uq_performance_rating_scale_bands_tenant_id")
+  @@unique([tenant_id, rating_scale_version_id, band_label], map: "uq_performance_rating_scale_bands_label")
+}
+
+/// A KRA in the library. Editable; appraisal templates copy what they use
+/// when published, so edits never reach appraisals already under way.
+model rndtechnosoft_performance_kras {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  kra_code                    String    @db.VarChar(64)
+  kra_name                    String    @db.VarChar(160)
+  kra_description             String?   @db.VarChar(2000)
+  measurement_method          String?   @db.VarChar(2000)
+  evaluation_instructions     String?   @db.VarChar(4000)
+  evidence_requirement        String    @default("NONE") @db.VarChar(16)
+  default_weight_percent      Decimal?  @db.Decimal(7, 4)
+  default_max_marks           Decimal?  @db.Decimal(12, 4)
+  default_min_marks           Decimal?  @db.Decimal(12, 4)
+  rating_scale_id             String?   @db.Uuid
+  /// False when the KRA is meant only for the departments, designations or employees in its scopes.
+  applies_to_all              Boolean   @default(true)
+  effective_from              DateTime  @db.Date
+  effective_to                DateTime? @db.Date
+  kra_status                  String    @default("ACTIVE") @db.VarChar(16)
+  /// Raised on every edit; an edit based on an older revision is refused.
+  revision_number             Int       @default(1)
+  created_by_tenant_member_id String?   @db.Uuid
+  updated_by_tenant_member_id String?   @db.Uuid
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                         rndtechnosoft_tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kras_tenant")
+  rndtechnosoft_performance_rating_scales       rndtechnosoft_performance_rating_scales?        @relation(fields: [tenant_id, rating_scale_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kras_scale")
+  created_by                                    rndtechnosoft_tenant_members?                   @relation("performance_kra_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kras_created_by")
+  updated_by                                    rndtechnosoft_tenant_members?                   @relation("performance_kra_updated_by", fields: [tenant_id, updated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kras_updated_by")
+  rndtechnosoft_performance_kra_scopes          rndtechnosoft_performance_kra_scopes[]
+  rndtechnosoft_performance_kra_kpis            rndtechnosoft_performance_kra_kpis[]
+  rndtechnosoft_performance_template_kras       rndtechnosoft_performance_template_kras[]
+  rndtechnosoft_performance_workflow_stage_kras rndtechnosoft_performance_workflow_stage_kras[]
+
+  @@unique([tenant_id, id], map: "uq_performance_kras_tenant_id")
+  @@unique([tenant_id, kra_code], map: "uq_performance_kras_code")
+  @@index([tenant_id, kra_status, kra_name], map: "ix_performance_kras_status")
+}
+
+/// Who a KRA is meant for: one department, designation or employee per row.
+model rndtechnosoft_performance_kra_scopes {
+  id             String   @id @db.Uuid
+  tenant_id      String   @db.Uuid
+  kra_id         String   @db.Uuid
+  department_id  String?  @db.Uuid
+  designation_id String?  @db.Uuid
+  employee_id    String?  @db.Uuid
+  created_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_kras rndtechnosoft_performance_kras @relation(fields: [tenant_id, kra_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_kra_scopes_kra")
+  rndtechnosoft_departments      rndtechnosoft_departments?     @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kra_scopes_department")
+  rndtechnosoft_designations     rndtechnosoft_designations?    @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kra_scopes_designation")
+  rndtechnosoft_employees        rndtechnosoft_employees?       @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kra_scopes_employee")
+
+  @@unique([tenant_id, id], map: "uq_performance_kra_scopes_tenant_id")
+  @@index([tenant_id, kra_id], map: "ix_performance_kra_scopes_kra")
+}
+
+/// A KPI in the library: what is measured and how, with suggested targets.
+model rndtechnosoft_performance_kpis {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  kpi_code                    String    @db.VarChar(64)
+  kpi_name                    String    @db.VarChar(160)
+  kpi_description             String?   @db.VarChar(2000)
+  measurement_type            String    @db.VarChar(24)
+  unit_label                  String?   @db.VarChar(32)
+  currency_code               String?   @db.Char(3)
+  direction                   String    @db.VarChar(24)
+  default_target              Decimal?  @db.Decimal(18, 4)
+  minimum_expected            Decimal?  @db.Decimal(18, 4)
+  stretch_target              Decimal?  @db.Decimal(18, 4)
+  default_max_marks           Decimal?  @db.Decimal(12, 4)
+  rating_scale_id             String?   @db.Uuid
+  evidence_requirement        String    @default("NONE") @db.VarChar(16)
+  evaluation_instructions     String?   @db.VarChar(4000)
+  kpi_status                  String    @default("ACTIVE") @db.VarChar(16)
+  /// Raised on every edit; an edit based on an older revision is refused.
+  revision_number             Int       @default(1)
+  created_by_tenant_member_id String?   @db.Uuid
+  updated_by_tenant_member_id String?   @db.Uuid
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                   rndtechnosoft_tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kpis_tenant")
+  rndtechnosoft_performance_rating_scales rndtechnosoft_performance_rating_scales?  @relation(fields: [tenant_id, rating_scale_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kpis_scale")
+  created_by                              rndtechnosoft_tenant_members?             @relation("performance_kpi_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kpis_created_by")
+  updated_by                              rndtechnosoft_tenant_members?             @relation("performance_kpi_updated_by", fields: [tenant_id, updated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kpis_updated_by")
+  rndtechnosoft_performance_kra_kpis      rndtechnosoft_performance_kra_kpis[]
+  rndtechnosoft_performance_template_kpis rndtechnosoft_performance_template_kpis[]
+
+  @@unique([tenant_id, id], map: "uq_performance_kpis_tenant_id")
+  @@unique([tenant_id, kpi_code], map: "uq_performance_kpis_code")
+  @@index([tenant_id, kpi_status, kpi_name], map: "ix_performance_kpis_status")
+}
+
+/// A KPI a KRA suggests, with its suggested weight within that KRA.
+model rndtechnosoft_performance_kra_kpis {
+  id                     String   @id @db.Uuid
+  tenant_id              String   @db.Uuid
+  kra_id                 String   @db.Uuid
+  kpi_id                 String   @db.Uuid
+  default_weight_percent Decimal? @db.Decimal(7, 4)
+  display_order          Int
+  created_at             DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_kras rndtechnosoft_performance_kras @relation(fields: [tenant_id, kra_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_kra_kpis_kra")
+  rndtechnosoft_performance_kpis rndtechnosoft_performance_kpis @relation(fields: [tenant_id, kpi_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_kra_kpis_kpi")
+
+  @@unique([tenant_id, id], map: "uq_performance_kra_kpis_tenant_id")
+  @@unique([tenant_id, kra_id, kpi_id], map: "uq_performance_kra_kpis_pair")
+  @@index([tenant_id, kpi_id], map: "ix_performance_kra_kpis_kpi")
+}
+
+/// An appraisal template: what people in its departments or designations are
+/// appraised on. Its content lives in versions; a published version never changes.
+model rndtechnosoft_performance_templates {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  template_code               String    @db.VarChar(64)
+  template_name               String    @db.VarChar(160)
+  template_description        String?   @db.VarChar(1000)
+  applies_to_all              Boolean   @default(true)
+  template_status             String    @default("ACTIVE") @db.VarChar(16)
+  created_by_tenant_member_id String?   @db.Uuid
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                       rndtechnosoft_tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_templates_tenant")
+  created_by                                  rndtechnosoft_tenant_members?                 @relation("performance_template_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_templates_created_by")
+  rndtechnosoft_performance_template_scopes   rndtechnosoft_performance_template_scopes[]
+  rndtechnosoft_performance_template_versions rndtechnosoft_performance_template_versions[]
+  rndtechnosoft_performance_cycle_templates   rndtechnosoft_performance_cycle_templates[]
+
+  @@unique([tenant_id, id], map: "uq_performance_templates_tenant_id")
+  @@unique([tenant_id, template_code], map: "uq_performance_templates_code")
+  @@index([tenant_id, template_status, template_name], map: "ix_performance_templates_status")
+}
+
+/// A department or designation a template is meant for.
+model rndtechnosoft_performance_template_scopes {
+  id             String   @id @db.Uuid
+  tenant_id      String   @db.Uuid
+  template_id    String   @db.Uuid
+  department_id  String?  @db.Uuid
+  designation_id String?  @db.Uuid
+  created_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_templates rndtechnosoft_performance_templates @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_template_scopes_template")
+  rndtechnosoft_departments           rndtechnosoft_departments?          @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_scopes_department")
+  rndtechnosoft_designations          rndtechnosoft_designations?         @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_scopes_designation")
+
+  @@unique([tenant_id, id], map: "uq_performance_template_scopes_tenant_id")
+  @@index([tenant_id, template_id], map: "ix_performance_template_scopes_template")
+}
+
+/// One version of a template: its scoring policy and its own copies of the
+/// KRAs, KPIs and questions it uses. Checked by performance/scoring/template-definition.ts.
+model rndtechnosoft_performance_template_versions {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  template_id                   String    @db.Uuid
+  version_number                Int
+  version_status                String    @default("DRAFT") @db.VarChar(16)
+  scoring_model                 String    @default("WEIGHTED") @db.VarChar(16)
+  weight_rule                   String    @default("MUST_TOTAL") @db.VarChar(16)
+  total_marks                   Decimal?  @db.Decimal(12, 4)
+  missing_rating_rule           String    @default("BLOCK") @db.VarChar(16)
+  score_decimals                Int       @default(2)
+  final_scale_version_id        String?   @db.Uuid
+  change_note                   String?   @db.VarChar(500)
+  published_by_tenant_member_id String?   @db.Uuid
+  published_at                  DateTime? @db.Timestamptz(6)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_templates       rndtechnosoft_performance_templates              @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_versions_template")
+  final_scale_version                       rndtechnosoft_performance_rating_scale_versions? @relation("template_final_scale", fields: [tenant_id, final_scale_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_versions_final_scale")
+  published_by                              rndtechnosoft_tenant_members?                    @relation("performance_template_version_published_by", fields: [tenant_id, published_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_versions_published_by")
+  rndtechnosoft_performance_template_kras   rndtechnosoft_performance_template_kras[]
+  rndtechnosoft_performance_template_kpis   rndtechnosoft_performance_template_kpis[]
+  rndtechnosoft_performance_template_fields rndtechnosoft_performance_template_fields[]
+  rndtechnosoft_performance_appraisals      rndtechnosoft_performance_appraisals[]
+
+  @@unique([tenant_id, id], map: "uq_performance_template_versions_tenant_id")
+  @@unique([tenant_id, template_id, version_number], map: "uq_performance_template_versions_number")
+}
+
+/// A KRA as a template version uses it, copied from the library.
+model rndtechnosoft_performance_template_kras {
+  id                      String   @id @db.Uuid
+  tenant_id               String   @db.Uuid
+  template_version_id     String   @db.Uuid
+  kra_id                  String   @db.Uuid
+  kra_code                String   @db.VarChar(64)
+  kra_name                String   @db.VarChar(160)
+  kra_description         String?  @db.VarChar(2000)
+  measurement_method      String?  @db.VarChar(2000)
+  evaluation_instructions String?  @db.VarChar(4000)
+  evidence_requirement    String   @db.VarChar(16)
+  weight_percent          Decimal? @db.Decimal(7, 4)
+  max_marks               Decimal? @db.Decimal(12, 4)
+  min_marks               Decimal? @db.Decimal(12, 4)
+  /// How it is rated when it has no KPIs; null when its KPIs make its score.
+  scoring_method          String?  @db.VarChar(24)
+  rating_scale_version_id String?  @db.Uuid
+  allows_exemption        Boolean  @default(false)
+  display_order           Int
+  created_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_template_versions     rndtechnosoft_performance_template_versions      @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_template_kras_version")
+  rndtechnosoft_performance_kras                  rndtechnosoft_performance_kras                   @relation(fields: [tenant_id, kra_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_kras_kra")
+  rndtechnosoft_performance_rating_scale_versions rndtechnosoft_performance_rating_scale_versions? @relation(fields: [tenant_id, rating_scale_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_kras_scale")
+  rndtechnosoft_performance_template_kpis         rndtechnosoft_performance_template_kpis[]
+  rndtechnosoft_performance_review_items          rndtechnosoft_performance_review_items[]
+  rndtechnosoft_performance_review_files          rndtechnosoft_performance_review_files[]
+
+  @@unique([tenant_id, id], map: "uq_performance_template_kras_tenant_id")
+  @@unique([tenant_id, template_version_id, kra_id], map: "uq_performance_template_kras_kra")
+}
+
+/// A KPI as a template version uses it, copied from the library, with how it is scored here.
+model rndtechnosoft_performance_template_kpis {
+  id                      String   @id @db.Uuid
+  tenant_id               String   @db.Uuid
+  template_version_id     String   @db.Uuid
+  template_kra_id         String   @db.Uuid
+  kpi_id                  String   @db.Uuid
+  kpi_code                String   @db.VarChar(64)
+  kpi_name                String   @db.VarChar(160)
+  kpi_description         String?  @db.VarChar(2000)
+  measurement_type        String   @db.VarChar(24)
+  unit_label              String?  @db.VarChar(32)
+  currency_code           String?  @db.Char(3)
+  direction               String   @db.VarChar(24)
+  evidence_requirement    String   @db.VarChar(16)
+  evaluation_instructions String?  @db.VarChar(4000)
+  weight_percent          Decimal? @db.Decimal(7, 4)
+  max_marks               Decimal? @db.Decimal(12, 4)
+  scoring_method          String   @db.VarChar(24)
+  /// Checked by performance/scoring/scoring-methods.ts.
+  scoring_config          Json
+  target_source           String   @default("TEMPLATE") @db.VarChar(16)
+  target_value            Decimal? @db.Decimal(18, 4)
+  threshold_value         Decimal? @db.Decimal(18, 4)
+  stretch_value           Decimal? @db.Decimal(18, 4)
+  rating_scale_version_id String?  @db.Uuid
+  allows_exemption        Boolean  @default(false)
+  display_order           Int
+  created_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_template_versions     rndtechnosoft_performance_template_versions      @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_template_kpis_version")
+  rndtechnosoft_performance_template_kras         rndtechnosoft_performance_template_kras          @relation(fields: [tenant_id, template_kra_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_template_kpis_kra_line")
+  rndtechnosoft_performance_kpis                  rndtechnosoft_performance_kpis                   @relation(fields: [tenant_id, kpi_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_kpis_kpi")
+  rndtechnosoft_performance_rating_scale_versions rndtechnosoft_performance_rating_scale_versions? @relation(fields: [tenant_id, rating_scale_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_kpis_scale")
+  rndtechnosoft_performance_appraisal_targets     rndtechnosoft_performance_appraisal_targets[]
+  rndtechnosoft_performance_review_items          rndtechnosoft_performance_review_items[]
+  rndtechnosoft_performance_review_files          rndtechnosoft_performance_review_files[]
+
+  @@unique([tenant_id, id], map: "uq_performance_template_kpis_tenant_id")
+  @@unique([tenant_id, template_version_id, kpi_id], map: "uq_performance_template_kpis_kpi")
+  @@index([tenant_id, template_kra_id], map: "ix_performance_template_kpis_kra")
+}
+
+/// A question on the appraisal form. Checked by performance/scoring/form-fields.ts.
+model rndtechnosoft_performance_template_fields {
+  id                      String   @id @db.Uuid
+  tenant_id               String   @db.Uuid
+  template_version_id     String   @db.Uuid
+  field_key               String   @db.VarChar(40)
+  field_type              String   @db.VarChar(24)
+  field_label             String   @db.VarChar(200)
+  field_description       String?  @db.VarChar(1000)
+  is_required             Boolean  @default(false)
+  filled_by               String   @db.VarChar(16)
+  employee_visibility     String   @db.VarChar(24)
+  field_config            Json
+  rating_scale_version_id String?  @db.Uuid
+  is_scored               Boolean  @default(false)
+  weight_percent          Decimal? @db.Decimal(7, 4)
+  max_marks               Decimal? @db.Decimal(12, 4)
+  display_order           Int
+  created_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_template_versions     rndtechnosoft_performance_template_versions      @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_template_fields_version")
+  rndtechnosoft_performance_rating_scale_versions rndtechnosoft_performance_rating_scale_versions? @relation(fields: [tenant_id, rating_scale_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_template_fields_scale")
+  rndtechnosoft_performance_review_items          rndtechnosoft_performance_review_items[]
+  rndtechnosoft_performance_review_files          rndtechnosoft_performance_review_files[]
+
+  @@unique([tenant_id, id], map: "uq_performance_template_fields_tenant_id")
+  @@unique([tenant_id, template_version_id, field_key], map: "uq_performance_template_fields_key")
+}
+
+/// A review workflow: who reviews whom, how many, and in what order. Its
+/// stages live in versions; a published version never changes.
+model rndtechnosoft_performance_workflows {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  workflow_code               String    @db.VarChar(64)
+  workflow_name               String    @db.VarChar(160)
+  workflow_description        String?   @db.VarChar(1000)
+  applies_to_all              Boolean   @default(true)
+  workflow_status             String    @default("ACTIVE") @db.VarChar(16)
+  created_by_tenant_member_id String?   @db.Uuid
+  archived_at                 DateTime? @db.Timestamptz(6)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                       rndtechnosoft_tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflows_tenant")
+  created_by                                  rndtechnosoft_tenant_members?                 @relation("performance_workflow_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflows_created_by")
+  rndtechnosoft_performance_workflow_scopes   rndtechnosoft_performance_workflow_scopes[]
+  rndtechnosoft_performance_workflow_versions rndtechnosoft_performance_workflow_versions[]
+  rndtechnosoft_performance_cycle_workflows   rndtechnosoft_performance_cycle_workflows[]
+
+  @@unique([tenant_id, id], map: "uq_performance_workflows_tenant_id")
+  @@unique([tenant_id, workflow_code], map: "uq_performance_workflows_code")
+  @@index([tenant_id, workflow_status, workflow_name], map: "ix_performance_workflows_status")
+}
+
+/// A department or designation a workflow is meant for.
+model rndtechnosoft_performance_workflow_scopes {
+  id             String   @id @db.Uuid
+  tenant_id      String   @db.Uuid
+  workflow_id    String   @db.Uuid
+  department_id  String?  @db.Uuid
+  designation_id String?  @db.Uuid
+  created_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_workflows rndtechnosoft_performance_workflows @relation(fields: [tenant_id, workflow_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_workflow_scopes_workflow")
+  rndtechnosoft_departments           rndtechnosoft_departments?          @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_scopes_department")
+  rndtechnosoft_designations          rndtechnosoft_designations?         @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_scopes_designation")
+
+  @@unique([tenant_id, id], map: "uq_performance_workflow_scopes_tenant_id")
+  @@index([tenant_id, workflow_id], map: "ix_performance_workflow_scopes_workflow")
+}
+
+/// One version of a workflow's stages. Checked by performance/workflow/workflow-definition.ts.
+model rndtechnosoft_performance_workflow_versions {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  workflow_id                   String    @db.Uuid
+  version_number                Int
+  version_status                String    @default("DRAFT") @db.VarChar(16)
+  /// AT_LAUNCH: reviewers fixed when the appraisal starts. AT_STAGE_START: found as each stage opens.
+  reviewer_resolution           String    @default("AT_LAUNCH") @db.VarChar(16)
+  allows_repeat_reviewers       Boolean   @default(false)
+  change_note                   String?   @db.VarChar(500)
+  published_by_tenant_member_id String?   @db.Uuid
+  published_at                  DateTime? @db.Timestamptz(6)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_workflows       rndtechnosoft_performance_workflows         @relation(fields: [tenant_id, workflow_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_versions_workflow")
+  published_by                              rndtechnosoft_tenant_members?               @relation("performance_workflow_version_published_by", fields: [tenant_id, published_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_versions_published_by")
+  rndtechnosoft_performance_workflow_stages rndtechnosoft_performance_workflow_stages[]
+  rndtechnosoft_performance_appraisals      rndtechnosoft_performance_appraisals[]
+
+  @@unique([tenant_id, id], map: "uq_performance_workflow_versions_tenant_id")
+  @@unique([tenant_id, workflow_id, version_number], map: "uq_performance_workflow_versions_number")
+}
+
+/// One stage of a workflow version; stages with the same step run side by side.
+model rndtechnosoft_performance_workflow_stages {
+  id                        String   @id @db.Uuid
+  tenant_id                 String   @db.Uuid
+  workflow_version_id       String   @db.Uuid
+  stage_key                 String   @db.VarChar(40)
+  stage_name                String   @db.VarChar(120)
+  step_number               Int
+  reviewer_source           String   @db.VarChar(24)
+  assignment_mode           String   @default("EACH") @db.VarChar(8)
+  stage_action              String   @default("RATE") @db.VarChar(8)
+  min_reviewers             Int      @default(1)
+  max_reviewers             Int      @default(1)
+  completion_rule           String   @default("ALL") @db.VarChar(12)
+  min_completed             Int?
+  aggregation               String   @default("AVERAGE") @db.VarChar(16)
+  score_weight_percent      Decimal? @db.Decimal(7, 4)
+  rated_scope               String   @default("ALL") @db.VarChar(16)
+  reviewer_role_id          String?  @db.Uuid
+  nominated_by              String?  @db.VarChar(12)
+  nomination_needs_approval Boolean  @default(false)
+  allows_decline            Boolean  @default(false)
+  allows_replacement        Boolean  @default(true)
+  return_rule               String   @default("NONE") @db.VarChar(16)
+  due_days                  Int      @default(14)
+  reminder_days             Int[]    @default([])
+  escalate_after_days       Int?
+  escalate_to               String   @default("NONE") @db.VarChar(16)
+  escalation_role_id        String?  @db.Uuid
+  employee_sees             String   @default("INDIVIDUAL_AFTER_FINALIZATION") @db.VarChar(32)
+  reviewer_identity         String   @default("VISIBLE") @db.VarChar(24)
+  later_stages_see          String   @default("INDIVIDUAL") @db.VarChar(12)
+  display_order             Int
+  created_at                DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_workflow_versions      rndtechnosoft_performance_workflow_versions        @relation(fields: [tenant_id, workflow_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_workflow_stages_version")
+  reviewer_role                                    rndtechnosoft_roles?                               @relation("performance_stage_reviewer_role", fields: [tenant_id, reviewer_role_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_stages_role")
+  escalation_role                                  rndtechnosoft_roles?                               @relation("performance_stage_escalation_role", fields: [tenant_id, escalation_role_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_stages_escalation_role")
+  rndtechnosoft_performance_workflow_stage_members rndtechnosoft_performance_workflow_stage_members[]
+  rndtechnosoft_performance_workflow_stage_kras    rndtechnosoft_performance_workflow_stage_kras[]
+
+  @@unique([tenant_id, id], map: "uq_performance_workflow_stages_tenant_id")
+  @@unique([tenant_id, workflow_version_id, stage_key], map: "uq_performance_workflow_stages_key")
+}
+
+/// A workspace member a SPECIFIC_MEMBERS stage names.
+model rndtechnosoft_performance_workflow_stage_members {
+  id                String   @id @db.Uuid
+  tenant_id         String   @db.Uuid
+  workflow_stage_id String   @db.Uuid
+  tenant_member_id  String   @db.Uuid
+  display_order     Int
+  created_at        DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_workflow_stages rndtechnosoft_performance_workflow_stages @relation(fields: [tenant_id, workflow_stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_workflow_stage_members_stage")
+  rndtechnosoft_tenant_members              rndtechnosoft_tenant_members              @relation("performance_stage_member", fields: [tenant_id, tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_stage_members_member")
+
+  @@unique([tenant_id, id], map: "uq_performance_workflow_stage_members_tenant_id")
+  @@unique([tenant_id, workflow_stage_id, tenant_member_id], map: "uq_performance_workflow_stage_members_pair")
+}
+
+/// A KRA a SELECTED_KRAS stage rates.
+model rndtechnosoft_performance_workflow_stage_kras {
+  id                String   @id @db.Uuid
+  tenant_id         String   @db.Uuid
+  workflow_stage_id String   @db.Uuid
+  kra_id            String   @db.Uuid
+  created_at        DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_workflow_stages rndtechnosoft_performance_workflow_stages @relation(fields: [tenant_id, workflow_stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_workflow_stage_kras_stage")
+  rndtechnosoft_performance_kras            rndtechnosoft_performance_kras            @relation(fields: [tenant_id, kra_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_workflow_stage_kras_kra")
+
+  @@unique([tenant_id, id], map: "uq_performance_workflow_stage_kras_tenant_id")
+  @@unique([tenant_id, workflow_stage_id, kra_id], map: "uq_performance_workflow_stage_kras_pair")
+}
+
+/// An appraisal cycle: a period, who is eligible, and the templates and workflows employees may get.
+model rndtechnosoft_performance_cycles {
+  id                           String    @id @db.Uuid
+  tenant_id                    String    @db.Uuid
+  cycle_code                   String    @db.VarChar(64)
+  cycle_name                   String    @db.VarChar(160)
+  cycle_description            String?   @db.VarChar(1000)
+  cycle_kind                   String    @db.VarChar(16)
+  period_start                 DateTime  @db.Date
+  period_end                   DateTime  @db.Date
+  applies_to_all               Boolean   @default(true)
+  joined_on_or_before          DateTime? @db.Date
+  allows_overlap               Boolean   @default(false)
+  cycle_status                 String    @default("DRAFT") @db.VarChar(16)
+  launched_at                  DateTime? @db.Timestamptz(6)
+  launched_by_tenant_member_id String?   @db.Uuid
+  created_by_tenant_member_id  String?   @db.Uuid
+  archived_at                  DateTime? @db.Timestamptz(6)
+  created_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                     rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_cycles_tenant")
+  launched_by                               rndtechnosoft_tenant_members?               @relation("performance_cycle_launched_by", fields: [tenant_id, launched_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_cycles_launched_by")
+  created_by                                rndtechnosoft_tenant_members?               @relation("performance_cycle_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_cycles_created_by")
+  rndtechnosoft_performance_cycle_scopes    rndtechnosoft_performance_cycle_scopes[]
+  rndtechnosoft_performance_cycle_templates rndtechnosoft_performance_cycle_templates[]
+  rndtechnosoft_performance_cycle_workflows rndtechnosoft_performance_cycle_workflows[]
+  rndtechnosoft_performance_appraisals      rndtechnosoft_performance_appraisals[]
+
+  @@unique([tenant_id, id], map: "uq_performance_cycles_tenant_id")
+  @@unique([tenant_id, cycle_code], map: "uq_performance_cycles_code")
+  @@index([tenant_id, cycle_status, period_start], map: "ix_performance_cycles_status")
+}
+
+model rndtechnosoft_performance_cycle_scopes {
+  id             String   @id @db.Uuid
+  tenant_id      String   @db.Uuid
+  cycle_id       String   @db.Uuid
+  department_id  String?  @db.Uuid
+  designation_id String?  @db.Uuid
+  created_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_cycles rndtechnosoft_performance_cycles @relation(fields: [tenant_id, cycle_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_cycle_scopes_cycle")
+  rndtechnosoft_departments        rndtechnosoft_departments?       @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_cycle_scopes_department")
+  rndtechnosoft_designations       rndtechnosoft_designations?      @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_cycle_scopes_designation")
+
+  @@unique([tenant_id, id], map: "uq_performance_cycle_scopes_tenant_id")
+  @@index([tenant_id, cycle_id], map: "ix_performance_cycle_scopes_cycle")
+}
+
+model rndtechnosoft_performance_cycle_templates {
+  id          String   @id @db.Uuid
+  tenant_id   String   @db.Uuid
+  cycle_id    String   @db.Uuid
+  template_id String   @db.Uuid
+  created_at  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_cycles    rndtechnosoft_performance_cycles    @relation(fields: [tenant_id, cycle_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_cycle_templates_cycle")
+  rndtechnosoft_performance_templates rndtechnosoft_performance_templates @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_cycle_templates_template")
+
+  @@unique([tenant_id, id], map: "uq_performance_cycle_templates_tenant_id")
+  @@unique([tenant_id, cycle_id, template_id], map: "uq_performance_cycle_templates_pair")
+}
+
+model rndtechnosoft_performance_cycle_workflows {
+  id          String   @id @db.Uuid
+  tenant_id   String   @db.Uuid
+  cycle_id    String   @db.Uuid
+  workflow_id String   @db.Uuid
+  created_at  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_cycles    rndtechnosoft_performance_cycles    @relation(fields: [tenant_id, cycle_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_cycle_workflows_cycle")
+  rndtechnosoft_performance_workflows rndtechnosoft_performance_workflows @relation(fields: [tenant_id, workflow_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_cycle_workflows_workflow")
+
+  @@unique([tenant_id, id], map: "uq_performance_cycle_workflows_tenant_id")
+  @@unique([tenant_id, cycle_id, workflow_id], map: "uq_performance_cycle_workflows_pair")
+}
+
+/// One employee's appraisal in a cycle, on the template and workflow versions it started with.
+model rndtechnosoft_performance_appraisals {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  cycle_id                      String    @db.Uuid
+  employee_id                   String    @db.Uuid
+  template_version_id           String    @db.Uuid
+  workflow_version_id           String    @db.Uuid
+  department_id                 String?   @db.Uuid
+  designation_id                String?   @db.Uuid
+  /// IN_PROGRESS, REVIEWS_COMPLETE (awaiting calibration and finalization) or CANCELLED.
+  appraisal_status              String    @default("IN_PROGRESS") @db.VarChar(20)
+  current_step                  Int?
+  launched_by_tenant_member_id  String?   @db.Uuid
+  launched_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  reviews_completed_at          DateTime? @db.Timestamptz(6)
+  cancelled_by_tenant_member_id String?   @db.Uuid
+  cancelled_at                  DateTime? @db.Timestamptz(6)
+  cancellation_reason           String?   @db.VarChar(500)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_cycles               rndtechnosoft_performance_cycles                 @relation(fields: [tenant_id, cycle_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_cycle")
+  rndtechnosoft_employees                        rndtechnosoft_employees                          @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_employee")
+  rndtechnosoft_performance_template_versions    rndtechnosoft_performance_template_versions      @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_template_version")
+  rndtechnosoft_performance_workflow_versions    rndtechnosoft_performance_workflow_versions      @relation(fields: [tenant_id, workflow_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_workflow_version")
+  rndtechnosoft_departments                      rndtechnosoft_departments?                       @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_department")
+  rndtechnosoft_designations                     rndtechnosoft_designations?                      @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_designation")
+  launched_by                                    rndtechnosoft_tenant_members?                    @relation("performance_appraisal_launched_by", fields: [tenant_id, launched_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_launched_by")
+  cancelled_by                                   rndtechnosoft_tenant_members?                    @relation("performance_appraisal_cancelled_by", fields: [tenant_id, cancelled_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisals_cancelled_by")
+  rndtechnosoft_performance_appraisal_targets    rndtechnosoft_performance_appraisal_targets[]
+  rndtechnosoft_performance_appraisal_stages     rndtechnosoft_performance_appraisal_stages[]
+  rndtechnosoft_performance_reviewer_assignments rndtechnosoft_performance_reviewer_assignments[]
+  rndtechnosoft_performance_nominations          rndtechnosoft_performance_nominations[]
+
+  @@unique([tenant_id, id], map: "uq_performance_appraisals_tenant_id")
+  @@index([tenant_id, cycle_id, appraisal_status], map: "ix_performance_appraisals_cycle")
+  @@index([tenant_id, employee_id], map: "ix_performance_appraisals_employee")
+}
+
+/// An employee's own targets for a KPI the template leaves to each employee.
+model rndtechnosoft_performance_appraisal_targets {
+  id                      String   @id @db.Uuid
+  tenant_id               String   @db.Uuid
+  appraisal_id            String   @db.Uuid
+  template_kpi_id         String   @db.Uuid
+  target_value            Decimal? @db.Decimal(18, 4)
+  threshold_value         Decimal? @db.Decimal(18, 4)
+  stretch_value           Decimal? @db.Decimal(18, 4)
+  set_by_tenant_member_id String?  @db.Uuid
+  created_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_appraisals    rndtechnosoft_performance_appraisals    @relation(fields: [tenant_id, appraisal_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_appraisal_targets_appraisal")
+  rndtechnosoft_performance_template_kpis rndtechnosoft_performance_template_kpis @relation(fields: [tenant_id, template_kpi_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisal_targets_kpi")
+  set_by                                  rndtechnosoft_tenant_members?           @relation("performance_target_set_by", fields: [tenant_id, set_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_appraisal_targets_set_by")
+
+  @@unique([tenant_id, id], map: "uq_performance_appraisal_targets_tenant_id")
+  @@unique([tenant_id, appraisal_id, template_kpi_id], map: "uq_performance_appraisal_targets_line")
+}
+
+/// One stage of an appraisal: WAITING, OPEN, NEEDS_REVIEWERS or COMPLETE.
+model rndtechnosoft_performance_appraisal_stages {
+  id              String    @id @db.Uuid
+  tenant_id       String    @db.Uuid
+  appraisal_id    String    @db.Uuid
+  stage_key       String    @db.VarChar(40)
+  step_number     Int
+  stage_status    String    @default("WAITING") @db.VarChar(20)
+  opened_at       DateTime? @db.Timestamptz(6)
+  due_date        DateTime? @db.Date
+  completed_at    DateTime? @db.Timestamptz(6)
+  resolution_note String?   @db.VarChar(500)
+  created_at      DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at      DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_appraisals           rndtechnosoft_performance_appraisals             @relation(fields: [tenant_id, appraisal_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_appraisal_stages_appraisal")
+  rndtechnosoft_performance_reviewer_assignments rndtechnosoft_performance_reviewer_assignments[]
+  rndtechnosoft_performance_nominations          rndtechnosoft_performance_nominations[]
+
+  @@unique([tenant_id, id], map: "uq_performance_appraisal_stages_tenant_id")
+  @@unique([tenant_id, appraisal_id, stage_key], map: "uq_performance_appraisal_stages_key")
+  @@index([tenant_id, stage_status, due_date], map: "ix_performance_appraisal_stages_due")
+}
+
+/// A reviewer on a stage of an appraisal. Never edited away: declined, replaced and sent-back ones stay as history.
+model rndtechnosoft_performance_reviewer_assignments {
+  id                           String    @id @db.Uuid
+  tenant_id                    String    @db.Uuid
+  appraisal_id                 String    @db.Uuid
+  appraisal_stage_id           String    @db.Uuid
+  reviewer_tenant_member_id    String    @db.Uuid
+  /// ASSIGNED, SUBMITTED, DECLINED, REPLACED, RETURNED or CANCELLED.
+  assignment_status            String    @default("ASSIGNED") @db.VarChar(12)
+  found_via                    String    @db.VarChar(160)
+  is_lead                      Boolean   @default(false)
+  assigned_by_tenant_member_id String?   @db.Uuid
+  replaces_assignment_id       String?   @db.Uuid
+  status_reason                String?   @db.VarChar(500)
+  assigned_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  submitted_at                 DateTime? @db.Timestamptz(6)
+  closed_at                    DateTime? @db.Timestamptz(6)
+  created_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_appraisals       rndtechnosoft_performance_appraisals             @relation(fields: [tenant_id, appraisal_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_reviewer_assignments_appraisal")
+  rndtechnosoft_performance_appraisal_stages rndtechnosoft_performance_appraisal_stages       @relation(fields: [tenant_id, appraisal_stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_reviewer_assignments_stage")
+  reviewer                                   rndtechnosoft_tenant_members                     @relation("performance_assignment_reviewer", fields: [tenant_id, reviewer_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_reviewer_assignments_reviewer")
+  assigned_by                                rndtechnosoft_tenant_members?                    @relation("performance_assignment_assigned_by", fields: [tenant_id, assigned_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_reviewer_assignments_assigned_by")
+  replaces                                   rndtechnosoft_performance_reviewer_assignments?  @relation("performance_assignment_replaces", fields: [tenant_id, replaces_assignment_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_reviewer_assignments_replaces")
+  replaced_by                                rndtechnosoft_performance_reviewer_assignments[] @relation("performance_assignment_replaces")
+  rndtechnosoft_performance_reviews          rndtechnosoft_performance_reviews?
+
+  @@unique([tenant_id, id], map: "uq_performance_reviewer_assignments_tenant_id")
+  @@index([tenant_id, reviewer_tenant_member_id, assignment_status], map: "ix_performance_reviewer_assignments_reviewer")
+  @@index([tenant_id, appraisal_id], map: "ix_performance_reviewer_assignments_appraisal")
+}
+
+/// A reviewer nominated for a stage, approved where the workflow asks for it.
+model rndtechnosoft_performance_nominations {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  appraisal_id                  String    @db.Uuid
+  appraisal_stage_id            String    @db.Uuid
+  nominee_tenant_member_id      String    @db.Uuid
+  nominated_by_tenant_member_id String    @db.Uuid
+  nomination_status             String    @default("PROPOSED") @db.VarChar(12)
+  decided_by_tenant_member_id   String?   @db.Uuid
+  decided_at                    DateTime? @db.Timestamptz(6)
+  decision_note                 String?   @db.VarChar(500)
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_appraisals       rndtechnosoft_performance_appraisals       @relation(fields: [tenant_id, appraisal_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_nominations_appraisal")
+  rndtechnosoft_performance_appraisal_stages rndtechnosoft_performance_appraisal_stages @relation(fields: [tenant_id, appraisal_stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_nominations_stage")
+  nominee                                    rndtechnosoft_tenant_members               @relation("performance_nomination_nominee", fields: [tenant_id, nominee_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_nominations_nominee")
+  nominated_by                               rndtechnosoft_tenant_members               @relation("performance_nomination_by", fields: [tenant_id, nominated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_nominations_by")
+  decided_by                                 rndtechnosoft_tenant_members?              @relation("performance_nomination_decided_by", fields: [tenant_id, decided_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_nominations_decided_by")
+
+  @@unique([tenant_id, id], map: "uq_performance_nominations_tenant_id")
+  @@index([tenant_id, appraisal_id, nomination_status], map: "ix_performance_nominations_appraisal")
+}
+
+/// A reviewer's review: a draft until submitted, then fixed for good.
+model rndtechnosoft_performance_reviews {
+  id                  String    @id @db.Uuid
+  tenant_id           String    @db.Uuid
+  assignment_id       String    @db.Uuid
+  review_status       String    @default("DRAFT") @db.VarChar(12)
+  decision            String?   @db.VarChar(8)
+  return_to_stage_key String?   @db.VarChar(40)
+  overall_comment     String?
+  submitted_at        DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at          DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_reviewer_assignments rndtechnosoft_performance_reviewer_assignments @relation(fields: [tenant_id, assignment_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_reviews_assignment")
+  rndtechnosoft_performance_review_items         rndtechnosoft_performance_review_items[]
+  rndtechnosoft_performance_review_files         rndtechnosoft_performance_review_files[]
+
+  @@unique([tenant_id, id], map: "uq_performance_reviews_tenant_id")
+  @@unique([tenant_id, assignment_id], map: "uq_performance_reviews_assignment")
+}
+
+/// One answer of a review, for a KRA rated as a whole, a KPI or a question.
+model rndtechnosoft_performance_review_items {
+  id                String    @id @db.Uuid
+  tenant_id         String    @db.Uuid
+  review_id         String    @db.Uuid
+  template_kra_id   String?   @db.Uuid
+  template_kpi_id   String?   @db.Uuid
+  template_field_id String?   @db.Uuid
+  actual_value      Decimal?  @db.Decimal(18, 4)
+  rating_value      Decimal?  @db.Decimal(12, 4)
+  marks_value       Decimal?  @db.Decimal(12, 4)
+  score_percent     Decimal?  @db.Decimal(7, 4)
+  yes_no            Boolean?
+  number_value      Decimal?  @db.Decimal(18, 4)
+  text_value        String?
+  option_values     String[]
+  date_value        DateTime? @db.Date
+  is_exempt         Boolean   @default(false)
+  justification     String?
+  item_comment      String?
+  created_at        DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at        DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_reviews         rndtechnosoft_performance_reviews          @relation(fields: [tenant_id, review_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_review_items_review")
+  rndtechnosoft_performance_template_kras   rndtechnosoft_performance_template_kras?   @relation(fields: [tenant_id, template_kra_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_review_items_kra")
+  rndtechnosoft_performance_template_kpis   rndtechnosoft_performance_template_kpis?   @relation(fields: [tenant_id, template_kpi_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_review_items_kpi")
+  rndtechnosoft_performance_template_fields rndtechnosoft_performance_template_fields? @relation(fields: [tenant_id, template_field_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_review_items_field")
+
+  @@unique([tenant_id, id], map: "uq_performance_review_items_tenant_id")
+}
+
+/// Evidence attached to a review, for one line or the whole review.
+model rndtechnosoft_performance_review_files {
+  id                           String   @id @db.Uuid
+  tenant_id                    String   @db.Uuid
+  review_id                    String   @db.Uuid
+  template_kra_id              String?  @db.Uuid
+  template_kpi_id              String?  @db.Uuid
+  template_field_id            String?  @db.Uuid
+  original_filename            String   @db.VarChar(255)
+  content_type                 String   @db.VarChar(100)
+  file_size_bytes              Int
+  storage_key                  String   @db.VarChar(255)
+  file_sha256                  String   @db.Char(64)
+  uploaded_by_tenant_member_id String   @db.Uuid
+  created_at                   DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_performance_reviews         rndtechnosoft_performance_reviews          @relation(fields: [tenant_id, review_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_performance_review_files_review")
+  rndtechnosoft_performance_template_kras   rndtechnosoft_performance_template_kras?   @relation(fields: [tenant_id, template_kra_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_review_files_kra")
+  rndtechnosoft_performance_template_kpis   rndtechnosoft_performance_template_kpis?   @relation(fields: [tenant_id, template_kpi_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_review_files_kpi")
+  rndtechnosoft_performance_template_fields rndtechnosoft_performance_template_fields? @relation(fields: [tenant_id, template_field_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_review_files_field")
+  uploaded_by                               rndtechnosoft_tenant_members               @relation("performance_review_file_uploaded_by", fields: [tenant_id, uploaded_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_performance_review_files_uploaded_by")
+
+  @@unique([tenant_id, id], map: "uq_performance_review_files_tenant_id")
+  @@index([tenant_id, review_id], map: "ix_performance_review_files_review")
 }

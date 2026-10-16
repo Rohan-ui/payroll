@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
-import { onboardingApi, type OfferDetail, type OfferInput, type OnboardingMeta, type TemplateSummary } from '../../api/onboarding.api';
+import { onboardingApi, type OfferDetail, type OfferInput, type OnboardingMeta } from '../../api/onboarding.api';
+import type { TemplateSummary } from '../../api/documents.api';
 import { toast } from '../../lib/toast';
 import { PdfViewer } from '../../components/ui/PdfViewer';
 import { fieldClass, labelClass } from './onboarding-format';
@@ -67,7 +68,7 @@ export const OfferEditor: React.FC<Props> = ({ candidateId, candidateName, offer
 
   useEffect(() => {
     onboardingApi
-      .listTemplates('OFFER_LETTER')
+      .listTemplates()
       .then((rows) => setTemplates(rows.filter((t) => t.approvedVersion && !t.isArchived)))
       .catch((e: Error) => setTemplatesError(e.message));
   }, []);

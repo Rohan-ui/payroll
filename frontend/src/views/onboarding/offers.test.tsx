@@ -49,7 +49,7 @@ let root: Root;
 
 beforeEach(() => {
   stubLayout();
-  granted = new Set(['onboarding.view', 'onboarding.offers.manage', 'onboarding.offers.approve', 'onboarding.offers.send', 'onboarding.templates.manage', 'onboarding.templates.approve']);
+  granted = new Set(['onboarding.view', 'onboarding.offers.manage', 'onboarding.offers.approve', 'onboarding.offers.send', 'documents.templates.manage', 'documents.templates.approve']);
   calls = [];
   currentOffer = offer('PENDING_APPROVAL');
   vi.stubGlobal(
@@ -64,11 +64,11 @@ beforeEach(() => {
       if (url.endsWith('/send')) { currentOffer = offer('SENT', { hasPdf: true, sentAt: '2026-09-30T10:00:00Z' }); return json({ success: true, data: { offer: currentOffer, notifications: [{ recipient: 'priya@candidate.test', status: 'SENT', duplicate: false, error: null }] } }); }
       if (url === '/api/v1/onboarding/offers/o1') return json({ success: true, data: currentOffer });
       if (url === '/api/v1/onboarding/candidates/c1') return json({ success: true, data: CANDIDATE });
-      if (url.startsWith('/api/v1/onboarding/templates?kind=OFFER_LETTER')) return json({ success: true, data: [{ id: 't1', kind: 'OFFER_LETTER', name: 'Standard', isArchived: false, approvedVersion: { id: 'tv2', number: 2, title: 'Offer' }, draftVersion: null }, { id: 't2', kind: 'OFFER_LETTER', name: 'Unapproved', isArchived: false, approvedVersion: null, draftVersion: { id: 'tv9', number: 1 } }] });
+      if (url === '/api/v1/onboarding/templates') return json({ success: true, data: [{ id: 't1', kind: 'OFFER_LETTER', name: 'Standard', isArchived: false, approvedVersion: { id: 'tv2', number: 2, title: 'Offer' }, draftVersion: null }, { id: 't2', kind: 'OFFER_LETTER', name: 'Unapproved', isArchived: false, approvedVersion: null, draftVersion: { id: 'tv9', number: 1 } }] });
       if (url === '/api/v1/onboarding/candidates/c1/offers') return json({ success: true, data: offer('DRAFT') }, 201);
-      if (url === '/api/v1/onboarding/templates' && method === 'POST') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], format: LETTER_FORMAT, versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', format: 'FORMATTED', document: letter(paragraph(text('Dear '))), layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } }, 201);
-      if (url === '/api/v1/onboarding/templates/t3') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], format: LETTER_FORMAT, versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', format: 'FORMATTED', document: letter(paragraph(text('Dear '))), layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } });
-      if (url.startsWith('/api/v1/onboarding/templates')) return json({ success: true, data: [] });
+      if (url === '/api/v1/documents/templates' && method === 'POST') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], format: LETTER_FORMAT, versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', format: 'FORMATTED', document: letter(paragraph(text('Dear '))), layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } }, 201);
+      if (url === '/api/v1/documents/templates/t3') return json({ success: true, data: { id: 't3', kind: 'OFFER_LETTER', name: 'New', isArchived: false, placeholders: [{ key: 'candidate_name', description: 'Name' }], format: LETTER_FORMAT, versions: [{ id: 'tv3', number: 1, status: 'DRAFT', title: 'Offer', body: 'Dear ', format: 'FORMATTED', document: letter(paragraph(text('Dear '))), layout: { letterheadId: null, letterheadName: null, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true }, createdBy: null, approvedBy: null, approvedAt: null, updatedAt: '' }] } });
+      if (url.startsWith('/api/v1/documents/templates')) return json({ success: true, data: [] });
       return json({ success: true, data: [] });
     }),
   );
@@ -168,17 +168,17 @@ describe('offers', () => {
 
 describe('templates', () => {
   it('creates a draft, and placeholders are inserted by clicking them', async () => {
-    const { TemplatesView } = await import('./TemplatesView');
+    const { TemplatesView } = await import('../documents/TemplatesView');
     await act(async () => root.render(<TemplatesView />));
     await settle();
     expect(container.textContent).toContain('No templates yet');
     act(() => button('New template')?.click());
     await act(async () => button('Create draft')?.click());
     await settle();
-    expect(calls.find((c) => c.url === '/api/v1/onboarding/templates' && c.method === 'POST')?.body).toMatchObject({ kind: 'OFFER_LETTER', name: 'Standard offer letter' });
+    expect(calls.find((c) => c.url === '/api/v1/documents/templates' && c.method === 'POST')?.body).toMatchObject({ kind: 'OFFER_LETTER', name: 'Standard offer letter' });
     await settle();
     // New templates start from the standard letter, chosen by the server.
-    expect(calls.find((c) => c.url === '/api/v1/onboarding/templates' && c.method === 'POST')?.body).not.toHaveProperty('document');
+    expect(calls.find((c) => c.url === '/api/v1/documents/templates' && c.method === 'POST')?.body).not.toHaveProperty('document');
     // With the cursor at the end of the text, the placeholder goes there, as a placeholder.
     const editor = (container.querySelector('.ProseMirror') as HTMLElement & { editor: Editor }).editor;
     act(() => { editor.commands.setTextSelection(editor.state.doc.content.size - 1); });

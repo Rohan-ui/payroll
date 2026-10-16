@@ -9,11 +9,11 @@ import { PrivateStorageService } from '@/common/storage/private-storage.service'
 import { TenantDomainsService } from '@/modules/tenancy/tenant-domains.service';
 import { CandidatesService } from './candidates.service';
 import { OnboardingMailerService, OnboardingSendOutcome, escapeHtml } from './onboarding-mailer.service';
-import { OnboardingPdfService } from './onboarding-pdf.service';
-import { LetterheadsService } from './letterheads.service';
+import { DocumentPdfService } from '@/modules/documents/document-pdf.service';
+import { LetterheadsService } from '@/modules/documents/letterheads.service';
 import { CandidateStatus } from './onboarding-workflow';
-import { formatInr, formatLetterDate, renderTemplate } from './document-templates';
-import { DocNode, fillDocument } from './rich-document';
+import { formatInr, formatLetterDate, renderTemplate } from '@/modules/documents/document-templates';
+import { DocNode, fillDocument } from '@/modules/documents/rich-document';
 import { ListOffersQueryDto, OfferInputDto, OfferPreviewDto, SubmitOfferDto } from './dto/onboarding.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -50,7 +50,7 @@ export class OffersService {
     private readonly access: AccessService,
     private readonly candidates: CandidatesService,
     private readonly mailer: OnboardingMailerService,
-    private readonly pdf: OnboardingPdfService,
+    private readonly pdf: DocumentPdfService,
     private readonly storage: PrivateStorageService,
     private readonly domains: TenantDomainsService,
     private readonly letterheads: LetterheadsService,

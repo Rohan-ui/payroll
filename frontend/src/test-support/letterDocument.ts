@@ -1,4 +1,4 @@
-import type { DocumentFormat, LetterDocument } from '../api/onboarding.api';
+import type { DocumentFormat, LetterDocument } from '../api/documents.api';
 
 /** The document format the server sends with templates (its DOCUMENT_STYLE and PDF fonts). */
 export const LETTER_FORMAT: DocumentFormat = {

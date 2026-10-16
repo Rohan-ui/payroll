@@ -35,6 +35,8 @@ export interface ImportRowResult {
   warnings: string[];
   leadId?: string;
   leadCode?: string;
+  /** Client Outreach: the date Day 1 is due, when the row had a start date (YYYY-MM-DD). */
+  day1On?: string;
 }
 
 export interface ImportResult {

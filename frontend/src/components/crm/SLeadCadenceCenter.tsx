@@ -29,7 +29,7 @@ import { LeadImportWizard } from './LeadImportWizard';
 import { OutreachEmailComposer, type OutreachEmailSent } from './OutreachEmailComposer';
 import { OutreachLinkedInPanel, OutreachWhatsAppPanel, type ChannelRecorded } from './OutreachManualChannels';
 import { useAuth } from '../../context/AuthContext';
-import { COPY_FAILED, copyText } from '../../lib/outreachChannels';
+import { COPY_FAILED, MESSAGE_CHANNEL_NAMES, channelsStillToDo, copyText, type MessageChannel } from '../../lib/outreachChannels';
 import { RescheduleDialog } from './RescheduleDialog';
 import { OutreachCalendar } from './OutreachCalendar';
 import { DUE_FILTERS, dueText, shortDate, type DueFilter } from './outreachDue';
@@ -201,7 +201,7 @@ export default function SLeadCadenceCenter({
    * on the touchpoint. A confirmed send can also complete the day, as an email can.
    */
   const handleChannelRecorded = (result: ChannelRecorded) => {
-    if (result.action === 'MARKED_SENT') showToast(result.message, 'success');
+    if (result.action === 'MARKED_SENT' || result.action === 'NOT_AVAILABLE') showToast(result.message, 'success');
     if (result.touchpointCompleted) {
       setSelectedLeadForAction(null);
     } else {
@@ -316,9 +316,13 @@ export default function SLeadCadenceCenter({
     setExecutionNotes('');
   };
 
+  // The day's messages still to send (or, for LinkedIn and WhatsApp, mark not available) before it can be completed.
+  const dayLeft: MessageChannel[] = selectedLeadForAction ? channelsStillToDo(selectedLeadForAction.currentStep, selectedLeadForAction.currentStep.channelActions) : [];
+  const othersLeft = (channel: MessageChannel) => dayLeft.filter((c) => c !== channel).map((c) => MESSAGE_CHANNEL_NAMES[c]);
+
   // Complete current step
   const handleCompleteStep = async () => {
-    if (!selectedLeadForAction) return;
+    if (!selectedLeadForAction || dayLeft.length > 0) return;
     setExecuting(true);
     try {
       const res = await apiFetch('/api/v1/crm/cadence', {
@@ -1584,6 +1588,7 @@ export default function SLeadCadenceCenter({
                   phone={selectedLeadForAction.whatsapp_number || selectedLeadForAction.phone || null}
                   message={interpolateText(selectedLeadForAction.currentStep.templates.whatsapp.message, getInterpolationVars())}
                   saved={selectedLeadForAction.currentStep.channelActions?.WHATSAPP ?? null}
+                  othersLeft={othersLeft('WHATSAPP')}
                   onRecorded={handleChannelRecorded}
                   apiSend={
                             <button
@@ -1615,6 +1620,7 @@ export default function SLeadCadenceCenter({
                   subject={interpolateText(selectedLeadForAction.currentStep.templates.email.subject, getInterpolationVars())}
                   body={interpolateText(selectedLeadForAction.currentStep.templates.email.body, getInterpolationVars())}
                   saved={selectedLeadForAction.currentStep.channelActions?.EMAIL ?? null}
+                  othersLeft={othersLeft('EMAIL')}
                   onSent={handleOutreachEmailSent}
                 />
               )}
@@ -1634,6 +1640,7 @@ export default function SLeadCadenceCenter({
                   message={selectedLeadForAction.currentStep.templates.linkedin.message ? interpolateText(selectedLeadForAction.currentStep.templates.linkedin.message, getInterpolationVars()) : ''}
                   saved={selectedLeadForAction.currentStep.channelActions?.LINKEDIN ?? null}
                   canEditLead={can('leads.update')}
+                  othersLeft={othersLeft('LINKEDIN')}
                   onLinkedInSaved={(url) => {
                     setSelectedLeadForAction((current: any) => current && { ...current, linkedin_url: url });
                     showToast('LinkedIn URL saved', 'success');
@@ -1820,11 +1827,18 @@ export default function SLeadCadenceCenter({
                 Close
               </button>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col items-end gap-1">
+                {dayLeft.length > 0 && (
+                  <p id="day-complete-blocked" className="text-[11px] text-slate-600 text-right max-w-sm" role="status">
+                    To complete Day {selectedLeadForAction.currentStep.dayNumber}: {dayLeft.map((c) => (c === 'LINKEDIN' ? 'send the LinkedIn message (or mark the lead as not on LinkedIn)' : c === 'WHATSAPP' ? 'send the WhatsApp message' : 'send the email')).join(', ')}.
+                  </p>
+                )}
                 <button
                   onClick={handleCompleteStep}
-                  disabled={executing}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 transition-all hover:shadow-md disabled:opacity-50"
+                  disabled={executing || dayLeft.length > 0}
+                  aria-describedby={dayLeft.length > 0 ? 'day-complete-blocked' : undefined}
+                  title={dayLeft.length > 0 ? `Still to do: ${dayLeft.map((c) => MESSAGE_CHANNEL_NAMES[c]).join(', ')}` : undefined}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 transition-all hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600 disabled:hover:shadow-xs"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>

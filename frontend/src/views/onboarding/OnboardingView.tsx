@@ -10,18 +10,14 @@ import { InterviewsView } from './InterviewsView';
 import { OffersList } from './OffersList';
 import { OfferDetailView } from './OfferDetailView';
 import { OfferEditor } from './OfferEditor';
-import { TemplatesView } from './TemplatesView';
-import { LetterheadsView } from './LetterheadsView';
 import type { OfferDetail } from '../../api/onboarding.api';
 
-type Tab = 'dashboard' | 'candidates' | 'interviews' | 'offers' | 'templates' | 'letterheads';
+type Tab = 'dashboard' | 'candidates' | 'interviews' | 'offers';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'candidates', label: 'Candidates' },
   { id: 'interviews', label: 'Interviews' },
   { id: 'offers', label: 'Offers' },
-  { id: 'templates', label: 'Templates' },
-  { id: 'letterheads', label: 'Letterheads' },
 ];
 
 export const EMPTY_FILTERS: CandidateListQuery = { page: 1, limit: 20, search: '', status: '', archived: 'active' };
@@ -165,8 +161,6 @@ export const OnboardingView: React.FC = () => {
         {tab === 'candidates' && <CandidatesList filters={filters} onFiltersChange={setFilters} meta={meta} onOpen={setOpenCandidateId} />}
         {tab === 'interviews' && <InterviewsView onOpenCandidate={setOpenCandidateId} />}
         {tab === 'offers' && <OffersList awaitingMyApproval={awaitingMyApproval} onAwaitingMyApprovalChange={setAwaitingMyApproval} onOpen={setOpenOfferId} />}
-        {tab === 'templates' && <TemplatesView />}
-        {tab === 'letterheads' && <LetterheadsView />}
       </div>
     </div>
   );

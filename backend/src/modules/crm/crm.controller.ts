@@ -12,6 +12,7 @@ import {
   Param,
   Query,
   Res,
+  Header,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { CrmService } from './crm.service';
@@ -19,6 +20,8 @@ import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { CrmLeadImportService } from './crm-lead-import.service';
 import { CrmOutreachEmailService } from './crm-outreach-email.service';
 import { CrmOutreachChannelService } from './crm-outreach-channel.service';
+import { QuotationDocumentsService } from './quotation-documents.service';
+import { fileResponse } from '@/modules/onboarding/file-response';
 import { OutreachChannelActionDto } from './dto/outreach-channel.dto';
 import { SendOutreachEmailDto } from './dto/outreach-email.dto';
 import { CrmHistoryQueryDto } from './dto/history-query.dto';
@@ -49,6 +52,7 @@ export class CrmController {
     private readonly leadImport: CrmLeadImportService,
     private readonly outreachEmail: CrmOutreachEmailService,
     private readonly outreachChannels: CrmOutreachChannelService,
+    private readonly quotationDocuments: QuotationDocumentsService,
   ) {}
 
   /** Which leads this member sees: all of them with leads.view_all, otherwise only those assigned to them. */
@@ -570,6 +574,28 @@ export class CrmController {
   ) {
     const data = await this.crmService.createQuotation(tenantId, await this.visibility(tenantId, actor), body, actor.tenantMemberId);
     return { success: true, data, message: 'Quotation created' };
+  }
+
+  /** Approved quotation templates, to choose which one a quotation prints with. */
+  @Get('quotations/document-templates')
+  @RequirePermissions('quotations.view')
+  async quotationTemplates(@CurrentTenant() tenantId: string) {
+    return { success: true, data: await this.quotationDocuments.templatesToChoose(tenantId) };
+  }
+
+  /** The quotation as a PDF, printed with an approved quotation template (the one chosen, or the first), or the standard wording until one is approved. */
+  @Get('quotations/:id/pdf')
+  @RequirePermissions('quotations.view')
+  @Header('Cache-Control', 'private, no-store')
+  async quotationPdf(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Query('templateId') templateId?: string,
+    @Query('download') download?: string,
+  ) {
+    const file = await this.quotationDocuments.pdf(tenantId, await this.visibility(tenantId, actor), id, templateId || undefined);
+    return fileResponse(file.bytes, 'application/pdf', file.filename, download);
   }
 
   @Get('quotations/:id')

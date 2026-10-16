@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { AppModule } from '@/app.module';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
 import { PrismaService } from '@/prisma/prisma.service';
+import { sendDayMessages } from './support/outreach-day';
 import { deleteCrmData } from './support/crm-cleanup';
 import { CADENCE_STEPS_MASTER } from '@/modules/crm/crm-cadence.helper';
 
@@ -48,7 +49,10 @@ describe('Client Outreach follows the CRM Masters playbook', () => {
   const stepByDay = async (day: number) => (await steps()).find((s) => s.day_number === day)!;
   const save = (step: Step, changes: Partial<Step>) => call('put', '/crm/masters/sop-steps', a.token, { ...step, ...changes });
   const leadAt = async (leadId: string) => (await call('get', `/crm/leads/${leadId}`, a.token)).body.data.cadence_current_step_id as string | null;
-  const complete = (leadId: string) => call('post', '/crm/cadence', a.token, { action: 'COMPLETE_STEP', leadId, notes: 'Done' });
+  const complete = async (leadId: string) => {
+    await sendDayMessages(app, a.tenantId, leadId);
+    return call('post', '/crm/cadence', a.token, { action: 'COMPLETE_STEP', leadId, notes: 'Done' });
+  };
 
   async function register(workspace: typeof a, label: string) {
     userEmails.push(workspace.email);

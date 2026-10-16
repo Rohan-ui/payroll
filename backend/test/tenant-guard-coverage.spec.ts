@@ -31,6 +31,13 @@ import { EmailSequencesController } from '@/modules/email-sequences/email-sequen
 import { PublicUnsubscribeController } from '@/modules/email-sequences/public-unsubscribe.controller';
 import { PayrollPoliciesController } from '@/modules/payroll/policies/payroll-policies.controller';
 import { PayrollAdjustmentsController } from '@/modules/payroll/payroll-adjustments.controller';
+import { PerformanceLibraryController } from '@/modules/performance/performance-library.controller';
+import { PerformanceTemplatesController } from '@/modules/performance/performance-templates.controller';
+import { PerformanceWorkflowsController } from '@/modules/performance/performance-workflows.controller';
+import { EmployeeRelationsController } from '@/modules/employees/employee-relations.controller';
+import { PerformanceCyclesController } from '@/modules/performance/performance-cycles.controller';
+import { PerformanceMyController } from '@/modules/performance/performance-my.controller';
+import { DocumentsController } from '@/modules/documents/documents.controller';
 
 const PATH_METADATA = 'path';
 const METHOD_METADATA = 'method';
@@ -68,6 +75,13 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['PublicUnsubscribeController', PublicUnsubscribeController],
   ['PayrollPoliciesController', PayrollPoliciesController],
   ['PayrollAdjustmentsController', PayrollAdjustmentsController],
+  ['PerformanceLibraryController', PerformanceLibraryController],
+  ['PerformanceTemplatesController', PerformanceTemplatesController],
+  ['PerformanceWorkflowsController', PerformanceWorkflowsController],
+  ['EmployeeRelationsController', EmployeeRelationsController],
+  ['PerformanceCyclesController', PerformanceCyclesController],
+  ['PerformanceMyController', PerformanceMyController],
+  ['DocumentsController', DocumentsController],
 ];
 
 /**
@@ -259,6 +273,14 @@ describe('Tenant route guard coverage', () => {
       ['PublicUnsubscribeController', []],
       ['PayrollPoliciesController', ['FINANCE']],
       ['PayrollAdjustmentsController', ['FINANCE']],
+      ['PerformanceLibraryController', ['HRMS']],
+      ['PerformanceTemplatesController', ['HRMS']],
+      ['PerformanceWorkflowsController', ['HRMS']],
+      ['EmployeeRelationsController', ['HRMS']],
+      ['PerformanceCyclesController', ['HRMS']],
+      ['PerformanceMyController', ['HRMS']],
+      // Document templates and letterheads belong to the organization, shared by HRMS and CRM.
+      ['DocumentsController', [null]],
     ]);
   });
 

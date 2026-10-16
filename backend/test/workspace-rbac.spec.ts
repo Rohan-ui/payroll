@@ -204,6 +204,8 @@ describe('Workspace role-based access control', () => {
         'People',
         'Attendance',
         'Onboarding',
+        'Performance',
+        'Performance setup',
         'Leave',
         'Biometric device (COSEC)',
       ]);
@@ -331,7 +333,9 @@ describe('Workspace role-based access control', () => {
 
   describe('an employee', () => {
     it('gets only the pages granted by default and nothing from any module API', async () => {
-      expect(await navigationOf(employee)).toEqual(['dashboard', 'help']);
+      // Their own appraisals are the one HRMS page every employee has.
+      expect(await navigationOf(employee)).toEqual(['dashboard', 'hrms', 'performance', 'help']);
+      expect((await api().get(`${API}/performance/my/appraisals`).set(as(employee))).status).toBe(200);
 
       const results = await statuses(employee, [
         ['get', '/employees'],
@@ -344,6 +348,8 @@ describe('Workspace role-based access control', () => {
         ['get', '/crm/leads'],
         ['get', '/external-api/cosec/config'],
         ['get', '/users'],
+        ['get', '/performance/cycles'],
+        ['get', '/performance/kras'],
       ]);
       expect(results.filter(([, status]) => status !== 403)).toEqual([]);
     });
@@ -400,6 +406,7 @@ describe('Workspace role-based access control', () => {
       ['get', '/attendance/records'],
       ['get', '/leave/types'],
       ['get', '/external-api/cosec/config'],
+      ['get', '/performance/kras'],
     ];
     const withStatus = (calls: [string, string][], status: number) =>
       calls.map(([method, path]) => [`${method.toUpperCase()} ${path}`, status]);
@@ -440,6 +447,7 @@ describe('Workspace role-based access control', () => {
           ['people', 'hrms', false],
           ['attendance', 'hrms', false],
           ['onboarding', 'hrms', false],
+          ['performance', 'hrms', false],
           ['settings', null, false],
         ]);
         // Workspace administration never depends on a module.

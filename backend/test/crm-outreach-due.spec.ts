@@ -9,6 +9,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
 import { addDays, addWorkingDays, dueInstant, localDate } from '@/modules/crm/crm-outreach-schedule';
 import { deleteCrmData } from './support/crm-cleanup';
+import { sendDayMessages } from './support/outreach-day';
 
 /**
  * When Client Outreach touchpoints are due, over HTTP: every lead has its own
@@ -167,6 +168,7 @@ describe('Client Outreach due dates', () => {
     const calendarId = randomUUID();
     await prisma.rndtechnosoft_holiday_calendars.create({ data: { id: calendarId, tenant_id: admin.tenantId, calendar_code: 'IN', calendar_name: 'India' } });
     await prisma.rndtechnosoft_holidays.create({ data: { id: randomUUID(), tenant_id: admin.tenantId, holiday_calendar_id: calendarId, holiday_date: new Date(`${firstWorking}T00:00:00Z`), holiday_name: 'Company holiday' } });
+    await sendDayMessages(app, admin.tenantId, lead.today);
     expect((await call('post', '/crm/cadence', admin.token, { action: 'COMPLETE_STEP', leadId: lead.today, notes: 'Done' })).status).toBe(201);
     const holidays = { timeZone: TZ, holidays: new Set([firstWorking]) };
     const expected = dueInstant(addWorkingDays(today, gap, holidays), TZ).toISOString();

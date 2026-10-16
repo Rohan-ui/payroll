@@ -1,4 +1,4 @@
-import { parseBudget, parsePhones, resolveCountry } from './crm-lead-import.service';
+import { parseBudget, parsePhones, parseStartDate, resolveCountry } from './crm-lead-import.service';
 
 describe('lead import value parsing', () => {
   it.each([
@@ -46,5 +46,15 @@ describe('lead import value parsing', () => {
     ['No wp', '+91', [], 'No wp'],
   ])('reads the phone cell %j (country %s)', (raw, dial, numbers, extraText) => {
     expect(parsePhones(raw, dial)).toEqual({ numbers, extraText });
+  });
+
+  it('reads a start date written as Excel does, day first, or with the month named', () => {
+    expect(parseStartDate('2026-10-20')).toBe('2026-10-20');
+    expect(parseStartDate('20/10/2026')).toBe('2026-10-20');
+    expect(parseStartDate('5-1-2027')).toBe('2027-01-05');
+    expect(parseStartDate('20.10.2026')).toBe('2026-10-20');
+    expect(parseStartDate('20 Oct 2026')).toBe('2026-10-20');
+    expect(parseStartDate('20-October-2026')).toBe('2026-10-20');
+    for (const bad of ['31/02/2026', '2026-13-01', 'next monday', '20/10/26', '20 Foo 2026', '']) expect(parseStartDate(bad)).toBeNull();
   });
 });

@@ -44,6 +44,8 @@ export class LeadImportRowDto {
   @IsOptional() @IsString() @MaxLength(1000) budgetAmount?: string;
   @IsOptional() @IsString() @MaxLength(10000) requirementBrief?: string;
   @IsOptional() @IsString() @MaxLength(10000) internalNotes?: string;
+  /** Client Outreach: the date Day 1 of the SOP is due (today when left out). */
+  @IsOptional() @IsString() @MaxLength(100) startDate?: string;
 }
 
 /** Imports spreadsheet rows into Client Outreach or a sales pipeline, chosen explicitly. */

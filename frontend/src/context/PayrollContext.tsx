@@ -32,6 +32,7 @@ const VALID_VIEWS: AppView[] = [
   'attendance',
   'clock-in',
   'onboarding',
+  'performance',
   'payslips',
   'bookkeeping',
   'reports',

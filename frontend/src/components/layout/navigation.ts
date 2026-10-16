@@ -21,6 +21,7 @@ import {
   Settings,
   HelpCircle,
   UserPlus,
+  Award,
 } from 'lucide-react';
 import type { NavigationEntry } from '../../api/auth.api';
 import type { AppView, CrmTab } from '../../types/payroll.types';
@@ -58,6 +59,7 @@ export const NAV_PRESENTATION: Record<string, NavPresentation> = {
   people: { icon: Users, view: 'people' },
   attendance: { icon: CalendarDays, view: 'attendance' },
   onboarding: { icon: UserPlus, view: 'onboarding' },
+  performance: { icon: Award, view: 'performance' },
   finance: { icon: Landmark },
   payroll: { icon: Banknote, view: 'payroll' },
   payslips: { icon: FileText, view: 'payslips' },
@@ -85,6 +87,7 @@ export const VIEW_NAVIGATION: Record<string, string> = {
   attendance: 'attendance',
   'clock-in': 'attendance',
   onboarding: 'onboarding',
+  performance: 'performance',
   payslips: 'payslips',
   bookkeeping: 'bookkeeping',
   reports: 'reports',

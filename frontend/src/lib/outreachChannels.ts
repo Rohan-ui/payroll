@@ -86,3 +86,23 @@ export async function copyText(text: string): Promise<boolean> {
     return false;
   }
 }
+
+/** The channels a Client Outreach day's messages go out on (phone calls are logged, not sent). */
+export type MessageChannel = 'WHATSAPP' | 'EMAIL' | 'LINKEDIN';
+export const MESSAGE_CHANNEL_NAMES: Record<MessageChannel, string> = { WHATSAPP: 'WhatsApp', EMAIL: 'Email', LINKEDIN: 'LinkedIn' };
+
+/**
+ * The day's message channels not done yet, as the server counts them: each
+ * channel the step uses and has a message for must be sent, or (WhatsApp,
+ * LinkedIn) marked not available for the lead. The day can be marked
+ * complete only when none is left.
+ */
+export function channelsStillToDo(
+  step: { channels?: string[]; templates?: { whatsapp?: unknown; email?: unknown; linkedin?: unknown } },
+  actions: Record<string, { status?: string } | undefined> | undefined,
+): MessageChannel[] {
+  const hasMessage: Record<MessageChannel, boolean> = { WHATSAPP: !!step.templates?.whatsapp, EMAIL: !!step.templates?.email, LINKEDIN: !!step.templates?.linkedin };
+  return (['WHATSAPP', 'EMAIL', 'LINKEDIN'] as const)
+    .filter((channel) => (step.channels ?? []).includes(channel) && hasMessage[channel])
+    .filter((channel) => !['SENT', 'NOT_AVAILABLE'].includes(actions?.[channel]?.status ?? ''));
+}

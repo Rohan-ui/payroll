@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { Check, CheckCircle2, Copy, ExternalLink, Globe, MessageSquare, RotateCcw } from 'lucide-react';
+import { Ban, Check, CheckCircle2, Copy, ExternalLink, Globe, MessageSquare, RotateCcw } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import {
   COPY_FAILED, LINKEDIN_INVALID, LINKEDIN_MISSING, copyText, displayUrl, normalizeLinkedInUrl, whatsAppChatUrl, whatsAppDigits,
@@ -15,7 +15,10 @@ import {
  */
 
 export interface ManualChannelAction {
-  status: 'OPENED' | 'COPIED' | 'SENT' | string;
+  /** NOT_AVAILABLE: marked as not on LinkedIn, or without a WhatsApp number, for this day. */
+  status: 'OPENED' | 'COPIED' | 'SENT' | 'NOT_AVAILABLE' | string;
+  markedAt?: string;
+  reason?: string;
   executedBy?: { name: string };
   openedAt?: string;
   copiedAt?: string;
@@ -29,8 +32,10 @@ export interface ManualChannelAction {
 }
 export interface ChannelRecorded {
   channel: 'WHATSAPP' | 'LINKEDIN';
-  action: 'OPENED' | 'MESSAGE_COPIED' | 'MARKED_SENT';
+  action: 'OPENED' | 'MESSAGE_COPIED' | 'MARKED_SENT' | 'NOT_AVAILABLE';
   channelActions: Record<string, unknown>;
+  /** The day's message channels still to do after this record. */
+  stillToDo?: string[];
   state: ManualChannelAction;
   touchpointCompleted: boolean;
   message: string;
@@ -45,7 +50,7 @@ const button = 'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center g
  * member sent, on the touchpoint; the server reads the lead's own number or address.
  */
 async function recordChannel(
-  leadId: string, channel: Channel, action: ChannelRecorded['action'], extra: { message?: string; resend?: boolean; completeTouchpoint?: boolean } = {},
+  leadId: string, channel: Channel, action: ChannelRecorded['action'], extra: { message?: string; resend?: boolean; completeTouchpoint?: boolean; reason?: string } = {},
 ): Promise<{ data: ChannelRecorded } | { error: string }> {
   try {
     const res = await apiFetch('/api/v1/crm/cadence/channel-action', {
@@ -72,10 +77,14 @@ const MarkSent: React.FC<{
   channel: Channel;
   day: number;
   message: string;
+  /** A LinkedIn action with no message (engaging with or sharing a post): recorded as done. */
+  noMessage?: boolean;
+  /** Other messages of the day still to send: then the day can't be completed from here. */
+  othersLeft: string[];
   saved: ManualChannelAction | null;
   tone: 'emerald' | 'blue';
   onRecorded: (result: ChannelRecorded) => void;
-}> = ({ leadId, channel, day, message, saved, tone, onRecorded }) => {
+}> = ({ leadId, channel, day, message, noMessage = false, othersLeft, saved, tone, onRecorded }) => {
   const ids = useId();
   const name = channel === 'WHATSAPP' ? 'WhatsApp' : 'LinkedIn';
   const [sent, setSent] = useState<ManualChannelAction | null>(saved?.status === 'SENT' ? saved : null);
@@ -86,7 +95,7 @@ const MarkSent: React.FC<{
   const confirm = async () => {
     setBusy(true);
     setError(null);
-    const result = await recordChannel(leadId, channel, 'MARKED_SENT', { message, completeTouchpoint: complete, ...(sent ? { resend: true } : {}) });
+    const result = await recordChannel(leadId, channel, 'MARKED_SENT', { ...(noMessage ? {} : { message }), completeTouchpoint: complete && othersLeft.length === 0, ...(sent ? { resend: true } : {}) });
     setBusy(false);
     if ('error' in result) return setError(result.error);
     setSent(result.data.state);
@@ -99,14 +108,14 @@ const MarkSent: React.FC<{
     <div className="space-y-2 pt-2 border-t border-slate-200/70">
       {sent && (
         <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 space-y-1">
-          <p className="font-bold flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4" aria-hidden="true" /> {name} message sent</p>
+          <p className="font-bold flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4" aria-hidden="true" /> {noMessage ? `${name} action done` : `${name} message sent`}</p>
           <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5">
-            <dt className="font-semibold">Sent at</dt><dd>{when(sent.sentAt)}</dd>
-            <dt className="font-semibold">Marked sent by</dt><dd>{sent.executedBy?.name ?? 'A team member'}</dd>
+            <dt className="font-semibold">{noMessage ? 'Done at' : 'Sent at'}</dt><dd>{when(sent.sentAt)}</dd>
+            <dt className="font-semibold">{noMessage ? 'Marked done by' : 'Marked sent by'}</dt><dd>{sent.executedBy?.name ?? 'A team member'}</dd>
             {sent.to && <><dt className="font-semibold">To</dt><dd className="break-all">{channel === 'LINKEDIN' ? displayUrl(sent.to) : sent.to}</dd></>}
             {sent.attempt && sent.attempt > 1 && <><dt className="font-semibold">Attempt</dt><dd>{sent.attempt}</dd></>}
           </dl>
-          <p className="text-[11px] text-emerald-800">Sent by hand in {name} and confirmed here; the CRM did not send it.</p>
+          <p className="text-[11px] text-emerald-800">{noMessage ? `Done by hand in ${name} and confirmed here.` : `Sent by hand in ${name} and confirmed here; the CRM did not send it.`}</p>
           {!again && (
             <button type="button" onClick={() => { setAgain(true); setError(null); }} className="mt-1 inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
               <RotateCcw className="w-3 h-3" aria-hidden="true" /> Mark sent again
@@ -117,20 +126,97 @@ const MarkSent: React.FC<{
       {error && <p role="alert" className="text-[11px] font-semibold text-rose-700">{error}</p>}
       {(!sent || again) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label htmlFor={`${ids}-complete`} className="flex items-center gap-2 text-[11px] text-slate-700">
-            <input id={`${ids}-complete`} type="checkbox" checked={complete} onChange={(e) => setComplete(e.target.checked)} />
-            {`Mark Day ${day} complete too`}
-          </label>
+          {othersLeft.length === 0 ? (
+            <label htmlFor={`${ids}-complete`} className="flex items-center gap-2 text-[11px] text-slate-700">
+              <input id={`${ids}-complete`} type="checkbox" checked={complete} onChange={(e) => setComplete(e.target.checked)} />
+              {`Mark Day ${day} complete too`}
+            </label>
+          ) : <span />}
           <div className="flex items-center gap-2">
             {again && <button type="button" onClick={() => setAgain(false)} className={`${button} bg-white border border-slate-200 text-slate-700 focus-visible:ring-slate-400`}>Cancel</button>}
-            <button type="button" disabled={busy || !message} onClick={confirm} className={`${button} ${accent} text-white font-bold disabled:opacity-50`}>
+            <button type="button" disabled={busy || (!message && !noMessage)} onClick={confirm} className={`${button} ${accent} text-white font-bold disabled:opacity-50`}>
               <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
-              <span>{busy ? 'Recording…' : again ? 'Record another send' : 'I’ve sent it'}</span>
+              <span>{busy ? 'Recording…' : again ? (noMessage ? 'Record it again' : 'Record another send') : noMessage ? 'Mark done' : 'I’ve sent it'}</span>
             </button>
           </div>
-          <p className="w-full text-[11px] text-slate-500">After sending the message in {name}, record it here: it is then tracked like an email.</p>
+          <p className="w-full text-[11px] text-slate-500">
+            {noMessage ? `After doing it in ${name}, record it here.` : `After sending the message in ${name}, record it here: it is then tracked like an email.`}
+          </p>
         </div>
       )}
+    </div>
+  );
+};
+
+/**
+ * For a lead not on LinkedIn, or with no WhatsApp number: marks this day's
+ * message there as not available, so the day can be completed without it.
+ * Asks for a confirmation (and an optional reason) first.
+ */
+const NotAvailable: React.FC<{
+  leadId: string;
+  channel: Channel;
+  day: number;
+  saved: ManualChannelAction | null;
+  onRecorded: (result: ChannelRecorded) => void;
+}> = ({ leadId, channel, day, saved, onRecorded }) => {
+  const ids = useId();
+  const label = channel === 'LINKEDIN' ? 'Not on LinkedIn' : 'No WhatsApp number';
+  const [marked, setMarked] = useState<ManualChannelAction | null>(saved?.status === 'NOT_AVAILABLE' ? saved : null);
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mark = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await recordChannel(leadId, channel, 'NOT_AVAILABLE', reason.trim() ? { reason: reason.trim() } : {});
+    setBusy(false);
+    if ('error' in result) return setError(result.error);
+    setMarked(result.data.state);
+    setAsking(false);
+    onRecorded(result.data);
+  };
+
+  if (marked) {
+    return (
+      <div role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 space-y-0.5">
+        <p className="font-bold flex items-center gap-1.5"><Ban className="w-4 h-4" aria-hidden="true" /> {label}</p>
+        <p className="text-[11px]">
+          Marked by {marked.executedBy?.name ?? 'a team member'}{marked.markedAt ? ` on ${when(marked.markedAt)}` : ''}. Day {day} doesn’t wait for a {channel === 'LINKEDIN' ? 'LinkedIn' : 'WhatsApp'} message.
+          {marked.reason ? ` Reason: ${marked.reason}` : ''}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {!asking ? (
+        <button type="button" onClick={() => { setAsking(true); setError(null); }} className={`${button} bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-400`}>
+          <Ban className="w-3 h-3" aria-hidden="true" />
+          <span>{channel === 'LINKEDIN' ? 'This lead isn’t on LinkedIn' : 'This lead has no WhatsApp number'}</span>
+        </button>
+      ) : (
+        <div className="rounded-lg border border-slate-200 bg-white p-2.5 space-y-2">
+          <p className="text-[11px] text-slate-700">
+            {channel === 'LINKEDIN'
+              ? `Mark Day ${day}’s LinkedIn message as not possible because the lead has no LinkedIn profile? The day can then be completed without it.`
+              : `Mark Day ${day}’s WhatsApp message as not possible because the lead has no WhatsApp number? The day can then be completed without it.`}
+          </p>
+          <div>
+            <label htmlFor={`${ids}-reason`} className="block text-[11px] font-semibold text-slate-600 mb-1">Reason <span className="font-normal text-slate-500">(optional)</span></label>
+            <input id={`${ids}-reason`} value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} placeholder={channel === 'LINKEDIN' ? 'e.g. Searched by name and company, no profile' : 'e.g. Only a landline'}
+              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-400/40" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setAsking(false)} className={`${button} bg-white border border-slate-200 text-slate-700 focus-visible:ring-slate-400`}>Cancel</button>
+            <button type="button" disabled={busy} onClick={mark} className={`${button} bg-slate-700 hover:bg-slate-800 text-white font-bold disabled:opacity-50 focus-visible:ring-slate-500`}>
+              {busy ? 'Recording…' : `Mark: ${label.toLowerCase()}`}
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <p role="alert" className="text-[11px] font-semibold text-rose-700">{error}</p>}
     </div>
   );
 };
@@ -171,8 +257,10 @@ export const OutreachWhatsAppPanel: React.FC<{
   saved: ManualChannelAction | null;
   /** The existing WhatsApp Cloud API send, when offered. */
   apiSend?: React.ReactNode;
+  /** Other messages of the day still to send (by name). */
+  othersLeft?: string[];
   onRecorded: (result: ChannelRecorded) => void;
-}> = ({ leadId, day, phone, message, saved, apiSend, onRecorded }) => {
+}> = ({ leadId, day, phone, message, saved, apiSend, othersLeft = [], onRecorded }) => {
   const ids = useId();
   const target = whatsAppDigits(phone);
   const url = 'digits' in target ? whatsAppChatUrl(target.digits, message) : null;
@@ -218,7 +306,9 @@ export const OutreachWhatsAppPanel: React.FC<{
           {opened ? 'WhatsApp opened with this message.' : `WhatsApp opened on ${when(saved?.openedAt)}.`} Send it there, then record it below.
         </p>
       )}
-      {url && <MarkSent leadId={leadId} channel="WHATSAPP" day={day} message={message} saved={saved} tone="emerald" onRecorded={onRecorded} />}
+      {url && <MarkSent leadId={leadId} channel="WHATSAPP" day={day} message={message} othersLeft={othersLeft} saved={saved} tone="emerald" onRecorded={onRecorded} />}
+      {/* Without a usable number nothing can be sent: say so, so the day isn't held up. */}
+      {!url && saved?.status !== 'SENT' && <NotAvailable leadId={leadId} channel="WHATSAPP" day={day} saved={saved} onRecorded={onRecorded} />}
     </section>
   );
 };
@@ -234,9 +324,11 @@ export const OutreachLinkedInPanel: React.FC<{
   message: string;
   saved: ManualChannelAction | null;
   canEditLead: boolean;
+  /** Other messages of the day still to send (by name). */
+  othersLeft?: string[];
   onLinkedInSaved: (url: string) => void;
   onRecorded: (result: ChannelRecorded) => void;
-}> = ({ leadId, day, leadName, linkedinUrl, actionType, actionNote, message, saved, canEditLead, onLinkedInSaved, onRecorded }) => {
+}> = ({ leadId, day, leadName, linkedinUrl, actionType, actionNote, message, saved, canEditLead, othersLeft = [], onLinkedInSaved, onRecorded }) => {
   const ids = useId();
   const destination = normalizeLinkedInUrl(linkedinUrl);
   const problem = !linkedinUrl?.trim() ? LINKEDIN_MISSING : !destination ? LINKEDIN_INVALID : null;
@@ -361,13 +453,15 @@ export const OutreachLinkedInPanel: React.FC<{
             : 'LinkedIn doesn’t let other apps fill in or send messages: copy the message, open LinkedIn, and paste it there.'}
         </p>
       )}
-      {saved?.status !== 'SENT' && (saved?.openedAt || saved?.copiedAt) && (
+      {saved?.status !== 'SENT' && saved?.status !== 'NOT_AVAILABLE' && (saved?.openedAt || saved?.copiedAt) && (
         <p className="text-[11px] text-slate-500">
           {[saved.openedAt && `LinkedIn opened ${when(saved.openedAt)}`, saved.copiedAt && `message copied ${when(saved.copiedAt)}`].filter(Boolean).join(', ')}
           {saved.executedBy ? ` by ${saved.executedBy.name}` : ''}. Not sent by the CRM.
         </p>
       )}
-      {destination && message && <MarkSent leadId={leadId} channel="LINKEDIN" day={day} message={message} saved={saved} tone="blue" onRecorded={onRecorded} />}
+      {destination && <MarkSent leadId={leadId} channel="LINKEDIN" day={day} message={message} noMessage={!message} othersLeft={othersLeft} saved={saved} tone="blue" onRecorded={onRecorded} />}
+      {/* Some leads aren't on LinkedIn at all: then the day goes ahead without it. */}
+      {saved?.status !== 'SENT' && <NotAvailable leadId={leadId} channel="LINKEDIN" day={day} saved={saved} onRecorded={onRecorded} />}
     </section>
   );
 };

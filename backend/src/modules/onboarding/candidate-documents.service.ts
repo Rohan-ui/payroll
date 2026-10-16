@@ -11,7 +11,7 @@ import { CandidatesService } from './candidates.service';
 import { OnboardingMailerService, OnboardingSendOutcome, escapeHtml } from './onboarding-mailer.service';
 import { OffersService, ResponseMeta } from './offers.service';
 import { CANDIDATE_STATUS_LABELS, CandidateStatus } from './onboarding-workflow';
-import { formatLetterDate } from './document-templates';
+import { formatLetterDate } from '@/modules/documents/document-templates';
 import {
   COLLECTING_STATUSES,
   DOCUMENT_TYPE_LABELS,

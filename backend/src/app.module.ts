@@ -13,6 +13,7 @@ import { LeaveModule } from './modules/leave/leave.module';
 import { SalaryModule } from './modules/salary/salary.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { PayrollPoliciesModule } from './modules/payroll/policies/payroll-policies.module';
+import { PerformanceModule } from './modules/performance/performance.module';
 import { BookkeepingModule } from './modules/bookkeeping/bookkeeping.module';
 import { ExternalApiModule } from './modules/external-api/external-api.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
@@ -51,6 +52,7 @@ import { MailModule } from './modules/mail/mail.module';
     SalaryModule,
     PayrollModule,
     PayrollPoliciesModule,
+    PerformanceModule,
     BookkeepingModule,
     ExternalApiModule,
     SuperAdminModule,

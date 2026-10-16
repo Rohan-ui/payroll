@@ -26,6 +26,7 @@ import {
 import { parsePhoneWithCountryCode } from '@/lib/countryCodes';
 
 import { apiFetch } from '../../api/client';
+import { MESSAGE_CHANNEL_NAMES, channelsStillToDo } from '../../lib/outreachChannels';
 import { toast } from '../../lib/toast';
 import { conversionDestination, dealWonMessage } from './pipelineBoard';
 import { LeadHistory } from './LeadHistory';
@@ -2074,11 +2075,19 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                                   )}
 
                                   {/* Mark Step Completed Action Button */}
-                                  {isCurrent && (
-                                    <div className="pt-2 flex justify-end">
+                                  {isCurrent && (() => {
+                                    // The same rule as the server: every message of the day sent (or LinkedIn / WhatsApp marked not available) first.
+                                    const left = channelsStillToDo(step, leadCadence.channelActions?.[String(step.dayNumber)]);
+                                    return (
+                                    <div className="pt-2 flex flex-col items-end gap-1">
+                                      {left.length > 0 && (
+                                        <p className="text-[11px] text-slate-600 dark:text-slate-400 text-right">
+                                          Send the {left.map((c) => MESSAGE_CHANNEL_NAMES[c]).join(', ')} message{left.length === 1 ? '' : 's'} from Client Outreach → Execute first{left.includes('LINKEDIN') ? ' (or mark the lead as not on LinkedIn there)' : ''}.
+                                        </p>
+                                      )}
                                       <button
                                         onClick={() => handleCompleteCadenceStep(step.stepIndex, step.channels)}
-                                        disabled={executingStep}
+                                        disabled={executingStep || left.length > 0}
                                         className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
                                       >
                                         <CheckCircle2 className="w-4 h-4" />
@@ -2087,7 +2096,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                                         </span>
                                       </button>
                                     </div>
-                                  )}
+                                    );
+                                  })()}
 
                                   {isCompleted && completedRecord && (
                                     <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium pt-1">

@@ -13,7 +13,7 @@ export type LeadField =
   | 'phone' | 'alternatePhone' | 'whatsappNumber' | 'industry' | 'subIndustry'
   | 'city' | 'state' | 'country' | 'address' | 'postalCode'
   | 'websiteUrl' | 'websiteStatus' | 'linkedinUrl' | 'linkedinCompanyUrl'
-  | 'leadSource' | 'assignedTo' | 'budgetAmount' | 'requirementBrief' | 'internalNotes';
+  | 'leadSource' | 'assignedTo' | 'budgetAmount' | 'requirementBrief' | 'internalNotes' | 'startDate';
 
 /** Where a column goes: a lead field, a name to split, the lead's notes, or nowhere (''). */
 export type ColumnTarget = LeadField | 'fullName' | 'nameAndPosition' | 'notes' | '';
@@ -51,6 +51,7 @@ export const TARGET_OPTIONS: TargetOption[] = [
   { value: 'budgetAmount', label: 'Budget' },
   { value: 'requirementBrief', label: 'Requirement' },
   { value: 'internalNotes', label: 'Internal notes' },
+  { value: 'startDate', label: 'Start date (Day 1 of the outreach SOP)' },
   { value: 'notes', label: 'Keep in internal notes' },
 ];
 
@@ -89,6 +90,7 @@ const SYNONYMS: [ColumnTarget, string[]][] = [
   ['budgetAmount', ['budget amount', 'budget', 'deal value']],
   ['requirementBrief', ['requirement', 'requirement brief', 'service interested', 'services interested', 'requirements']],
   ['internalNotes', ['internal notes', 'notes', 'note', 'remarks', 'personal note', 'comments']],
+  ['startDate', ['start date day 1', 'start date', 'sop start date', 'outreach start date', 'cadence start date', 'day 1 date', 'day 1', 'start']],
   // Generic names last: only when the specific columns are absent.
   ['linkedinUrl', ['linkedin', 'linkedin url']],
   ['linkedinCompanyUrl', ['linkedin']],
@@ -296,6 +298,9 @@ export function buildRows(sheet: Sheet, headerIndex: number, mapping: ColumnTarg
           if (target === 'email' && !mapping.includes('alternateEmail')) set('alternateEmail', rest.shift() ?? '');
           if (rest.length) notes.push(`${header}: ${rest.join(', ')}`);
         }
+      } else if (target === 'startDate') {
+        // A date cell stored as a plain number (Excel's day count) is read as that date.
+        set('startDate', /^\d{5}$/.test(raw) ? excelSerialToDate(Number(raw)) ?? raw : raw);
       } else {
         set(target, raw);
       }

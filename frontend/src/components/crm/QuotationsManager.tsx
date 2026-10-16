@@ -3,22 +3,23 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { 
   FileText, Plus, Trash2, CheckCircle2, RefreshCw, Trophy,
-  Printer, X, ChevronRight, ArrowUpRight, Calculator, IndianRupee,
+  Printer, ChevronRight, ArrowUpRight, Calculator, IndianRupee,
   MoreVertical, ChevronLeft, Eye, Check, AlertCircle, Sparkles,
   Calendar, Users, LayoutTemplate, UploadCloud, Image as ImageIcon,
   Edit3
 } from 'lucide-react';
 import WordDocumentEditor from './WordDocumentEditor';
-import { DEFAULT_HEADER_SVG, DEFAULT_FOOTER_SVG } from '@/lib/letterheadDefaults';
 
-import { sanitizedHtmlProps } from '../../utils/sanitize-html';
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
 import { dealWonMessage } from './pipelineBoard';
 import QuotationBuilder from './QuotationBuilder';
+import { QuotationPdfViewer } from './QuotationPdfViewer';
 interface QuotationsManagerProps {
   leads: any[];
   services: any[];
+  /** Whether services can be added to the Services Master from a quotation. */
+  canAddServices?: boolean;
   initialLeadId?: string | null;
   autoOpenCreate?: boolean;
   onCloseCreate?: () => void;
@@ -30,6 +31,7 @@ interface QuotationsManagerProps {
 export default function QuotationsManager({
   leads,
   services,
+  canAddServices = false,
   initialLeadId,
   autoOpenCreate,
   onCloseCreate,
@@ -164,6 +166,7 @@ export default function QuotationsManager({
     return (
       <QuotationBuilder
         services={services}
+        canAddServices={canAddServices}
         templates={templates}
         initialLeadId={builder.leadId}
         quotation={builder.quotation}
@@ -234,7 +237,7 @@ export default function QuotationsManager({
                       type="button"
                       onClick={() => setSelectedQuoteForPreview(q)}
                       className="hover:text-blue-900 hover:underline inline-flex items-center gap-1.5"
-                      title={`Preview quotation ${q.quotation_number}`}
+                      title={`View quotation ${q.quotation_number} as a PDF`}
                     >
                       <span>{q.quotation_number}</span>
                       <Eye className="w-3 h-3 text-blue-500 opacity-60" aria-hidden="true" />
@@ -315,7 +318,7 @@ export default function QuotationsManager({
                           className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                         >
                           <Eye className="w-3.5 h-3.5 text-slate-600" />
-                          <span>View & Print Preview</span>
+                          <span>View PDF</span>
                         </button>
 
                         {/* View Lead 360 */}
@@ -449,97 +452,14 @@ export default function QuotationsManager({
         </div>
       </div>
 
-      {/* VIEW / PRINT PREVIEW MODAL */}
+      {/* VIEW: the quotation as its PDF */}
       {selectedQuoteForPreview && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4 my-8">
-            <div className="flex justify-between items-start border-b pb-3">
-              <div>
-                <span className="text-xs font-bold text-blue-700">{selectedQuoteForPreview.quotation_number}</span>
-                <h3 className="text-lg font-black text-slate-900">{selectedQuoteForPreview.lead_company_name}</h3>
-                <p className="text-xs text-slate-500">{selectedQuoteForPreview.contact_person}</p>
-              </div>
-              <button type="button" onClick={() => setSelectedQuoteForPreview(null)} aria-label="Close preview">
-                <X className="w-5 h-5 text-slate-500" aria-hidden="true" />
-              </button>
-            </div>
-
-            {/* Letterhead Header Banner */}
-            <div className="w-full bg-white rounded-lg border border-slate-200 overflow-hidden">
-              <img 
-                src={selectedQuoteForPreview.header_image || DEFAULT_HEADER_SVG} 
-                alt="Letterhead Header" 
-                className="w-full max-h-24 object-contain object-left-top"
-              />
-            </div>
-
-            {/* Scope Content preview */}
-            {selectedQuoteForPreview.content_body && (
-              <div className="p-4 bg-slate-50 border rounded-xl prose prose-xs max-w-none text-xs text-slate-800">
-                <div {...sanitizedHtmlProps(selectedQuoteForPreview.content_body)} />
-              </div>
-            )}
-
-            {/* Services & Scope Deliverables Pricing Table */}
-            {selectedQuoteForPreview.items && selectedQuoteForPreview.items.length > 0 && (
-              <div className="border rounded-xl overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 text-[11px] font-bold uppercase text-slate-600">
-                    <tr>
-                      <th className="p-2.5">Service & Scope</th>
-                      <th className="p-2.5">SAC</th>
-                      <th className="p-2.5 text-center">Qty</th>
-                      <th className="p-2.5 text-right">Rate</th>
-                      <th className="p-2.5 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {[...selectedQuoteForPreview.items].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((it: any) => (
-                      <tr key={it.id}>
-                        <td className="p-2.5 font-semibold text-slate-800">{it.description}</td>
-                        <td className="p-2.5 font-mono text-slate-500">{it.sac_code}</td>
-                        <td className="p-2.5 text-center">{it.quantity}</td>
-                        <td className="p-2.5 text-right">{formatCurrency(it.unit_rate)}</td>
-                        <td className="p-2.5 text-right font-bold">{formatCurrency(it.line_amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <div className="bg-slate-100 p-3 rounded-xl flex justify-between items-center text-xs">
-              <span className="text-slate-600">Grand Total (Incl. GST):</span>
-              <span className="font-bold text-base text-slate-900">{formatCurrency(selectedQuoteForPreview.total_amount)}</span>
-            </div>
-
-            {selectedQuoteForPreview.notes && (
-              <div className="text-[11px] text-slate-600 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg">
-                <strong>Notes:</strong><br />
-                {selectedQuoteForPreview.notes}
-              </div>
-            )}
-
-            {/* Letterhead Footer Banner */}
-            <div className="w-full bg-white rounded-lg border border-slate-200 overflow-hidden mt-3">
-              <img 
-                src={selectedQuoteForPreview.footer_image || DEFAULT_FOOTER_SVG} 
-                alt="Letterhead Footer" 
-                className="w-full max-h-16 object-contain object-center"
-              />
-            </div>
-
-            <div className="pt-3 border-t flex justify-end items-center">
-
-              <button
-                onClick={() => setSelectedQuoteForPreview(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                Close Preview
-              </button>
-            </div>
-          </div>
-        </div>
+        <QuotationPdfViewer
+          quotationId={selectedQuoteForPreview.id}
+          quotationNumber={selectedQuoteForPreview.quotation_number}
+          client={selectedQuoteForPreview.lead_company_name}
+          onClose={() => setSelectedQuoteForPreview(null)}
+        />
       )}
 
       {/* CUSTOM IN-APP DELETE MODAL */}

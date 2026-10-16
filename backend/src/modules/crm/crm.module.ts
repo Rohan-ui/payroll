@@ -7,11 +7,13 @@ import { PrismaModule } from '@/prisma/prisma.module';
 import { MailModule } from '@/modules/mail/mail.module';
 import { CrmOutreachEmailService } from './crm-outreach-email.service';
 import { CrmOutreachChannelService } from './crm-outreach-channel.service';
+import { QuotationDocumentsService } from './quotation-documents.service';
+import { DocumentsModule } from '@/modules/documents/documents.module';
 
 @Module({
-  imports: [PrismaModule, MailModule],
+  imports: [PrismaModule, MailModule, DocumentsModule],
   controllers: [CrmController],
-  providers: [CrmService, CrmLeadAssignmentService, CrmLeadImportService, CrmOutreachEmailService, CrmOutreachChannelService],
+  providers: [CrmService, CrmLeadAssignmentService, CrmLeadImportService, CrmOutreachEmailService, CrmOutreachChannelService, QuotationDocumentsService],
   exports: [CrmService, CrmLeadAssignmentService],
 })
 export class CrmModule {}

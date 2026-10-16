@@ -215,29 +215,29 @@ describe('HRMS onboarding offers', () => {
 
   describe('templates', () => {
     it('refuses unknown or broken placeholders, and makes a new template a draft', async () => {
-      const unknown = await asA('post', '/onboarding/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer', body: 'Hello {{first_name}}' });
+      const unknown = await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer', body: 'Hello {{first_name}}' });
       expect([unknown.status, unknown.body.message]).toEqual([400, "These placeholders don't exist: {{first_name}}. Use only the ones listed."]);
-      expect((await asA('post', '/onboarding/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer', body: 'Hello {{candidate_name}' })).status).toBe(400);
-      expect((await asA('post', '/onboarding/templates', { kind: 'JOINING_LETTER', name: 'Later', title: 'x', body: 'y' })).status).toBe(400);
-      expect((await call('post', '/onboarding/templates', viewer.token, { kind: 'OFFER_LETTER', name: 'x', title: 'x', body: 'y' })).status).toBe(403);
+      expect((await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer', body: 'Hello {{candidate_name}' })).status).toBe(400);
+      expect((await asA('post', '/documents/templates', { kind: 'JOINING_LETTER', name: 'Later', title: 'x', body: 'y' })).status).toBe(400);
+      expect((await call('post', '/documents/templates', viewer.token, { kind: 'OFFER_LETTER', name: 'x', title: 'x', body: 'y' })).status).toBe(403);
 
-      const created = await asA('post', '/onboarding/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer of employment: {{job_title}}', body: TEMPLATE_BODY });
+      const created = await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer of employment: {{job_title}}', body: TEMPLATE_BODY });
       expect(created.status).toBe(201);
       ids.template = created.body.data.id;
       expect(created.body.data.versions).toEqual([expect.objectContaining({ number: 1, status: 'DRAFT' })]);
       ids.templateV1 = created.body.data.versions[0].id;
-      expect((await asB('get', `/onboarding/templates/${ids.template}`)).status).toBe(404);
+      expect((await asB('get', `/documents/templates/${ids.template}`)).status).toBe(404);
     });
 
     it('is usable only once approved, and approving a new version retires the old one', async () => {
       const candidate = await selectedCandidate('draft-template');
       expect((await asA('post', `/onboarding/candidates/${candidate}/offers`, offerInput({ templateVersionId: ids.templateV1 }))).body.message).toBe('Choose an approved offer letter template.');
-      expect((await call('post', `/onboarding/templates/${ids.template}/approve`, viewer.token)).status).toBe(403);
-      expect((await asA('post', `/onboarding/templates/${ids.template}/approve`)).body.data.versions[0].status).toBe('APPROVED');
+      expect((await call('post', `/documents/templates/${ids.template}/approve`, viewer.token)).status).toBe(403);
+      expect((await asA('post', `/documents/templates/${ids.template}/approve`)).body.data.versions[0].status).toBe('APPROVED');
 
-      const edited = await asA('put', `/onboarding/templates/${ids.template}/draft`, { title: 'Offer of employment: {{job_title}}', body: `${TEMPLATE_BODY}\n\nSpecial terms: {{special_terms}}` });
+      const edited = await asA('put', `/documents/templates/${ids.template}/draft`, { title: 'Offer of employment: {{job_title}}', body: `${TEMPLATE_BODY}\n\nSpecial terms: {{special_terms}}` });
       expect(edited.body.data.versions.map((v: { number: number; status: string }) => [v.number, v.status])).toEqual([[2, 'DRAFT'], [1, 'APPROVED']]);
-      const approved = await asA('post', `/onboarding/templates/${ids.template}/approve`);
+      const approved = await asA('post', `/documents/templates/${ids.template}/approve`);
       expect(approved.body.data.versions.map((v: { number: number; status: string }) => [v.number, v.status])).toEqual([[2, 'APPROVED'], [1, 'RETIRED']]);
       ids.templateV2 = approved.body.data.versions[0].id;
     });

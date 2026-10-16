@@ -17,6 +17,8 @@ import { CalendarHeatmap } from '../components/ui/CalendarHeatmap';
 import { attendanceApi } from '../api/attendance.api';
 import { CosecRefreshNote, useCosecRefresh } from './attendance/CosecRefresh';
 import { SalaryPanel } from './payroll/SalaryPanel';
+import { ReportingManagerCard } from './employee/ReportingManagerCard';
+import { SignInCard } from './employee/SignInCard';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import { monthName } from './payroll/PayrollOverviewTab';
@@ -312,6 +314,9 @@ export const EmployeeDetailView: React.FC = () => {
             <InfoRow label="Department" value={emp.department || '—'} />
             <InfoRow label="Designation" value={emp.designation || '—'} />
           </Card>
+
+          <ReportingManagerCard employeeId={emp.id} />
+          <SignInCard employeeId={emp.id} name={emp.name || emp.code} />
 
           {/* Statutory card */}
           <Card>

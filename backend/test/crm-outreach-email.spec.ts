@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { AppModule } from '@/app.module';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
 import { PrismaService } from '@/prisma/prisma.service';
+import { sendDayMessages } from './support/outreach-day';
 import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
 import { encryptPlatformSecret } from '@/modules/super-admin/auth/platform-crypto.util';
 import { CADENCE_STEPS_MASTER, interpolateText } from '@/modules/crm/crm-cadence.helper';
@@ -219,6 +220,8 @@ describe('Client Outreach email', () => {
     });
 
     it('never uses a member’s own account, even where personal accounts are allowed, and completes the day when asked', async () => {
+      // Day 1's WhatsApp and LinkedIn messages went out already; the email is the last one.
+      await sendDayMessages(app, ravi.tenantId, lead.neha, ['WHATSAPP', 'LINKEDIN']);
       const response = await send(neha.token, lead.neha, { completeTouchpoint: true });
       expect(response.status).toBe(200);
       expect(response.body.data.touchpointCompleted).toBe(true);
@@ -330,6 +333,7 @@ describe('Client Outreach email', () => {
         host: orgB.host, port: orgB.port, username: `smtp-b-${SUFFIX}`, passwordEncrypted: encryptPlatformSecret('not-the-password'),
         senderName: 'Workspace B', senderEmail: `hello-${SUFFIX}@b.test`, replyToEmail: null, encryption: 'SSL', isActive: true,
       });
+      await sendDayMessages(app, other.tenantId, lead.other, ['WHATSAPP', 'LINKEDIN']);
       const failed = await send(other.token, lead.other, { completeTouchpoint: true });
       expect(failed.status).toBe(503);
       const afterFailure = ((await prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id: lead.other } })).custom_attributes as { cadence: { channelActions: Record<string, { EMAIL: { status: string } }> } }).cadence.channelActions['1'].EMAIL;

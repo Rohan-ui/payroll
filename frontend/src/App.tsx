@@ -16,6 +16,7 @@ import { Toaster } from './components/ui/Toaster';
 import { ChangeTemporaryPasswordView } from './views/ChangeTemporaryPasswordView';
 import { DashboardView } from './views/DashboardView';
 import { PayrollView } from './views/payroll/PayrollView';
+import { PerformanceView } from './views/performance/PerformanceView';
 import { EmployeesView } from './views/EmployeesView';
 import { EmployeeDetailView } from './views/EmployeeDetailView';
 import { AttendanceView } from './views/AttendanceView';
@@ -93,6 +94,7 @@ const MainContent: React.FC = () => {
       case 'attendance':      return <AttendanceView />;
       case 'clock-in':        return <ClockInView />;
       case 'onboarding':      return <OnboardingView />;
+      case 'performance':     return <PerformanceView />;
       case 'payslips':        return <PayslipsView />;
       case 'bookkeeping':     return <BookkeepingView />;
       case 'reports':         return <ReportsView />;

@@ -140,8 +140,8 @@ describe('HRMS letterheads and document previews', () => {
 
     await register(a, 'A');
     await register(b, 'B');
-    await addMember(viewer, 'VIEWER', ['onboarding.view']);
-    await addMember(writer, 'TEMPLATE_WRITER', ['onboarding.view', 'onboarding.templates.manage']);
+    await addMember(viewer, 'VIEWER', ['onboarding.view', 'documents.view']);
+    await addMember(writer, 'TEMPLATE_WRITER', ['documents.view', 'documents.templates.manage']);
     await addMember(approver, 'OFFER_APPROVER', ['onboarding.view', 'onboarding.offers.approve']);
 
     const smtpSettings = { host: smtp.host, port: smtp.port, username: null, passwordEncrypted: null, senderName: 'Acme HR', senderEmail: `hr-${SUFFIX}@acme.test`, replyToEmail: null, encryption: 'NONE', isActive: true };
@@ -196,27 +196,27 @@ describe('HRMS letterheads and document previews', () => {
 
   describe('letterheads', () => {
     it('are managed only by members who approve templates, and seen by all onboarding members', async () => {
-      expect((await call('post', '/onboarding/letterheads', viewer.token, letterheadInput())).status).toBe(403);
-      expect((await call('post', '/onboarding/letterheads', writer.token, letterheadInput())).status).toBe(403);
-      const created = await asA('post', '/onboarding/letterheads', letterheadInput());
+      expect((await call('post', '/documents/letterheads', viewer.token, letterheadInput())).status).toBe(403);
+      expect((await call('post', '/documents/letterheads', writer.token, letterheadInput())).status).toBe(403);
+      const created = await asA('post', '/documents/letterheads', letterheadInput());
       expect(created.status).toBe(201);
       expect(created.body.data).toMatchObject({ name: 'Official', isDefault: true, images: { logo: false, header: false, footer: false } });
       ids.letterhead = created.body.data.id;
-      expect((await call('get', '/onboarding/letterheads', viewer.token)).body.data.map((l: { id: string }) => l.id)).toEqual([ids.letterhead]);
+      expect((await call('get', '/documents/letterheads', viewer.token)).body.data.map((l: { id: string }) => l.id)).toEqual([ids.letterhead]);
 
-      expect((await asA('post', '/onboarding/letterheads', letterheadInput({ name: 'official', isDefault: false }))).status).toBe(409);
-      expect((await asA('post', '/onboarding/letterheads', letterheadInput({ headerHeightMm: 5 }))).status).toBe(400);
-      const second = await asA('post', '/onboarding/letterheads', letterheadInput({ name: 'Formal', logoPosition: 'CENTER', headerHeightMm: 45 }));
+      expect((await asA('post', '/documents/letterheads', letterheadInput({ name: 'official', isDefault: false }))).status).toBe(409);
+      expect((await asA('post', '/documents/letterheads', letterheadInput({ headerHeightMm: 5 }))).status).toBe(400);
+      const second = await asA('post', '/documents/letterheads', letterheadInput({ name: 'Formal', logoPosition: 'CENTER', headerHeightMm: 45 }));
       ids.formal = second.body.data.id;
-      const list = (await asA('get', '/onboarding/letterheads')).body.data as { id: string; isDefault: boolean }[];
+      const list = (await asA('get', '/documents/letterheads')).body.data as { id: string; isDefault: boolean }[];
       expect(list.filter((l) => l.isDefault).map((l) => l.id)).toEqual([ids.formal]);
 
-      expect((await asB('get', `/onboarding/letterheads/${ids.letterhead}`)).status).toBe(404);
-      expect((await asB('put', `/onboarding/letterheads/${ids.letterhead}`, letterheadInput())).status).toBe(404);
+      expect((await asB('get', `/documents/letterheads/${ids.letterhead}`)).status).toBe(404);
+      expect((await asB('put', `/documents/letterheads/${ids.letterhead}`, letterheadInput())).status).toBe(404);
     });
 
     it('take only PNG or JPEG images that documents can use, up to 2 MB, stored privately', async () => {
-      const url = `/onboarding/letterheads/${ids.letterhead}/images/logo`;
+      const url = `/documents/letterheads/${ids.letterhead}/images/logo`;
       expect((await upload(writer.token, url, makePng(400, 100))).status).toBe(403);
       const svg = await upload(a.token, url, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'logo.svg');
       expect([svg.status, svg.body.message]).toEqual([400, 'Upload a PNG or JPEG image.']);
@@ -224,7 +224,7 @@ describe('HRMS letterheads and document previews', () => {
       expect(broken.status).toBe(400);
       expect(broken.body.message).toContain('can’t be used in documents');
       expect((await upload(a.token, url, Buffer.concat([makePng(10, 10), Buffer.alloc(2 * 1024 * 1024)]))).status).toBe(413);
-      expect((await upload(a.token, `/onboarding/letterheads/${ids.letterhead}/images/background`, makePng(10, 10))).status).toBe(404);
+      expect((await upload(a.token, `/documents/letterheads/${ids.letterhead}/images/background`, makePng(10, 10))).status).toBe(404);
       expect((await upload(b.token, url, makePng(400, 100))).status).toBe(404);
 
       const logo = makePng(400, 100);
@@ -243,18 +243,18 @@ describe('HRMS letterheads and document previews', () => {
 
     it('preview unsaved details on a sample letter without storing anything', async () => {
       const before = await prisma.rndtechnosoft_letterheads.findFirstOrThrow({ where: { id: ids.letterhead } });
-      const preview = await binary(call('post', '/onboarding/letterheads/preview-pdf', writer.token, { ...letterheadInput({ companyName: 'Acme Renamed Pvt Ltd' }), letterheadId: ids.letterhead }));
+      const preview = await binary(call('post', '/documents/letterheads/preview-pdf', writer.token, { ...letterheadInput({ companyName: 'Acme Renamed Pvt Ltd' }), letterheadId: ids.letterhead }));
       expect([preview.status, preview.headers['content-type']]).toEqual([200, 'application/pdf']);
       expect(preview.headers['content-disposition']).toMatch(/^inline;/);
       const pages = inspectPdf(preview.body, 841.89);
       expect(pages[0].texts.map((t) => t.text)).toEqual(expect.arrayContaining(['Acme Renamed Pvt Ltd', 'SAMPLE', 'Page 1 of 1']));
       expect(pages[0].images[0].width / pages[0].images[0].height).toBeCloseTo(4, 2);
       expect(await prisma.rndtechnosoft_letterheads.findFirstOrThrow({ where: { id: ids.letterhead } })).toEqual(before);
-      expect((await call('post', '/onboarding/letterheads/preview-pdf', viewer.token, letterheadInput())).status).toBe(403);
-      expect((await asB('post', '/onboarding/letterheads/preview-pdf', { ...letterheadInput(), letterheadId: ids.letterhead })).status).toBe(404);
+      expect((await call('post', '/documents/letterheads/preview-pdf', viewer.token, letterheadInput())).status).toBe(403);
+      expect((await asB('post', '/documents/letterheads/preview-pdf', { ...letterheadInput(), letterheadId: ids.letterhead })).status).toBe(404);
     });
     it('keep where the editor placed each image, checked against the header and footer, and preview with it', async () => {
-      const url = `/onboarding/letterheads/${ids.letterhead}`;
+      const url = `/documents/letterheads/${ids.letterhead}`;
       // Upright unless turned: rotation 0.
       const logoBox = { x: 10, y: 5, width: 40, height: 10, stretch: false, rotation: 0 };
       const saved = await asA('put', url, letterheadInput({ logoBox, headerArtBox: null, footerArtBox: null }));
@@ -275,7 +275,7 @@ describe('HRMS letterheads and document previews', () => {
 
       const MM = 72 / 25.4;
       const previewWith = async (extra: Record<string, unknown>) =>
-        inspectPdf((await binary(call('post', '/onboarding/letterheads/preview-pdf', writer.token, { ...letterheadInput(extra), letterheadId: ids.letterhead }))).body, 841.89)[0].images[0];
+        inspectPdf((await binary(call('post', '/documents/letterheads/preview-pdf', writer.token, { ...letterheadInput(extra), letterheadId: ids.letterhead }))).body, 841.89)[0].images[0];
       // The sample letter uses A4 with 20 mm margins.
       const savedBox = await previewWith({});
       expect([savedBox.left, savedBox.top, savedBox.width, savedBox.height].map((n) => Math.round(n / MM))).toEqual([30, 25, 40, 10]);
@@ -287,7 +287,7 @@ describe('HRMS letterheads and document previews', () => {
     });
 
     it('sit at the page margins, or at set distances from the page edges down to the edge itself', async () => {
-      const url = `/onboarding/letterheads/${ids.letterhead}`;
+      const url = `/documents/letterheads/${ids.letterhead}`;
       expect((await asA('get', url)).body.data.placement).toBeNull();
       const placement = { headerOffsetMm: 0, footerOffsetMm: 0, sideOffsetMm: 0 };
       const saved = await asA('put', url, letterheadInput({ placement }));
@@ -301,7 +301,7 @@ describe('HRMS letterheads and document previews', () => {
 
       // The saved logo box (10, 5 mm) now measures from the paper's top-left corner.
       const MM = 72 / 25.4;
-      const preview = await binary(call('post', '/onboarding/letterheads/preview-pdf', writer.token, { ...letterheadInput(), letterheadId: ids.letterhead }));
+      const preview = await binary(call('post', '/documents/letterheads/preview-pdf', writer.token, { ...letterheadInput(), letterheadId: ids.letterhead }));
       const logo = inspectPdf(preview.body, 841.89)[0].images[0];
       expect([logo.left, logo.top].map((n) => Math.round(n / MM))).toEqual([10, 5]);
 
@@ -310,7 +310,7 @@ describe('HRMS letterheads and document previews', () => {
     });
 
     it('keep turned images, hidden and locked ones, and page elements with their own uploaded images, in this workspace only', async () => {
-      const url = `/onboarding/letterheads/${ids.letterhead}`;
+      const url = `/documents/letterheads/${ids.letterhead}`;
       const logoBox = { x: 10, y: 5, width: 40, height: 10, stretch: false, rotation: 90 };
       const turned = await asA('put', url, letterheadInput({ logoBox, hiddenImages: ['footer'], lockedImages: ['logo'] }));
       expect(turned.status).toBe(200);
@@ -342,8 +342,8 @@ describe('HRMS letterheads and document previews', () => {
       expect(((await asA('get', url)).body.data.elements as { kind: string }[]).map((e) => e.kind)).toEqual(['TEXT', 'IMAGE', 'IMAGE']);
 
       // Refused: another workspace's image, an element off the page, a bad colour, too many elements.
-      const foreign = (await asB('post', '/onboarding/letterheads', letterheadInput({ name: `Other ${SUFFIX}` }))).body.data.id as string;
-      const foreignAsset = (await upload(b.token, `/onboarding/letterheads/${foreign}/assets`, makePng(10, 10))).body.data.id as string;
+      const foreign = (await asB('post', '/documents/letterheads', letterheadInput({ name: `Other ${SUFFIX}` }))).body.data.id as string;
+      const foreignAsset = (await upload(b.token, `/documents/letterheads/${foreign}/assets`, makePng(10, 10))).body.data.id as string;
       const stolen = await asA('put', url, letterheadInput({ elements: [{ ...imageMark, imageId: foreignAsset }] }));
       expect([stolen.status, stolen.body.message]).toEqual([400, 'Element 1 shows an image that isn’t uploaded for this letterhead. Upload the image again.']);
       expect((await asA('put', url, letterheadInput({ elements: [{ ...textMark, x: 100 }] }))).body.message).toBe('Element 1 runs off the page. Make it smaller or move it in.');
@@ -354,7 +354,7 @@ describe('HRMS letterheads and document previews', () => {
       expect(((await asA('get', url)).body.data.elements as unknown[]).length).toBe(3);
 
       // The sample prints the turned logo, the watermark behind the letter and the visible image in front; not the hidden ones.
-      const preview = await binary(call('post', '/onboarding/letterheads/preview-pdf', writer.token, { ...letterheadInput(), letterheadId: ids.letterhead }));
+      const preview = await binary(call('post', '/documents/letterheads/preview-pdf', writer.token, { ...letterheadInput(), letterheadId: ids.letterhead }));
       expect(preview.status).toBe(200);
       const [page] = inspectPdf(preview.body, 841.89);
       expect(page.texts.filter((t) => t.text === 'CONFIDENTIAL').map((t) => t.font)).toEqual(['Courier-Bold']);
@@ -372,40 +372,40 @@ describe('HRMS letterheads and document previews', () => {
 
   describe('templates', () => {
     it('keep a layout per version, with a letterhead of their own workspace only', async () => {
-      const foreign = (await asB('post', '/onboarding/letterheads', letterheadInput())).body.data.id as string;
-      const refused = await asA('post', '/onboarding/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer: {{job_title}}', body: BODY, letterheadId: foreign });
+      const foreign = (await asB('post', '/documents/letterheads', letterheadInput())).body.data.id as string;
+      const refused = await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer: {{job_title}}', body: BODY, letterheadId: foreign });
       expect([refused.status, refused.body.message]).toEqual([400, 'Choose a letterhead of this workspace that is not archived.']);
 
       const marginsMm = { top: 0, right: 15, bottom: 18, left: 25 };
-      const created = await asA('post', '/onboarding/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer: {{job_title}}', body: BODY, letterheadId: ids.letterhead, pageSize: 'A4', marginsMm, showPageNumbers: true });
+      const created = await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer: {{job_title}}', body: BODY, letterheadId: ids.letterhead, pageSize: 'A4', marginsMm, showPageNumbers: true });
       expect(created.status).toBe(201);
       ids.template = created.body.data.id;
       expect(created.body.data.versions[0].layout).toEqual({ letterheadId: ids.letterhead, letterheadName: 'Official', pageSize: 'A4', marginsMm, showPageNumbers: true });
 
       // Saving wording alone keeps the layout.
-      const saved = await asA('put', `/onboarding/templates/${ids.template}/draft`, { title: 'Offer: {{job_title}}', body: BODY });
+      const saved = await asA('put', `/documents/templates/${ids.template}/draft`, { title: 'Offer: {{job_title}}', body: BODY });
       expect(saved.body.data.versions[0].layout.letterheadId).toBe(ids.letterhead);
       for (const bad of [{ ...marginsMm, top: -1 }, { ...marginsMm, left: 61 }, { ...marginsMm, right: 1.5 }, { top: 10 }]) {
-        expect((await asA('put', `/onboarding/templates/${ids.template}/draft`, { title: 'x', body: 'y', marginsMm: bad })).status).toBe(400);
+        expect((await asA('put', `/documents/templates/${ids.template}/draft`, { title: 'x', body: 'y', marginsMm: bad })).status).toBe(400);
       }
-      expect((await asA('get', `/onboarding/templates/${ids.template}`)).body.data.versions[0].layout.marginsMm).toEqual(marginsMm);
-      const approved = await asA('post', `/onboarding/templates/${ids.template}/approve`);
+      expect((await asA('get', `/documents/templates/${ids.template}`)).body.data.versions[0].layout.marginsMm).toEqual(marginsMm);
+      const approved = await asA('post', `/documents/templates/${ids.template}/approve`);
       ids.version = approved.body.data.versions[0].id;
     });
 
     it('preview the editor’s unsaved text and layout as a marked sample', async () => {
       const preview = await binary(
-        call('post', '/onboarding/templates/preview-pdf', writer.token, { kind: 'OFFER_LETTER', title: 'Unsaved heading for {{candidate_name}}', body: BODY, letterheadId: ids.formal, marginsMm: { top: 25, right: 25, bottom: 25, left: 25 }, showPageNumbers: false }),
+        call('post', '/documents/templates/preview-pdf', writer.token, { kind: 'OFFER_LETTER', title: 'Unsaved heading for {{candidate_name}}', body: BODY, letterheadId: ids.formal, marginsMm: { top: 25, right: 25, bottom: 25, left: 25 }, showPageNumbers: false }),
       );
       expect([preview.status, preview.headers['content-type']]).toEqual([200, 'application/pdf']);
       const words = text(preview.body);
       expect(words).toEqual(expect.arrayContaining(['Unsaved heading for Priya Rao', 'SAMPLE', 'Acme Technologies Pvt Ltd', 'Total (CTC)']));
       expect(words.some((w) => w.startsWith('Page '))).toBe(false);
-      const bad = await call('post', '/onboarding/templates/preview-pdf', writer.token, { kind: 'OFFER_LETTER', title: 'x', body: 'Hello {{nobody}}' });
+      const bad = await call('post', '/documents/templates/preview-pdf', writer.token, { kind: 'OFFER_LETTER', title: 'x', body: 'Hello {{nobody}}' });
       expect([bad.status, bad.body.message]).toEqual([400, "These placeholders don't exist: {{nobody}}. Use only the ones listed."]);
-      expect((await call('post', '/onboarding/templates/preview-pdf', viewer.token, { kind: 'OFFER_LETTER', title: 'x', body: 'y' })).status).toBe(403);
+      expect((await call('post', '/documents/templates/preview-pdf', viewer.token, { kind: 'OFFER_LETTER', title: 'x', body: 'y' })).status).toBe(403);
       // Previewing changed nothing.
-      expect((await asA('get', `/onboarding/templates/${ids.template}`)).body.data.versions).toHaveLength(1);
+      expect((await asA('get', `/documents/templates/${ids.template}`)).body.data.versions).toHaveLength(1);
     });
   });
 
@@ -481,7 +481,7 @@ describe('HRMS letterheads and document previews', () => {
     const fonts = (pdf: Buffer) => inspectPdf(pdf, 841.89).flatMap((p) => p.texts);
 
     it('start from the standard wording, and keep formatting and placeholders exactly as saved', async () => {
-      const created = await asA('post', '/onboarding/templates', { kind: 'OFFER_LETTER', name: 'Formatted', letterheadId: ids.letterhead, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true });
+      const created = await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Formatted', letterheadId: ids.letterhead, pageSize: 'A4', marginsMm: { top: 20, right: 20, bottom: 20, left: 20 }, showPageNumbers: true });
       expect(created.status).toBe(201);
       ids.formatted = created.body.data.id;
       const first = created.body.data.versions[0];
@@ -489,22 +489,22 @@ describe('HRMS letterheads and document previews', () => {
       expect(first.document.content[0]).toMatchObject({ type: 'heading', attrs: { level: 1, textAlign: 'center' } });
       expect(created.body.data.format.fonts.map((f: { key: string }) => f.key)).toEqual(['helvetica', 'times', 'courier']);
 
-      const saved = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: DOCUMENT });
+      const saved = await asA('put', `/documents/templates/${ids.formatted}/draft`, { document: DOCUMENT });
       expect(saved.status).toBe(200);
-      const reloaded = (await asA('get', `/onboarding/templates/${ids.formatted}`)).body.data.versions[0];
+      const reloaded = (await asA('get', `/documents/templates/${ids.formatted}`)).body.data.versions[0];
       expect(reloaded.document).toEqual(DOCUMENT);
       expect(reloaded.title).toBe('Offer of employment: {{job_title}}');
       expect(reloaded.body).toContain('Dear {{candidate_name}},');
 
-      const bad = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: { type: 'doc', content: [{ type: 'paragraph', content: [text('x', [style({ fontFamily: 'Papyrus' })])] }] } });
+      const bad = await asA('put', `/documents/templates/${ids.formatted}/draft`, { document: { type: 'doc', content: [{ type: 'paragraph', content: [text('x', [style({ fontFamily: 'Papyrus' })])] }] } });
       expect([bad.status, bad.body.message]).toEqual([400, 'Choose one of the listed fonts; other fonts can’t be printed in the PDF.']);
-      const unknown = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: { type: 'doc', content: [{ type: 'paragraph', content: [placeholder('salary_bank_account')] }] } });
+      const unknown = await asA('put', `/documents/templates/${ids.formatted}/draft`, { document: { type: 'doc', content: [{ type: 'paragraph', content: [placeholder('salary_bank_account')] }] } });
       expect(unknown.status).toBe(400);
-      expect((await asA('get', `/onboarding/templates/${ids.formatted}`)).body.data.versions[0].document).toEqual(DOCUMENT);
+      expect((await asA('get', `/documents/templates/${ids.formatted}`)).body.data.versions[0].document).toEqual(DOCUMENT);
     });
 
     it('preview the document as it prints, filled with sample values', async () => {
-      const preview = await binary(call('post', '/onboarding/templates/preview-pdf', writer.token, { kind: 'OFFER_LETTER', document: DOCUMENT, letterheadId: ids.letterhead, marginsMm: { top: 25, right: 25, bottom: 25, left: 25 }, showPageNumbers: true }));
+      const preview = await binary(call('post', '/documents/templates/preview-pdf', writer.token, { kind: 'OFFER_LETTER', document: DOCUMENT, letterheadId: ids.letterhead, marginsMm: { top: 25, right: 25, bottom: 25, left: 25 }, showPageNumbers: true }));
       expect(preview.status).toBe(200);
       const texts = fonts(preview.body);
       // Headings are bold unless changed; this one wraps onto a second line.
@@ -514,11 +514,11 @@ describe('HRMS letterheads and document previews', () => {
       expect(texts.find((t) => t.text === 'Dear ')?.x).toBeCloseTo(25 * MM, 1);
       expect(texts.map((t) => t.text)).toEqual(expect.arrayContaining(['Annual compensation', 'SAMPLE', 'Page 1 of 1']));
       // Nothing was saved.
-      expect((await asA('get', `/onboarding/templates/${ids.formatted}`)).body.data.versions).toHaveLength(1);
+      expect((await asA('get', `/documents/templates/${ids.formatted}`)).body.data.versions).toHaveLength(1);
     });
 
     it('fix the approved version: edits go to a new draft, and offers print the version they were made from', async () => {
-      const approved = await asA('post', `/onboarding/templates/${ids.formatted}/approve`);
+      const approved = await asA('post', `/documents/templates/${ids.formatted}/approve`);
       const v1 = approved.body.data.versions[0];
       expect(v1).toMatchObject({ number: 1, status: 'APPROVED', document: DOCUMENT });
 
@@ -530,10 +530,10 @@ describe('HRMS letterheads and document previews', () => {
 
       // A new draft changes the wording; the approved version and the submitted offer don't change.
       const changed = { ...DOCUMENT, content: [{ type: 'paragraph', attrs: block, content: [text('Completely rewritten '), placeholder('candidate_name')] }] };
-      const drafted = await asA('put', `/onboarding/templates/${ids.formatted}/draft`, { document: changed });
+      const drafted = await asA('put', `/documents/templates/${ids.formatted}/draft`, { document: changed });
       expect(drafted.body.data.versions.map((v: { number: number; status: string }) => [v.number, v.status])).toEqual([[2, 'DRAFT'], [1, 'APPROVED']]);
       expect(drafted.body.data.versions[1].document).toEqual(DOCUMENT);
-      await asA('post', `/onboarding/templates/${ids.formatted}/approve`);
+      await asA('post', `/documents/templates/${ids.formatted}/approve`);
 
       const pdf = await binary(asA('get', `/onboarding/offers/${offer.body.data.id}/pdf`));
       const texts = fonts(pdf.body);
@@ -546,7 +546,7 @@ describe('HRMS letterheads and document previews', () => {
     });
 
     it('still show plain-text versions as they were, and keep them printing as before', async () => {
-      const legacy = (await asA('get', `/onboarding/templates/${ids.template}`)).body.data.versions.find((v: { status: string }) => v.status === 'APPROVED');
+      const legacy = (await asA('get', `/documents/templates/${ids.template}`)).body.data.versions.find((v: { status: string }) => v.status === 'APPROVED');
       expect(legacy.format).toBe('PLAIN');
       expect(legacy.document.content[1]).toMatchObject({ type: 'heading' });
       expect(JSON.stringify(legacy.document)).toContain('"key":"candidate_name"');
@@ -555,11 +555,11 @@ describe('HRMS letterheads and document previews', () => {
     });
 
     it('belong to their workspace only', async () => {
-      expect((await asB('get', `/onboarding/templates/${ids.formatted}`)).status).toBe(404);
-      expect((await asB('put', `/onboarding/templates/${ids.formatted}/draft`, { document: DOCUMENT })).status).toBe(404);
-      expect((await asB('post', '/onboarding/templates/preview-pdf', { kind: 'OFFER_LETTER', document: DOCUMENT, letterheadId: ids.letterhead })).status).toBe(404);
-      expect((await call('put', `/onboarding/templates/${ids.formatted}/draft`, viewer.token, { document: DOCUMENT })).status).toBe(403);
-      expect((await call('post', `/onboarding/templates/${ids.formatted}/approve`, writer.token)).status).toBe(403);
+      expect((await asB('get', `/documents/templates/${ids.formatted}`)).status).toBe(404);
+      expect((await asB('put', `/documents/templates/${ids.formatted}/draft`, { document: DOCUMENT })).status).toBe(404);
+      expect((await asB('post', '/documents/templates/preview-pdf', { kind: 'OFFER_LETTER', document: DOCUMENT, letterheadId: ids.letterhead })).status).toBe(404);
+      expect((await call('put', `/documents/templates/${ids.formatted}/draft`, viewer.token, { document: DOCUMENT })).status).toBe(403);
+      expect((await call('post', `/documents/templates/${ids.formatted}/approve`, writer.token)).status).toBe(403);
     });
   });
 });

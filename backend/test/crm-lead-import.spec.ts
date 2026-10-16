@@ -11,6 +11,7 @@ import { registerBodyParsers } from '@/common/http/body-parsers';
 import { PrismaService } from '@/prisma/prisma.service';
 import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
 import { deleteCrmData } from './support/crm-cleanup';
+import { addDays, addWorkingDays, dueInstant, localDate } from '@/modules/crm/crm-outreach-schedule';
 
 /**
  * Spreadsheet lead import over HTTP: the destination is chosen explicitly;
@@ -314,6 +315,40 @@ describe('CRM lead import', () => {
       expect(cadence.body.data.stats).toMatchObject({ totalEnrolled: 1, activeCount: 1 });
       const activity = await prisma.rndtechnosoft_crm_lead_activities.findFirstOrThrow({ where: { lead_id: mona.id, title: 'Lead Created' } });
       expect(activity.description).toBe('Lead account created via spreadsheet import (BDM.xlsx) into Client Outreach: 30-Day Multi-Touch SOP');
+    });
+
+    it('starts Day 1 of the SOP on each row’s start date, the next working day for a weekend, and refuses a date that isn’t one', async () => {
+      const today = localDate(new Date(), 'Asia/Kolkata');
+      const calendar = { timeZone: 'Asia/Kolkata', holidays: new Set<string>() };
+      const start = addWorkingDays(today, 3, calendar);
+      let saturday = addDays(today, 1);
+      while (new Date(`${saturday}T00:00:00Z`).getUTCDay() !== 6) saturday = addDays(saturday, 1);
+      const monday = addDays(saturday, 2);
+      const [y, m, d] = start.split('-');
+      const rows = [
+        row(2, 'Zoya', { startDate: `${d}/${m}/${y}` }),
+        row(3, 'Yamini', { startDate: saturday }),
+        row(4, 'Xena', { startDate: '31/02/2026' }),
+        row(5, 'Wilma'),
+      ];
+      const imported = await importInto(neha.token, { destination: 'CLIENT_OUTREACH', rows });
+      expect(imported.status).toBe(200);
+      const results = imported.body.data.rows as { rowNumber: number; outcome: string; reasons: string[]; warnings: string[]; day1On?: string }[];
+      expect(results.map((r) => [r.rowNumber, r.outcome, r.day1On ?? null])).toEqual([[2, 'IMPORTED', start], [3, 'IMPORTED', monday], [4, 'FAILED', null], [5, 'IMPORTED', null]]);
+      expect(results[1].warnings[0]).toMatch(/is a weekend or holiday, so Day 1 is on/);
+      expect(results[2].reasons).toEqual(['Start date "31/02/2026" is not a date. Write it like 20/10/2026 or 2026-10-20.']);
+      const cadenceOf = async (name: string) =>
+        ((await prisma.rndtechnosoft_crm_leads.findFirstOrThrow({ where: { tenant_id: ravi.tenantId, email: email(name) } })).custom_attributes as { cadence: { nextDueAt: string; startDate?: string } }).cadence;
+      expect(await cadenceOf('zoya')).toMatchObject({ startDate: start, nextDueAt: dueInstant(start, 'Asia/Kolkata').toISOString() });
+      expect((await cadenceOf('yamini')).nextDueAt).toBe(dueInstant(monday, 'Asia/Kolkata').toISOString());
+      // No start date: Day 1 is due today (or the next working day), as before.
+      expect(await cadenceOf('wilma')).toMatchObject({ nextDueAt: dueInstant(addWorkingDays(today, 0, calendar), 'Asia/Kolkata').toISOString() });
+      expect((await cadenceOf('wilma')).startDate).toBeUndefined();
+    });
+
+    it('ignores a start date for a sales pipeline import, saying so', async () => {
+      const preview = await importInto(ravi.token, { destination: 'SALES_PIPELINE', pipelineId: ids.sales, stageId: ids.salesNew, dryRun: true, rows: [row(2, 'Tanvi', { startDate: '2026-10-20' })] });
+      expect(preview.body.data.rows[0]).toMatchObject({ outcome: 'READY', warnings: ['Start date applies only to Client Outreach, so it was not used.'] });
     });
 
     it('still needs outreach.create to import into the SOP', async () => {

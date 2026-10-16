@@ -6,6 +6,7 @@ import { CrmService } from './crm.service';
 import { CrmLeadAssignmentService } from './crm-lead-assignment.service';
 import { ImportLeadsDto, LeadImportRowDto } from './dto/lead-import.dto';
 import { sopName } from './crm-cadence.helper';
+import { addWorkingDays, daysBetween, localDate, OutreachCalendar } from './crm-outreach-schedule';
 import { LeadVisibility } from './lead-visibility';
 
 export type LeadImportRowOutcome = 'READY' | 'IMPORTED' | 'DUPLICATE' | 'FAILED';
@@ -21,6 +22,8 @@ export interface LeadImportRowResult {
   warnings: string[];
   leadId?: string;
   leadCode?: string;
+  /** Client Outreach: the date Day 1 is due (YYYY-MM-DD). */
+  day1On?: string;
 }
 
 type TextField = Exclude<keyof LeadImportRowDto, 'rowNumber'>;
@@ -106,6 +109,37 @@ export function parsePhones(raw: string, dialCode: string): { numbers: string[];
   return { numbers, extraText };
 }
 
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * A start date cell as YYYY-MM-DD, or null when it is not a real date. Takes
+ * 2026-10-20 (as Excel date cells are read), day-first 20/10/2026, 20-10-2026
+ * and 20.10.2026, and 20 Oct 2026 or 20-Oct-2026.
+ */
+export function parseStartDate(raw: string): string | null {
+  const value = raw.trim();
+  let y: number;
+  let m: number;
+  let d: number;
+  let match = value.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (match) [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  else if ((match = value.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/))) [d, m, y] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  else if ((match = value.match(/^(\d{1,2})[\s-]+([a-z]{3,9})[\s,-]+(\d{4})$/i))) {
+    const month = MONTHS.indexOf(match[2].slice(0, 3).toLowerCase());
+    if (month < 0) return null;
+    [d, m, y] = [Number(match[1]), month + 1, Number(match[3])];
+  } else return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+/** A YYYY-MM-DD date as people read it: "20 Oct 2026". */
+const readable = (date: string) => new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`));
+
+/** How far a start date may be from today, either way. */
+const START_DATE_RANGE_DAYS = 365;
+
 /**
  * A budget cell as an exact decimal string ("1,50,000", "₹ 2500.50", "INR 9000"),
  * or null when it is not a non-negative amount with at most two decimals.
@@ -163,11 +197,14 @@ export class CrmLeadImportService {
   async importLeads(tenantId: string, actorMemberId: string, visibility: LeadVisibility, dto: ImportLeadsDto) {
     const outreach = dto.destination === 'CLIENT_OUTREACH';
     const { pipeline, stage } = await this.placement(tenantId, dto);
-    const [sources, assignees, cadenceSteps] = await Promise.all([
+    const [sources, assignees, cadenceSteps, calendar] = await Promise.all([
       this.prisma.rndtechnosoft_crm_lead_sources.findMany({ where: { tenant_id: tenantId }, select: { id: true, name: true } }),
       this.assignments.assignees(tenantId),
       outreach ? this.crm.getCadenceSteps(tenantId) : Promise.resolve([]),
+      outreach ? this.crm.outreachCalendar(tenantId) : Promise.resolve(null),
     ]);
+    // Where Day 1 falls for a start date: the first step's offset in working days from it.
+    const schedule = outreach && calendar ? { calendar, firstOffset: cadenceSteps[0]?.dayOffset ?? 0, today: localDate(new Date(), calendar.timeZone) } : null;
     // Into the 30-day SOP itself (no outreach pipeline chosen), or through a Client Outreach pipeline.
     const intoSop = outreach && !dto.pipelineId;
     const target = intoSop ? sopName(cadenceSteps) : pipeline.name;
@@ -194,7 +231,7 @@ export class CrmLeadImportService {
     const ready: { result: LeadImportRowResult; data: Record<string, unknown> }[] = [];
     const firstRowByEmail = new Map<string, number>();
     for (const row of dto.rows) {
-      const { result, data } = this.prepare(row, { sourceByName, assigneeByKey, defaultAssignee: chosen ? chosen : null });
+      const { result, data } = this.prepare(row, { sourceByName, assigneeByKey, defaultAssignee: chosen ? chosen : null, schedule });
       results.push(result);
       if (result.outcome === 'FAILED') continue;
       const earlier = firstRowByEmail.get(result.email!);
@@ -235,7 +272,7 @@ export class CrmLeadImportService {
           { ...data, temperature: outreach ? 'COLD' : 'WARM', pipeline_id: pipeline.id, stage_id: stage.id },
           actorMemberId,
           // Into the SOP, enrolled exactly as every other Client Outreach lead is.
-          { outreachFunnel: intoSop ? undefined : pipeline.name, createdVia, firstNameOptional: true },
+          { outreachFunnel: intoSop ? undefined : pipeline.name, createdVia, firstNameOptional: true, outreachStartDate: data.outreach_start_date as string | undefined },
         );
         result.outcome = 'IMPORTED';
         result.leadId = lead.id;
@@ -333,6 +370,8 @@ export class CrmLeadImportService {
       assigneeByKey: Map<string, { id: string; name: string; eligible: boolean }>;
       /** The member chosen on the import screen; null when the leads go to the person importing. */
       defaultAssignee: { id: string; name: string } | null;
+      /** Client Outreach only: the workspace calendar and today, to place Day 1 on a start date. */
+      schedule?: { calendar: OutreachCalendar; firstOffset: number; today: string } | null;
     },
   ) {
     const value = (field: TextField) => (row[field] ?? '').trim();
@@ -375,6 +414,26 @@ export class CrmLeadImportService {
       else {
         result.warnings.push(`${label} "${kept[field]}" is not a LinkedIn address, so it was not imported.`);
         delete kept[field];
+      }
+    }
+    // A start date places Day 1 of the SOP; one that isn't a date fails the row rather than silently starting today.
+    let startDate: string | undefined;
+    if (value('startDate')) {
+      if (!lookups.schedule) {
+        result.warnings.push('Start date applies only to Client Outreach, so it was not used.');
+      } else {
+        const parsed = parseStartDate(value('startDate'));
+        if (!parsed) {
+          result.reasons.push(`Start date "${value('startDate')}" is not a date. Write it like 20/10/2026 or 2026-10-20.`);
+        } else if (Math.abs(daysBetween(lookups.schedule.today, parsed)) > START_DATE_RANGE_DAYS) {
+          result.reasons.push(`Start date ${readable(parsed)} is more than a year from today. Check the date.`);
+        } else {
+          startDate = parsed;
+          const day1 = addWorkingDays(parsed, lookups.schedule.firstOffset, lookups.schedule.calendar);
+          result.day1On = day1;
+          if (day1 !== parsed && lookups.schedule.firstOffset === 0) result.warnings.push(`${readable(parsed)} is a weekend or holiday, so Day 1 is on ${readable(day1)}.`);
+          if (day1 < lookups.schedule.today) result.warnings.push(`Day 1 (${readable(day1)}) is before today, so it shows as overdue.`);
+        }
       }
     }
     if (kept.alternateEmail && !EMAIL.test(kept.alternateEmail)) {
@@ -456,6 +515,7 @@ export class CrmLeadImportService {
       budget_amount: budget,
       requirement_brief: value('requirementBrief') || null,
       internal_notes: [value('internalNotes'), ...phoneNotes].filter(Boolean).join('\n') || null,
+      ...(startDate ? { outreach_start_date: startDate } : {}),
     };
     return { result, data };
   }

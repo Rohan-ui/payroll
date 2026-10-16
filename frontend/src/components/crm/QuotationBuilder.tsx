@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { Combobox, type ComboboxOption } from '../ui/Combobox';
 
 /**
  * Creating a quotation for a lead, or editing a draft one: its lines, GST
@@ -26,6 +27,8 @@ interface LeadOption {
 
 interface QuotationBuilderProps {
   services: any[];
+  /** Whether a typed service can be added to the Services Master from here. */
+  canAddServices?: boolean;
   templates: any[];
   initialLeadId?: string | null;
   /** A draft quotation to edit; omitted to create one. */
@@ -102,7 +105,7 @@ const leadLabel = (lead: any) =>
 const fieldClass = 'w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500';
 const invalidClass = 'border-red-400';
 
-export default function QuotationBuilder({ services, templates, initialLeadId, quotation, onCancel, onSaved }: QuotationBuilderProps) {
+export default function QuotationBuilder({ services, canAddServices = false, templates, initialLeadId, quotation, onCancel, onSaved }: QuotationBuilderProps) {
   const ids = useId();
   const isEdit = Boolean(quotation);
   const [leadId, setLeadId] = useState<string>(quotation?.lead_id ?? initialLeadId ?? '');
@@ -111,6 +114,11 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
   const [leadQuery, setLeadQuery] = useState('');
   const [leadOptions, setLeadOptions] = useState<LeadOption[]>([]);
   const [leadsError, setLeadsError] = useState<string | null>(null);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  // The search waits for typing, not for the chosen lead's name filling the box.
+  const [leadSearch, setLeadSearch] = useState('');
+  const [addedServices, setAddedServices] = useState<any[]>([]);
+  const [addingService, setAddingService] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState('');
   const [lines, setLines] = useState<Line[]>(() =>
     quotation?.items?.length
@@ -136,16 +144,20 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
 
-  const activeServices = useMemo(() => services.filter((service) => service.is_active !== false), [services]);
+  const activeServices = useMemo(
+    () => [...services, ...addedServices.filter((added) => !services.some((service) => service.id === added.id))].filter((service) => service.is_active !== false),
+    [services, addedServices],
+  );
   const totals = useMemo(() => quotationTotals(lines, taxMode), [lines, taxMode]);
 
   // Leads matching what is typed, from the server, so any lead can be found however many there are.
   useEffect(() => {
     if (isEdit) return;
     let cancelled = false;
+    setLeadsLoading(true);
     const timer = window.setTimeout(async () => {
       try {
-        const res = await apiFetch(`/api/v1/crm/leads?search=${encodeURIComponent(leadQuery.trim())}&page=1&limit=20`, { feedback: { error: false } });
+        const res = await apiFetch(`/api/v1/crm/leads?search=${encodeURIComponent(leadSearch.trim())}&page=1&limit=20`, { feedback: { error: false } });
         const json = await res.json().catch(() => null);
         if (cancelled) return;
         if (!res.ok) {
@@ -161,13 +173,15 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
         });
       } catch {
         if (!cancelled) setLeadsError('Could not reach the server to load leads.');
+      } finally {
+        if (!cancelled) setLeadsLoading(false);
       }
     }, 250);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [leadQuery, isEdit]);
+  }, [leadSearch, isEdit]);
 
   // A lead passed in (from Lead 360 or the pipeline) is shown chosen even if it is not among the first results.
   useEffect(() => {
@@ -180,6 +194,7 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
         const lead = json?.data?.lead ?? json?.data;
         if (!cancelled && res.ok && lead?.id) {
           setLeadOptions((previous) => (previous.some((option) => option.id === lead.id) ? previous : [{ id: lead.id, label: leadLabel(lead) }, ...previous]));
+          if (leadIdRef.current === lead.id) setLeadQuery((typed) => typed || leadLabel(lead));
         }
       } catch {
         // The search list still offers the lead.
@@ -192,11 +207,48 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
 
   const updateLine = (key: string, change: Partial<Line>) => setLines((current) => current.map((line) => (line.key === key ? { ...line, ...change } : line)));
 
-  const chooseService = (key: string, serviceId: string) => {
-    const service = activeServices.find((candidate) => candidate.id === serviceId);
-    updateLine(key, service
-      ? { serviceId, description: service.name ?? '', sacCode: service.sac_code ?? '', unitRate: service.default_rate != null ? String(service.default_rate) : '' }
-      : { serviceId: '' });
+  /** A service picked from the list fills the line: its name, SAC code and default rate. */
+  const chooseService = (key: string, service: any) => {
+    updateLine(key, { serviceId: service.id, description: service.name ?? '', sacCode: service.sac_code ?? '', unitRate: service.default_rate != null ? String(service.default_rate) : '' });
+  };
+
+  const serviceOptions = (text: string): ComboboxOption[] => {
+    const term = text.trim().toLowerCase();
+    return activeServices
+      .filter((service) => !term || String(service.name ?? '').toLowerCase().includes(term) || String(service.sac_code ?? '').includes(term))
+      .slice(0, 50)
+      .map((service) => ({
+        id: service.id,
+        label: service.name,
+        hint: [service.sac_code ? `SAC ${service.sac_code}` : null, service.default_rate != null && service.default_rate !== '' ? `₹${rupees.format(Number(service.default_rate))}` : null].filter(Boolean).join(' · ') || undefined,
+      }));
+  };
+
+  /** Saves what was typed on a line as a new service in the Services Master, with the line's SAC code and rate, and links the line to it. */
+  const addService = async (line: Line) => {
+    const name = line.description.trim();
+    if (!name || addingService) return;
+    setAddingService(line.key);
+    setServerError(null);
+    try {
+      const res = await apiFetch('/api/v1/crm/masters/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, sac_code: line.sacCode.trim() || undefined, default_rate: toUnits(line.unitRate, RATE, 2) === null ? 0 : line.unitRate.trim(), is_active: true }),
+        feedback: { error: false },
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.data?.id) {
+        setServerError(json?.message || 'The service could not be added. Try again, or add it in CRM → Masters → Services Master.');
+        return;
+      }
+      setAddedServices((current) => [...current, json.data]);
+      updateLine(line.key, { serviceId: json.data.id });
+    } catch {
+      setServerError('Could not reach the server to add the service.');
+    } finally {
+      setAddingService(null);
+    }
   };
 
   const applyTemplate = () => {
@@ -208,9 +260,9 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
   // What still needs fixing before saving, by field.
   const errors = useMemo(() => {
     const found: Record<string, string> = {};
-    if (!leadId) found.lead = 'Choose the lead this quotation is for.';
+    if (!leadId) found.lead = leadQuery.trim() ? 'Choose the lead from the list: type part of its name, then pick it.' : 'Choose the lead this quotation is for.';
     lines.forEach((line, index) => {
-      if (!line.description.trim()) found[`${line.key}.description`] = `Line ${index + 1} needs a description.`;
+      if (!line.description.trim()) found[`${line.key}.description`] = `Line ${index + 1}: choose a service or type what it is for.`;
       const quantity = toUnits(line.quantity, QUANTITY, 3);
       if (quantity === null || quantity === 0n) found[`${line.key}.quantity`] = `Line ${index + 1}: enter a quantity above 0 (up to 3 decimals).`;
       if (toUnits(line.unitRate, RATE, 2) === null) found[`${line.key}.unitRate`] = `Line ${index + 1}: enter a rate of 0 or more (up to 2 decimals).`;
@@ -220,7 +272,7 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
     else if (validDays !== '' && (Number(validDays) < 1 || Number(validDays) > 365)) found.validDays = 'The quotation must be valid for 1 to 365 days.';
     if (notes.trim().length > 2000) found.notes = 'The notes must be 2,000 characters or fewer.';
     return found;
-  }, [leadId, lines, validDays, notes]);
+  }, [leadId, leadQuery, lines, validDays, notes]);
   const errorOf = (field: string) => (showErrors ? errors[field] : undefined);
 
   const save = async (event: React.FormEvent) => {
@@ -313,34 +365,23 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
                 {quotation.contact_person ? ` — ${quotation.contact_person}` : ''}
               </p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor={`${ids}-lead-search`} className="block text-xs font-bold text-slate-700 mb-1">Find a lead</label>
-                  <input
-                    id={`${ids}-lead-search`}
-                    type="search"
-                    value={leadQuery}
-                    onChange={(e) => setLeadQuery(e.target.value)}
-                    placeholder="Company, contact, email or lead code"
-                    className={fieldClass}
-                  />
-                </div>
-                <div>
-                  <label htmlFor={`${ids}-lead`} className="block text-xs font-bold text-slate-700 mb-1">Lead *</label>
-                  <select
-                    id={`${ids}-lead`}
-                    value={leadId}
-                    onChange={(e) => setLeadId(e.target.value)}
-                    aria-invalid={Boolean(errorOf('lead'))}
-                    className={`${fieldClass} ${errorOf('lead') ? invalidClass : ''}`}
-                  >
-                    <option value="">{leadOptions.length ? 'Choose a lead' : 'No matching leads'}</option>
-                    {leadOptions.map((option) => (
-                      <option key={option.id} value={option.id}>{option.label}</option>
-                    ))}
-                  </select>
-                  {leadsError && <p className="mt-1 text-[11px] text-red-700">{leadsError}</p>}
-                </div>
+              <div className="sm:max-w-xl">
+                <label htmlFor={`${ids}-lead`} className="block text-xs font-bold text-slate-700 mb-1">Lead *</label>
+                <Combobox
+                  id={`${ids}-lead`}
+                  value={leadQuery}
+                  onInputChange={(text) => { setLeadQuery(text); setLeadSearch(text); setLeadId(''); }}
+                  options={leadOptions}
+                  onSelect={(option) => { setLeadId(option.id); setLeadQuery(option.label); }}
+                  loading={leadsLoading}
+                  placeholder="Search by company, contact, email or lead code"
+                  emptyText="No leads match. Try another name, email or code."
+                  invalid={Boolean(errorOf('lead'))}
+                  describedBy={`${ids}-lead-hint`}
+                  className={`${fieldClass} ${errorOf('lead') ? invalidClass : ''}`}
+                />
+                <p id={`${ids}-lead-hint`} className="mt-1 text-[11px] text-slate-500">{leadId ? 'Chosen. Type again to pick another lead.' : 'Type to search, then pick the lead from the list.'}</p>
+                {leadsError && <p className="mt-1 text-[11px] text-red-700">{leadsError}</p>}
               </div>
             )}
           </section>
@@ -388,24 +429,28 @@ export default function QuotationBuilder({ services, templates, initialLeadId, q
                     </button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-12 gap-2">
-                    <div className="col-span-2 sm:col-span-4">
-                      <label htmlFor={`${line.key}-service`} className="block text-[11px] font-bold text-slate-600 mb-1">Service</label>
-                      <select id={`${line.key}-service`} value={line.serviceId} onChange={(e) => chooseService(line.key, e.target.value)} className={fieldClass}>
-                        <option value="">Custom line</option>
-                        {activeServices.map((service) => (
-                          <option key={service.id} value={service.id}>{service.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-span-2 sm:col-span-8">
-                      <label htmlFor={`${line.key}-description`} className="block text-[11px] font-bold text-slate-600 mb-1">Description *</label>
-                      <input
-                        id={`${line.key}-description`}
+                    <div className="col-span-2 sm:col-span-12">
+                      <label htmlFor={`${line.key}-service`} className="block text-[11px] font-bold text-slate-600 mb-1">Service or description *</label>
+                      <Combobox
+                        id={`${line.key}-service`}
                         value={line.description}
-                        onChange={(e) => updateLine(line.key, { description: e.target.value })}
-                        aria-invalid={Boolean(errorOf(`${line.key}.description`))}
+                        onInputChange={(text) => updateLine(line.key, { description: text, serviceId: '' })}
+                        options={serviceOptions(line.serviceId ? '' : line.description)}
+                        onSelect={(option) => chooseService(line.key, activeServices.find((service) => service.id === option.id))}
+                        action={
+                          canAddServices && !line.serviceId && line.description.trim() && !activeServices.some((service) => String(service.name ?? '').trim().toLowerCase() === line.description.trim().toLowerCase())
+                            ? { label: addingService === line.key ? 'Adding…' : `Add “${line.description.trim()}” to the Services Master`, onSelect: () => { void addService(line); } }
+                            : null
+                        }
+                        placeholder="Pick a service, or type any text"
+                        emptyText={activeServices.length ? 'No service matches. What you typed is used as the description.' : 'No services yet. What you type is used as the description.'}
+                        invalid={Boolean(errorOf(`${line.key}.description`))}
+                        describedBy={`${line.key}-service-hint`}
                         className={`${fieldClass} ${errorOf(`${line.key}.description`) ? invalidClass : ''}`}
                       />
+                      <p id={`${line.key}-service-hint`} className="mt-1 text-[11px] text-slate-500">
+                        {line.serviceId ? 'From the Services Master: its SAC code and rate were filled in, and can be changed for this quotation.' : 'Custom text. Services are managed in CRM → Masters → Services Master.'}
+                      </p>
                     </div>
                     <div className="sm:col-span-3">
                       <label htmlFor={`${line.key}-sac`} className="block text-[11px] font-bold text-slate-600 mb-1">SAC code</label>

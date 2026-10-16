@@ -50,6 +50,14 @@ describe('Client Outreach WhatsApp and LinkedIn', () => {
   const record = (token: string, leadId: string, channel: string, action: string, extra: Record<string, unknown> = {}) =>
     call('post', '/crm/cadence/channel-action', token, { leadId, channel, action, ...extra });
   const row = (id: string) => prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id } });
+  /** The day's email as the email service records a send (sending needs a mail server, which tests don't have). */
+  const emailSent = async (id: string, day: string) => {
+    const lead = await row(id);
+    const attributes = lead.custom_attributes as { cadence: { channelActions?: Record<string, Record<string, unknown>> } };
+    const actions = attributes.cadence.channelActions ?? {};
+    actions[day] = { ...(actions[day] ?? {}), EMAIL: { status: 'SENT', attempt: 1, executedBy: { memberId: ravi.memberId, name: 'Ravi Shah' }, startedAt: new Date().toISOString(), sentAt: new Date().toISOString() } };
+    await prisma.rndtechnosoft_crm_leads.update({ where: { id }, data: { custom_attributes: { ...attributes, cadence: { ...attributes.cadence, channelActions: actions } } as object } });
+  };
   const day1 = async (id: string) =>
     (((await row(id)).custom_attributes as { cadence: { channelActions?: Record<string, Record<string, Action>> } }).cadence.channelActions?.['1'] ?? {});
 
@@ -266,12 +274,63 @@ describe('Client Outreach WhatsApp and LinkedIn', () => {
       expect(await prisma.rndtechnosoft_crm_audit_logs.count({ where: { entity_id: lead.rajesh, action_type: 'OUTREACH_WHATSAPP_SENT' } })).toBe(2);
     });
 
-    it('can complete the day once the LinkedIn message is sent', async () => {
-      const sent = await record(ravi.token, lead.thread, 'LINKEDIN', 'MARKED_SENT', { message: 'Hi Tara 👋', completeTouchpoint: true });
-      expect(sent.body.data).toMatchObject({ touchpointCompleted: true, state: { status: 'SENT', destination: 'CONVERSATION' } });
+    it('completes the day only once every message of the day is sent', async () => {
+      // Day 1 sends WhatsApp, email and LinkedIn: nothing completes it until all three are done.
+      const early = await call('post', '/crm/cadence', ravi.token, { action: 'COMPLETE_STEP', leadId: lead.thread });
+      expect(early.status).toBe(400);
+      expect(early.body.message).toBe('Day 1 can’t be marked complete yet: send the WhatsApp, email and LinkedIn messages first, or mark the lead as not on LinkedIn.');
+
+      const linkedIn = await record(ravi.token, lead.thread, 'LINKEDIN', 'MARKED_SENT', { message: 'Hi Tara 👋', completeTouchpoint: true });
+      expect(linkedIn.body.data).toMatchObject({ touchpointCompleted: false, stillToDo: ['WHATSAPP', 'EMAIL'], state: { status: 'SENT', destination: 'CONVERSATION' } });
+      // Tara has a WhatsApp number, so that message can't be skipped.
+      const skip = await record(ravi.token, lead.thread, 'WHATSAPP', 'NOT_AVAILABLE');
+      expect(skip.status).toBe(400);
+      expect(skip.body.message).toContain('This lead has a WhatsApp number');
+      expect((await record(ravi.token, lead.thread, 'WHATSAPP', 'MARKED_SENT', { message: 'Hi Tara' })).body.data.stillToDo).toEqual(['EMAIL']);
+      expect((await call('post', '/crm/cadence', ravi.token, { action: 'COMPLETE_STEP', leadId: lead.thread })).body.message).toContain('send the email message first');
+
+      await emailSent(lead.thread, '1');
+      expect((await call('post', '/crm/cadence', ravi.token, { action: 'COMPLETE_STEP', leadId: lead.thread })).status).toBe(201);
       const cadence = ((await row(lead.thread)).custom_attributes as { cadence: { completedSteps: { dayNumber: number }[] } }).cadence;
       expect(cadence.completedSteps.map((c) => c.dayNumber)).toEqual([1]);
       expect(await prisma.rndtechnosoft_crm_audit_logs.count({ where: { entity_id: lead.thread, action_type: 'OUTREACH_LINKEDIN_SENT' } })).toBe(1);
+    });
+
+    it('records a LinkedIn action that has no message (engaging with a post) as done', async () => {
+      // Day 5: WhatsApp and LinkedIn "engage with their post", which has no message.
+      const done = await record(ravi.token, lead.thread, 'LINKEDIN', 'MARKED_SENT', { completeTouchpoint: true });
+      expect(done.status).toBe(200);
+      expect(done.body.data).toMatchObject({ day: 5, touchpointCompleted: false, stillToDo: ['WHATSAPP'], state: { status: 'SENT' } });
+      expect(done.body.data.state.message).toContain('LinkedIn action done (ENGAGE_POST)');
+      const whatsApp = await record(ravi.token, lead.thread, 'WHATSAPP', 'MARKED_SENT', { message: 'Day 5 hello', completeTouchpoint: true });
+      expect(whatsApp.body.data).toMatchObject({ touchpointCompleted: true, stillToDo: [] });
+    });
+  });
+
+  describe('a lead not on LinkedIn, or without a WhatsApp number', () => {
+    it('can be marked so for the day, with a reason, so the day goes ahead without that message', async () => {
+      const linkedIn = await record(ravi.token, lead.bare, 'LINKEDIN', 'NOT_AVAILABLE', { reason: 'Searched by name and company' });
+      expect(linkedIn.status).toBe(200);
+      expect(linkedIn.body.data).toMatchObject({ channel: 'LINKEDIN', stillToDo: ['WHATSAPP', 'EMAIL'], state: { status: 'NOT_AVAILABLE', reason: 'Searched by name and company', executedBy: { name: 'Ravi Shah' } } });
+      // No number at all: WhatsApp can be marked too.
+      expect((await record(ravi.token, lead.bare, 'WHATSAPP', 'NOT_AVAILABLE')).body.data.stillToDo).toEqual(['EMAIL']);
+      const board = await call('get', '/crm/cadence?due=ALL', ravi.token);
+      const card = board.body.data.radar.allActive.find((c: { id: string }) => c.id === lead.bare);
+      expect(card.currentStep).toMatchObject({ dayStatus: 'IN_PROGRESS', stillToDo: ['EMAIL'], channelActions: { LINKEDIN: { status: 'NOT_AVAILABLE' } } });
+
+      await emailSent(lead.bare, '1');
+      expect((await call('post', '/crm/cadence', ravi.token, { action: 'COMPLETE_STEP', leadId: lead.bare })).status).toBe(201);
+      const audit = await prisma.rndtechnosoft_crm_audit_logs.findFirstOrThrow({ where: { entity_id: lead.bare, action_type: 'OUTREACH_LINKEDIN_NOT_AVAILABLE' } });
+      expect(audit.changes_diff).toMatchObject({ channel: 'LINKEDIN', reason: 'Searched by name and company', touchpoint: { day: 1 } });
+      const activity = await prisma.rndtechnosoft_crm_lead_activities.findFirstOrThrow({ where: { lead_id: lead.bare, title: 'Not on LinkedIn' } });
+      expect(activity.description).toContain('The lead has no LinkedIn profile');
+    });
+
+    it('can’t undo a message already sent', async () => {
+      await record(ravi.token, lead.neha, 'LINKEDIN', 'MARKED_SENT', { message: 'Hi Nisha' });
+      const undo = await record(ravi.token, lead.neha, 'LINKEDIN', 'NOT_AVAILABLE');
+      expect(undo.status).toBe(409);
+      expect((await day1(lead.neha)).LINKEDIN).toMatchObject({ status: 'SENT' });
     });
   });
 

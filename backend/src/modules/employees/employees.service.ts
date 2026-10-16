@@ -187,7 +187,12 @@ export class EmployeesService {
           },
         },
         rndtechnosoft_employee_reporting_lines_rndtechnosoft_employee_reporting_lines_tenant_id_employee_idTorndtechnosoft_employees: {
-          where: { effective_to: null },
+          where: {
+            relationship_type: 'PRIMARY',
+            line_status: 'ACTIVE',
+            effective_from: { lte: new Date() },
+            OR: [{ effective_to: null }, { effective_to: { gte: new Date(new Date().toISOString().slice(0, 10)) } }],
+          },
           include: {
             rndtechnosoft_employees_rndtechnosoft_employee_reporting_lines_tenant_id_manager_employee_idTorndtechnosoft_employees: {
               select: {

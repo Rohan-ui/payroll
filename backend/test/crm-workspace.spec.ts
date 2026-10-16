@@ -10,6 +10,7 @@ import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/passw
 import { ADMIN_ROLE_CODE } from '@/common/access/access-catalog';
 import { grantDefaultRolePermissions } from '@/common/access/role-defaults';
 import { deleteCrmData } from './support/crm-cleanup';
+import { sendDayMessages } from './support/outreach-day';
 
 /**
  * CRM & Sales inside a tenant workspace, end to end over HTTP: every CRM route
@@ -657,12 +658,14 @@ describe('CRM & Sales in a tenant workspace', () => {
     });
 
     it('drives Client Outreach: leads meet new steps in day order and never skip one that is removed', async () => {
+      await sendDayMessages(app, a.tenantId, playbook.lead);
       const done = await call('post', '/crm/cadence', a.token, { action: 'COMPLETE_STEP', leadId: playbook.lead, channel: 'WHATSAPP' });
       expect(done.status).toBe(201);
       expect(await current(playbook.lead)).toMatchObject({ dayNumber: 3, title: 'Day 3 value share' });
 
       expect((await asA('delete', `/crm/masters/sop-steps?id=${playbook.day3}`)).status).toBe(200);
       expect((await current(playbook.lead)).dayNumber).toBe(5);
+      await sendDayMessages(app, a.tenantId, playbook.lead);
       await call('post', '/crm/cadence', a.token, { action: 'COMPLETE_STEP', leadId: playbook.lead });
       const lead = await prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id: playbook.lead } });
       const cadence = (lead.custom_attributes as { cadence: { completedSteps: { dayNumber: number }[] } }).cadence;

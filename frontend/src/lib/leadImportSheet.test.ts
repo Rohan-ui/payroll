@@ -123,3 +123,13 @@ describe('building the rows to send', () => {
     expect(row.internalNotes).toBe('Date Created: 2026-03-20\nCountry Code *: +91 (🇮🇳 India)');
   });
 });
+
+describe('the outreach start date column', () => {
+  it('is recognised by its name and sent as a date, also when Excel stored it as a day number', () => {
+    const headers = ['Company Name', 'Email', 'Phone', 'Start Date (Day 1)'];
+    const mapping = suggestMapping(headers);
+    expect(mapping[3]).toBe('startDate');
+    const sheet = { name: 'Leads', firstRowNumber: 1, rows: [headers, ['Apex', 'a@apex.test', '98200 12345', '46315'], ['Beta', 'b@beta.test', '98200 12346', '20/10/2026']] };
+    expect(buildRows(sheet, 0, mapping).map((r) => r.startDate)).toEqual(['2026-10-20', '20/10/2026']);
+  });
+});

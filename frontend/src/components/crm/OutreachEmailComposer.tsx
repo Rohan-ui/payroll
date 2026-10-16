@@ -45,6 +45,8 @@ interface Props {
   body: string;
   /** This touchpoint's email as saved on the lead (from the server), if anything was done yet. */
   saved?: OutreachEmailAction | null;
+  /** Other messages of the day still to send: the day can't be completed with this email alone. */
+  othersLeft?: string[];
   onSent: (result: OutreachEmailSent) => void;
 }
 
@@ -61,7 +63,7 @@ const SENDING_TIMEOUT_MS = 5 * 60 * 1000;
  * saved on the lead, so it reads the same after a reload or when reopened;
  * once sent, it can only be sent again through an explicit Resend.
  */
-export function OutreachEmailComposer({ leadId, recipient, touchpoint, subject: templateSubject, body: templateBody, saved = null, onSent }: Props) {
+export function OutreachEmailComposer({ leadId, recipient, touchpoint, subject: templateSubject, body: templateBody, saved = null, othersLeft = [], onSent }: Props) {
   const ids = { subject: useId(), body: useId(), complete: useId() };
   const { user } = useAuth();
   const [sender, setSender] = useState<Sender | null>(null);
@@ -96,7 +98,7 @@ export function OutreachEmailComposer({ leadId, recipient, touchpoint, subject: 
     try {
       const res = await apiClient.post<{ data: OutreachEmailSent }>(
         '/crm/cadence/email',
-        { leadId, subject, body, completeTouchpoint: complete, ...(sent ? { resend: true } : {}) },
+        { leadId, subject, body, completeTouchpoint: complete && othersLeft.length === 0, ...(sent ? { resend: true } : {}) },
         quiet,
       );
       setLatest(res.data.email);
@@ -205,10 +207,14 @@ export function OutreachEmailComposer({ leadId, recipient, touchpoint, subject: 
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <label htmlFor={ids.complete} className="flex items-center gap-2 text-xs text-slate-700">
-              <input id={ids.complete} type="checkbox" checked={complete} onChange={(e) => setComplete(e.target.checked)} className="accent-purple-600" />
-              {`Mark Day ${touchpoint.day} complete after sending`}
-            </label>
+            {othersLeft.length === 0 ? (
+              <label htmlFor={ids.complete} className="flex items-center gap-2 text-xs text-slate-700">
+                <input id={ids.complete} type="checkbox" checked={complete} onChange={(e) => setComplete(e.target.checked)} className="accent-purple-600" />
+                {`Mark Day ${touchpoint.day} complete after sending`}
+              </label>
+            ) : (
+              <p className="text-[11px] text-slate-500">Day {touchpoint.day} can be completed once the {othersLeft.join(' and ')} message{othersLeft.length === 1 ? ' is' : 's are'} done too.</p>
+            )}
             <div className="flex items-center gap-2">
               {resending && (
                 <button type="button" onClick={() => setResending(false)} disabled={sending}
