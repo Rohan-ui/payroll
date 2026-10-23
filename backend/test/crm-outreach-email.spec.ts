@@ -195,13 +195,13 @@ describe('Client Outreach email', () => {
   });
 
   describe('sending', () => {
-    it('sends from the organization with its Reply-To, records the executor, and leaves the day open unless asked', async () => {
+    it('sends from the organization’s address under the member’s name, with its Reply-To, records the executor, and leaves the day open unless asked', async () => {
       const response = await send(ravi.token, lead.ravi);
       expect(response.status).toBe(200);
-      expect(response.body.data).toMatchObject({ sent: true, from: { name: SALES.name, email: SALES.email }, to: leadEmail('asha'), touchpoint: { day: 1 }, attempt: 1, touchpointCompleted: false });
+      expect(response.body.data).toMatchObject({ sent: true, from: { name: 'Ravi Shah', email: SALES.email }, to: leadEmail('asha'), touchpoint: { day: 1 }, attempt: 1, touchpointCompleted: false });
       const [mail] = delivered(orgA, leadEmail('asha'));
       expect(mail.from).toContain(`<${SALES.email}>`);
-      expect(mail.data).toContain(`From: ${SALES.name} <${SALES.email}>`);
+      expect(mail.data).toContain(`From: Ravi Shah <${SALES.email}>`);
       expect(mail.data).toContain(`Reply-To: ${SALES.replyTo}`);
       expect(mail.data).toContain(`Subject: Introduction ${SUFFIX}`);
       expect((await cadenceOf(lead.ravi)).completedSteps).toEqual([]);
@@ -209,13 +209,13 @@ describe('Client Outreach email', () => {
       const [audit] = await audits(lead.ravi, 'OUTREACH_EMAIL_SENT');
       expect(audit).toMatchObject({ tenant_id: ravi.tenantId, entity_type: 'LEAD', actor_id: ravi.memberId, actor_name: 'Ravi Shah' });
       expect(audit.changes_diff).toMatchObject({
-        channel: 'EMAIL', status: 'SENT', sender_email: SALES.email, recipient: leadEmail('asha'), subject: `Introduction ${SUFFIX}`,
+        channel: 'EMAIL', status: 'SENT', sender_email: SALES.email, sender_name: 'Ravi Shah', recipient: leadEmail('asha'), subject: `Introduction ${SUFFIX}`,
         touchpoint: { day: 1, step_index: 0 }, executed_by: { member_id: ravi.memberId, name: 'Ravi Shah' }, attempt: 1,
         edited: { subject: { after: `Introduction ${SUFFIX}` } },
       });
       const activity = await prisma.rndtechnosoft_crm_lead_activities.findFirstOrThrow({ where: { lead_id: lead.ravi, activity_type: 'EMAIL' } });
       expect(activity).toMatchObject({ performed_by_tenant_member_id: ravi.memberId, title: `Email sent: Introduction ${SUFFIX}` });
-      expect(activity.description).toContain(`From: ${SALES.name} <${SALES.email}>`);
+      expect(activity.description).toContain(`From: Ravi Shah <${SALES.email}>`);
       expect(activity.description).toContain('Executed by: Ravi Shah');
     });
 

@@ -58,8 +58,8 @@ const SENDING_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * A lead's touchpoint email. It always goes out from the workspace's
- * organization email (shown, never editable); the member sending it is
- * recorded as the one who executed it. Whether it was sent is what the server
+ * organization email (shown, never editable), under the sending member's
+ * name; the member is recorded as the one who executed it. Whether it was sent is what the server
  * saved on the lead, so it reads the same after a reload or when reopened;
  * once sent, it can only be sent again through an explicit Resend.
  */
@@ -112,7 +112,9 @@ export function OutreachEmailComposer({ leadId, recipient, touchpoint, subject: 
     }
   };
 
-  const fromLabel = sender?.email ? (sender.name ? `${sender.name} <${sender.email}>` : sender.email) : '';
+  // The server sends under the member's own name, at the organization's address.
+  const fromName = user?.displayName || sender?.name;
+  const fromLabel = sender?.email ? (fromName ? `${fromName} <${sender.email}>` : sender.email) : '';
 
   return (
     <div className="border border-purple-200 bg-purple-50/20 rounded-xl p-4 space-y-3">

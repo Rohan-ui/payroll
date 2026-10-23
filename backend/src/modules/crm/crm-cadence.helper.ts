@@ -491,15 +491,14 @@ Came across {{Company Name}} while exploring businesses in the {{Industry}} sect
 Would love to connect and stay in touch regarding technology and digital growth.`
       },
       email: {
-        subject: `Connecting with {{Company Name}} | RND Technosoft`,
+        subject: `Connecting with {{Company Name}}`,
         body: `Dear {{First Name}},
 
 I'm {{Assignee Name}} from RND Technosoft, Vapi.
 
 We help businesses improve their digital presence through websites, SEO, branding, software development and AI automation.
 
-Sharing our company profile for your reference:
-📁 {{Portfolio Link}}
+If it would be useful, I can share our company profile; just reply to this email.
 
 Looking forward to connecting professionally.
 
@@ -627,7 +626,7 @@ Would you like me to send it here?`
     roleNote: 'Email: Client success story | WhatsApp: Short success teaser',
     templates: {
       email: {
-        subject: `A quick success story from RND Technosoft`,
+        subject: `A quick success story`,
         body: `Dear {{First Name}},
 
 We recently worked with a business that wanted to improve its online presence.

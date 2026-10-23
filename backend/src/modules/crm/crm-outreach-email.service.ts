@@ -29,7 +29,7 @@ type Cadence = CadenceState & { channelActions?: NonNullable<CadenceState['chann
  * goes out from the workspace's organization account (Organization &
  * Settings), never from the member's own Gmail or SMTP account, whatever the
  * workspace's personal-account policy; the member is recorded as the one who
- * executed it.
+ * executed it, and their name is the sender name the lead sees.
  *
  * The touchpoint's email state lives on the lead's cadence
  * (`channelActions[day].EMAIL`), separate from the day's completion: SENDING
@@ -171,9 +171,12 @@ export class CrmOutreachEmailService {
       await this.recordFailure(tenantId, dto.leadId, visibility, actorMemberId, executedBy, attempt, previous, { ...context, sender_email: null, failure: 'ORGANIZATION_EMAIL_NOT_CONFIGURED' }, subject, touchpointLabel);
       throw new ConflictException(ORGANIZATION_EMAIL_MISSING);
     }
+    // Under the sending member's name, not a company name: Gmail files mail
+    // that reads as from a brand under Promotions. The address stays the organization's.
+    const personal = { ...sender, name: executor?.rndtechnosoft_users.display_name || sender.name };
     let messageId: string | null;
     try {
-      ({ messageId } = await this.mailSender.sendSmtp(sender, { to: lead.email, subject, text: body }));
+      ({ messageId } = await this.mailSender.sendSmtp(personal, { to: lead.email, subject, text: body }));
     } catch (error) {
       // The SMTP reason is already free of account details; it is kept for administrators, not shown to the sender.
       const failure = error instanceof MailSendError ? error.safeReason : 'UNEXPECTED_ERROR';
@@ -185,7 +188,7 @@ export class CrmOutreachEmailService {
     // 3. Accepted by the mail server: the email state, the activity and the audit record, together.
     const sentAt = new Date();
     const activityId = randomUUID();
-    const from = { name: sender.name, email: sender.email };
+    const from = { name: personal.name, email: sender.email };
     let dayActions: Partial<Record<string, CadenceChannelAction>>;
     try {
       dayActions = await this.prisma.$transaction(async (tx) => {
@@ -199,7 +202,7 @@ export class CrmOutreachEmailService {
             activity_type: 'EMAIL',
             title: `Email sent: ${subject}`.slice(0, 200),
             description: [
-              `From: ${sender.name ? `${sender.name} <${sender.email}>` : sender.email}`,
+              `From: ${personal.name ? `${personal.name} <${sender.email}>` : sender.email}`,
               `To: ${lead.email}`,
               `Touchpoint: ${touchpointLabel}`,
               `Executed by: ${executedBy.name}`,
@@ -218,7 +221,7 @@ export class CrmOutreachEmailService {
             actor_id: actorMemberId,
             actor_name: executedBy.name.slice(0, 120),
             changes_diff: {
-              ...context, sender_email: sender.email, sender_name: sender.name, reply_to: sender.replyTo, message_id: messageId,
+              ...context, sender_email: sender.email, sender_name: personal.name, reply_to: sender.replyTo, message_id: messageId,
               status: 'SENT', sent_at: sentAt.toISOString(), activity_id: activityId,
             } as Prisma.InputJsonObject,
             created_at: sentAt,

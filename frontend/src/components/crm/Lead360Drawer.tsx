@@ -135,6 +135,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
     gstin: '',
     pan: ''
   });
+  // The values the form opened with; saving sends only the fields changed since.
+  const [editFormOriginal, setEditFormOriginal] = useState<typeof editFormData | null>(null);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     if (type === 'error') toast.error(text);
@@ -143,7 +145,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
 
   const openEditModal = () => {
     if (!lead) return;
-    setEditFormData({
+    const values = {
       companyName: lead.company_name || '',
       firstName: lead.first_name || '',
       lastName: lead.last_name || '',
@@ -164,19 +166,29 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
       requirementBrief: lead.requirement_brief || '',
       gstin: lead.gstin || '',
       pan: lead.pan || lead.pan_number || ''
-    });
+    };
+    setEditFormData(values);
+    setEditFormOriginal(values);
     setShowEditLeadModal(true);
   };
 
   const handleSaveLeadEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!leadId) return;
+    // Resending untouched fields would re-validate stored values the user never edited.
+    const changed = Object.fromEntries(
+      Object.entries(editFormData).filter(([field, value]) => editFormOriginal?.[field as keyof typeof editFormData] !== value)
+    );
+    if (Object.keys(changed).length === 0) {
+      setShowEditLeadModal(false);
+      return;
+    }
     setSavingLeadEdit(true);
     try {
       const res = await apiFetch(`/api/v1/crm/leads/${leadId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editFormData)
+        body: JSON.stringify(changed)
       });
       if (res.ok) {
         setShowEditLeadModal(false);
@@ -2218,6 +2230,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                   <input
                     type="text"
                     required
+                    maxLength={32}
                     value={editFormData.phone}
                     onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
@@ -2228,6 +2241,7 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                   <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">WhatsApp Number</label>
                   <input
                     type="text"
+                    maxLength={32}
                     value={editFormData.whatsappNumber}
                     onChange={(e) => setEditFormData({ ...editFormData, whatsappNumber: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"

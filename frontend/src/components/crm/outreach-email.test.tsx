@@ -19,7 +19,7 @@ const { LeadHistory } = await import('./LeadHistory');
 
 const SENT = {
   status: 'SENT', attempt: 1, executedBy: { memberId: 'm-ravi', name: 'Ravi Shah' }, startedAt: '2026-10-05T05:36:58.000Z', sentAt: '2026-10-05T05:37:00.000Z',
-  from: { name: 'RND Technosoft', email: 'sales@rnd.test' }, to: 'raj@apex.test', subject: 'Hello Apex Polymer',
+  from: { name: 'Ravi Shah', email: 'sales@rnd.test' }, to: 'raj@apex.test', subject: 'Hello Apex Polymer',
 } as const;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 let calls: { url: string; method: string; body: any }[] = [];
@@ -36,7 +36,7 @@ beforeEach(() => {
     sent: true,
     email: { ...SENT, sentAt: '2026-10-05T05:37:00.000Z' },
     channelActions: { EMAIL: SENT },
-    from: { name: 'RND Technosoft', email: 'sales@rnd.test' }, to: 'raj@apex.test', touchpoint: { day: 1, title: 'Introduction', status: 'IN_PROGRESS' }, attempt: 1, touchpointCompleted: false, message: 'Email sent',
+    from: { name: 'Ravi Shah', email: 'sales@rnd.test' }, to: 'raj@apex.test', touchpoint: { day: 1, title: 'Introduction', status: 'IN_PROGRESS' }, attempt: 1, touchpointCompleted: false, message: 'Email sent',
   } });
   historyRows = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
@@ -77,9 +77,9 @@ async function renderComposer(channels = ['LINKEDIN', 'EMAIL', 'WHATSAPP'], onSe
 }
 
 describe('outreach email composer', () => {
-  it('shows the organization as the sender, read-only, and the member as the one executing', async () => {
+  it('shows the organization’s address as the sender, under the member’s name, read-only, and the member as the one executing', async () => {
     await renderComposer();
-    expect(container.querySelector('[data-testid="outreach-email-from"]')?.textContent).toBe('RND Technosoft <sales@rnd.test>');
+    expect(container.querySelector('[data-testid="outreach-email-from"]')?.textContent).toBe('Ravi Shah <sales@rnd.test>');
     expect(container.textContent).toContain('replies@rnd.test');
     expect(container.textContent).toContain('Ravi Shah');
     // Only the subject and message can be edited; there is no field for the sender or recipient.
@@ -99,7 +99,7 @@ describe('outreach email composer', () => {
     expect(status).toContain('Email sent');
     expect(status).toContain('Executed by');
     expect(status).toContain('Ravi Shah');
-    expect(status).toContain('RND Technosoft <sales@rnd.test>');
+    expect(status).toContain('Ravi Shah <sales@rnd.test>');
     expect(button('Send email')).toBeUndefined();
     expect(button('Resend email')).toBeDefined();
   });
