@@ -10,7 +10,7 @@ import { DepartmentHeadsService } from './department-heads.service';
 import { PerformanceOptionsService } from './performance-options.service';
 import { StarterLibraryService } from './starter-library.service';
 import {
-  AppointHeadDto, CancelHeadDto, CreateKpiDto, CreateKraDto, CreateScaleDto, DuplicateDto, EmployeeSearchQueryDto, EndHeadDto,
+  AppointHeadDto, CancelHeadDto, CreateDesignationOptionDto, CreateKpiDto, CreateKraDto, CreateScaleDto, DuplicateDto, EmployeeSearchQueryDto, EndHeadDto,
   LibraryListQueryDto, ScaleDraftDto, UpdateKpiDto, UpdateKraDto, UpdateScaleDto,
 } from './dto/performance-library.dto';
 import { MemberSearchQueryDto } from './dto/performance-workflows.dto';
@@ -54,6 +54,12 @@ export class PerformanceLibraryController {
   @RequirePermissions('performance.library.view')
   async roles(@CurrentTenant() tenantId: string) {
     return { success: true, data: await this.lookups.roles(tenantId) };
+  }
+
+  @Post('options/designations')
+  @RequirePermissions('performance.library.manage')
+  async createDesignation(@CurrentTenant() tenantId: string, @Body() body: CreateDesignationOptionDto) {
+    return { success: true, data: await this.lookups.createDesignation(tenantId, body.name) };
   }
 
   /* ── KRAs ── */

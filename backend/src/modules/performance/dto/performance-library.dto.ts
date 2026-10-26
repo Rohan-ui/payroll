@@ -29,6 +29,9 @@ export class LibraryListQueryDto {
   @IsOptional() @IsUUID()
   departmentId?: string;
 
+  @IsOptional() @IsUUID()
+  designationId?: string;
+
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
   page?: number;
 
@@ -39,6 +42,11 @@ export class LibraryListQueryDto {
 export class EmployeeSearchQueryDto {
   @IsOptional() @IsString() @MaxLength(120)
   search?: string;
+}
+
+export class CreateDesignationOptionDto {
+  @IsString() @MinLength(1) @MaxLength(100)
+  name!: string;
 }
 
 export class KraScopesDto {

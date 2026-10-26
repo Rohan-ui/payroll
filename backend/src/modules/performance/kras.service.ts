@@ -57,6 +57,7 @@ export class KrasService {
       AND: [
         search ? { OR: [{ kra_name: { contains: search, mode: 'insensitive' } }, { kra_code: { contains: search.toUpperCase() } }] } : {},
         query.departmentId ? { OR: [{ applies_to_all: true }, { rndtechnosoft_performance_kra_scopes: { some: { tenant_id: tenantId, department_id: query.departmentId } } }] } : {},
+        query.designationId ? { OR: [{ applies_to_all: true }, { rndtechnosoft_performance_kra_scopes: { some: { tenant_id: tenantId, designation_id: query.designationId } } }] } : {},
       ],
     };
     const [rows, total] = await Promise.all([
@@ -66,7 +67,15 @@ export class KrasService {
         skip,
         take: limit,
         include: {
-          rndtechnosoft_performance_kra_scopes: { select: { department_id: true, designation_id: true, employee_id: true, rndtechnosoft_departments: { select: { department_name: true } } } },
+          rndtechnosoft_performance_kra_scopes: {
+            select: {
+              department_id: true,
+              designation_id: true,
+              employee_id: true,
+              rndtechnosoft_departments: { select: { department_name: true } },
+              rndtechnosoft_designations: { select: { designation_name: true } },
+            },
+          },
           rndtechnosoft_performance_rating_scales: { select: { scale_name: true } },
           _count: { select: { rndtechnosoft_performance_kra_kpis: true } },
         },
@@ -88,6 +97,7 @@ export class KrasService {
         appliesTo: {
           all: k.applies_to_all,
           departments: scopes.filter((s) => s.department_id).map((s) => s.rndtechnosoft_departments?.department_name ?? ''),
+          designations: scopes.filter((s) => s.designation_id).map((s) => s.rndtechnosoft_designations?.designation_name ?? ''),
           designationCount: scopes.filter((s) => s.designation_id).length,
           employeeCount: scopes.filter((s) => s.employee_id).length,
         },

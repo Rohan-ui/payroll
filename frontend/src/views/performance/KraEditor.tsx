@@ -49,6 +49,8 @@ export const KraEditor: React.FC<{ kraId: string | null; onClose: (changed: bool
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string; stale: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [roleSearch, setRoleSearch] = useState('');
+  const [addingRole, setAddingRole] = useState(false);
   const readOnly = !can('performance.library.manage') || kra?.status === 'ARCHIVED';
 
   const load = useCallback(() => {
@@ -69,6 +71,30 @@ export const KraEditor: React.FC<{ kraId: string | null; onClose: (changed: bool
     [kpis[index], kpis[index + by]] = [kpis[index + by], kpis[index]];
     return { ...f, kpis };
   });
+
+  const handleAddRole = async () => {
+    const name = roleSearch.trim();
+    if (!name || addingRole) return;
+    setAddingRole(true);
+    try {
+      const created = await performanceOptionsApi.createDesignation(name);
+      setOptions((prev) => ({
+        ...prev,
+        designations: prev.designations.some((d) => d.id === created.id)
+          ? prev.designations
+          : [...prev.designations, created].sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+      if (!form.designationIds.includes(created.id)) {
+        setForm((f) => ({ ...f, designationIds: [...f.designationIds, created.id] }));
+      }
+      toast.success(`Role "${created.name}" added`);
+      setRoleSearch('');
+    } catch (e) {
+      toast.error(errorText(e));
+    } finally {
+      setAddingRole(false);
+    }
+  };
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -231,14 +257,47 @@ export const KraEditor: React.FC<{ kraId: string | null; onClose: (changed: bool
                 </div>
               </fieldset>
               <fieldset>
-                <legend className={labelClass}>Designations</legend>
-                {options.designations.length === 0 && <p className={hintClass}>No designations yet.</p>}
+                <legend className={labelClass}>Designations / Roles</legend>
+                <div className="mb-2 flex gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="Filter or add role..."
+                    className={`${fieldClass} text-xs py-1 px-2`}
+                    value={roleSearch}
+                    onChange={(e) => setRoleSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddRole();
+                      }
+                    }}
+                  />
+                  {roleSearch.trim() && !options.designations.some((d) => d.name.toLowerCase() === roleSearch.trim().toLowerCase()) && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      loading={addingRole}
+                      disabled={addingRole}
+                      onClick={handleAddRole}
+                      title={`Add "${roleSearch.trim()}" as a new role`}
+                    >
+                      + Add
+                    </Button>
+                  )}
+                </div>
+                {options.designations.length === 0 && <p className={hintClass}>No designations / roles yet.</p>}
                 <div className="max-h-48 space-y-1 overflow-y-auto">
-                  {options.designations.map((d) => (
-                    <label key={d.id} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                      <input type="checkbox" checked={form.designationIds.includes(d.id)} onChange={() => toggleIn('designationIds', d.id)} className="rounded border-slate-300" />{d.name}
-                    </label>
-                  ))}
+                  {options.designations
+                    .filter((d) => !roleSearch.trim() || d.name.toLowerCase().includes(roleSearch.trim().toLowerCase()))
+                    .map((d) => (
+                      <label key={d.id} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                        <input type="checkbox" checked={form.designationIds.includes(d.id)} onChange={() => toggleIn('designationIds', d.id)} className="rounded border-slate-300" />{d.name}
+                      </label>
+                    ))}
+                  {options.designations.length > 0 && options.designations.filter((d) => !roleSearch.trim() || d.name.toLowerCase().includes(roleSearch.trim().toLowerCase())).length === 0 && (
+                    <p className="text-xs text-slate-400 py-1">No matching roles found.</p>
+                  )}
                 </div>
               </fieldset>
               <div>

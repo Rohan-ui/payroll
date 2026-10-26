@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { personName } from './performance-common';
 
@@ -16,6 +17,29 @@ export class PerformanceOptionsService {
       departments: departments.map((d) => ({ id: d.id, name: d.department_name })),
       designations: designations.map((d) => ({ id: d.id, name: d.designation_name })),
     };
+  }
+
+  /** Creates or returns an active designation / role in this workspace. */
+  async createDesignation(tenantId: string, name: string) {
+    const trimmed = name?.trim();
+    if (!trimmed) throw new BadRequestException('Role or designation name is required.');
+    let existing = await this.prisma.rndtechnosoft_designations.findFirst({
+      where: { tenant_id: tenantId, designation_name: { equals: trimmed, mode: 'insensitive' } },
+    });
+    if (!existing) {
+      const codeBase = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, '_').substring(0, 40) || 'ROLE';
+      const designationCode = `${codeBase}_${randomUUID().substring(0, 8).toUpperCase()}`;
+      existing = await this.prisma.rndtechnosoft_designations.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          designation_code: designationCode,
+          designation_name: trimmed,
+          designation_status: 'ACTIVE',
+        },
+      });
+    }
+    return { id: existing.id, name: existing.designation_name };
   }
 
   /** Up to 20 active workspace members whose name or sign-in email matches, to choose as reviewers. */

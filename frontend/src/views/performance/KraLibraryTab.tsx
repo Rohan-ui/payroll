@@ -13,9 +13,12 @@ import { KraEditor } from './KraEditor';
 
 const appliesText = (a: KraSummary['appliesTo']) => {
   if (a.all) return 'Everyone';
+  const desigPart = a.designations?.length
+    ? a.designations.slice(0, 2).join(', ') + (a.designations.length > 2 ? ` +${a.designations.length - 2}` : '')
+    : a.designationCount ? `${a.designationCount} designation${a.designationCount === 1 ? '' : 's'}` : null;
   const parts = [
-    a.departments.length ? a.departments.slice(0, 3).join(', ') + (a.departments.length > 3 ? ` +${a.departments.length - 3}` : '') : null,
-    a.designationCount ? `${a.designationCount} designation${a.designationCount === 1 ? '' : 's'}` : null,
+    a.departments.length ? a.departments.slice(0, 2).join(', ') + (a.departments.length > 2 ? ` +${a.departments.length - 2}` : '') : null,
+    desigPart,
     a.employeeCount ? `${a.employeeCount} employee${a.employeeCount === 1 ? '' : 's'}` : null,
   ];
   return parts.filter(Boolean).join(' · ');
@@ -33,13 +36,29 @@ export const KraLibraryTab: React.FC = () => {
   const [status, setStatus] = useState<LibraryStatus>('ACTIVE');
   const [departmentId, setDepartmentId] = useState('');
   const [departments, setDepartments] = useState<Named[]>([]);
+  const [designationId, setDesignationId] = useState('');
+  const [designations, setDesignations] = useState<Named[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [copying, setCopying] = useState<KraSummary | null>(null);
   const [deleting, setDeleting] = useState<KraSummary | null>(null);
-  const { page, error, loading, reload } = usePagedList(krasApi.list, { search: search.trim(), status, departmentId: departmentId || undefined, page: pageNumber });
+  const { page, error, loading, reload } = usePagedList(krasApi.list, {
+    search: search.trim(),
+    status,
+    departmentId: departmentId || undefined,
+    designationId: designationId || undefined,
+    page: pageNumber,
+  });
 
-  useEffect(() => { performanceOptionsApi.options().then((o) => setDepartments(o.departments)).catch(() => setDepartments([])); }, []);
+  useEffect(() => {
+    performanceOptionsApi.options().then((o) => {
+      setDepartments(o.departments);
+      setDesignations(o.designations);
+    }).catch(() => {
+      setDepartments([]);
+      setDesignations([]);
+    });
+  }, []);
 
   if (editing) return <KraEditor kraId={editing === 'new' ? null : editing} onClose={(changed) => { setEditing(null); if (changed) reload(); }} />;
 
@@ -67,14 +86,14 @@ export const KraLibraryTab: React.FC = () => {
     }
   };
 
-  const filtered = search || status !== 'ACTIVE' || departmentId;
+  const filtered = search || status !== 'ACTIVE' || departmentId || designationId;
   const items = page?.items ?? [];
   return (
     <section className={cardClass} aria-labelledby={`${id}-heading`}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-[#2B293E]">
         <div>
           <h2 id={`${id}-heading`} className="text-sm font-bold text-slate-900 dark:text-slate-100">KRA library</h2>
-          <p className="text-xs text-slate-500">Key result areas people are appraised on, shared across the organization or meant for chosen departments.</p>
+          <p className="text-xs text-slate-500">Key result areas people are appraised on, shared across the organization or meant for chosen departments and roles.</p>
         </div>
         <span className="flex flex-wrap gap-2">
           {loadStarter && <Button size="sm" variant="outline" onClick={() => { setStarterError(null); setStarter('confirm'); }}><Library className="h-4 w-4" aria-hidden="true" />Load starter KRAs & KPIs</Button>}
@@ -89,9 +108,18 @@ export const KraLibraryTab: React.FC = () => {
           <option value="">All departments</option>
           {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+        <label className="sr-only" htmlFor={`${id}-designation`}>Role / Designation</label>
+        <select id={`${id}-designation`} className={`${fieldClass} w-auto`} value={designationId} onChange={(e) => { setDesignationId(e.target.value); setPageNumber(1); }}>
+          <option value="">All roles / designations</option>
+          {designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
         <StatusTabs value={status} counts={page?.counts} noun="KRAs" onChange={(next) => { setStatus(next); setPageNumber(1); }} />
       </div>
-      {departmentId && <p className="px-4 pb-2 text-xs text-slate-500">Showing KRAs for everyone plus those chosen for this department.</p>}
+      {(departmentId || designationId) && (
+        <p className="px-4 pb-2 text-xs text-slate-500">
+          Showing KRAs for everyone plus those chosen for {departmentId ? departments.find((d) => d.id === departmentId)?.name ?? 'this department' : ''}{departmentId && designationId ? ' and ' : ''}{designationId ? designations.find((d) => d.id === designationId)?.name ?? 'this role' : ''}.
+        </p>
+      )}
       <ListState loading={loading} error={error} empty={items.length === 0} what="KRAs" onRetry={reload}
         emptyTitle={filtered ? 'No KRAs match' : 'No KRAs yet'}
         emptyText={filtered ? 'Try another search, department or status.' : 'Create the result areas people are appraised on, such as Revenue achievement for Sales or Code quality for Engineering, then add KPIs to them.'} />

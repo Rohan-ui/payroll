@@ -35,6 +35,7 @@ export interface ListQuery {
   search?: string;
   status?: LibraryStatus | 'ALL';
   departmentId?: string;
+  designationId?: string;
   page?: number;
   limit?: number;
 }
@@ -53,6 +54,7 @@ export interface EmployeeOption { id: string; name: string; code: string }
 
 export const performanceOptionsApi = {
   options: () => data(apiClient.get<Envelope<{ departments: Named[]; designations: Named[] }>>('/performance/options')),
+  createDesignation: (name: string) => data(apiClient.post<Envelope<Named>>('/performance/options/designations', { name })),
   employees: (search: string) => data(apiClient.get<Envelope<EmployeeOption[]>>(`/performance/options/employees${queryOf({ search } as ListQuery)}`)),
   /** Workspace members (sign-ins); `code` is their sign-in email. */
   members: (search: string) => data(apiClient.get<Envelope<EmployeeOption[]>>(`/performance/options/members${queryOf({ search } as ListQuery)}`)),
@@ -129,7 +131,7 @@ export interface KraSummary {
   defaultMaxMarks: string | null;
   ratingScaleName: string | null;
   kpiCount: number;
-  appliesTo: { all: boolean; departments: string[]; designationCount: number; employeeCount: number };
+  appliesTo: { all: boolean; departments: string[]; designations?: string[]; designationCount: number; employeeCount: number };
   effectiveFrom: string;
   effectiveTo: string | null;
 }
