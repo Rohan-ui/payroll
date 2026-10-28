@@ -85,7 +85,7 @@ const MainContent: React.FC = () => {
       case 'dashboard':       return <DashboardView />;
       case 'crm':             return <CrmWorkspaceView />;
       case 'emails':          return <EmailMarketingView />;
-      case 'organization':    return <OrganizationSettingsView initialTab="organization" />;
+      case 'organization':    return <OrganizationSettingsView initialTab={(new URLSearchParams(window.location.search).get('tab') as any) || 'organization'} />;
       case 'users':           return <OrganizationSettingsView initialTab="users" />;
       case 'payroll':         return <PayrollView />;
       case 'people':          return <EmployeesView />;

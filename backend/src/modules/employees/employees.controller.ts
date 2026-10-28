@@ -59,6 +59,12 @@ export class EmployeesController {
     return this.employeesService.getDesignations(tenantId);
   }
 
+  @Get('meta/employment-types')
+  @RequirePermissions('people.view')
+  async getEmploymentTypes(@CurrentTenant() tenantId: string) {
+    return this.employeesService.getEmploymentTypes(tenantId);
+  }
+
   @Get('meta/ifsc/:code')
   @RequirePermissions('people.view')
   async verifyIfsc(@Param('code') code: string) {

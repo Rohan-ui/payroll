@@ -69,7 +69,7 @@ const parseUrlState = (): { view: AppView; crmTab: CrmTab } => {
     }
 
     // 3. If tabParam is an organization tab
-    if (['organization', 'roles', 'modules', 'integrations', 'industries'].includes(tabParam)) {
+    if (['organization', 'users', 'roles', 'modules', 'documents', 'employment-types', 'integrations', 'industries'].includes(tabParam)) {
       return { view: 'organization', crmTab };
     }
 
@@ -394,4 +394,8 @@ export const usePayroll = (): PayrollContextType => {
     throw new Error('usePayroll must be used within a PayrollProvider');
   }
   return context;
+};
+
+export const useOptionalPayroll = (): PayrollContextType | undefined => {
+  return useContext(PayrollContext);
 };

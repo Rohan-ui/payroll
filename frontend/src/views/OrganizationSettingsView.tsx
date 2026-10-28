@@ -5,19 +5,20 @@ import {
   Building2, Edit3, Trash2, CheckCircle2, X, RefreshCw,
   Check, AlertCircle, Layers,
   Plus, Eye, EyeOff, Cpu, HardDrive,
-  MessageSquare, Server, Globe, Save, Smartphone, Radio, Copy, FileText
+  MessageSquare, Server, Globe, Save, Smartphone, Radio, Copy, FileText, Briefcase
 } from 'lucide-react';
 
 import LeadIntegrationsCenter from '@/components/crm/LeadIntegrationsCenter';
 import IndustriesMaster from '@/components/crm/IndustriesMaster';
 import { DocumentsView } from './documents/DocumentsView';
 import { PhoneInputWithCountryCode } from '@/components/crm/PhoneInputWithCountryCode';
+import { EmploymentTypesMaster } from './settings/EmploymentTypesMaster';
 
 import { apiFetch } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import type { WorkspaceModule } from '../api/auth.api';
 
-type SettingsTab = 'organization' | 'users' | 'roles' | 'modules' | 'documents' | 'integrations' | 'industries';
+type SettingsTab = 'organization' | 'users' | 'roles' | 'modules' | 'documents' | 'employment-types' | 'integrations' | 'industries';
 
 export interface OrganizationSettingsViewProps {
   initialTab?: SettingsTab;
@@ -209,7 +210,7 @@ const EMPTY_WHATSAPP: WhatsAppForm = {
 
 const EMPTY_MEMBER_FORM = { first_name: '', last_name: '', email: '', phone: '', role_id: '', is_active: true };
 
-const TAB_ORDER: SettingsTab[] = ['organization', 'users', 'roles', 'modules', 'documents', 'integrations', 'industries'];
+const TAB_ORDER: SettingsTab[] = ['organization', 'users', 'roles', 'modules', 'documents', 'employment-types', 'integrations', 'industries'];
 
 export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> = ({ initialTab: propInitialTab }) => {
   const { can, accessLoaded, isModuleEnabled, refreshAccess, user } = useAuth();
@@ -253,6 +254,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
     if (tab === 'roles') return canViewRoles;
     if (tab === 'modules') return canViewModules;
     if (tab === 'documents') return can('documents.view');
+    if (tab === 'employment-types') return canViewOrg;
     if (tab === 'industries') return crmEnabled && can('masters.industries.view');
     return crmEnabled && canViewOrg;
   });
@@ -797,6 +799,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
     roles: { label: `Roles & Permissions (${roles.length})`, icon: <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" /> },
     modules: { label: 'Modules & Apps', icon: <Layers className="w-3.5 h-3.5" aria-hidden="true" /> },
     documents: { label: 'Documents & letterheads', icon: <FileText className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
+    'employment-types': { label: 'Employment Types', icon: <Briefcase className="w-3.5 h-3.5 text-amber-600" aria-hidden="true" /> },
     integrations: { label: 'Lead Channels & APIs', icon: <Radio className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" /> },
     industries: { label: 'Industry Taxonomy', icon: <Layers className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" /> },
   };
@@ -2062,6 +2065,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
       {currentTab === 'integrations' && <LeadIntegrationsCenter />}
       {currentTab === 'industries' && <IndustriesMaster />}
       {currentTab === 'documents' && <DocumentsView />}
+      {currentTab === 'employment-types' && <EmploymentTypesMaster canEdit={canEditOrg} />}
 
       {/* DIALOG: ADD TEAM MEMBER */}
       {showAddModal &&

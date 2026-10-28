@@ -1,6 +1,10 @@
 import React, { useId, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Plus, ExternalLink } from 'lucide-react';
 import { onboardingApi, type CandidateDetail, type CandidateInput, type OnboardingMeta } from '../../api/onboarding.api';
+import { employmentTypesApi } from '../../api/employment-types.api';
+import { useAuth } from '../../context/AuthContext';
+import { useOptionalPayroll } from '../../context/PayrollContext';
+import { Dialog } from '../../components/ui/Dialog';
 import { toast } from '../../lib/toast';
 import { fieldClass, labelClass } from './onboarding-format';
 
@@ -9,6 +13,7 @@ interface Props {
   meta: OnboardingMeta | null;
   onCancel: () => void;
   onSaved: (candidate: CandidateDetail) => void;
+  onRefreshMeta?: () => Promise<void> | void;
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -16,8 +21,12 @@ const MONEY = /^\d{1,12}(\.\d{1,2})?$/;
 const YEARS = /^\d{1,2}(\.\d)?$/;
 
 /** Adding a candidate, or editing one. Their stage is not edited here: it moves through the workflow. */
-export const CandidateForm: React.FC<Props> = ({ candidate, meta, onCancel, onSaved }) => {
+export const CandidateForm: React.FC<Props> = ({ candidate, meta, onCancel, onSaved, onRefreshMeta }) => {
   const ids = useId();
+  const { can } = useAuth();
+  const payroll = useOptionalPayroll();
+  const canManageEmploymentTypes = can('organization.update') || can('organization.view');
+
   const [values, setValues] = useState<Record<keyof CandidateInput, string>>({
     fullName: candidate?.fullName ?? '',
     email: candidate?.email ?? '',
@@ -39,6 +48,13 @@ export const CandidateForm: React.FC<Props> = ({ candidate, meta, onCancel, onSa
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
 
+  // Quick add employment type modal
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [quickAddName, setQuickAddName] = useState('');
+  const [quickAddDescription, setQuickAddDescription] = useState('');
+  const [quickAddSaving, setQuickAddSaving] = useState(false);
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
+
   const errors: Partial<Record<keyof CandidateInput, string>> = {};
   if (!values.fullName.trim()) errors.fullName = 'Enter the candidate’s full name.';
   if (!EMAIL.test(values.email.trim())) errors.email = 'Enter a valid email address.';
@@ -56,6 +72,51 @@ export const CandidateForm: React.FC<Props> = ({ candidate, meta, onCancel, onSa
   });
   const error = (name: keyof CandidateInput) =>
     showErrors && errors[name] ? <p id={`${ids}-${name}-error`} className="mt-1 text-xs text-red-700">{errors[name]}</p> : null;
+
+  const openEmploymentTypeSettings = () => {
+    try {
+      window.history.pushState(null, '', '/organization?tab=employment-types');
+    } catch {
+      // ignore
+    }
+    if (payroll?.setCurrentView) {
+      payroll.setCurrentView('organization');
+    } else {
+      try {
+        window.location.assign('/organization?tab=employment-types');
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleQuickAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickAddName.trim()) {
+      setQuickAddError('Name is required');
+      return;
+    }
+    setQuickAddSaving(true);
+    setQuickAddError(null);
+    try {
+      const created = await employmentTypesApi.create({
+        name: quickAddName.trim(),
+        description: quickAddDescription.trim() || undefined,
+      });
+      toast.success(`Employment type "${created.name}" created`);
+      if (onRefreshMeta) {
+        await onRefreshMeta();
+      }
+      setValues((prev) => ({ ...prev, employmentTypeId: created.id }));
+      setShowQuickAddModal(false);
+      setQuickAddName('');
+      setQuickAddDescription('');
+    } catch (err) {
+      setQuickAddError(err instanceof Error ? err.message : 'Failed to create employment type');
+    } finally {
+      setQuickAddSaving(false);
+    }
+  };
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -85,6 +146,12 @@ export const CandidateForm: React.FC<Props> = ({ candidate, meta, onCancel, onSa
       setSaving(false);
     }
   };
+
+  const hasConfiguredTypes = Boolean(meta && meta.employmentTypes && meta.employmentTypes.length > 0);
+  const candidateHasInactiveAssignedType = Boolean(
+    candidate?.employmentTypeId &&
+    !meta?.employmentTypes.some((t) => t.id === candidate.employmentTypeId)
+  );
 
   return (
     <form onSubmit={save} noValidate className="space-y-5 max-w-4xl" aria-labelledby={`${ids}-title`}>
@@ -120,11 +187,85 @@ export const CandidateForm: React.FC<Props> = ({ candidate, meta, onCancel, onSa
           <select {...field('designationId')}><option value="">Not decided</option>{meta?.designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
         </div>
         <div>
-          <label htmlFor={`${ids}-employmentTypeId`} className={labelClass}>Employment type</label>
+          <div className="flex items-center justify-between mb-1">
+            <label htmlFor={`${ids}-employmentTypeId`} className={labelClass}>Employment type</label>
+            {canManageEmploymentTypes && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickAddName('');
+                    setQuickAddDescription('');
+                    setQuickAddError(null);
+                    setShowQuickAddModal(true);
+                  }}
+                  className="text-[11px] font-semibold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" aria-hidden="true" />
+                  Add new
+                </button>
+                <span className="text-slate-300 dark:text-slate-600" aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  onClick={openEmploymentTypeSettings}
+                  className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                  title="Manage employment types in Organization Settings"
+                >
+                  <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                  Settings
+                </button>
+              </div>
+            )}
+          </div>
           <select {...field('employmentTypeId')}>
-            <option value="">{meta && meta.employmentTypes.length === 0 ? 'None set up yet' : 'Not decided'}</option>
-            {meta?.employmentTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {hasConfiguredTypes ? (
+              <>
+                <option value="">Not decided</option>
+                {meta?.employmentTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </>
+            ) : (
+              <option value="">No employment types have been configured.</option>
+            )}
+            {candidateHasInactiveAssignedType && (
+              <option value={candidate!.employmentTypeId!}>
+                {candidate!.employmentTypeName || 'Assigned type'} (Inactive)
+              </option>
+            )}
           </select>
+          {!hasConfiguredTypes && (
+            <div className="mt-1.5 text-xs">
+              {canManageEmploymentTypes ? (
+                <p className="text-slate-500 dark:text-slate-400">
+                  No employment types have been configured.{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuickAddName('');
+                      setQuickAddDescription('');
+                      setQuickAddError(null);
+                      setShowQuickAddModal(true);
+                    }}
+                    className="font-semibold text-teal-600 dark:text-teal-400 hover:underline"
+                  >
+                    Create one now
+                  </button>
+                  {' or '}
+                  <button
+                    type="button"
+                    onClick={openEmploymentTypeSettings}
+                    className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    open Settings
+                  </button>
+                  .
+                </p>
+              ) : (
+                <p className="text-slate-500 dark:text-slate-400">
+                  No employment types have been configured.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div><label htmlFor={`${ids}-hiringSource`} className={labelClass}>Hiring source</label><input {...field('hiringSource')} maxLength={64} placeholder="e.g. Referral, LinkedIn, Job portal" /></div>
         <div>
@@ -147,6 +288,74 @@ export const CandidateForm: React.FC<Props> = ({ candidate, meta, onCancel, onSa
           {saving ? 'Saving…' : candidate ? 'Save changes' : 'Add candidate'}
         </button>
       </div>
+
+      {showQuickAddModal && (
+        <Dialog
+          title="Add Employment Type"
+          description="Create a new employment type option for candidates and employees."
+          onClose={() => {
+            if (!quickAddSaving) setShowQuickAddModal(false);
+          }}
+          size="md"
+          footer={
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowQuickAddModal(false)}
+                disabled={quickAddSaving}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleQuickAdd}
+                disabled={quickAddSaving || !quickAddName.trim()}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50"
+              >
+                {quickAddSaving ? 'Creating…' : 'Create & Select'}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            {quickAddError && (
+              <div role="alert" className="p-3 rounded-xl border border-red-200 bg-red-50 text-xs text-red-800">
+                {quickAddError}
+              </div>
+            )}
+            <div>
+              <label htmlFor={`${ids}-quick-et-name`} className={labelClass}>
+                Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                id={`${ids}-quick-et-name`}
+                type="text"
+                value={quickAddName}
+                onChange={(e) => setQuickAddName(e.target.value)}
+                placeholder="e.g. Full-time, Probationary, Consultant"
+                maxLength={100}
+                className={fieldClass}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label htmlFor={`${ids}-quick-et-desc`} className={labelClass}>
+                Description (Optional)
+              </label>
+              <textarea
+                id={`${ids}-quick-et-desc`}
+                value={quickAddDescription}
+                onChange={(e) => setQuickAddDescription(e.target.value)}
+                placeholder="Brief description of this employment category"
+                rows={2}
+                maxLength={500}
+                className={fieldClass}
+              />
+            </div>
+          </div>
+        </Dialog>
+      )}
     </form>
   );
 };

@@ -11,6 +11,7 @@ import { join } from 'path';
 
 const SCREENS = [
   'views/OrganizationSettingsView.tsx',
+  'views/settings/EmploymentTypesMaster.tsx',
   'components/crm/LeadIntegrationsCenter.tsx',
   'components/crm/CRMMastersManager.tsx',
 ];

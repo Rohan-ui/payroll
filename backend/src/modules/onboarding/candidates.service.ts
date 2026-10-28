@@ -206,7 +206,7 @@ export class CandidatesService {
       this.prisma.rndtechnosoft_employment_types.findMany({
         where: { tenant_id: tenantId, employment_type_status: 'ACTIVE' },
         orderBy: { employment_type_name: 'asc' },
-        select: { id: true, employment_type_name: true },
+        select: { id: true, employment_type_name: true, description: true },
       }),
       this.prisma.rndtechnosoft_tenant_members.findMany({
         where: { tenant_id: tenantId, membership_status: 'ACTIVE', archived_at: null },
@@ -216,7 +216,7 @@ export class CandidatesService {
     return {
       departments: departments.map((d) => ({ id: d.id, name: d.department_name })),
       designations: designations.map((d) => ({ id: d.id, name: d.designation_name })),
-      employmentTypes: employmentTypes.map((t) => ({ id: t.id, name: t.employment_type_name })),
+      employmentTypes: employmentTypes.map((t) => ({ id: t.id, name: t.employment_type_name, description: t.description })),
       members: members
         .map((m) => ({ id: m.id, name: m.rndtechnosoft_users.display_name || m.rndtechnosoft_users.email, email: m.rndtechnosoft_users.email }))
         .sort((a, b) => a.name.localeCompare(b.name)),
@@ -277,7 +277,7 @@ export class CandidatesService {
 
   async update(tenantId: string, id: string, input: CandidateInputDto, actor: AuthenticatedTenantUser) {
     const candidateId = this.idOr404(id);
-    const data = await this.candidateData(tenantId, input);
+    const data = await this.candidateData(tenantId, input, candidateId);
     await this.prisma.$transaction(async (tx) => {
       const current = await this.lockCandidate(tx, tenantId, candidateId);
       if (current.archived_at) throw new ConflictException('Restore the candidate before editing.');
@@ -478,7 +478,7 @@ export class CandidatesService {
   }
 
   /** Validated column values, with every referenced record checked to be in this workspace. */
-  private async candidateData(tenantId: string, input: CandidateInputDto) {
+  private async candidateData(tenantId: string, input: CandidateInputDto, currentCandidateId?: string) {
     const trimmed = (value?: string) => (value && value.trim() ? value.trim() : null);
     const fullName = trimmed(input.fullName);
     const appliedPosition = trimmed(input.appliedPosition);
@@ -488,7 +488,12 @@ export class CandidatesService {
     const [department, designation, employmentType, recruiter] = await Promise.all([
       input.departmentId ? this.prisma.rndtechnosoft_departments.findFirst({ where: { tenant_id: tenantId, id: input.departmentId }, select: { id: true } }) : null,
       input.designationId ? this.prisma.rndtechnosoft_designations.findFirst({ where: { tenant_id: tenantId, id: input.designationId }, select: { id: true } }) : null,
-      input.employmentTypeId ? this.prisma.rndtechnosoft_employment_types.findFirst({ where: { tenant_id: tenantId, id: input.employmentTypeId }, select: { id: true } }) : null,
+      input.employmentTypeId
+        ? this.prisma.rndtechnosoft_employment_types.findFirst({
+            where: { tenant_id: tenantId, id: input.employmentTypeId },
+            select: { id: true, employment_type_status: true },
+          })
+        : null,
       input.recruiterMemberId
         ? this.prisma.rndtechnosoft_tenant_members.findFirst({ where: { tenant_id: tenantId, id: input.recruiterMemberId, membership_status: 'ACTIVE', archived_at: null }, select: { id: true } })
         : null,
@@ -496,6 +501,21 @@ export class CandidatesService {
     if (input.departmentId && !department) throw new BadRequestException('That department is not in this workspace.');
     if (input.designationId && !designation) throw new BadRequestException('That designation is not in this workspace.');
     if (input.employmentTypeId && !employmentType) throw new BadRequestException('That employment type is not in this workspace.');
+    if (employmentType && employmentType.employment_type_status !== 'ACTIVE') {
+      let isExistingAssignment = false;
+      if (currentCandidateId) {
+        const existing = await this.prisma.rndtechnosoft_candidates.findFirst({
+          where: { tenant_id: tenantId, id: currentCandidateId },
+          select: { employment_type_id: true },
+        });
+        if (existing?.employment_type_id === input.employmentTypeId) {
+          isExistingAssignment = true;
+        }
+      }
+      if (!isExistingAssignment) {
+        throw new BadRequestException('The selected employment type is inactive. Please choose an active employment type.');
+      }
+    }
     if (input.recruiterMemberId && !recruiter) throw new BadRequestException('The recruiter must be an active member of this workspace.');
 
     return {

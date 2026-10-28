@@ -90,6 +90,7 @@ export const OnboardingView: React.FC = () => {
           setForm(null);
           setOpenCandidateId(saved.id);
         }}
+        onRefreshMeta={loadMeta}
       />
     );
   }

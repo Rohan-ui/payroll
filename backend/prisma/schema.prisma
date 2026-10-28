@@ -637,6 +637,7 @@ model rndtechnosoft_employment_types {
   tenant_id                           String                                @db.Uuid
   employment_type_code                String                                @db.VarChar(64)
   employment_type_name                String                                @db.VarChar(120)
+  description                         String?                               @db.VarChar(500)
   employment_type_status              String                                @default("ACTIVE") @db.VarChar(32)
   created_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                          DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)

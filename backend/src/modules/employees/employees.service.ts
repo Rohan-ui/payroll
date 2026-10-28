@@ -552,6 +552,14 @@ export class EmployeesService {
     });
   }
 
+  async getEmploymentTypes(tenantId: string) {
+    return this.prisma.rndtechnosoft_employment_types.findMany({
+      where: { tenant_id: tenantId, employment_type_status: 'ACTIVE' },
+      select: { id: true, employment_type_code: true, employment_type_name: true, description: true },
+      orderBy: { employment_type_name: 'asc' },
+    });
+  }
+
   async verifyIfsc(code: string) {
     try {
       const ifscClean = code.trim().toUpperCase();

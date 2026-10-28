@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
@@ -18,6 +19,7 @@ import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { OrganizationSettingsService } from './organization-settings.service';
 import { TenantRolesService } from './tenant-roles.service';
+import { EmploymentTypesService } from './employment-types.service';
 import {
   SaveSmtpSettingsDto,
   SaveWhatsAppSettingsDto,
@@ -27,6 +29,12 @@ import {
   UpdateOrganizationProfileDto,
 } from './dto/organization-settings.dto';
 import { CreateRoleDto, SetRolePermissionDto, UpdateRoleDto } from './dto/access-management.dto';
+import {
+  CreateEmploymentTypeDto,
+  ListEmploymentTypesQueryDto,
+  SetEmploymentTypeStatusDto,
+  UpdateEmploymentTypeDto,
+} from './dto/employment-type.dto';
 
 /**
  * Settings of the workspace the session is pinned to. No route takes a tenant
@@ -37,6 +45,7 @@ export class TenantsController {
   constructor(
     private readonly settingsService: OrganizationSettingsService,
     private readonly rolesService: TenantRolesService,
+    private readonly employmentTypesService: EmploymentTypesService,
   ) {}
 
   @Get('current')
@@ -163,6 +172,71 @@ export class TenantsController {
     @Body() body: SetRolePermissionDto,
   ) {
     return this.rolesService.setRolePermission(tenantId, roleId, body, actor);
+  }
+
+  // ── Employment types ────────────────────────────────────────
+
+  @Get('employment-types')
+  @RequirePermissions('organization.view')
+  async listEmploymentTypes(
+    @CurrentTenant() tenantId: string,
+    @Query() query: ListEmploymentTypesQueryDto,
+  ) {
+    return { success: true, data: await this.employmentTypesService.list(tenantId, query) };
+  }
+
+  @Post('employment-types')
+  @RequirePermissions('organization.update')
+  async createEmploymentType(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: CreateEmploymentTypeDto,
+  ) {
+    const data = await this.employmentTypesService.create(tenantId, body, actor);
+    return { success: true, data, message: `Employment type "${data.name}" added` };
+  }
+
+  @Get('employment-types/:id')
+  @RequirePermissions('organization.view')
+  async getEmploymentType(
+    @CurrentTenant() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return { success: true, data: await this.employmentTypesService.get(tenantId, id) };
+  }
+
+  @Put('employment-types/:id')
+  @RequirePermissions('organization.update')
+  async updateEmploymentType(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateEmploymentTypeDto,
+  ) {
+    const data = await this.employmentTypesService.update(tenantId, id, body, actor);
+    return { success: true, data, message: `Employment type "${data.name}" updated` };
+  }
+
+  @Patch('employment-types/:id/status')
+  @RequirePermissions('organization.update')
+  async setEmploymentTypeStatus(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SetEmploymentTypeStatusDto,
+  ) {
+    const data = await this.employmentTypesService.setStatus(tenantId, id, body.status, actor);
+    return { success: true, data, message: `Employment type "${data.name}" set to ${data.status}` };
+  }
+
+  @Delete('employment-types/:id')
+  @RequirePermissions('organization.update')
+  async deleteEmploymentType(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.employmentTypesService.delete(tenantId, id, actor);
   }
 
   // ── Outbound dispatch ────────────────────────────────────────

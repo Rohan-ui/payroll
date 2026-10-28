@@ -224,7 +224,7 @@ export class OffersService {
   }
 
   async update(tenantId: string, offerId: string, input: OfferInputDto, actor: AuthenticatedTenantUser) {
-    const data = await this.offerData(tenantId, input);
+    const data = await this.offerData(tenantId, input, offerId);
     await this.prisma.$transaction(async (tx) => {
       const offer = await this.lockOffer(tx, tenantId, offerId);
       if (offer.offer_status !== 'DRAFT') throw new ConflictException('Only a draft offer can be edited. Withdraw it from approval first if it needs changes.');
@@ -622,7 +622,7 @@ export class OffersService {
   }
 
   /** Validated column values; every referenced record is checked to be in this workspace. */
-  private async offerData(tenantId: string, input: OfferInputDto) {
+  private async offerData(tenantId: string, input: OfferInputDto, currentOfferId?: string) {
     const [version, department, designation, employmentType, manager] = await Promise.all([
       this.prisma.rndtechnosoft_document_template_versions.findFirst({
         where: { tenant_id: tenantId, id: input.templateVersionId, version_status: 'APPROVED', rndtechnosoft_document_templates: { template_kind: 'OFFER_LETTER', is_archived: false } },
@@ -630,7 +630,12 @@ export class OffersService {
       }),
       input.departmentId ? this.prisma.rndtechnosoft_departments.findFirst({ where: { tenant_id: tenantId, id: input.departmentId }, select: { id: true } }) : null,
       input.designationId ? this.prisma.rndtechnosoft_designations.findFirst({ where: { tenant_id: tenantId, id: input.designationId }, select: { id: true } }) : null,
-      input.employmentTypeId ? this.prisma.rndtechnosoft_employment_types.findFirst({ where: { tenant_id: tenantId, id: input.employmentTypeId }, select: { id: true } }) : null,
+      input.employmentTypeId
+        ? this.prisma.rndtechnosoft_employment_types.findFirst({
+            where: { tenant_id: tenantId, id: input.employmentTypeId },
+            select: { id: true, employment_type_status: true },
+          })
+        : null,
       input.reportingManagerEmployeeId
         ? this.prisma.rndtechnosoft_employees.findFirst({ where: { tenant_id: tenantId, id: input.reportingManagerEmployeeId, employee_status: 'ACTIVE', archived_at: null }, select: { id: true } })
         : null,
@@ -639,6 +644,21 @@ export class OffersService {
     if (input.departmentId && !department) throw new BadRequestException('That department is not in this workspace.');
     if (input.designationId && !designation) throw new BadRequestException('That designation is not in this workspace.');
     if (input.employmentTypeId && !employmentType) throw new BadRequestException('That employment type is not in this workspace.');
+    if (employmentType && employmentType.employment_type_status !== 'ACTIVE') {
+      let isExisting = false;
+      if (currentOfferId) {
+        const existing = await this.prisma.rndtechnosoft_offers.findFirst({
+          where: { tenant_id: tenantId, id: currentOfferId },
+          select: { employment_type_id: true },
+        });
+        if (existing?.employment_type_id === input.employmentTypeId) {
+          isExisting = true;
+        }
+      }
+      if (!isExisting) {
+        throw new BadRequestException('The selected employment type is inactive. Please choose an active employment type.');
+      }
+    }
     if (input.reportingManagerEmployeeId && !manager) throw new BadRequestException('The reporting manager must be an active employee of this workspace.');
 
     const joining = new Date(input.joiningDate);
