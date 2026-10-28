@@ -34,6 +34,7 @@ export const Header: React.FC = () => {
     { id: 'payroll', label: 'Payroll' },
     { id: 'attendance', label: 'Attendance' },
     { id: 'onboarding', label: 'Onboarding' },
+    { id: 'offboarding', label: 'Offboarding' },
     { id: 'performance', label: 'Performance' },
     { id: 'payslips', label: 'Payslips' },
     { id: 'bookkeeping', label: 'Bookkeeping' },

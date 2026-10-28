@@ -271,8 +271,9 @@ export class PayrollService {
     const rows = await this.prisma.rndtechnosoft_employees.findMany({
       where: {
         tenant_id: tenantId,
+        AND: [{ OR: [{ exit_date: null }, { exit_date: { gte: start } }] }],
         OR: [
-          { employee_status: 'ACTIVE' },
+          { employee_status: 'ACTIVE', OR: [{ hire_date: null }, { hire_date: { lte: end } }] },
           {
             rndtechnosoft_employee_salary_assignments: {
               some: { assignment_status: 'ACTIVE', effective_from: { lte: end }, OR: [{ effective_to: null }, { effective_to: { gte: start } }] },

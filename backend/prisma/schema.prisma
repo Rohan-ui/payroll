@@ -622,6 +622,7 @@ model rndtechnosoft_employees {
   headed_departments                   rndtechnosoft_department_heads[]       @relation("department_head_employee")
   rndtechnosoft_performance_kra_scopes rndtechnosoft_performance_kra_scopes[]
   rndtechnosoft_performance_appraisals rndtechnosoft_performance_appraisals[]
+  rndtechnosoft_employee_separations   rndtechnosoft_employee_separations[]
 
   @@unique([tenant_id, employee_code], map: "uq_employees_1")
   @@unique([tenant_id, user_id], map: "uq_employees_2")
@@ -1550,6 +1551,12 @@ model rndtechnosoft_tenant_members {
   performance_nominations_made                rndtechnosoft_performance_nominations[]            @relation("performance_nomination_by")
   performance_nominations_decided             rndtechnosoft_performance_nominations[]            @relation("performance_nomination_decided_by")
   performance_review_files_uploaded           rndtechnosoft_performance_review_files[]           @relation("performance_review_file_uploaded_by")
+  separations_requested                       rndtechnosoft_employee_separations[]               @relation("separation_requested_by")
+  separations_approved                        rndtechnosoft_employee_separations[]               @relation("separation_approved_by")
+  separation_interviews_recorded              rndtechnosoft_employee_separations[]               @relation("separation_interview_by")
+  separations_completed                       rndtechnosoft_employee_separations[]               @relation("separation_completed_by")
+  separations_closed                          rndtechnosoft_employee_separations[]               @relation("separation_closed_by")
+  separation_items_cleared                    rndtechnosoft_separation_clearance_items[]         @relation("separation_item_cleared_by")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
@@ -1716,6 +1723,7 @@ model rndtechnosoft_tenants {
   rndtechnosoft_performance_templates     rndtechnosoft_performance_templates[]
   rndtechnosoft_performance_workflows     rndtechnosoft_performance_workflows[]
   rndtechnosoft_performance_cycles        rndtechnosoft_performance_cycles[]
+  rndtechnosoft_employee_separations      rndtechnosoft_employee_separations[]
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
@@ -4345,4 +4353,68 @@ model rndtechnosoft_performance_review_files {
 
   @@unique([tenant_id, id], map: "uq_performance_review_files_tenant_id")
   @@index([tenant_id, review_id], map: "ix_performance_review_files_review")
+}
+
+/// An employee's exit, from resignation or termination to their last working day. One open exit per employee.
+model rndtechnosoft_employee_separations {
+  id                                          String    @id @db.Uuid
+  tenant_id                                   String    @db.Uuid
+  employee_id                                 String    @db.Uuid
+  separation_type                             String    @db.VarChar(20)
+  separation_status                           String    @db.VarChar(20)
+  separation_reason                           String    @db.VarChar(1000)
+  notice_date                                 DateTime  @db.Date
+  notice_period_days                          Int?
+  requested_last_working_date                 DateTime  @db.Date
+  last_working_date                           DateTime  @db.Date
+  is_self_service                             Boolean
+  requested_by_tenant_member_id               String    @db.Uuid
+  approved_by_tenant_member_id                String?   @db.Uuid
+  approved_at                                 DateTime? @db.Timestamptz(6)
+  exit_interview_date                         DateTime? @db.Date
+  exit_interview_notes                        String?   @db.VarChar(4000)
+  rehire_eligible                             Boolean?
+  exit_interview_recorded_by_tenant_member_id String?   @db.Uuid
+  completed_by_tenant_member_id               String?   @db.Uuid
+  completed_at                                DateTime? @db.Timestamptz(6)
+  closed_by_tenant_member_id                  String?   @db.Uuid
+  closed_at                                   DateTime? @db.Timestamptz(6)
+  close_reason                                String?   @db.VarChar(500)
+  created_at                                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                    rndtechnosoft_tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_tenant")
+  rndtechnosoft_employees                  rndtechnosoft_employees                   @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_employee")
+  requested_by                             rndtechnosoft_tenant_members              @relation("separation_requested_by", fields: [tenant_id, requested_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_requested_by")
+  approved_by                              rndtechnosoft_tenant_members?             @relation("separation_approved_by", fields: [tenant_id, approved_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_approved_by")
+  interview_by                             rndtechnosoft_tenant_members?             @relation("separation_interview_by", fields: [tenant_id, exit_interview_recorded_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_interview_by")
+  completed_by                             rndtechnosoft_tenant_members?             @relation("separation_completed_by", fields: [tenant_id, completed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_completed_by")
+  closed_by                                rndtechnosoft_tenant_members?             @relation("separation_closed_by", fields: [tenant_id, closed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_closed_by")
+  rndtechnosoft_separation_clearance_items rndtechnosoft_separation_clearance_items[]
+
+  @@unique([tenant_id, id], map: "uq_employee_separations_tenant_id")
+  @@index([tenant_id, separation_status, last_working_date], map: "ix_employee_separations_status")
+  @@index([tenant_id, employee_id], map: "ix_employee_separations_employee")
+}
+
+/// One exit-checklist item for a team; cleared or waived by a named member.
+model rndtechnosoft_separation_clearance_items {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  separation_id               String    @db.Uuid
+  clearance_team              String    @db.VarChar(16)
+  item_title                  String    @db.VarChar(200)
+  display_order               Int
+  item_status                 String    @default("PENDING") @db.VarChar(16)
+  cleared_by_tenant_member_id String?   @db.Uuid
+  cleared_at                  DateTime? @db.Timestamptz(6)
+  clearance_note              String?   @db.VarChar(500)
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_employee_separations rndtechnosoft_employee_separations @relation(fields: [tenant_id, separation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_clearance_items_separation")
+  cleared_by                         rndtechnosoft_tenant_members?      @relation("separation_item_cleared_by", fields: [tenant_id, cleared_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_clearance_items_cleared_by")
+
+  @@unique([tenant_id, id], map: "uq_separation_clearance_items_tenant_id")
+  @@index([tenant_id, separation_id, display_order], map: "ix_separation_clearance_items_separation")
 }

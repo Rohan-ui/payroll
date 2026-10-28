@@ -204,6 +204,7 @@ describe('Workspace role-based access control', () => {
         'People',
         'Attendance',
         'Onboarding',
+        'Offboarding',
         'Performance',
         'Performance setup',
         'Leave',
@@ -333,8 +334,8 @@ describe('Workspace role-based access control', () => {
 
   describe('an employee', () => {
     it('gets only the pages granted by default and nothing from any module API', async () => {
-      // Their own appraisals are the one HRMS page every employee has.
-      expect(await navigationOf(employee)).toEqual(['dashboard', 'hrms', 'performance', 'help']);
+      // Their own exit and appraisals are the HRMS pages every employee has.
+      expect(await navigationOf(employee)).toEqual(['dashboard', 'hrms', 'offboarding', 'performance', 'help']);
       expect((await api().get(`${API}/performance/my/appraisals`).set(as(employee))).status).toBe(200);
 
       const results = await statuses(employee, [
@@ -447,6 +448,7 @@ describe('Workspace role-based access control', () => {
           ['people', 'hrms', false],
           ['attendance', 'hrms', false],
           ['onboarding', 'hrms', false],
+          ['offboarding', 'hrms', false],
           ['performance', 'hrms', false],
           ['settings', null, false],
         ]);

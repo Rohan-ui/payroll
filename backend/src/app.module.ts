@@ -8,6 +8,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { OffboardingModule } from './modules/offboarding/offboarding.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { SalaryModule } from './modules/salary/salary.module';
@@ -47,6 +48,7 @@ import { MailModule } from './modules/mail/mail.module';
     AuthModule,
     EmployeesModule,
     OnboardingModule,
+    OffboardingModule,
     AttendanceModule,
     LeaveModule,
     SalaryModule,

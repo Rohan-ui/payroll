@@ -28,6 +28,7 @@ import { AddEmployeeView } from './views/AddEmployeeView';
 import { BookkeepingView } from './views/BookkeepingView';
 import { ClockInView } from './views/ClockInView';
 import { OnboardingView } from './views/onboarding/OnboardingView';
+import { OffboardingView } from './views/offboarding/OffboardingView';
 import { CrmWorkspaceView } from './views/crm/CrmWorkspaceView';
 import { EmailMarketingView } from './views/emails/EmailMarketingView';
 import { OrganizationSettingsView } from './views/OrganizationSettingsView';
@@ -94,6 +95,7 @@ const MainContent: React.FC = () => {
       case 'attendance':      return <AttendanceView />;
       case 'clock-in':        return <ClockInView />;
       case 'onboarding':      return <OnboardingView />;
+      case 'offboarding':     return <OffboardingView />;
       case 'performance':     return <PerformanceView />;
       case 'payslips':        return <PayslipsView />;
       case 'bookkeeping':     return <BookkeepingView />;

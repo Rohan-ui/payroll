@@ -38,6 +38,7 @@ import { EmployeeRelationsController } from '@/modules/employees/employee-relati
 import { PerformanceCyclesController } from '@/modules/performance/performance-cycles.controller';
 import { PerformanceMyController } from '@/modules/performance/performance-my.controller';
 import { DocumentsController } from '@/modules/documents/documents.controller';
+import { OffboardingController } from '@/modules/offboarding/offboarding.controller';
 
 const PATH_METADATA = 'path';
 const METHOD_METADATA = 'method';
@@ -82,6 +83,7 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['PerformanceCyclesController', PerformanceCyclesController],
   ['PerformanceMyController', PerformanceMyController],
   ['DocumentsController', DocumentsController],
+  ['OffboardingController', OffboardingController],
 ];
 
 /**
@@ -281,6 +283,7 @@ describe('Tenant route guard coverage', () => {
       ['PerformanceMyController', ['HRMS']],
       // Document templates and letterheads belong to the organization, shared by HRMS and CRM.
       ['DocumentsController', [null]],
+      ['OffboardingController', ['HRMS']],
     ]);
   });
 

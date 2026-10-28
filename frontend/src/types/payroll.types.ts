@@ -15,6 +15,7 @@ export type AppView =
   | 'attendance'
   | 'clock-in'
   | 'onboarding'
+  | 'offboarding'
   | 'performance'
   | 'payslips'
   | 'bookkeeping'
@@ -115,7 +116,7 @@ export interface Employee {
   workState?: 'Maharashtra' | 'Gujarat' | 'Karnataka' | 'Delhi' | 'Tamil Nadu';
   workEmail: string;
   mobileNumber: string;
-  status: 'ACTIVE' | 'RESIGNED' | 'ON_NOTICE' | 'INACTIVE' | 'PROBATION' | 'TERMINATED' | 'SUSPENDED' | (string & {});
+  status: 'ACTIVE' | 'RESIGNED' | 'ON_NOTICE' | 'INACTIVE' | 'PROBATION' | 'TERMINATED' | 'SUSPENDED' | 'EXITED' | (string & {});
   /** Only what the employee record actually holds; missing means not recorded, never a made-up value. */
   bank?: BankDetails;
   statutory?: StatutoryDetails;
