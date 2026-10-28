@@ -1561,6 +1561,9 @@ model rndtechnosoft_tenant_members {
   separations_completed                       rndtechnosoft_employee_separations[]               @relation("separation_completed_by")
   separations_closed                          rndtechnosoft_employee_separations[]               @relation("separation_closed_by")
   separation_items_cleared                    rndtechnosoft_separation_clearance_items[]         @relation("separation_item_cleared_by")
+  candidate_doc_status_changes_made           rndtechnosoft_candidate_document_status_history[]  @relation("candidate_doc_status_changed_by")
+  candidate_doc_emails_sent                   rndtechnosoft_candidate_document_emails[]          @relation("candidate_doc_email_sender")
+  candidate_docs_last_sent                    rndtechnosoft_candidate_documents[]               @relation("candidate_doc_last_sent_by")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
@@ -1597,9 +1600,13 @@ model rndtechnosoft_email_templates {
   subject               String                @db.VarChar(300)
   description           String?               @db.VarChar(500)
   body_text             String                @db.Text
+  document_kind         String?               @db.VarChar(64)
+  is_active             Boolean               @default(true)
   created_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_email_templates_tenant")
+  rndtechnosoft_document_templates rndtechnosoft_document_templates[]
+  rndtechnosoft_candidate_document_emails rndtechnosoft_candidate_document_emails[]
 
   @@unique([tenant_id, id], map: "uq_email_templates_tenant_id")
   @@index([tenant_id, updated_at(sort: Desc)], map: "ix_email_templates_tenant_updated")
@@ -1716,6 +1723,8 @@ model rndtechnosoft_tenants {
   rndtechnosoft_onboarding_notifications       rndtechnosoft_onboarding_notifications[]
   rndtechnosoft_document_templates             rndtechnosoft_document_templates[]
   rndtechnosoft_candidate_documents            rndtechnosoft_candidate_documents[]
+  rndtechnosoft_candidate_document_status_history rndtechnosoft_candidate_document_status_history[]
+  rndtechnosoft_candidate_document_emails         rndtechnosoft_candidate_document_emails[]
   rndtechnosoft_letterheads                    rndtechnosoft_letterheads[]
   rndtechnosoft_cosec_sync_states              rndtechnosoft_cosec_sync_states?
   rndtechnosoft_email_sequences                rndtechnosoft_email_sequences[]
@@ -2582,6 +2591,7 @@ model rndtechnosoft_candidates {
   rndtechnosoft_offers                      rndtechnosoft_offers[]
   rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests[]
   rndtechnosoft_candidate_documents        rndtechnosoft_candidate_documents[]
+  rndtechnosoft_candidate_document_emails   rndtechnosoft_candidate_document_emails[]
 
   @@unique([tenant_id, id], map: "uq_candidates_tenant_id")
   @@unique([tenant_id, candidate_code], map: "uq_candidates_code")
@@ -2698,11 +2708,13 @@ model rndtechnosoft_document_templates {
   template_name               String   @db.VarChar(160)
   is_archived                 Boolean  @default(false)
   created_by_tenant_member_id String?  @db.Uuid
+  default_email_template_id   String?  @db.Uuid
   created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
   rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_templates_tenant")
   created_by                               rndtechnosoft_tenant_members?              @relation("document_template_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_templates_created_by")
+  default_email_template                   rndtechnosoft_email_templates?             @relation(fields: [tenant_id, default_email_template_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_document_templates_email_tpl")
   rndtechnosoft_document_template_versions rndtechnosoft_document_template_versions[]
   rndtechnosoft_candidate_documents       rndtechnosoft_candidate_documents[]
 
@@ -2915,18 +2927,24 @@ model rndtechnosoft_candidate_documents {
   version_number              Int       @default(1)
   created_by_tenant_member_id String?   @db.Uuid
   updated_by_tenant_member_id String?   @db.Uuid
+  last_sent_at                DateTime? @db.Timestamptz(6)
+  last_sent_by_tenant_member_id String? @db.Uuid
+  email_status                String?   @db.VarChar(24)
   created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
-  rndtechnosoft_tenants                     rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_tenant")
-  rndtechnosoft_candidates                  rndtechnosoft_candidates                    @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_candidate")
-  rndtechnosoft_employees                   rndtechnosoft_employees?                    @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_employee")
-  rndtechnosoft_document_templates          rndtechnosoft_document_templates?           @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template")
-  rndtechnosoft_document_template_versions  rndtechnosoft_document_template_versions?  @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template_version")
-  rndtechnosoft_letterheads                 rndtechnosoft_letterheads?                  @relation(fields: [tenant_id, letterhead_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_letterhead")
-  created_by                                rndtechnosoft_tenant_members?               @relation("candidate_doc_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_created_by")
-  updated_by                                rndtechnosoft_tenant_members?               @relation("candidate_doc_updated_by", fields: [tenant_id, updated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_updated_by")
-  rndtechnosoft_candidate_document_versions rndtechnosoft_candidate_document_versions[]
+  rndtechnosoft_tenants                           rndtechnosoft_tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_tenant")
+  rndtechnosoft_candidates                        rndtechnosoft_candidates                          @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_candidate")
+  rndtechnosoft_employees                         rndtechnosoft_employees?                          @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_employee")
+  rndtechnosoft_document_templates                rndtechnosoft_document_templates?                 @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template")
+  rndtechnosoft_document_template_versions        rndtechnosoft_document_template_versions?        @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template_version")
+  rndtechnosoft_letterheads                       rndtechnosoft_letterheads?                        @relation(fields: [tenant_id, letterhead_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_letterhead")
+  created_by                                      rndtechnosoft_tenant_members?                     @relation("candidate_doc_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_created_by")
+  updated_by                                      rndtechnosoft_tenant_members?                     @relation("candidate_doc_updated_by", fields: [tenant_id, updated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_updated_by")
+  last_sent_by                                    rndtechnosoft_tenant_members?                     @relation("candidate_doc_last_sent_by", fields: [tenant_id, last_sent_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_sent_by")
+  rndtechnosoft_candidate_document_versions       rndtechnosoft_candidate_document_versions[]
+  rndtechnosoft_candidate_document_status_history rndtechnosoft_candidate_document_status_history[]
+  rndtechnosoft_candidate_document_emails         rndtechnosoft_candidate_document_emails[]
 
   @@unique([tenant_id, id], map: "uq_candidate_documents_tenant_id")
   @@index([tenant_id, candidate_id], map: "ix_candidate_documents_candidate")
@@ -2942,15 +2960,72 @@ model rndtechnosoft_candidate_document_versions {
   title                       String   @db.VarChar(200)
   body                        String   @db.Text
   document_data               Json?    @db.JsonB
+  changelog_note              String?  @db.VarChar(500)
+  content_hash                String?  @db.Char(64)
+  layout_data                 Json?    @db.JsonB
   created_by_tenant_member_id String?  @db.Uuid
   created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
-  rndtechnosoft_candidate_documents rndtechnosoft_candidate_documents @relation(fields: [tenant_id, document_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_candidate_doc_versions_doc")
-  created_by                        rndtechnosoft_tenant_members?      @relation("candidate_doc_ver_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_doc_versions_created_by")
+  rndtechnosoft_candidate_documents       rndtechnosoft_candidate_documents         @relation(fields: [tenant_id, document_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_candidate_doc_versions_doc")
+  created_by                              rndtechnosoft_tenant_members?             @relation("candidate_doc_ver_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_doc_versions_created_by")
+  rndtechnosoft_candidate_document_emails rndtechnosoft_candidate_document_emails[]
 
   @@unique([tenant_id, id], map: "uq_candidate_doc_versions_tenant_id")
   @@unique([tenant_id, document_id, version_number], map: "uq_candidate_doc_versions_number")
   @@index([tenant_id, document_id], map: "ix_candidate_doc_versions_document")
+}
+
+/// Lifecycle status transition history for candidate documents.
+model rndtechnosoft_candidate_document_status_history {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  document_id                 String   @db.Uuid
+  from_status                 String   @db.VarChar(24)
+  to_status                   String   @db.VarChar(24)
+  reason                      String?  @db.Text
+  changed_by_tenant_member_id String?  @db.Uuid
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants             rndtechnosoft_tenants             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cand_doc_status_hist_tenant")
+  rndtechnosoft_candidate_documents rndtechnosoft_candidate_documents @relation(fields: [tenant_id, document_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cand_doc_status_hist_doc")
+  changed_by                        rndtechnosoft_tenant_members?     @relation("candidate_doc_status_changed_by", fields: [tenant_id, changed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cand_doc_status_hist_user")
+
+  @@unique([tenant_id, id], map: "uq_cand_doc_status_hist_tenant_id")
+  @@index([tenant_id, document_id, created_at(sort: Desc)], map: "ix_cand_doc_status_hist_doc")
+}
+
+/// Records of onboarding document emails sent to candidates with attached PDF snapshot.
+model rndtechnosoft_candidate_document_emails {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  candidate_id                String    @db.Uuid
+  document_id                 String    @db.Uuid
+  version_id                  String?   @db.Uuid
+  version_number              Int
+  email_template_id           String?   @db.Uuid
+  sender_tenant_member_id     String?   @db.Uuid
+  sender_email                String?   @db.VarChar(320)
+  recipient_email             String    @db.VarChar(320)
+  cc_emails                   String?   @db.VarChar(500)
+  bcc_emails                  String?   @db.VarChar(500)
+  subject                     String    @db.VarChar(300)
+  body_html                   String    @db.Text
+  attachment_filename         String    @db.VarChar(255)
+  delivery_status             String    @default("SENT") @db.VarChar(24)
+  error_message               String?   @db.Text
+  idempotency_key             String?   @db.VarChar(128)
+  sent_at                     DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                      rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cand_doc_emails_tenant")
+  rndtechnosoft_candidates                   rndtechnosoft_candidates                   @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cand_doc_emails_candidate")
+  rndtechnosoft_candidate_documents          rndtechnosoft_candidate_documents          @relation(fields: [tenant_id, document_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cand_doc_emails_doc")
+  rndtechnosoft_candidate_document_versions rndtechnosoft_candidate_document_versions? @relation(fields: [tenant_id, version_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_cand_doc_emails_ver")
+  rndtechnosoft_email_templates              rndtechnosoft_email_templates?              @relation(fields: [tenant_id, email_template_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_cand_doc_emails_tpl")
+  sender                                     rndtechnosoft_tenant_members?              @relation("candidate_doc_email_sender", fields: [tenant_id, sender_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cand_doc_emails_sender")
+
+  @@unique([tenant_id, id], map: "uq_cand_doc_emails_tenant_id")
+  @@index([tenant_id, document_id, sent_at(sort: Desc)], map: "ix_cand_doc_emails_doc")
+  @@index([tenant_id, candidate_id], map: "ix_cand_doc_emails_candidate")
 }
 
 /// A company letterhead for generated documents: the company's details, logo, and optional header and footer artwork (stored privately).

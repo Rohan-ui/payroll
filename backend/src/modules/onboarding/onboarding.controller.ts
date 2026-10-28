@@ -37,6 +37,12 @@ import {
   GenerateCandidateDocumentDto,
   SaveCandidateDocumentDto,
   UpdateCandidateDocumentDto,
+  ChangeDocumentStatusDto,
+  CreateEmailTemplateDto,
+  UpdateEmailTemplateDto,
+  SendCandidateDocumentEmailDto,
+  RestoreDocumentVersionDto,
+  UpdateDocumentTemplateEmailAssociationDto,
 } from './dto/onboarding.dto';
 
 /**
@@ -435,5 +441,306 @@ export class OnboardingController {
       file.filename,
       '1',
     );
+  }
+
+  // ── Status Management & History ──────────────────────────────────────────
+
+  @Post('candidates/:id/letter-documents/:docId/status')
+  @RequirePermissions('onboarding.documents.manage')
+  async changeCandidateDocumentStatus(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Body() body: ChangeDocumentStatusDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.changeStatus(tenantId, id, docId, body, actor),
+      message: 'Document status changed successfully',
+    };
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/status-history')
+  @RequirePermissions('onboarding.documents.view')
+  async getCandidateDocumentStatusHistory(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.getStatusHistory(tenantId, id, docId),
+    };
+  }
+
+  // ── Version History & Restoration ────────────────────────────────────────
+
+  @Get('candidates/:id/letter-documents/:docId/versions')
+  @RequirePermissions('onboarding.documents.view')
+  async listCandidateDocumentVersions(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.listVersions(tenantId, id, docId),
+    };
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/versions/:verId')
+  @RequirePermissions('onboarding.documents.view')
+  async getCandidateDocumentVersion(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Param('verId') verId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.getVersion(tenantId, id, docId, verId),
+    };
+  }
+
+  @Post('candidates/:id/letter-documents/:docId/versions/:verId/restore')
+  @RequirePermissions('onboarding.documents.manage')
+  async restoreCandidateDocumentVersion(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Param('verId') verId: string,
+    @Body() body: RestoreDocumentVersionDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.restoreVersion(tenantId, id, docId, verId, actor, body),
+      message: 'Document version restored successfully',
+    };
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/versions/:verId/pdf')
+  @RequirePermissions('onboarding.documents.view')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Cache-Control', 'private, no-store')
+  async downloadVersionPdf(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Param('verId') verId: string,
+    @Query('download') download?: string,
+  ) {
+    const file = await this.letterDocs.exportVersionPdf(tenantId, id, docId, verId);
+    return fileResponse(file.bytes, 'application/pdf', file.filename, download ?? '1');
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/versions/:verId/docx')
+  @RequirePermissions('onboarding.documents.view')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Cache-Control', 'private, no-store')
+  async downloadVersionDocx(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Param('verId') verId: string,
+  ) {
+    const file = await this.letterDocs.exportVersionDocx(tenantId, id, docId, verId);
+    return fileResponse(
+      file.bytes,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      file.filename,
+      '1',
+    );
+  }
+
+  // ── PDF Email Delivery & History ─────────────────────────────────────────
+
+  @Get('candidates/:id/letter-documents/:docId/email/preview')
+  @RequirePermissions('onboarding.documents.view')
+  async previewCandidateDocumentEmail(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Query('templateId') templateId?: string,
+    @Query('versionId') versionId?: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.previewEmail(tenantId, id, docId, { templateId, versionId }),
+    };
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/email-preview')
+  @RequirePermissions('onboarding.documents.view')
+  async previewCandidateDocumentEmailAlias(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Query('templateId') templateId?: string,
+    @Query('versionId') versionId?: string,
+  ) {
+    return this.previewCandidateDocumentEmail(tenantId, id, docId, templateId, versionId);
+  }
+
+  @Post('candidates/:id/letter-documents/:docId/email/send')
+  @RequirePermissions('onboarding.documents.manage')
+  async sendCandidateDocumentEmail(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Body() body: SendCandidateDocumentEmailDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.sendEmail(tenantId, id, docId, body, actor),
+      message: 'Document email sent to candidate successfully',
+    };
+  }
+
+  @Post('candidates/:id/letter-documents/:docId/send-email')
+  @RequirePermissions('onboarding.documents.manage')
+  async sendCandidateDocumentEmailAlias(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Body() body: SendCandidateDocumentEmailDto,
+  ) {
+    return this.sendCandidateDocumentEmail(tenantId, actor, id, docId, body);
+  }
+
+  @Put('document-templates/:tplId/email-template')
+  @RequirePermissions('onboarding.documents.manage')
+  async updateDocumentTemplateEmailAssociation(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('tplId') tplId: string,
+    @Body() body: UpdateDocumentTemplateEmailAssociationDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.updateDocumentTemplateEmailAssociation(
+        tenantId,
+        tplId,
+        body.emailTemplateId ?? null,
+        actor,
+      ),
+      message: 'Document template email association updated successfully',
+    };
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/emails')
+  @RequirePermissions('onboarding.documents.view')
+  async listCandidateDocumentEmails(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.listEmails(tenantId, id, docId),
+    };
+  }
+
+  @Post('candidates/:id/letter-documents/:docId/emails/:emailId/retry')
+  @RequirePermissions('onboarding.documents.manage')
+  async retryCandidateDocumentEmail(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Param('emailId') emailId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.retryEmail(tenantId, id, docId, emailId, actor),
+      message: 'Email retry dispatched',
+    };
+  }
+
+  // ── Reusable Email Templates CRUD ────────────────────────────────────────
+
+  @Get('email-templates')
+  @RequirePermissions('onboarding.documents.view')
+  async listEmailTemplates(
+    @CurrentTenant() tenantId: string,
+    @Query('category') category?: string,
+    @Query('documentKind') documentKind?: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.listEmailTemplates(tenantId, category, documentKind),
+    };
+  }
+
+  @Get('email-templates/:tplId')
+  @RequirePermissions('onboarding.documents.view')
+  async getEmailTemplate(
+    @CurrentTenant() tenantId: string,
+    @Param('tplId') tplId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.getEmailTemplate(tenantId, tplId),
+    };
+  }
+
+  @Post('email-templates')
+  @RequirePermissions('onboarding.documents.manage')
+  async createEmailTemplate(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: CreateEmailTemplateDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.createEmailTemplate(tenantId, body, actor),
+      message: 'Email template created successfully',
+    };
+  }
+
+  @Put('email-templates/:tplId')
+  @RequirePermissions('onboarding.documents.manage')
+  async updateEmailTemplate(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('tplId') tplId: string,
+    @Body() body: UpdateEmailTemplateDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.updateEmailTemplate(tenantId, tplId, body, actor),
+      message: 'Email template updated successfully',
+    };
+  }
+
+  @Post('email-templates/:tplId/duplicate')
+  @RequirePermissions('onboarding.documents.manage')
+  async duplicateEmailTemplate(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('tplId') tplId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.duplicateEmailTemplate(tenantId, tplId, actor),
+      message: 'Email template duplicated successfully',
+    };
+  }
+
+  @Delete('email-templates/:tplId')
+  @RequirePermissions('onboarding.documents.manage')
+  async deleteEmailTemplate(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('tplId') tplId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.deleteEmailTemplate(tenantId, tplId, actor),
+      message: 'Email template deactivated successfully',
+    };
   }
 }

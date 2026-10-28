@@ -487,6 +487,50 @@ export const onboardingApi = {
     fetchFile(`/api/v1${BASE}/candidates/${candidateId}/letter-documents/${docId}/pdf?download=1`),
   downloadLetterDocx: (candidateId: string, docId: string) =>
     fetchFile(`/api/v1${BASE}/candidates/${candidateId}/letter-documents/${docId}/docx`),
+
+  // Status transitions & history
+  changeDocumentStatus: (candidateId: string, docId: string, payload: { newStatus: string; reason?: string }) =>
+    apiClient.post<Envelope<{ id: string; documentStatus: string; updatedAt: string }>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/status`, payload).then((r) => r.data),
+  getDocumentStatusHistory: (candidateId: string, docId: string) =>
+    apiClient.get<Envelope<DocumentStatusHistoryItem[]>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/status-history`).then((r) => r.data),
+
+  // Version management
+  listDocumentVersions: (candidateId: string, docId: string) =>
+    apiClient.get<Envelope<DocumentVersionItem[]>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/versions`).then((r) => r.data),
+  getDocumentVersion: (candidateId: string, docId: string, versionId: string) =>
+    apiClient.get<Envelope<CandidateLetterDocumentDetail>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/versions/${versionId}`).then((r) => r.data),
+  restoreDocumentVersion: (candidateId: string, docId: string, versionId: string, note?: string) =>
+    apiClient.post<Envelope<CandidateLetterDocumentSummary>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/versions/${versionId}/restore`, { changelogNote: note }).then((r) => r.data),
+  downloadVersionPdf: (candidateId: string, docId: string, versionId: string) =>
+    fetchFile(`/api/v1${BASE}/candidates/${candidateId}/letter-documents/${docId}/versions/${versionId}/pdf`),
+  downloadVersionDocx: (candidateId: string, docId: string, versionId: string) =>
+    fetchFile(`/api/v1${BASE}/candidates/${candidateId}/letter-documents/${docId}/versions/${versionId}/docx`),
+
+  // Email delivery & preview
+  previewDocumentEmail: (candidateId: string, docId: string, options?: { templateId?: string; versionId?: string }) =>
+    apiClient.get<Envelope<DocumentEmailPreview>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/email/preview${qs({ templateId: options?.templateId, versionId: options?.versionId })}`).then((r) => r.data),
+  sendDocumentEmail: (candidateId: string, docId: string, payload: { emailTemplateId?: string; recipientEmail: string; ccEmails?: string; bccEmails?: string; subject: string; bodyHtml: string; versionId?: string; idempotencyKey?: string }) =>
+    apiClient.post<Envelope<{ success: boolean; emailId: string; deliveryStatus: string; documentStatus: string; attachmentFilename: string }>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/email/send`, payload).then((r) => r.data),
+  listDocumentEmails: (candidateId: string, docId: string) =>
+    apiClient.get<Envelope<DocumentEmailItem[]>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/emails`).then((r) => r.data),
+  retryDocumentEmail: (candidateId: string, docId: string, emailId: string) =>
+    apiClient.post<Envelope<{ success: boolean; deliveryStatus: string }>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/emails/${emailId}/retry`).then((r) => r.data),
+
+  // Reusable email templates CRUD
+  listEmailTemplates: (category?: string, documentKind?: string) =>
+    apiClient.get<Envelope<EmailTemplateItem[]>>(`${BASE}/email-templates${qs({ category, documentKind })}`).then((r) => r.data),
+  getEmailTemplate: (id: string) =>
+    apiClient.get<Envelope<EmailTemplateItem>>(`${BASE}/email-templates/${id}`).then((r) => r.data),
+  createEmailTemplate: (payload: { templateName: string; category?: string; documentKind?: string; subject: string; bodyText: string; description?: string }) =>
+    apiClient.post<Envelope<EmailTemplateItem>>(`${BASE}/email-templates`, payload).then((r) => r.data),
+  updateEmailTemplate: (id: string, payload: { templateName?: string; category?: string; documentKind?: string; subject?: string; bodyText?: string; description?: string; isActive?: boolean }) =>
+    apiClient.put<Envelope<EmailTemplateItem>>(`${BASE}/email-templates/${id}`, payload).then((r) => r.data),
+  duplicateEmailTemplate: (id: string) =>
+    apiClient.post<Envelope<EmailTemplateItem>>(`${BASE}/email-templates/${id}/duplicate`).then((r) => r.data),
+  deleteEmailTemplate: (id: string) =>
+    apiClient.delete<Envelope<{ deleted: boolean }>>(`${BASE}/email-templates/${id}`).then((r) => r.data),
+  updateDocumentTemplateEmailAssociation: (templateId: string, emailTemplateId: string | null) =>
+    apiClient.put<Envelope<{ id: string; templateName: string; defaultEmailTemplateId: string | null }>>(`${BASE}/document-templates/${templateId}/email-template`, { emailTemplateId }).then((r) => r.data),
 };
 
 export interface CandidateLetterDocumentSummary {
@@ -501,6 +545,9 @@ export interface CandidateLetterDocumentSummary {
   templateName: string | null;
   createdByName: string | null;
   updatedByName: string | null;
+  lastSentAt: string | null;
+  lastSentByName: string | null;
+  emailStatus: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -526,6 +573,9 @@ export interface CandidateLetterDocumentDetail {
     marginsMm: { top: number; right: number; bottom: number; left: number };
     showPageNumbers: boolean;
   };
+  lastSentAt: string | null;
+  lastSentByName: string | null;
+  emailStatus: string | null;
   createdByName: string | null;
   updatedByName: string | null;
   createdAt: string;
@@ -534,9 +584,87 @@ export interface CandidateLetterDocumentDetail {
     id: string;
     versionNumber: number;
     title: string;
+    changelogNote: string | null;
+    documentStatus: string;
     createdAt: string;
     createdByName: string | null;
   }[];
+}
+
+export interface DocumentStatusHistoryItem {
+  id: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reason: string | null;
+  changedAt: string;
+  changedByName: string | null;
+}
+
+export interface DocumentVersionItem {
+  id: string;
+  versionNumber: number;
+  title: string;
+  changelogNote: string | null;
+  documentStatus: string;
+  isCurrent: boolean;
+  createdAt: string;
+  createdByName: string | null;
+}
+
+export interface DocumentEmailItem {
+  id: string;
+  deliveryStatus: string;
+  sentAt: string;
+  senderName: string | null;
+  senderEmail: string | null;
+  recipientEmail: string;
+  ccEmails: string | null;
+  bccEmails: string | null;
+  subject: string;
+  bodyHtml: string;
+  versionNumber: number;
+  attachmentFilename: string;
+  errorMessage: string | null;
+}
+
+export interface DocumentEmailPreview {
+  templateId: string | null;
+  templateName: string | null;
+  associatedTemplateId?: string | null;
+  documentTemplateId?: string | null;
+  recipientEmail: string;
+  candidateName: string;
+  subject: string;
+  bodyHtml: string;
+  attachmentFilename: string;
+  versionNumber: number;
+  versionId: string;
+  unresolvedPlaceholders: string[];
+  hasUnresolvedPlaceholders: boolean;
+  availableTemplates: { id: string; name: string; category: string; documentKind: string }[];
+  supportedPlaceholders: string[];
+}
+
+export interface EmailTemplateItem {
+  id: string;
+  templateKey?: string | null;
+  templateName?: string;
+  template_name?: string;
+  name?: string;
+  category: string;
+  documentKind?: string | null;
+  document_kind?: string | null;
+  subject: string;
+  bodyText?: string;
+  body_text?: string;
+  description?: string | null;
+  isActive?: boolean;
+  is_active?: boolean;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+  linkedDocumentTemplates?: { id: string; name: string; kind: string }[];
 }
 
 export interface AvailableTemplateSummary {

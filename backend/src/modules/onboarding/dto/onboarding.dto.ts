@@ -563,6 +563,10 @@ export class SaveCandidateDocumentDto {
   @IsString()
   @MaxLength(255)
   changelogNote?: string;
+
+  @IsOptional()
+  @IsInt()
+  expectedVersionNumber?: number;
 }
 
 export class UpdateCandidateDocumentDto {
@@ -589,5 +593,169 @@ export class UpdateCandidateDocumentDto {
   @IsString()
   @MaxLength(255)
   changelogNote?: string;
+
+  @IsOptional()
+  @IsInt()
+  expectedVersionNumber?: number;
 }
+
+export const CANDIDATE_DOCUMENT_STATUSES = [
+  'DRAFT',
+  'IN_REVIEW',
+  'APPROVED',
+  'SENT',
+  'DELIVERED',
+  'VIEWED',
+  'ACCEPTED',
+  'REJECTED',
+  'EXPIRED',
+  'WITHDRAWN',
+] as const;
+
+export class ChangeDocumentStatusDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(CANDIDATE_DOCUMENT_STATUSES as unknown as string[], {
+    message: 'Invalid document status',
+  })
+  newStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(CANDIDATE_DOCUMENT_STATUSES as unknown as string[], {
+    message: 'Invalid document status',
+  })
+  toStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}
+
+export class RestoreDocumentVersionDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  note?: string;
+}
+
+export class SendCandidateDocumentEmailDto {
+  @IsOptional()
+  @IsUUID('all')
+  templateId?: string;
+
+  @IsOptional()
+  @IsUUID('all')
+  emailTemplateId?: string;
+
+  @IsOptional()
+  @IsUUID('all')
+  versionId?: string;
+
+  @IsEmail({}, { message: 'Enter a valid recipient email address.' })
+  @MaxLength(320)
+  recipientEmail!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  ccEmails?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  bccEmails?: string;
+
+  @IsString()
+  @MinLength(1, { message: 'Email subject is required.' })
+  @MaxLength(300)
+  subject!: string;
+
+  @IsString()
+  @MinLength(1, { message: 'Email body is required.' })
+  bodyHtml!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  idempotencyKey?: string;
+}
+
+export class UpdateDocumentTemplateEmailAssociationDto {
+  @IsOptional()
+  @IsUUID('all')
+  emailTemplateId?: string | null;
+}
+
+export class CreateEmailTemplateDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  templateName!: string;
+
+  @IsString()
+  @MaxLength(80)
+  category!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  documentKind?: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  subject!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsString()
+  bodyText!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UpdateEmailTemplateDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  templateName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  documentKind?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  subject?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  bodyText?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 

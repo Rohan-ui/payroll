@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import { TemplatesView } from './TemplatesView';
 import { LetterheadsView } from './LetterheadsView';
+import { EmailTemplatesView } from './EmailTemplatesView';
 
-type Tab = 'templates' | 'letterheads';
+type Tab = 'templates' | 'email-templates' | 'letterheads';
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'templates', label: 'Templates' },
+  { id: 'templates', label: 'Document Templates' },
+  { id: 'email-templates', label: 'Email Templates' },
   { id: 'letterheads', label: 'Letterheads' },
 ];
 
 /**
  * Organization & Settings → Documents & letterheads: the templates every
- * module makes documents from (offer letters, quotations, appraisal letters)
- * and the letterheads they print on.
+ * module makes documents from (offer letters, quotations, appraisal letters),
+ * customizable email templates, and the letterheads they print on.
  */
 export const DocumentsView: React.FC = () => {
   const [tab, setTab] = useState<Tab>('templates');
@@ -19,7 +21,9 @@ export const DocumentsView: React.FC = () => {
     <div className="space-y-4">
       <div>
         <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Documents & letterheads</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Templates for offer letters, quotations and appraisal letters, and the letterheads they print on.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Templates for offer letters, appointment letters, and agreements; reusable email templates; and printable letterheads.
+        </p>
       </div>
       <div role="tablist" aria-label="Documents & letterheads" className="flex gap-1 border-b border-slate-200 dark:border-[#2B293E] overflow-x-auto">
         {TABS.map((t) => (
@@ -30,7 +34,9 @@ export const DocumentsView: React.FC = () => {
         ))}
       </div>
       <div role="tabpanel" id="documents-panel" aria-labelledby={`documents-tab-${tab}`}>
-        {tab === 'templates' ? <TemplatesView /> : <LetterheadsView />}
+        {tab === 'templates' && <TemplatesView />}
+        {tab === 'email-templates' && <EmailTemplatesView />}
+        {tab === 'letterheads' && <LetterheadsView />}
       </div>
     </div>
   );

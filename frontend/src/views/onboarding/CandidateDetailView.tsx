@@ -184,27 +184,6 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
             </dl>
           </section>
 
-          <section aria-labelledby={`${ids}-offers`} className="p-4 rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724]">
-            <div className="flex items-center justify-between gap-2">
-              <h2 id={`${ids}-offers`} className="text-sm font-bold text-slate-900 dark:text-slate-100">Offers</h2>
-              {can('onboarding.offers.manage') && !archived && candidate.status === 'SELECTED' && !candidate.offers.some((o) => ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT'].includes(o.status)) && (
-                <button type="button" onClick={() => onCreateOffer(candidate)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-500 hover:bg-teal-600 text-white">Draft an offer</button>
-              )}
-            </div>
-            {candidate.offers.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{candidate.status === 'SELECTED' ? 'No offer yet.' : 'An offer can be drafted once the candidate is selected.'}</p>
-            ) : (
-              <ul className="mt-2 space-y-2">
-                {candidate.offers.map((o) => (
-                  <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg border border-slate-200 dark:border-[#2B293E]">
-                    <button type="button" onClick={() => onOpenOffer(o.id)} className="font-semibold text-sm text-teal-700 dark:text-teal-300 hover:underline">{o.offerCode}</button>
-                    <span className="text-xs text-slate-600">{o.jobTitle} · {formatAmount(o.annualCtc)} per year</span>
-                    <Badge variant={OFFER_VARIANT[o.status]} size="sm">{OFFER_STATUS_LABELS[o.status]}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
 
           {can('onboarding.documents.view') && <CandidateLetterDocuments candidateId={candidate.id} candidateName={candidate.fullName} />}
 

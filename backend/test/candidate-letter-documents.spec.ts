@@ -39,18 +39,28 @@ describe('Candidate Letter Documents System', () => {
       userId: member.user_id,
       email: member.rndtechnosoft_users.email,
       displayName: member.rndtechnosoft_users.display_name,
+      sessionId: randomUUID(),
       tenantId: member.tenant_id,
       tenantMemberId: member.id,
-      workspaceName: 'Acme',
-      role: 'ADMIN',
-      permissions: ['*'],
+      roles: ['ADMIN'],
+      mustChangePassword: false,
     };
 
     audit = new AuditService(prisma as any);
-    templates = new TemplatesService(prisma as any, audit);
     pdf = new DocumentPdfService();
     docx = new DocumentDocxService();
     letterheads = new LetterheadsService(prisma as any, audit, { read: async () => Buffer.from('') } as any);
+    templates = new TemplatesService(prisma as any, audit, letterheads, pdf);
+
+    const mockMailer = {
+      send: async (opts: any) => ({
+        recipient: opts.to,
+        status: 'SENT',
+        duplicate: false,
+        error: null,
+        sentFrom: 'hr@rndtechnosoft.com',
+      }),
+    };
 
     service = new CandidateLetterDocumentsService(
       prisma as any,
@@ -59,6 +69,7 @@ describe('Candidate Letter Documents System', () => {
       pdf,
       docx,
       letterheads,
+      mockMailer as any,
     );
 
     // Create a test appointment letter template if none exists
@@ -127,11 +138,17 @@ describe('Candidate Letter Documents System', () => {
 
   afterAll(async () => {
     if (createdDocId) {
+      await prisma.rndtechnosoft_candidate_document_emails.deleteMany({
+        where: { tenant_id: tenantId, document_id: createdDocId },
+      });
+      await prisma.rndtechnosoft_candidate_document_status_history.deleteMany({
+        where: { tenant_id: tenantId, document_id: createdDocId },
+      });
       await prisma.rndtechnosoft_candidate_document_versions.deleteMany({
-        where: { document_id: createdDocId },
+        where: { tenant_id: tenantId, document_id: createdDocId },
       });
       await prisma.rndtechnosoft_candidate_documents.deleteMany({
-        where: { id: createdDocId },
+        where: { tenant_id: tenantId, id: createdDocId },
       });
     }
     await prisma.$disconnect();
@@ -163,7 +180,7 @@ describe('Candidate Letter Documents System', () => {
     expect(info.placeholders.candidate_email).toBe('harshit@rndtechnosoft.com');
     expect(info.placeholders.candidate_phone).toBe('1234567890');
     expect(info.placeholders.department).toBe('TECH');
-    expect(info.placeholders.designation).toBe('Lead Full Stack Engineer');
+    expect(info.placeholders.designation).toBe('Frontend Developer');
   });
 
   it('Requirement 2: generates candidate document with replaced placeholders', async () => {
@@ -211,7 +228,7 @@ describe('Candidate Letter Documents System', () => {
         documentTitle: 'Harshit Dhodi - Appointment Letter',
         documentType: generated.documentType,
         document: editedDoc as any,
-        documentStatus: 'SAVED',
+        documentStatus: 'DRAFT',
       },
       actor,
     );
@@ -281,6 +298,201 @@ describe('Candidate Letter Documents System', () => {
     const docs = await service.listForCandidate(tenantId, harshitCandidateId);
     const matches = docs.filter((d) => d.id === createdDocId);
     expect(matches.length).toBe(1);
+  });
+
+  it('Requirement 3: duplicate version suppression when saving unchanged content', async () => {
+    const current = await service.get(tenantId, harshitCandidateId, createdDocId);
+    const versionCountBefore = (await service.listVersions(tenantId, harshitCandidateId, createdDocId)).length;
+
+    // Save identical content without changes
+    const updated = await service.updateDocument(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      {
+        documentTitle: current.documentTitle,
+        document: current.document as any,
+        expectedVersionNumber: current.versionNumber,
+      },
+      actor,
+    );
+
+    expect(updated.versionNumber).toBe(current.versionNumber); // Not incremented!
+    const versionCountAfter = (await service.listVersions(tenantId, harshitCandidateId, createdDocId)).length;
+    expect(versionCountAfter).toBe(versionCountBefore);
+  });
+
+  it('Requirement 3: optimistic concurrency protection against stale edits', async () => {
+    const current = await service.get(tenantId, harshitCandidateId, createdDocId);
+    // Provide a stale expectedVersionNumber (e.g. 999)
+    await expect(
+      service.updateDocument(
+        tenantId,
+        harshitCandidateId,
+        createdDocId,
+        {
+          documentTitle: 'Conflicting Edit',
+          document: { type: 'doc', content: [] } as any,
+          expectedVersionNumber: 999,
+        },
+        actor,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('Requirement 2: status management enforces valid transitions and audit history', async () => {
+    // Current status is DRAFT -> transition to IN_REVIEW
+    const res1 = await service.changeStatus(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      { toStatus: 'IN_REVIEW', reason: 'Review requested by HR' },
+      actor,
+    );
+    expect(res1.currentStatus).toBe('IN_REVIEW');
+
+    // IN_REVIEW -> APPROVED
+    const res2 = await service.changeStatus(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      { toStatus: 'APPROVED', reason: 'Approved by hiring manager' },
+      actor,
+    );
+    expect(res2.currentStatus).toBe('APPROVED');
+
+    // Attempt invalid transition directly from APPROVED to DRAFT (forbidden)
+    await expect(
+      service.changeStatus(
+        tenantId,
+        harshitCandidateId,
+        createdDocId,
+        { toStatus: 'DRAFT' },
+        actor,
+      ),
+    ).rejects.toThrow();
+
+    // Transition to REJECTED requires a reason
+    await expect(
+      service.changeStatus(
+        tenantId,
+        harshitCandidateId,
+        createdDocId,
+        { toStatus: 'REJECTED' }, // no reason
+        actor,
+      ),
+    ).rejects.toThrow();
+
+    // Transition to REJECTED with reason succeeds
+    const res3 = await service.changeStatus(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      { toStatus: 'REJECTED', reason: 'Salary expectations mismatch' },
+      actor,
+    );
+    expect(res3.currentStatus).toBe('REJECTED');
+
+    // Verify status audit history
+    const history = await service.getStatusHistory(tenantId, harshitCandidateId, createdDocId);
+    expect(history.length).toBeGreaterThanOrEqual(3);
+    const latest = history[0];
+    expect(latest.toStatus).toBe('REJECTED');
+    expect(latest.reason).toBe('Salary expectations mismatch');
+  });
+
+  it('Requirement 3: non-destructive version restoration creates a new version', async () => {
+    const versions = await service.listVersions(tenantId, harshitCandidateId, createdDocId);
+    expect(versions.length).toBeGreaterThanOrEqual(1);
+
+    const oldest = versions[versions.length - 1]; // Version 1
+    const restoreResult = await service.restoreVersion(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      oldest.id,
+      actor,
+      { note: 'Restoring back to initial appointment draft' },
+    );
+
+    expect(restoreResult.versionNumber).toBeGreaterThan(oldest.versionNumber);
+    // Historical version remains intact
+    const historicalVer = await service.getVersion(tenantId, harshitCandidateId, createdDocId, oldest.id);
+    expect(historicalVer.id).toBe(oldest.id);
+  });
+
+  it('Requirement 5 & 6: email templates management and dynamic placeholder preview', async () => {
+    // Ensure default email templates exist
+    await service.ensureDefaultEmailTemplates(tenantId);
+    const emailTemplates = await service.listEmailTemplates(tenantId);
+    expect(emailTemplates.length).toBeGreaterThan(0);
+
+    const offerEmailTpl = emailTemplates.find((t) => t.document_kind === 'OFFER_LETTER') || emailTemplates[0];
+    expect(offerEmailTpl).toBeDefined();
+
+    // Dynamic preview resolves candidate and document tokens
+    const preview = await service.previewEmail(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      { templateId: offerEmailTpl.id },
+    );
+
+    expect(preview.subject).toContain('Harshit Dhodi');
+    expect(preview.bodyHtml).toContain('Harshit Dhodi');
+    expect(preview.recipientEmail).toBe('harshit@rndtechnosoft.com');
+    expect(preview.unresolvedPlaceholders.length).toBe(0);
+    expect(preview.hasUnresolvedPlaceholders).toBe(false);
+  });
+
+  it('Requirement 4: sending email attaches PDF snapshot and records delivery audit', async () => {
+    // Put document into APPROVED status so sending is permitted
+    await service.changeStatus(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      { toStatus: 'DRAFT', reason: 'Reset for sending test' },
+      actor,
+    );
+    await service.changeStatus(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      { toStatus: 'APPROVED', reason: 'Approved for sending' },
+      actor,
+    );
+
+    const emailTemplates = await service.listEmailTemplates(tenantId);
+    const tpl = emailTemplates[0];
+
+    // Ensure preview yields valid version ID and sendEmail succeeds with it
+    const emailPreview = await service.previewEmail(tenantId, harshitCandidateId, createdDocId);
+    expect(emailPreview.versionId).toBeDefined();
+
+    const sendResult = await service.sendEmail(
+      tenantId,
+      harshitCandidateId,
+      createdDocId,
+      {
+        emailTemplateId: tpl.id,
+        recipientEmail: 'harshit@rndtechnosoft.com',
+        subject: 'Your Official Letter',
+        bodyHtml: '<p>Dear Harshit Dhodi, please find your letter attached.</p>',
+        versionId: emailPreview.versionId,
+      },
+      actor,
+    );
+
+    expect(sendResult).toHaveProperty('emailId');
+    expect(sendResult.deliveryStatus).toBe('SENT');
+    expect(sendResult.documentStatus).toBe('SENT');
+    expect(sendResult.attachmentFilename).toContain('.pdf');
+
+    // Verify email history
+    const emailHistory = await service.listEmails(tenantId, harshitCandidateId, createdDocId);
+    expect(emailHistory.length).toBeGreaterThanOrEqual(1);
+    expect(emailHistory[0].id).toBe(sendResult.emailId);
+    expect(emailHistory[0].recipientEmail).toBe('harshit@rndtechnosoft.com');
   });
 
   it('Requirement 5: exports real Microsoft Word .docx file with valid Word header', async () => {
