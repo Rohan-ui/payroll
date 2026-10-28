@@ -1,4 +1,4 @@
-import type { TemplateSummary } from './documents.api';
+import type { LetterDocument, TemplateSummary } from './documents.api';
 import { apiClient, apiFetch } from './client';
 
 /** HRMS onboarding: candidates, their workflow and interviews. */
@@ -467,4 +467,137 @@ export const onboardingApi = {
   rejectDocument: (candidateId: string, fileId: string, reason: string) =>
     apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/files/${fileId}/reject`, { reason }).then((r) => r.data),
   sendDocumentLink: (candidateId: string) => apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/link`).then((r) => r.data),
+
+  // ── Candidate Generated & Editable Letter Documents ───────────
+  listAvailableTemplates: (kind?: string) =>
+    apiClient.get<Envelope<AvailableTemplateSummary[]>>(`${BASE}/templates${qs({ kind })}`).then((r) => r.data),
+  getCandidatePlaceholders: (candidateId: string) =>
+    apiClient.get<Envelope<CandidatePlaceholderInfo>>(`${BASE}/candidates/${candidateId}/letter-placeholders`).then((r) => r.data),
+  generateLetterDocument: (candidateId: string, payload: GenerateCandidateDocumentPayload) =>
+    apiClient.post<Envelope<GeneratedDocumentResponse>>(`${BASE}/candidates/${candidateId}/letter-documents/generate`, payload).then((r) => r.data),
+  listCandidateLetterDocuments: (candidateId: string) =>
+    apiClient.get<Envelope<CandidateLetterDocumentSummary[]>>(`${BASE}/candidates/${candidateId}/letter-documents`).then((r) => r.data),
+  getCandidateLetterDocument: (candidateId: string, docId: string) =>
+    apiClient.get<Envelope<CandidateLetterDocumentDetail>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}`).then((r) => r.data),
+  saveCandidateLetterDocument: (candidateId: string, payload: SaveCandidateDocumentPayload) =>
+    apiClient.post<Envelope<CandidateLetterDocumentSummary>>(`${BASE}/candidates/${candidateId}/letter-documents`, payload).then((r) => r.data),
+  updateCandidateLetterDocument: (candidateId: string, docId: string, payload: Partial<SaveCandidateDocumentPayload>) =>
+    apiClient.put<Envelope<CandidateLetterDocumentSummary>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}`, payload).then((r) => r.data),
+  downloadLetterPdf: (candidateId: string, docId: string) =>
+    fetchFile(`/api/v1${BASE}/candidates/${candidateId}/letter-documents/${docId}/pdf?download=1`),
+  downloadLetterDocx: (candidateId: string, docId: string) =>
+    fetchFile(`/api/v1${BASE}/candidates/${candidateId}/letter-documents/${docId}/docx`),
 };
+
+export interface CandidateLetterDocumentSummary {
+  id: string;
+  documentTitle: string;
+  documentType: string;
+  typeLabel: string;
+  documentStatus: string;
+  versionNumber: number;
+  versionCount: number;
+  templateId: string | null;
+  templateName: string | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CandidateLetterDocumentDetail {
+  id: string;
+  candidateId: string;
+  templateId: string | null;
+  templateVersionId: string | null;
+  templateName: string | null;
+  documentTitle: string;
+  documentType: string;
+  typeLabel: string;
+  documentStatus: string;
+  versionNumber: number;
+  document: LetterDocument;
+  renderedTitle: string | null;
+  renderedBody: string | null;
+  layout: {
+    letterheadId: string | null;
+    letterheadName: string | null;
+    pageSize: 'A4' | 'LETTER';
+    marginsMm: { top: number; right: number; bottom: number; left: number };
+    showPageNumbers: boolean;
+  };
+  createdByName: string | null;
+  updatedByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  versions: {
+    id: string;
+    versionNumber: number;
+    title: string;
+    createdAt: string;
+    createdByName: string | null;
+  }[];
+}
+
+export interface AvailableTemplateSummary {
+  id: string;
+  name: string;
+  kind: string;
+  kindLabel: string;
+  category: string;
+  description: string;
+  versionNumber: number;
+  updatedAt: string;
+  hasWording: boolean;
+  letterheadId: string | null;
+  pageSize: string;
+  marginsMm: { top: number; right: number; bottom: number; left: number };
+  showPageNumbers: boolean;
+}
+
+export interface CandidatePlaceholderInfo {
+  placeholders: Record<string, string>;
+  missingFields: { key: string; label: string; description: string }[];
+}
+
+export interface GenerateCandidateDocumentPayload {
+  templateId: string;
+  templateVersionId?: string;
+  customValues?: Record<string, string>;
+}
+
+export interface GeneratedDocumentResponse {
+  templateId: string;
+  templateVersionId: string;
+  templateName: string;
+  templateKind: string;
+  documentTitle: string;
+  documentType: string;
+  document: LetterDocument;
+  layout: {
+    letterheadId: string | null;
+    letterheadName: string | null;
+    pageSize: 'A4' | 'LETTER';
+    marginsMm: { top: number; right: number; bottom: number; left: number };
+    showPageNumbers: boolean;
+  };
+  missingPlaceholders: { key: string; label: string; description: string }[];
+}
+
+export interface SaveCandidateDocumentPayload {
+  documentId?: string;
+  templateId?: string;
+  templateVersionId?: string;
+  documentTitle: string;
+  documentType: string;
+  document: LetterDocument | Record<string, unknown>;
+  documentStatus?: string;
+  layout?: {
+    letterheadId?: string | null;
+    pageSize?: 'A4' | 'LETTER';
+    marginsMm?: { top: number; right: number; bottom: number; left: number };
+    showPageNumbers?: boolean;
+  };
+  changelogNote?: string;
+}
+

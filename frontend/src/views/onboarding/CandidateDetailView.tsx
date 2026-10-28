@@ -30,6 +30,7 @@ import { CancelInterviewDialog, DecisionDialog, describeEmails, FeedbackDialog, 
 import { OFFER_VARIANT } from './OfferDetailView';
 import { OFFER_STATUS_LABELS } from '../../api/onboarding.api';
 import { CandidateDocuments } from './CandidateDocuments';
+import { CandidateLetterDocuments } from './CandidateLetterDocuments';
 
 interface Props {
   candidateId: string;
@@ -204,6 +205,8 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
               </ul>
             )}
           </section>
+
+          {can('onboarding.documents.view') && <CandidateLetterDocuments candidateId={candidate.id} candidateName={candidate.fullName} />}
 
           {can('onboarding.documents.view') && <CandidateDocuments candidateId={candidate.id} candidateName={candidate.fullName} onChanged={load} />}
 

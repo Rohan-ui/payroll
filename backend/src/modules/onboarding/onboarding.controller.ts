@@ -10,6 +10,7 @@ import { OnboardingDashboardService } from './onboarding-dashboard.service';
 import { OffersService } from './offers.service';
 import { TemplatesService } from '@/modules/documents/templates.service';
 import { CandidateDocumentsService, UploadedDocument } from './candidate-documents.service';
+import { CandidateLetterDocumentsService } from './candidate-letter-documents.service';
 import { MAX_FILE_BYTES } from './candidate-documents';
 import { fileResponse } from './file-response';
 import {
@@ -33,6 +34,9 @@ import {
   RequestDocumentsDto,
   RejectDocumentDto,
   OfferPreviewDto,
+  GenerateCandidateDocumentDto,
+  SaveCandidateDocumentDto,
+  UpdateCandidateDocumentDto,
 } from './dto/onboarding.dto';
 
 /**
@@ -48,6 +52,7 @@ export class OnboardingController {
     private readonly offers: OffersService,
     private readonly templates: TemplatesService,
     private readonly documents: CandidateDocumentsService,
+    private readonly letterDocs: CandidateLetterDocumentsService,
   ) {}
 
   @Get('dashboard')
@@ -258,13 +263,16 @@ export class OnboardingController {
     return { success: true, data: await this.offers.withdraw(tenantId, id, body.reason, actor), message: 'Offer withdrawn' };
   }
 
-  // ── Offer letter templates (managed in Documents & letterheads) ──
+  // ── Document Templates (managed in Documents & Letterheads) ──
 
-  /** Offer letter templates to choose from when drafting an offer. */
+  /** Document templates available for onboarding (offer letters, contracts, agreements, etc.) */
   @Get('templates')
   @RequirePermissions('onboarding.view')
-  async listTemplates(@CurrentTenant() tenantId: string) {
-    return { success: true, data: await this.templates.list(tenantId, 'OFFER_LETTER') };
+  async listTemplates(@CurrentTenant() tenantId: string, @Query('kind') kind?: string) {
+    if (kind && kind !== 'ALL') {
+      return { success: true, data: await this.templates.list(tenantId, kind) };
+    }
+    return { success: true, data: await this.letterDocs.listAvailableTemplates(tenantId) };
   }
 
   // ── Documents ───────────────────────────────────────────────
@@ -329,5 +337,103 @@ export class OnboardingController {
   @RequirePermissions('onboarding.documents.manage')
   async sendDocumentLink(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string) {
     return { success: true, data: await this.documents.sendLink(tenantId, id, actor) };
+  }
+
+  // ── Candidate Letter & Onboarding Generated Documents ────────
+
+  @Get('candidates/:id/letter-placeholders')
+  @RequirePermissions('onboarding.view')
+  async candidateLetterPlaceholders(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return { success: true, data: await this.letterDocs.getCandidatePlaceholders(tenantId, id) };
+  }
+
+  @Post('candidates/:id/letter-documents/generate')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.documents.manage')
+  async generateLetterDocument(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: GenerateCandidateDocumentDto,
+  ) {
+    return { success: true, data: await this.letterDocs.generateDocument(tenantId, id, body) };
+  }
+
+  @Get('candidates/:id/letter-documents')
+  @RequirePermissions('onboarding.documents.view')
+  async listCandidateLetterDocuments(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return { success: true, data: await this.letterDocs.listForCandidate(tenantId, id) };
+  }
+
+  @Post('candidates/:id/letter-documents')
+  @RequirePermissions('onboarding.documents.manage')
+  async saveCandidateLetterDocument(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Body() body: SaveCandidateDocumentDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.saveDocument(tenantId, id, body, actor),
+      message: 'Document saved successfully',
+    };
+  }
+
+  @Get('candidates/:id/letter-documents/:docId')
+  @RequirePermissions('onboarding.documents.view')
+  async getCandidateLetterDocument(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    return { success: true, data: await this.letterDocs.get(tenantId, id, docId) };
+  }
+
+  @Put('candidates/:id/letter-documents/:docId')
+  @RequirePermissions('onboarding.documents.manage')
+  async updateCandidateLetterDocument(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Body() body: UpdateCandidateDocumentDto,
+  ) {
+    return {
+      success: true,
+      data: await this.letterDocs.updateDocument(tenantId, id, docId, body, actor),
+      message: 'Document updated successfully',
+    };
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/pdf')
+  @RequirePermissions('onboarding.documents.view')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Cache-Control', 'private, no-store')
+  async downloadLetterPdf(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Query('download') download?: string,
+  ) {
+    const file = await this.letterDocs.exportPdf(tenantId, id, docId);
+    return fileResponse(file.bytes, 'application/pdf', file.filename, download ?? '1');
+  }
+
+  @Get('candidates/:id/letter-documents/:docId/docx')
+  @RequirePermissions('onboarding.documents.view')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Cache-Control', 'private, no-store')
+  async downloadLetterDocx(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    const file = await this.letterDocs.exportDocx(tenantId, id, docId);
+    return fileResponse(
+      file.bytes,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      file.filename,
+      '1',
+    );
   }
 }

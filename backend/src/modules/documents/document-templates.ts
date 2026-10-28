@@ -6,36 +6,105 @@ import { Prisma } from '@prisma/client';
  * use no other, so nothing is ever left blank by a typo.
  */
 
-export const TEMPLATE_KINDS = ['OFFER_LETTER', 'JOINING_LETTER', 'EMPLOYMENT_AGREEMENT', 'CERTIFICATE', 'QUOTATION', 'APPRAISAL_LETTER'] as const;
-export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
+export const TEMPLATE_KINDS = [
+  'OFFER_LETTER',
+  'APPOINTMENT_LETTER',
+  'EMPLOYMENT_CONTRACT',
+  'EMPLOYMENT_AGREEMENT',
+  'JOINING_LETTER',
+  'WELCOME_LETTER',
+  'NDA',
+  'SALARY_REVISION',
+  'EXPERIENCE_LETTER',
+  'RELIEVING_LETTER',
+  'CERTIFICATE',
+  'CUSTOM_HR',
+  'QUOTATION',
+  'APPRAISAL_LETTER',
+] as const;
+export type TemplateKind = (typeof TEMPLATE_KINDS)[number] | (string & {});
 
-/** Kinds that can be created now. The others arrive with their workflows. */
-export const AVAILABLE_TEMPLATE_KINDS: readonly TemplateKind[] = ['OFFER_LETTER', 'QUOTATION', 'APPRAISAL_LETTER'];
+/** Kinds that can be created now. All HR and business document kinds are fully supported. */
+export const AVAILABLE_TEMPLATE_KINDS: readonly string[] = [
+  'OFFER_LETTER',
+  'APPOINTMENT_LETTER',
+  'EMPLOYMENT_CONTRACT',
+  'EMPLOYMENT_AGREEMENT',
+  'JOINING_LETTER',
+  'WELCOME_LETTER',
+  'NDA',
+  'SALARY_REVISION',
+  'EXPERIENCE_LETTER',
+  'RELIEVING_LETTER',
+  'CERTIFICATE',
+  'CUSTOM_HR',
+  'QUOTATION',
+  'APPRAISAL_LETTER',
+];
 
 /** Kinds whose documents carry a table of amounts (the offered pay, a quotation's lines), placed where the template puts it. */
-export const TABLE_KINDS: Partial<Record<TemplateKind, string>> = { OFFER_LETTER: 'pay table', QUOTATION: 'items table' };
+export const TABLE_KINDS: Partial<Record<string, string>> = {
+  OFFER_LETTER: 'pay table',
+  APPOINTMENT_LETTER: 'pay table',
+  EMPLOYMENT_CONTRACT: 'pay table',
+  SALARY_REVISION: 'salary table',
+  QUOTATION: 'items table',
+};
 
-export const PLACEHOLDERS: Record<TemplateKind, { key: string; description: string; sample: string }[]> = {
-  OFFER_LETTER: [
-    { key: 'candidate_name', description: "The candidate's full name", sample: 'Priya Rao' },
-    { key: 'company_name', description: 'Your company’s legal name', sample: 'Acme Technologies Pvt Ltd' },
-    { key: 'job_title', description: 'The job title offered', sample: 'Senior Backend Engineer' },
-    { key: 'department', description: 'The department', sample: 'Engineering' },
-    { key: 'designation', description: 'The designation', sample: 'Senior Engineer' },
-    { key: 'reporting_manager', description: 'The manager they report to', sample: 'Ravi Kumar' },
-    { key: 'employment_type', description: 'Full-time, contract and so on', sample: 'Full-time' },
-    { key: 'work_location', description: 'Where they will work', sample: 'Pune office' },
-    { key: 'salary', description: 'Total annual pay (CTC)', sample: 'INR 18,00,000.00' },
-    { key: 'joining_date', description: 'The joining date', sample: '1 November 2026' },
-    { key: 'probation_period', description: 'The probation period', sample: '6 months' },
-    { key: 'offer_expiry_date', description: 'The last day to accept', sample: '15 October 2026' },
-    { key: 'special_terms', description: 'Any special terms', sample: 'A joining bonus of INR 50,000 is paid with the first salary.' },
-    { key: 'offer_reference', description: 'The offer reference number', sample: 'OFR-2026-123456' },
-    { key: 'today', description: "Today's date", sample: '30 September 2026' },
-  ],
-  JOINING_LETTER: [],
-  EMPLOYMENT_AGREEMENT: [],
-  CERTIFICATE: [],
+export const HR_COMMON_PLACEHOLDERS: { key: string; description: string; sample: string }[] = [
+  { key: 'candidate_name', description: "The candidate's full name", sample: 'Harshit Dhodi' },
+  { key: 'candidate_id', description: 'The candidate reference ID', sample: 'CAN-2026-243723' },
+  { key: 'candidate_code', description: 'The candidate reference code', sample: 'CAN-2026-243723' },
+  { key: 'candidate_email', description: "The candidate's email", sample: 'harshit@rndtechnosoft.com' },
+  { key: 'email', description: "The candidate's email", sample: 'harshit@rndtechnosoft.com' },
+  { key: 'candidate_phone', description: "The candidate's phone number", sample: '1234567890' },
+  { key: 'phone', description: "The candidate's phone number", sample: '1234567890' },
+  { key: 'address', description: "The candidate's address", sample: 'Pune, Maharashtra' },
+  { key: 'candidate_address', description: "The candidate's address", sample: 'Pune, Maharashtra' },
+  { key: 'job_title', description: 'The job title offered or held', sample: 'Lead Full Stack Engineer' },
+  { key: 'designation', description: 'The designation', sample: 'Lead Full Stack Engineer' },
+  { key: 'department', description: 'The department name', sample: 'TECH' },
+  { key: 'employment_type', description: 'Full-time, contract, etc.', sample: 'Full-time' },
+  { key: 'annual_salary', description: 'Annual compensation (CTC)', sample: 'INR 7,80,000.00' },
+  { key: 'salary', description: 'Total annual pay (CTC)', sample: 'INR 7,80,000.00' },
+  { key: 'expected_salary', description: 'Expected annual compensation', sample: 'INR 65,000.00' },
+  { key: 'joining_date', description: 'The expected joining date', sample: '1 September 2026' },
+  { key: 'expected_joining_date', description: 'The expected joining date', sample: '1 September 2026' },
+  { key: 'work_location', description: 'Where they will work', sample: 'Pune Head Office' },
+  { key: 'reporting_manager', description: 'The manager they report to', sample: 'Ravi Shah' },
+  { key: 'recruiter_name', description: 'The recruiter handling onboarding', sample: 'Ravi Shah' },
+  { key: 'recruiter', description: 'The recruiter handling onboarding', sample: 'Ravi Shah' },
+  { key: 'probation_period', description: 'The probation duration', sample: '3 months' },
+  { key: 'experience', description: 'Total years of experience', sample: '1.0 years' },
+  { key: 'experience_years', description: 'Total years of experience', sample: '1.0' },
+  { key: 'hiring_source', description: 'Where the candidate was sourced', sample: 'LINKEDIN' },
+  { key: 'company_name', description: 'Your company’s legal name', sample: 'RND Technosoft' },
+  { key: 'company_address', description: 'Your company’s registered address', sample: 'Tech Park, Pune' },
+  { key: 'company_phone', description: 'Your company’s phone number', sample: '+91 20 1234 5678' },
+  { key: 'company_email', description: 'Your company’s contact email', sample: 'hr@rndtechnosoft.com' },
+  { key: 'company_website', description: 'Your company’s website', sample: 'https://rndtechnosoft.com' },
+  { key: 'special_terms', description: 'Any special terms or conditions', sample: 'Subject to company policies.' },
+  { key: 'offer_reference', description: 'Reference number', sample: 'DOC-2026-1001' },
+  { key: 'offer_expiry_date', description: 'The last day to accept', sample: '15 October 2026' },
+  { key: 'employee_name', description: "The employee / candidate's full name", sample: 'Harshit Dhodi' },
+  { key: 'employee_code', description: 'The employee / candidate code', sample: 'CAN-2026-243723' },
+  { key: 'today', description: "Today's date", sample: '28 October 2026' },
+  { key: 'date', description: "Today's date", sample: '28 October 2026' },
+];
+
+export const PLACEHOLDERS: Record<string, { key: string; description: string; sample: string }[]> = {
+  OFFER_LETTER: HR_COMMON_PLACEHOLDERS,
+  APPOINTMENT_LETTER: HR_COMMON_PLACEHOLDERS,
+  EMPLOYMENT_CONTRACT: HR_COMMON_PLACEHOLDERS,
+  EMPLOYMENT_AGREEMENT: HR_COMMON_PLACEHOLDERS,
+  JOINING_LETTER: HR_COMMON_PLACEHOLDERS,
+  WELCOME_LETTER: HR_COMMON_PLACEHOLDERS,
+  NDA: HR_COMMON_PLACEHOLDERS,
+  SALARY_REVISION: HR_COMMON_PLACEHOLDERS,
+  EXPERIENCE_LETTER: HR_COMMON_PLACEHOLDERS,
+  RELIEVING_LETTER: HR_COMMON_PLACEHOLDERS,
+  CERTIFICATE: HR_COMMON_PLACEHOLDERS,
+  CUSTOM_HR: HR_COMMON_PLACEHOLDERS,
   QUOTATION: [
     { key: 'quotation_number', description: 'The quotation number', sample: 'QT-2026-0042' },
     { key: 'quotation_date', description: 'The date the quotation was made', sample: '14 October 2026' },
@@ -76,8 +145,10 @@ export const PLACEHOLDERS: Record<TemplateKind, { key: string; description: stri
 const TOKEN = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g;
 
 /** Why this template text can't be used, or null when it can. */
-export function templateProblem(kind: TemplateKind, title: string, body: string): string | null {
-  const allowed = new Set(PLACEHOLDERS[kind].map((p) => p.key));
+export function templateProblem(kind: TemplateKind | string, title: string, body: string): string | null {
+  const specific = (PLACEHOLDERS as Record<string, { key: string }[]>)[kind];
+  const list = specific && specific.length > 0 ? specific : HR_COMMON_PLACEHOLDERS;
+  const allowed = new Set([...list.map((p) => p.key), ...HR_COMMON_PLACEHOLDERS.map((p) => p.key)]);
   const text = `${title}\n${body}`;
   const unknown = [...new Set([...text.matchAll(TOKEN)].map((m) => m[1]).filter((key) => !allowed.has(key)))];
   if (unknown.length) return `These placeholders don't exist: ${unknown.map((k) => `{{${k}}}`).join(', ')}. Use only the ones listed.`;
@@ -91,8 +162,10 @@ export function renderTemplate(text: string, values: Record<string, string>): st
   return text.replace(TOKEN, (_match, key: string) => values[key] ?? '');
 }
 
-export function sampleValues(kind: TemplateKind): Record<string, string> {
-  return Object.fromEntries(PLACEHOLDERS[kind].map((p) => [p.key, p.sample]));
+export function sampleValues(kind: TemplateKind | string): Record<string, string> {
+  const specific = (PLACEHOLDERS as Record<string, { key: string; sample: string }[]>)[kind];
+  const list = specific && specific.length > 0 ? specific : HR_COMMON_PLACEHOLDERS;
+  return Object.fromEntries(list.map((p) => [p.key, p.sample]));
 }
 
 /** Made-up pay lines for sample offer letters; they add up to the sample salary. */

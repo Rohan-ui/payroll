@@ -10,6 +10,7 @@ import {
   IsIn,
   IsInt,
   IsISO8601,
+  IsObject,
   IsOptional,
   IsString,
   IsUrl,
@@ -489,3 +490,104 @@ export class OfferPreviewDto extends OfferInputDto {
   @IsUUID()
   candidateId!: string;
 }
+
+// ── Candidate Generated & Letter Documents ─────────────────────
+
+export class GenerateCandidateDocumentDto {
+  @IsUUID()
+  templateId!: string;
+
+  @IsOptional()
+  @IsUUID()
+  templateVersionId?: string;
+
+  @IsOptional()
+  @IsObject()
+  customValues?: Record<string, string>;
+}
+
+export class CandidateDocumentLayoutDto {
+  @IsOptional()
+  @IsUUID()
+  letterheadId?: string | null;
+
+  @IsOptional()
+  @IsIn(['A4', 'LETTER'])
+  pageSize?: 'A4' | 'LETTER';
+
+  @IsOptional()
+  @IsObject()
+  marginsMm?: { top: number; right: number; bottom: number; left: number };
+
+  @IsOptional()
+  @IsBoolean()
+  showPageNumbers?: boolean;
+}
+
+export class SaveCandidateDocumentDto {
+  @IsOptional()
+  @IsUUID()
+  documentId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  templateId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  templateVersionId?: string;
+
+  @IsString()
+  @MinLength(1, { message: 'Enter a document title.' })
+  @MaxLength(200)
+  documentTitle!: string;
+
+  @IsString()
+  @MaxLength(64)
+  documentType!: string;
+
+  @IsObject()
+  document!: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  documentStatus?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CandidateDocumentLayoutDto)
+  layout?: CandidateDocumentLayoutDto;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  changelogNote?: string;
+}
+
+export class UpdateCandidateDocumentDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  documentTitle?: string;
+
+  @IsObject()
+  document!: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  documentStatus?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CandidateDocumentLayoutDto)
+  layout?: CandidateDocumentLayoutDto;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  changelogNote?: string;
+}
+

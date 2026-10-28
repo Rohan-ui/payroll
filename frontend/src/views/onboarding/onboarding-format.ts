@@ -46,31 +46,89 @@ export function zonedTimeToIso(localValue: string, timezone: string): string | n
 }
 
 /** An exact moment as the wall-clock value a datetime-local field shows, in a time zone. */
-export function isoToZonedTime(iso: string, timezone: string): string {
-  const instant = new Date(iso).getTime();
-  const local = new Date(instant + offsetMinutes(instant, timezone) * 60000);
-  return local.toISOString().slice(0, 16);
+export function isoToZonedTime(iso: string | null | undefined, timezone: string): string {
+  if (!iso) return '';
+  try {
+    const instant = new Date(iso).getTime();
+    if (isNaN(instant)) return '';
+    const local = new Date(instant + offsetMinutes(instant, timezone) * 60000);
+    return local.toISOString().slice(0, 16);
+  } catch {
+    return '';
+  }
 }
 
-export function formatInTimezone(iso: string, timezone: string, withZone = true) {
-  const text = new Intl.DateTimeFormat('en-IN', {
-    timeZone: timezone,
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(iso));
-  return withZone ? `${text} (${timezone})` : text;
+export function formatInTimezone(iso: string | null | undefined, timezone: string, withZone = true): string {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    const text = new Intl.DateTimeFormat('en-IN', {
+      timeZone: timezone,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(d);
+    return withZone ? `${text} (${timezone})` : text;
+  } catch {
+    return '—';
+  }
 }
 
-export const formatDateTime = (iso: string) =>
-  new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+export const formatDateTime = (iso: string | null | undefined): string => {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return new Intl.DateTimeFormat('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(d);
+  } catch {
+    return '—';
+  }
+};
 
-/** A YYYY-MM-DD date as a readable date, without shifting it through a time zone. */
-export const formatDate = (isoDate: string) =>
-  new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${isoDate}T00:00:00Z`));
+/** A date (YYYY-MM-DD or full ISO timestamp) as a readable date in en-IN format without shifting time zone. */
+export const formatDate = (isoDate: string | null | undefined): string => {
+  if (!isoDate) return '—';
+  try {
+    const clean = String(isoDate).trim();
+    if (!clean) return '—';
+
+    // If it's a date-only string like YYYY-MM-DD, parse with UTC midnight to avoid local offset shifts
+    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+      const d = new Date(`${clean}T00:00:00Z`);
+      if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(d);
+      }
+    }
+
+    // If it's an ISO timestamp (e.g. 2026-10-28T05:30:00.000Z), parse directly
+    const d = new Date(clean);
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }).format(d);
+    }
+    return '—';
+  } catch {
+    return '—';
+  }
+};
 
 const rupees = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
 /** An amount string from the server, shown as rupees. Display only: never computed on. */

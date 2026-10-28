@@ -1,4 +1,4 @@
-import { PLACEHOLDERS, TABLE_KINDS, templateProblem, TemplateKind } from './document-templates';
+import { HR_COMMON_PLACEHOLDERS, PLACEHOLDERS, TABLE_KINDS, templateProblem, TemplateKind } from './document-templates';
 
 /**
  * Formatted letter documents: the editor's (Tiptap / ProseMirror) JSON, kept as
@@ -82,8 +82,10 @@ const num = (v: unknown, min: number, max: number, what: string): number | null 
  * nodes, marks and attributes in range, placeholders of this kind of template.
  * Attributes it doesn't know are dropped; anything else wrong is refused.
  */
-export function parseDocument(kind: TemplateKind, input: unknown): DocNode {
-  const allowed = new Set(PLACEHOLDERS[kind].map((p) => p.key));
+export function parseDocument(kind: TemplateKind | string, input: unknown): DocNode {
+  const specific = (PLACEHOLDERS as Record<string, { key: string }[]>)[kind];
+  const list = specific && specific.length > 0 ? specific : HR_COMMON_PLACEHOLDERS;
+  const allowed = new Set([...list.map((p) => p.key), ...HR_COMMON_PLACEHOLDERS.map((p) => p.key)]);
   let nodes = 0;
   let characters = 0;
   let tables = 0;
@@ -322,7 +324,148 @@ export function defaultDocument(kind: TemplateKind): DocNode | null {
       ],
     };
   }
-  if (kind !== 'OFFER_LETTER') return null;
+  if (kind === 'APPOINTMENT_LETTER') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'APPOINTMENT LETTER', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}\nCandidate ID: {{candidate_id}}', { spaceAfter: 14 }),
+        p('To,\n{{candidate_name}}\n{{address}}', { spaceAfter: 12 }),
+        p('Dear {{candidate_name}},', { spaceAfter: 10 }),
+        p('With reference to your application and subsequent interviews, we are pleased to appoint you as {{designation}} in the {{department}} department at {{company_name}}.', { textAlign: 'justify' }),
+        p('Your appointment is effective from your date of joining, {{joining_date}}. You will be placed on a probationary period of {{probation_period}} from the date of joining.', { textAlign: 'justify' }),
+        p('Your annual compensation will be {{annual_salary}}, subject to statutory deductions and applicable company policies.', { textAlign: 'justify' }),
+        { type: 'compensationTable' },
+        heading(3, 'Place of Work & Reporting'),
+        p('You will report to {{reporting_manager}} and will be located at {{work_location}}.', { textAlign: 'justify' }),
+        heading(3, 'Terms of Appointment'),
+        p('{{special_terms}}', { textAlign: 'justify' }),
+        p('We welcome you to {{company_name}} and look forward to a long and mutually beneficial association.', { textAlign: 'justify' }),
+        p('Sincerely,', { spaceBefore: 12, spaceAfter: 24 }),
+        p('For {{company_name}}\nAuthorized Signatory'),
+      ],
+    };
+  }
+  if (kind === 'JOINING_LETTER') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'JOINING LETTER', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}\nReference: {{candidate_id}}', { spaceAfter: 14 }),
+        p('Dear {{candidate_name}},', { spaceAfter: 10 }),
+        p('We are pleased to confirm your joining at {{company_name}} in the position of {{designation}} within the {{department}} department.', { textAlign: 'justify' }),
+        p('Your official date of joining is {{joining_date}}. You will report to {{reporting_manager}} at {{work_location}}.', { textAlign: 'justify' }),
+        p('Please report to the HR department on your joining date with your original documents for verification.', { textAlign: 'justify' }),
+        p('We wish you all the best and look forward to working with you.', { textAlign: 'justify' }),
+        p('Sincerely,', { spaceBefore: 12, spaceAfter: 24 }),
+        p('{{company_name}}\nHuman Resources'),
+      ],
+    };
+  }
+  if (kind === 'EMPLOYMENT_CONTRACT' || kind === 'EMPLOYMENT_AGREEMENT') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'EMPLOYMENT CONTRACT', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}\nContract Ref: {{candidate_id}}', { spaceAfter: 14 }),
+        p('This Employment Contract is entered into between {{company_name}} and {{candidate_name}}.', { spaceAfter: 10 }),
+        p('1. Position: The Employee shall be employed as {{designation}} in the {{department}} department.', { textAlign: 'justify' }),
+        p('2. Commencement: Employment commences on {{joining_date}}.', { textAlign: 'justify' }),
+        p('3. Compensation: The Employee will receive an annual salary of {{annual_salary}} payable in monthly installments.', { textAlign: 'justify' }),
+        { type: 'compensationTable' },
+        p('4. Probation: The initial probationary period will be {{probation_period}}.', { textAlign: 'justify' }),
+        p('5. Reporting: The Employee shall report to {{reporting_manager}} at {{work_location}}.', { textAlign: 'justify' }),
+        p('IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first above written.', { spaceBefore: 16 }),
+        p('For {{company_name}}                                           Employee Signature\nAuthorized Signatory                                        {{candidate_name}}', { spaceBefore: 16 }),
+      ],
+    };
+  }
+  if (kind === 'WELCOME_LETTER') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'WELCOME TO THE TEAM', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}', { spaceAfter: 14 }),
+        p('Dear {{candidate_name}},', { spaceAfter: 10 }),
+        p('On behalf of everyone at {{company_name}}, we are thrilled to welcome you as our new {{designation}} in the {{department}} department!', { textAlign: 'justify' }),
+        p('Your journey with us begins on {{joining_date}}. Your reporting manager {{reporting_manager}} and team at {{work_location}} are excited to have you on board.', { textAlign: 'justify' }),
+        p('If you have any questions before your first day, please feel free to reach out to {{recruiter_name}}.', { textAlign: 'justify' }),
+        p('Welcome aboard!', { spaceBefore: 12, spaceAfter: 24 }),
+        p('Sincerely,\n{{company_name}} Team'),
+      ],
+    };
+  }
+  if (kind === 'NDA') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'NON-DISCLOSURE AND CONFIDENTIALITY AGREEMENT', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}', { spaceAfter: 14 }),
+        p('This Non-Disclosure Agreement is made by and between {{company_name}} and {{candidate_name}} (Candidate ID: {{candidate_id}}).', { spaceAfter: 10 }),
+        p('1. Confidential Information: All proprietary technical, commercial, financial, and business information disclosed by {{company_name}} shall be treated as strictly confidential.', { textAlign: 'justify' }),
+        p('2. Obligations: The Employee agrees not to disclose, publish, or share any Confidential Information without prior written authorization.', { textAlign: 'justify' }),
+        p('3. Term: The obligations of confidentiality shall survive termination of employment.', { textAlign: 'justify' }),
+        p('Signed for {{company_name}}                                     Signed by {{candidate_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
+      ],
+    };
+  }
+  if (kind === 'EXPERIENCE_LETTER') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'EXPERIENCE CERTIFICATE', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}\nReference: {{candidate_id}}', { spaceAfter: 14 }),
+        p('TO WHOMSOEVER IT MAY CONCERN', { textAlign: 'center', spaceAfter: 14 }),
+        p('This is to certify that {{candidate_name}} was employed with {{company_name}} as {{designation}} in the {{department}} department.', { textAlign: 'justify' }),
+        p('During their tenure with us, {{candidate_name}} was found to be hardworking, dedicated, and professional in carrying out all responsibilities.', { textAlign: 'justify' }),
+        p('We wish them all the best in their future endeavors.', { textAlign: 'justify' }),
+        p('For {{company_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
+      ],
+    };
+  }
+  if (kind === 'RELIEVING_LETTER') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'RELIEVING LETTER', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}\nRef: {{candidate_id}}', { spaceAfter: 14 }),
+        p('Dear {{candidate_name}},', { spaceAfter: 10 }),
+        p('This letter confirms that you have been relieved from your duties as {{designation}} in the {{department}} department at {{company_name}}.', { textAlign: 'justify' }),
+        p('All company assets, accounts, and dues have been settled satisfactorily.', { textAlign: 'justify' }),
+        p('We appreciate your contributions and wish you every success in your future pursuits.', { textAlign: 'justify' }),
+        p('Sincerely,\nFor {{company_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
+      ],
+    };
+  }
+  if (kind === 'SALARY_REVISION') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, 'SALARY REVISION LETTER', { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}\nRef: {{candidate_id}}', { spaceAfter: 14 }),
+        p('Dear {{candidate_name}},', { spaceAfter: 10 }),
+        p('In recognition of your performance and valuable contributions to {{company_name}}, management is pleased to revise your compensation.', { textAlign: 'justify' }),
+        p('Effective {{joining_date}}, your revised annual compensation will be {{annual_salary}} as {{designation}} in {{department}}.', { textAlign: 'justify' }),
+        { type: 'compensationTable' },
+        p('All other terms and conditions of your employment remain unchanged.', { textAlign: 'justify' }),
+        p('Sincerely,\nFor {{company_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
+      ],
+    };
+  }
+  if (kind !== 'OFFER_LETTER') {
+    return {
+      type: 'doc',
+      content: [
+        heading(1, (kind || 'HR DOCUMENT').replace(/_/g, ' '), { textAlign: 'center', spaceAfter: 18 }),
+        p('Date: {{today}}\nRef: {{candidate_id}}', { spaceAfter: 14 }),
+        p('Dear {{candidate_name}},', { spaceAfter: 10 }),
+        p('This document is issued by {{company_name}} for {{candidate_name}}, appointed as {{designation}} in {{department}}.', { textAlign: 'justify' }),
+        p('Terms & Details: Expected joining date is {{joining_date}}, reporting to {{reporting_manager}} at {{work_location}}.', { textAlign: 'justify' }),
+        p('For any inquiries, please contact {{company_email}}.', { textAlign: 'justify' }),
+        p('Sincerely,\nFor {{company_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
+      ],
+    };
+  }
   return {
     type: 'doc',
     content: [

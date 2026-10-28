@@ -614,6 +614,7 @@ model rndtechnosoft_employees {
   rndtechnosoft_reimbursement_claims                                                                                                   rndtechnosoft_reimbursement_claims[]
   rndtechnosoft_statutory_deductions                                                                                                   rndtechnosoft_statutory_deductions[]
   rndtechnosoft_candidates                                                                                                             rndtechnosoft_candidates?
+  rndtechnosoft_candidate_documents                                                                                                   rndtechnosoft_candidate_documents[]
   managed_offers                                                                                                                       rndtechnosoft_offers[]                            @relation("offer_reporting_manager")
 
   rndtechnosoft_overtime_approvals rndtechnosoft_overtime_approvals[]
@@ -1511,6 +1512,9 @@ model rndtechnosoft_tenant_members {
   created_letterheads                                                                                                                             rndtechnosoft_letterheads[]                 @relation("letterhead_created_by")
   uploaded_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_uploaded_by")
   reviewed_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_reviewed_by")
+  candidate_docs_created                                                                                                                          rndtechnosoft_candidate_documents[]         @relation("candidate_doc_created_by")
+  candidate_docs_updated                                                                                                                          rndtechnosoft_candidate_documents[]         @relation("candidate_doc_updated_by")
+  candidate_doc_versions_created                                                                                                                  rndtechnosoft_candidate_document_versions[] @relation("candidate_doc_ver_created_by")
   email_sequences_created                                                                                                                         rndtechnosoft_email_sequences[]             @relation("email_sequence_created_by")
   email_sequence_enrollments_made                                                                                                                 rndtechnosoft_email_sequence_enrollments[]  @relation("email_sequence_enrolled_by")
   email_sequence_enrollments_stopped                                                                                                              rndtechnosoft_email_sequence_enrollments[]  @relation("email_sequence_stopped_by")
@@ -1711,6 +1715,7 @@ model rndtechnosoft_tenants {
   rndtechnosoft_candidates                     rndtechnosoft_candidates[]
   rndtechnosoft_onboarding_notifications       rndtechnosoft_onboarding_notifications[]
   rndtechnosoft_document_templates             rndtechnosoft_document_templates[]
+  rndtechnosoft_candidate_documents            rndtechnosoft_candidate_documents[]
   rndtechnosoft_letterheads                    rndtechnosoft_letterheads[]
   rndtechnosoft_cosec_sync_states              rndtechnosoft_cosec_sync_states?
   rndtechnosoft_email_sequences                rndtechnosoft_email_sequences[]
@@ -2576,6 +2581,7 @@ model rndtechnosoft_candidates {
   rndtechnosoft_interviews                  rndtechnosoft_interviews[]
   rndtechnosoft_offers                      rndtechnosoft_offers[]
   rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests[]
+  rndtechnosoft_candidate_documents        rndtechnosoft_candidate_documents[]
 
   @@unique([tenant_id, id], map: "uq_candidates_tenant_id")
   @@unique([tenant_id, candidate_code], map: "uq_candidates_code")
@@ -2698,6 +2704,7 @@ model rndtechnosoft_document_templates {
   rndtechnosoft_tenants                    rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_templates_tenant")
   created_by                               rndtechnosoft_tenant_members?              @relation("document_template_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_templates_created_by")
   rndtechnosoft_document_template_versions rndtechnosoft_document_template_versions[]
+  rndtechnosoft_candidate_documents       rndtechnosoft_candidate_documents[]
 
   @@unique([tenant_id, id], map: "uq_document_templates_tenant_id")
   @@unique([tenant_id, template_kind, template_name], map: "uq_document_templates_name")
@@ -2734,6 +2741,7 @@ model rndtechnosoft_document_template_versions {
   created_by                       rndtechnosoft_tenant_members?    @relation("template_version_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_template_versions_created_by")
   approved_by                      rndtechnosoft_tenant_members?    @relation("template_version_approved_by", fields: [tenant_id, approved_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_template_versions_approved_by")
   rndtechnosoft_offers             rndtechnosoft_offers[]
+  rndtechnosoft_candidate_documents rndtechnosoft_candidate_documents[]
 
   @@unique([tenant_id, id], map: "uq_template_versions_tenant_id")
   @@unique([tenant_id, template_id, version_number], map: "uq_template_versions_number")
@@ -2883,6 +2891,68 @@ model rndtechnosoft_candidate_document_files {
   @@index([tenant_id, review_status], map: "ix_document_files_review")
 }
 
+/// A document generated from a template for a candidate or employee, edited and saved.
+model rndtechnosoft_candidate_documents {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  candidate_id                String    @db.Uuid
+  employee_id                 String?   @db.Uuid
+  template_id                 String?   @db.Uuid
+  template_version_id         String?   @db.Uuid
+  document_title              String    @db.VarChar(200)
+  document_type               String    @db.VarChar(64)
+  document_status             String    @default("DRAFT") @db.VarChar(24)
+  rendered_title              String?   @db.VarChar(200)
+  rendered_body               String?   @db.Text
+  rendered_document           Json?     @db.JsonB
+  letterhead_id               String?   @db.Uuid
+  page_size                   String    @default("A4") @db.VarChar(8)
+  margin_top_mm               Int       @default(20)
+  margin_right_mm             Int       @default(20)
+  margin_bottom_mm            Int       @default(20)
+  margin_left_mm              Int       @default(20)
+  show_page_numbers           Boolean   @default(false)
+  version_number              Int       @default(1)
+  created_by_tenant_member_id String?   @db.Uuid
+  updated_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                     rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_tenant")
+  rndtechnosoft_candidates                  rndtechnosoft_candidates                    @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_candidate")
+  rndtechnosoft_employees                   rndtechnosoft_employees?                    @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_employee")
+  rndtechnosoft_document_templates          rndtechnosoft_document_templates?           @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template")
+  rndtechnosoft_document_template_versions  rndtechnosoft_document_template_versions?  @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template_version")
+  rndtechnosoft_letterheads                 rndtechnosoft_letterheads?                  @relation(fields: [tenant_id, letterhead_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_letterhead")
+  created_by                                rndtechnosoft_tenant_members?               @relation("candidate_doc_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_created_by")
+  updated_by                                rndtechnosoft_tenant_members?               @relation("candidate_doc_updated_by", fields: [tenant_id, updated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_updated_by")
+  rndtechnosoft_candidate_document_versions rndtechnosoft_candidate_document_versions[]
+
+  @@unique([tenant_id, id], map: "uq_candidate_documents_tenant_id")
+  @@index([tenant_id, candidate_id], map: "ix_candidate_documents_candidate")
+  @@index([tenant_id, employee_id], map: "ix_candidate_documents_employee")
+}
+
+/// A revision snapshot of a candidate document for history and auditability.
+model rndtechnosoft_candidate_document_versions {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  document_id                 String   @db.Uuid
+  version_number              Int
+  title                       String   @db.VarChar(200)
+  body                        String   @db.Text
+  document_data               Json?    @db.JsonB
+  created_by_tenant_member_id String?  @db.Uuid
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidate_documents rndtechnosoft_candidate_documents @relation(fields: [tenant_id, document_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_candidate_doc_versions_doc")
+  created_by                        rndtechnosoft_tenant_members?      @relation("candidate_doc_ver_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_doc_versions_created_by")
+
+  @@unique([tenant_id, id], map: "uq_candidate_doc_versions_tenant_id")
+  @@unique([tenant_id, document_id, version_number], map: "uq_candidate_doc_versions_number")
+  @@index([tenant_id, document_id], map: "ix_candidate_doc_versions_document")
+}
+
 /// A company letterhead for generated documents: the company's details, logo, and optional header and footer artwork (stored privately).
 model rndtechnosoft_letterheads {
   id                          String   @id @db.Uuid
@@ -2943,6 +3013,7 @@ model rndtechnosoft_letterheads {
   rndtechnosoft_document_template_versions rndtechnosoft_document_template_versions[]
   rndtechnosoft_letterhead_assets          rndtechnosoft_letterhead_assets[]
   rndtechnosoft_letterhead_elements        rndtechnosoft_letterhead_elements[]
+  rndtechnosoft_candidate_documents       rndtechnosoft_candidate_documents[]
 
   @@unique([tenant_id, id], map: "uq_letterheads_tenant_id")
 }

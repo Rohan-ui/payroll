@@ -14,6 +14,8 @@ import { CandidateDocumentsService } from './candidate-documents.service';
 import { DocumentsModule } from '@/modules/documents/documents.module';
 import { PrivateStorageService } from '@/common/storage/private-storage.service';
 
+import { CandidateLetterDocumentsService } from './candidate-letter-documents.service';
+
 /** HRMS onboarding: candidates, interviews, offers (on templates from Documents & letterheads), candidates' documents, and the emails about them. */
 @Module({
   imports: [TenantsModule, MailModule, GmailModule, DocumentsModule],
@@ -21,11 +23,13 @@ import { PrivateStorageService } from '@/common/storage/private-storage.service'
   providers: [
     CandidatesService,
     CandidateDocumentsService,
+    CandidateLetterDocumentsService,
     InterviewsService,
     OnboardingDashboardService,
     OnboardingMailerService,
     OffersService,
     PrivateStorageService,
   ],
+  exports: [CandidateLetterDocumentsService],
 })
 export class OnboardingModule {}
