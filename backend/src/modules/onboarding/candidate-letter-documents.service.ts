@@ -5,7 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomInt, randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { AccessService } from '@/common/access/access.service';
@@ -34,6 +35,7 @@ import {
   ChangeDocumentStatusDto,
   CreateEmailTemplateDto,
   GenerateCandidateDocumentDto,
+  ListAllDocumentsQueryDto,
   RestoreDocumentVersionDto,
   SaveCandidateDocumentDto,
   SendCandidateDocumentEmailDto,
@@ -395,6 +397,19 @@ export class CandidateLetterDocumentsService {
           },
         });
 
+        if (existing.document_type === 'OFFER_LETTER' || dto.documentType === 'OFFER_LETTER') {
+          await this.syncOfferForDocument(this.prisma, tenantId, candidateId, {
+            id: existing.id,
+            documentTitle: dto.documentTitle.trim(),
+            documentStatus: dto.documentStatus ?? existing.document_status,
+            renderedTitle: renderedTitle || dto.documentTitle.trim(),
+            renderedBody,
+            renderedDocument: parsedDoc,
+            templateVersionId: existing.template_version_id ?? dto.templateVersionId,
+            createdByTenantMemberId: actor.tenantMemberId,
+          }, actor);
+        }
+
         return {
           id: updated.id,
           documentTitle: updated.document_title,
@@ -428,11 +443,11 @@ export class CandidateLetterDocumentsService {
         });
 
         // Update main document record
-        return await tx.rndtechnosoft_candidate_documents.update({
+        const updated = await tx.rndtechnosoft_candidate_documents.update({
           where: { id: existing.id },
           data: {
             document_title: dto.documentTitle.trim(),
-            document_type: dto.documentType,
+            document_type: dto.documentType || existing.document_type,
             document_status: dto.documentStatus ?? existing.document_status,
             rendered_title: renderedTitle || dto.documentTitle.trim(),
             rendered_body: renderedBody,
@@ -449,6 +464,21 @@ export class CandidateLetterDocumentsService {
             updated_at: new Date(),
           },
         });
+
+        if (existing.document_type === 'OFFER_LETTER' || dto.documentType === 'OFFER_LETTER') {
+          await this.syncOfferForDocument(tx, tenantId, candidateId, {
+            id: existing.id,
+            documentTitle: dto.documentTitle.trim(),
+            documentStatus: dto.documentStatus ?? existing.document_status,
+            renderedTitle: renderedTitle || dto.documentTitle.trim(),
+            renderedBody,
+            renderedDocument: parsedDoc,
+            templateVersionId: existing.template_version_id ?? dto.templateVersionId,
+            createdByTenantMemberId: actor.tenantMemberId,
+          }, actor);
+        }
+
+        return updated;
       });
 
       await this.audit.log({
@@ -520,6 +550,19 @@ export class CandidateLetterDocumentsService {
           created_by_tenant_member_id: actor.tenantMemberId,
         },
       });
+
+      if (dto.documentType === 'OFFER_LETTER') {
+        await this.syncOfferForDocument(tx, tenantId, candidateId, {
+          id: newDocId,
+          documentTitle: dto.documentTitle.trim(),
+          documentStatus: dto.documentStatus ?? 'DRAFT',
+          renderedTitle: renderedTitle || dto.documentTitle.trim(),
+          renderedBody,
+          renderedDocument: parsedDoc,
+          templateVersionId: dto.templateVersionId,
+          createdByTenantMemberId: actor.tenantMemberId,
+        }, actor);
+      }
 
       return created;
     });
@@ -810,6 +853,44 @@ export class CandidateLetterDocumentsService {
         },
       });
 
+      // 4. Sync linked offer status if this is an offer letter
+      if (doc.document_type === 'OFFER_LETTER') {
+        const linkedOffer = await tx.rndtechnosoft_offers.findFirst({
+          where: { tenant_id: tenantId, candidate_document_id: doc.id },
+        });
+        if (linkedOffer) {
+          const newOfferStatus = this.mapDocStatusToOfferStatus(targetStatus);
+          await tx.rndtechnosoft_offers.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: linkedOffer.id } },
+            data: {
+              offer_status: newOfferStatus,
+              updated_at: new Date(),
+              ...(newOfferStatus === 'SENT' && !linkedOffer.sent_at
+                ? { sent_at: new Date(), sent_by_tenant_member_id: actor.tenantMemberId }
+                : {}),
+              ...(newOfferStatus === 'ACCEPTED' && !linkedOffer.responded_at
+                ? {
+                    responded_at: new Date(),
+                    accepted_name:
+                      linkedOffer.accepted_name ??
+                      (await tx.rndtechnosoft_candidates.findFirst({
+                        where: { tenant_id: tenantId, id: candidateId },
+                        select: { full_name: true },
+                      }))?.full_name ??
+                      'Candidate',
+                  }
+                : {}),
+              ...(newOfferStatus === 'DECLINED' && dto.reason
+                ? { decline_reason: dto.reason }
+                : {}),
+              ...(newOfferStatus === 'WITHDRAWN' && dto.reason
+                ? { withdrawn_reason: dto.reason }
+                : {}),
+            },
+          });
+        }
+      }
+
       return updatedDoc;
     });
 
@@ -987,7 +1068,7 @@ export class CandidateLetterDocumentsService {
       });
 
       // 2. Update active document
-      return await tx.rndtechnosoft_candidate_documents.update({
+      const updated = await tx.rndtechnosoft_candidate_documents.update({
         where: { id: doc.id },
         data: {
           document_title: historical.title,
@@ -999,6 +1080,25 @@ export class CandidateLetterDocumentsService {
           updated_at: new Date(),
         },
       });
+
+      if (doc.document_type === 'OFFER_LETTER') {
+        const linkedOffer = await tx.rndtechnosoft_offers.findFirst({
+          where: { tenant_id: tenantId, candidate_document_id: doc.id },
+        });
+        if (linkedOffer) {
+          await tx.rndtechnosoft_offers.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: linkedOffer.id } },
+            data: {
+              rendered_title: historical.title,
+              rendered_body: historical.body,
+              rendered_document: historical.document_data as object,
+              updated_at: new Date(),
+            },
+          });
+        }
+      }
+
+      return updated;
     });
 
     await this.audit.log({
@@ -1859,6 +1959,24 @@ export class CandidateLetterDocumentsService {
           },
         });
 
+        // Sync linked offer if OFFER_LETTER
+        if (doc.document_type === 'OFFER_LETTER') {
+          const linkedOffer = await tx.rndtechnosoft_offers.findFirst({
+            where: { tenant_id: tenantId, candidate_document_id: doc.id },
+          });
+          if (linkedOffer) {
+            await tx.rndtechnosoft_offers.update({
+              where: { tenant_id_id: { tenant_id: tenantId, id: linkedOffer.id } },
+              data: {
+                offer_status: 'SENT',
+                sent_at: new Date(),
+                sent_by_tenant_member_id: actor.tenantMemberId,
+                updated_at: new Date(),
+              },
+            });
+          }
+        }
+
         // 3. Status history entry
         if (doc.document_status !== 'SENT') {
           await tx.rndtechnosoft_candidate_document_status_history.create({
@@ -1997,5 +2115,373 @@ export class CandidateLetterDocumentsService {
       },
       actor,
     );
+  }
+
+  // ── Central Document Listing ────────────────────────────────
+
+  async listAll(tenantId: string, query: ListAllDocumentsQueryDto, actor: AuthenticatedTenantUser) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+
+    const where: Prisma.rndtechnosoft_candidate_documentsWhereInput = {
+      tenant_id: tenantId,
+      ...(query.type ? { document_type: query.type } : {}),
+      ...(query.status ? { document_status: query.status } : {}),
+      ...(query.emailStatus ? { email_status: query.emailStatus } : {}),
+      ...(query.templateId ? { template_id: query.templateId } : {}),
+      ...(query.candidateId ? { candidate_id: query.candidateId } : {}),
+      ...(query.employeeId ? { employee_id: query.employeeId } : {}),
+    };
+
+    if (query.search && query.search.trim()) {
+      const s = query.search.trim();
+      where.OR = [
+        { document_title: { contains: s, mode: 'insensitive' } },
+        { rendered_title: { contains: s, mode: 'insensitive' } },
+        { rndtechnosoft_candidates: { full_name: { contains: s, mode: 'insensitive' } } },
+        { rndtechnosoft_candidates: { candidate_code: { contains: s, mode: 'insensitive' } } },
+        { rndtechnosoft_employees: { first_name: { contains: s, mode: 'insensitive' } } },
+        { rndtechnosoft_employees: { last_name: { contains: s, mode: 'insensitive' } } },
+        { rndtechnosoft_employees: { employee_code: { contains: s, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [rows, total, statusGroups, typeGroups, totalAll] = await Promise.all([
+      this.prisma.rndtechnosoft_candidate_documents.findMany({
+        where,
+        orderBy: [{ updated_at: 'desc' }, { created_at: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          rndtechnosoft_candidates: { select: { id: true, full_name: true, candidate_code: true, email: true } },
+          rndtechnosoft_employees: { select: { id: true, first_name: true, last_name: true, employee_code: true } },
+          rndtechnosoft_document_templates: { select: { id: true, template_name: true, template_kind: true } },
+          rndtechnosoft_offers: { select: { id: true, offer_code: true, offer_status: true } },
+          created_by: { select: { rndtechnosoft_users: { select: { display_name: true, email: true } } } },
+          updated_by: { select: { rndtechnosoft_users: { select: { display_name: true, email: true } } } },
+          last_sent_by: { select: { rndtechnosoft_users: { select: { display_name: true, email: true } } } },
+          _count: {
+            select: {
+              rndtechnosoft_candidate_document_versions: true,
+              rndtechnosoft_candidate_document_emails: true,
+            },
+          },
+        },
+      }),
+      this.prisma.rndtechnosoft_candidate_documents.count({ where }),
+      this.prisma.rndtechnosoft_candidate_documents.groupBy({
+        by: ['document_status'],
+        where: { tenant_id: tenantId },
+        _count: { _all: true },
+      }),
+      this.prisma.rndtechnosoft_candidate_documents.groupBy({
+        by: ['document_type'],
+        where: { tenant_id: tenantId },
+        _count: { _all: true },
+      }),
+      this.prisma.rndtechnosoft_candidate_documents.count({ where: { tenant_id: tenantId } }),
+    ]);
+
+    const statusCounts: Record<string, number> = {
+      ALL: totalAll,
+      DRAFT: 0,
+      IN_REVIEW: 0,
+      APPROVED: 0,
+      SENT: 0,
+      DELIVERED: 0,
+      VIEWED: 0,
+      ACCEPTED: 0,
+      REJECTED: 0,
+      EXPIRED: 0,
+      WITHDRAWN: 0,
+    };
+    for (const g of statusGroups) {
+      statusCounts[g.document_status] = g._count._all;
+    }
+
+    const typeCounts: Record<string, number> = {};
+    for (const g of typeGroups) {
+      typeCounts[g.document_type] = g._count._all;
+    }
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        documentTitle: row.document_title,
+        documentType: row.document_type,
+        typeLabel: KIND_DISPLAY_NAMES[row.document_type] ?? row.document_type.replace(/_/g, ' '),
+        documentStatus: row.document_status,
+        versionNumber: row.version_number,
+        versionsCount: row._count.rndtechnosoft_candidate_document_versions,
+        emailsCount: row._count.rndtechnosoft_candidate_document_emails,
+        candidate: {
+          id: row.rndtechnosoft_candidates.id,
+          name: row.rndtechnosoft_candidates.full_name,
+          code: row.rndtechnosoft_candidates.candidate_code,
+          email: row.rndtechnosoft_candidates.email,
+        },
+        employee: row.rndtechnosoft_employees
+          ? {
+              id: row.rndtechnosoft_employees.id,
+              name: [row.rndtechnosoft_employees.first_name, row.rndtechnosoft_employees.last_name].filter(Boolean).join(' '),
+              code: row.rndtechnosoft_employees.employee_code,
+            }
+          : null,
+        template: row.rndtechnosoft_document_templates
+          ? {
+              id: row.rndtechnosoft_document_templates.id,
+              name: row.rndtechnosoft_document_templates.template_name,
+              kind: row.rndtechnosoft_document_templates.template_kind,
+            }
+          : null,
+        offer: row.rndtechnosoft_offers[0]
+          ? {
+              id: row.rndtechnosoft_offers[0].id,
+              code: row.rndtechnosoft_offers[0].offer_code,
+              status: row.rndtechnosoft_offers[0].offer_status,
+            }
+          : null,
+        emailStatus: row.email_status,
+        lastSentAt: row.last_sent_at?.toISOString() ?? null,
+        lastSentByName: row.last_sent_by?.rndtechnosoft_users.display_name || row.last_sent_by?.rndtechnosoft_users.email || null,
+        createdByName: row.created_by?.rndtechnosoft_users.display_name || row.created_by?.rndtechnosoft_users.email || null,
+        updatedByName: row.updated_by?.rndtechnosoft_users.display_name || row.updated_by?.rndtechnosoft_users.email || null,
+        createdAt: row.created_at.toISOString(),
+        updatedAt: row.updated_at.toISOString(),
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+      statusCounts,
+      typeCounts,
+    };
+  }
+
+  // ── Offer & Document Lifecycle Synchronization ─────────────
+
+  mapDocStatusToOfferStatus(docStatus: string): string {
+    switch (docStatus) {
+      case 'DRAFT': return 'DRAFT';
+      case 'IN_REVIEW': return 'PENDING_APPROVAL';
+      case 'APPROVED': return 'APPROVED';
+      case 'SENT':
+      case 'DELIVERED':
+      case 'VIEWED': return 'SENT';
+      case 'ACCEPTED': return 'ACCEPTED';
+      case 'REJECTED': return 'DECLINED';
+      case 'EXPIRED': return 'EXPIRED';
+      case 'WITHDRAWN': return 'WITHDRAWN';
+      default: return 'DRAFT';
+    }
+  }
+
+  mapOfferStatusToDocStatus(offerStatus: string): string {
+    switch (offerStatus) {
+      case 'DRAFT': return 'DRAFT';
+      case 'PENDING_APPROVAL': return 'IN_REVIEW';
+      case 'APPROVED': return 'APPROVED';
+      case 'SENT': return 'SENT';
+      case 'ACCEPTED': return 'ACCEPTED';
+      case 'DECLINED': return 'REJECTED';
+      case 'EXPIRED': return 'EXPIRED';
+      case 'WITHDRAWN': return 'WITHDRAWN';
+      default: return 'DRAFT';
+    }
+  }
+
+  private async generateOfferCode(tenantId: string): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const year = new Date().getFullYear();
+      const num = randomInt(100000, 1000000);
+      const code = `OFR-${year}-${num}`;
+      const existing = await this.prisma.rndtechnosoft_offers.findFirst({
+        where: { tenant_id: tenantId, offer_code: code },
+        select: { id: true },
+      });
+      if (!existing) return code;
+    }
+    return `OFR-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+  }
+
+  private async syncOfferForDocument(
+    tx: Prisma.TransactionClient | PrismaService,
+    tenantId: string,
+    candidateId: string,
+    doc: {
+      id: string;
+      documentTitle: string;
+      documentStatus: string;
+      renderedTitle: string;
+      renderedBody: string;
+      renderedDocument: unknown;
+      templateVersionId?: string | null;
+      createdByTenantMemberId?: string | null;
+    },
+    actor: AuthenticatedTenantUser,
+  ) {
+    const linkedOffer = await tx.rndtechnosoft_offers.findFirst({
+      where: { tenant_id: tenantId, candidate_document_id: doc.id },
+    });
+
+    if (linkedOffer) {
+      const newOfferStatus = doc.documentStatus ? this.mapDocStatusToOfferStatus(doc.documentStatus) : linkedOffer.offer_status;
+      await tx.rndtechnosoft_offers.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id: linkedOffer.id } },
+        data: {
+          rendered_title: doc.renderedTitle || doc.documentTitle,
+          rendered_body: doc.renderedBody || 'Offer of employment',
+          rendered_document: doc.renderedDocument as Prisma.InputJsonValue,
+          offer_status: newOfferStatus,
+          updated_at: new Date(),
+          ...(newOfferStatus === 'SENT' && !linkedOffer.sent_at
+            ? { sent_at: new Date(), sent_by_tenant_member_id: actor.tenantMemberId }
+            : {}),
+          ...(newOfferStatus === 'ACCEPTED' && !linkedOffer.responded_at
+            ? { responded_at: new Date() }
+            : {}),
+        },
+      });
+      return;
+    }
+
+    // Check if candidate already has an open offer without document
+    const openWithoutDoc = await tx.rndtechnosoft_offers.findFirst({
+      where: {
+        tenant_id: tenantId,
+        candidate_id: candidateId,
+        candidate_document_id: null,
+        offer_status: { in: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT'] },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    if (openWithoutDoc) {
+      await tx.rndtechnosoft_offers.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id: openWithoutDoc.id } },
+        data: {
+          candidate_document_id: doc.id,
+          rendered_title: doc.renderedTitle || doc.documentTitle,
+          rendered_body: doc.renderedBody || 'Offer of employment',
+          rendered_document: doc.renderedDocument as Prisma.InputJsonValue,
+          updated_at: new Date(),
+        },
+      });
+      return;
+    }
+
+    // Fetch candidate
+    const candidate = await tx.rndtechnosoft_candidates.findFirst({
+      where: { tenant_id: tenantId, id: candidateId },
+      include: {
+        rndtechnosoft_designations: true,
+        rndtechnosoft_departments: true,
+        rndtechnosoft_employment_types: true,
+        rndtechnosoft_offers: {
+          where: { offer_status: { in: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT'] } },
+        },
+      },
+    });
+    if (!candidate) return;
+
+    // Resolve template version
+    let templateVersionId = doc.templateVersionId;
+    if (!templateVersionId) {
+      const defaultVer = await tx.rndtechnosoft_document_template_versions.findFirst({
+        where: {
+          tenant_id: tenantId,
+          version_status: 'APPROVED',
+          rndtechnosoft_document_templates: { template_kind: 'OFFER_LETTER', is_archived: false },
+        },
+        orderBy: { version_number: 'desc' },
+        select: { id: true },
+      });
+      templateVersionId = defaultVer?.id;
+    }
+    if (!templateVersionId) {
+      const anyVer = await tx.rndtechnosoft_document_template_versions.findFirst({
+        where: { tenant_id: tenantId },
+        select: { id: true },
+      });
+      templateVersionId = anyVer?.id;
+    }
+    if (!templateVersionId) return;
+
+    const initialStatus = this.mapDocStatusToOfferStatus(doc.documentStatus || 'DRAFT');
+
+    // If candidate has an open offer with another doc, we cannot violate uq_offers_one_open
+    if (candidate.rndtechnosoft_offers.length > 0 && ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT'].includes(initialStatus)) {
+      for (const prior of candidate.rndtechnosoft_offers) {
+        if (!prior.candidate_document_id) {
+          await tx.rndtechnosoft_offers.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: prior.id } },
+            data: { candidate_document_id: doc.id, updated_at: new Date() },
+          });
+          return;
+        }
+      }
+    }
+
+    const offerCode = await this.generateOfferCode(tenantId);
+    const offerId = randomUUID();
+    const annualCtc = candidate.expected_salary ?? new Prisma.Decimal(0);
+    const joiningDate = candidate.expected_joining_date ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const expiresOn = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+    const jobTitle = candidate.applied_position || candidate.rndtechnosoft_designations?.designation_name || doc.documentTitle;
+
+    const isSentOrAnswered = ['SENT', 'ACCEPTED', 'DECLINED'].includes(initialStatus);
+
+    await tx.rndtechnosoft_offers.create({
+      data: {
+        id: offerId,
+        tenant_id: tenantId,
+        candidate_id: candidateId,
+        candidate_document_id: doc.id,
+        offer_code: offerCode,
+        template_version_id: templateVersionId,
+        job_title: jobTitle.slice(0, 160),
+        department_id: candidate.department_id,
+        designation_id: candidate.designation_id,
+        employment_type_id: candidate.employment_type_id,
+        annual_ctc: annualCtc,
+        currency_code: 'INR',
+        joining_date: joiningDate,
+        expires_on: expiresOn,
+        offer_status: initialStatus,
+        rendered_title: doc.renderedTitle || doc.documentTitle,
+        rendered_body: doc.renderedBody || 'Offer of employment',
+        rendered_document: doc.renderedDocument as Prisma.InputJsonValue,
+        sent_at: isSentOrAnswered ? new Date() : null,
+        sent_by_tenant_member_id: isSentOrAnswered ? actor.tenantMemberId : null,
+        responded_at: initialStatus === 'ACCEPTED' ? new Date() : null,
+        accepted_name: initialStatus === 'ACCEPTED' ? candidate.full_name : null,
+        created_by_tenant_member_id: actor.tenantMemberId,
+      },
+    });
+
+    await tx.rndtechnosoft_offer_components.create({
+      data: {
+        id: randomUUID(),
+        tenant_id: tenantId,
+        offer_id: offerId,
+        component_label: 'Basic Salary',
+        annual_amount: annualCtc,
+        sort_order: 1,
+      },
+    });
+
+    await tx.rndtechnosoft_candidate_events.create({
+      data: {
+        id: randomUUID(),
+        tenant_id: tenantId,
+        candidate_id: candidateId,
+        event_type: 'OFFER_DRAFTED',
+        summary: `Offer ${offerCode} created from document "${doc.documentTitle}"`,
+        actor_tenant_member_id: actor.tenantMemberId,
+        metadata: { offerId, offerCode, documentId: doc.id },
+      },
+    });
   }
 }

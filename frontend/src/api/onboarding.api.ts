@@ -265,11 +265,51 @@ export interface OfferDetail extends Omit<OfferInput, 'probationMonths'> {
   candidate: { id: string; name: string; code: string; email: string; status: CandidateStatus };
   templateName: string;
   templateVersion: number;
+  departmentName?: string | null;
+  designationName?: string | null;
+  employmentTypeName?: string | null;
   reportingManagerName: string | null;
   annualCtc: string;
   probationMonths: number | null;
   letter: { title: string; body: string };
   letterIsFinal: boolean;
+  candidateDocumentId?: string | null;
+  document?: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    versionNumber: number;
+    emailStatus?: string | null;
+    lastSentAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    versions: {
+      id: string;
+      versionNumber: number;
+      title: string;
+      changelogNote: string | null;
+      createdAt: string;
+      createdByName: string | null;
+    }[];
+    emails: {
+      id: string;
+      toEmail: string;
+      subject: string;
+      deliveryStatus: string;
+      sentAt: string;
+      sentByName: string | null;
+      errorMessage: string | null;
+    }[];
+  } | null;
+  timeline?: {
+    id: string;
+    eventType: string;
+    summary: string;
+    notes: string | null;
+    createdAt: string;
+    actorName: string | null;
+  }[];
   approvals: { submission: number; step: number; approverMemberId: string; approverName: string | null; status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'; comment: string | null; decidedAt: string | null }[];
   submissionNumber: number;
   awaitingMe: boolean;
@@ -277,6 +317,9 @@ export interface OfferDetail extends Omit<OfferInput, 'probationMonths'> {
   approvedAt: string | null;
   sentAt: string | null;
   sentBy: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
   respondedAt: string | null;
   acceptedName: string | null;
   declineReason: string | null;
@@ -288,14 +331,29 @@ export interface OfferListItem {
   id: string;
   offerCode: string;
   status: OfferStatus;
-  candidate: { id: string; name: string; code: string };
+  candidate: { id: string; name: string; code: string; email?: string };
   jobTitle: string;
+  department?: string | null;
+  designation?: string | null;
+  employmentType?: string | null;
   annualCtc: string;
   joiningDate: string;
   expiresOn: string;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string | null;
+  candidateDocumentId?: string | null;
+  document?: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    version: number;
+    emailStatus?: string | null;
+    updatedAt: string;
+  } | null;
   awaitingApprovalFrom: string | null;
   awaitingMe: boolean;
-  updatedAt: string;
 }
 
 export interface OfferActionResult {
@@ -547,10 +605,32 @@ export const onboardingApi = {
 
   searchEmployees: (search: string) => apiClient.get<Envelope<{ id: string; code: string; name: string }[]>>(`${BASE}/employees${qs({ search })}`).then((r) => r.data),
 
-  listOffers: (query: { page: number; limit: number; status?: OfferStatus | ''; awaitingMyApproval?: boolean }) =>
+  listOffers: (query: {
+    page: number;
+    limit: number;
+    status?: OfferStatus | 'ALL' | '';
+    search?: string;
+    departmentId?: string;
+    designationId?: string;
+    employmentTypeId?: string;
+    awaitingMyApproval?: boolean;
+  }) =>
     apiClient
-      .get<Envelope<OfferListItem[]>>(`${BASE}/offers${qs({ page: query.page, limit: query.limit, status: query.status, awaitingMyApproval: query.awaitingMyApproval ? 'true' : undefined })}`)
-      .then((r) => ({ items: r.data, pagination: r.pagination! })),
+      .get<Envelope<OfferListItem[]>>(`${BASE}/offers${qs({
+        page: query.page,
+        limit: query.limit,
+        status: query.status && query.status !== 'ALL' ? query.status : undefined,
+        search: query.search?.trim() || undefined,
+        departmentId: query.departmentId || undefined,
+        designationId: query.designationId || undefined,
+        employmentTypeId: query.employmentTypeId || undefined,
+        awaitingMyApproval: query.awaitingMyApproval ? 'true' : undefined,
+      })}`)
+      .then((r) => ({
+        items: r.data,
+        pagination: r.pagination!,
+        statusCounts: (r as unknown as { statusCounts?: Record<string, number> }).statusCounts,
+      })),
   getOffer: (id: string) => apiClient.get<Envelope<OfferDetail>>(`${BASE}/offers/${id}`).then((r) => r.data),
   createOffer: (candidateId: string, input: OfferInput) => apiClient.post<Envelope<OfferDetail>>(`${BASE}/candidates/${candidateId}/offers`, input).then((r) => r.data),
   updateOffer: (id: string, input: OfferInput) => apiClient.put<Envelope<OfferDetail>>(`${BASE}/offers/${id}`, input).then((r) => r.data),
@@ -593,6 +673,33 @@ export const onboardingApi = {
     apiClient.post<Envelope<GeneratedDocumentResponse>>(`${BASE}/candidates/${candidateId}/letter-documents/generate`, payload).then((r) => r.data),
   listCandidateLetterDocuments: (candidateId: string) =>
     apiClient.get<Envelope<CandidateLetterDocumentSummary[]>>(`${BASE}/candidates/${candidateId}/letter-documents`).then((r) => r.data),
+  listAllLetterDocuments: (query: {
+    page: number;
+    limit: number;
+    search?: string;
+    type?: string;
+    status?: string;
+    emailStatus?: string;
+    candidateId?: string;
+    employeeId?: string;
+  }) =>
+    apiClient
+      .get<Envelope<CentralDocumentItem[]>>(`${BASE}/letter-documents${qs({
+        page: query.page,
+        limit: query.limit,
+        search: query.search?.trim() || undefined,
+        type: query.type && query.type !== 'ALL' ? query.type : undefined,
+        status: query.status && query.status !== 'ALL' ? query.status : undefined,
+        emailStatus: query.emailStatus && query.emailStatus !== 'ALL' ? query.emailStatus : undefined,
+        candidateId: query.candidateId || undefined,
+        employeeId: query.employeeId || undefined,
+      })}`)
+      .then((r) => ({
+        items: r.data,
+        pagination: r.pagination!,
+        statusCounts: (r as unknown as { statusCounts?: Record<string, number> }).statusCounts,
+        typeCounts: (r as unknown as { typeCounts?: Record<string, number> }).typeCounts,
+      })),
   getCandidateLetterDocument: (candidateId: string, docId: string) =>
     apiClient.get<Envelope<CandidateLetterDocumentDetail>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}`).then((r) => r.data),
   saveCandidateLetterDocument: (candidateId: string, payload: SaveCandidateDocumentPayload) =>
@@ -648,6 +755,39 @@ export const onboardingApi = {
   updateDocumentTemplateEmailAssociation: (templateId: string, emailTemplateId: string | null) =>
     apiClient.put<Envelope<{ id: string; templateName: string; defaultEmailTemplateId: string | null }>>(`${BASE}/document-templates/${templateId}/email-template`, { emailTemplateId }).then((r) => r.data),
 };
+
+export interface CentralDocumentItem {
+  id: string;
+  documentTitle: string;
+  documentType: string;
+  typeLabel: string;
+  documentStatus: string;
+  versionNumber: number;
+  versionsCount: number;
+  emailsCount: number;
+  candidate?: {
+    id: string;
+    name: string;
+    code: string;
+    email: string;
+  } | null;
+  employee?: {
+    id: string;
+    name: string;
+    code: string;
+  } | null;
+  template?: {
+    id: string;
+    name: string;
+    kind: string;
+  } | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+  lastSentAt: string | null;
+  emailStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface CandidateLetterDocumentSummary {
   id: string;

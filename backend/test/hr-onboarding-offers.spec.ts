@@ -183,6 +183,10 @@ describe('HRMS onboarding offers', () => {
       await prisma.rndtechnosoft_offer_approvals.deleteMany({ where: scope });
       await prisma.rndtechnosoft_offer_components.deleteMany({ where: scope });
       await prisma.rndtechnosoft_offers.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_candidate_document_emails.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_candidate_document_versions.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_candidate_document_status_history.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_candidate_documents.deleteMany({ where: scope });
       await prisma.rndtechnosoft_document_template_versions.deleteMany({ where: scope });
       await prisma.rndtechnosoft_document_templates.deleteMany({ where: scope });
       await prisma.rndtechnosoft_interview_panelists.deleteMany({ where: scope });
@@ -218,7 +222,7 @@ describe('HRMS onboarding offers', () => {
       const unknown = await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer', body: 'Hello {{first_name}}' });
       expect([unknown.status, unknown.body.message]).toEqual([400, "These placeholders don't exist: {{first_name}}. Use only the ones listed."]);
       expect((await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer', body: 'Hello {{candidate_name}' })).status).toBe(400);
-      expect((await asA('post', '/documents/templates', { kind: 'JOINING_LETTER', name: 'Later', title: 'x', body: 'y' })).status).toBe(400);
+      expect((await asA('post', '/documents/templates', { kind: 'INVALID_KIND', name: 'Later', title: 'x', body: 'y' })).status).toBe(400);
       expect((await call('post', '/documents/templates', viewer.token, { kind: 'OFFER_LETTER', name: 'x', title: 'x', body: 'y' })).status).toBe(403);
 
       const created = await asA('post', '/documents/templates', { kind: 'OFFER_LETTER', name: 'Standard', title: 'Offer of employment: {{job_title}}', body: TEMPLATE_BODY });

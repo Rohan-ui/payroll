@@ -44,6 +44,7 @@ import {
   SendCandidateDocumentEmailDto,
   RestoreDocumentVersionDto,
   UpdateDocumentTemplateEmailAssociationDto,
+  ListAllDocumentsQueryDto,
 } from './dto/onboarding.dto';
 
 /**
@@ -215,7 +216,7 @@ export class OnboardingController {
   @RequirePermissions('onboarding.view')
   async listOffers(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Query() query: ListOffersQueryDto) {
     const result = await this.offers.list(tenantId, query, actor);
-    return { success: true, data: result.items, pagination: result.pagination };
+    return { success: true, data: result.items, pagination: result.pagination, statusCounts: result.statusCounts };
   }
 
   @Post('candidates/:id/offers')
@@ -394,6 +395,25 @@ export class OnboardingController {
     @Body() body: GenerateCandidateDocumentDto,
   ) {
     return { success: true, data: await this.letterDocs.generateDocument(tenantId, id, body) };
+  }
+
+  // ── Central Generated Onboarding Documents ───────────────────
+
+  @Get('letter-documents')
+  @RequirePermissions('onboarding.documents.view')
+  async listAllLetterDocuments(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Query() query: ListAllDocumentsQueryDto,
+  ) {
+    const result = await this.letterDocs.listAll(tenantId, query, actor);
+    return {
+      success: true,
+      data: result.items,
+      pagination: result.pagination,
+      statusCounts: result.statusCounts,
+      typeCounts: result.typeCounts,
+    };
   }
 
   @Get('candidates/:id/letter-documents')

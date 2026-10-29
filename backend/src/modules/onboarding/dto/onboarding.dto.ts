@@ -432,6 +432,63 @@ export class ListOffersQueryDto {
   @IsOptional()
   @IsIn(['true', 'false'])
   awaitingMyApproval?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  designationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  employmentTypeId?: string;
+}
+
+export class ListAllDocumentsQueryDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  emailStatus?: string;
+
+  @IsOptional()
+  @IsUUID()
+  templateId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  candidateId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
 }
 
 // ── The candidate's response (public link) ────────────────────

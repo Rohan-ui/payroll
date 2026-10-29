@@ -60,24 +60,100 @@ export class OffersService {
 
   async list(tenantId: string, query: ListOffersQueryDto, actor: AuthenticatedTenantUser) {
     await this.expireDue(tenantId);
-    const where: Prisma.rndtechnosoft_offersWhereInput = { tenant_id: tenantId, ...(query.status ? { offer_status: query.status } : {}) };
+    const where: Prisma.rndtechnosoft_offersWhereInput = {
+      tenant_id: tenantId,
+      ...(query.status && query.status !== 'ALL' ? { offer_status: query.status } : {}),
+      ...(query.departmentId ? { department_id: query.departmentId } : {}),
+      ...(query.designationId ? { designation_id: query.designationId } : {}),
+      ...(query.employmentTypeId ? { employment_type_id: query.employmentTypeId } : {}),
+    };
+
+    if (query.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { offer_code: { contains: q, mode: 'insensitive' } },
+        { job_title: { contains: q, mode: 'insensitive' } },
+        { rndtechnosoft_candidates: { full_name: { contains: q, mode: 'insensitive' } } },
+        { rndtechnosoft_candidates: { candidate_code: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
     if (query.awaitingMyApproval === 'true') {
       const mine = await this.offersAwaitingApprovalBy(tenantId, actor.tenantMemberId);
       where.id = { in: mine };
     }
-    const [rows, total] = await Promise.all([
+
+    // Tab counts across tenant (scoped by department/designation/search if provided)
+    const baseCountWhere: Prisma.rndtechnosoft_offersWhereInput = {
+      tenant_id: tenantId,
+      ...(query.departmentId ? { department_id: query.departmentId } : {}),
+      ...(query.designationId ? { designation_id: query.designationId } : {}),
+      ...(query.employmentTypeId ? { employment_type_id: query.employmentTypeId } : {}),
+    };
+    if (query.search?.trim()) {
+      const q = query.search.trim();
+      baseCountWhere.OR = [
+        { offer_code: { contains: q, mode: 'insensitive' } },
+        { job_title: { contains: q, mode: 'insensitive' } },
+        { rndtechnosoft_candidates: { full_name: { contains: q, mode: 'insensitive' } } },
+        { rndtechnosoft_candidates: { candidate_code: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(query.limit) || 20));
+
+    const [rows, total, statusCountsRaw] = await Promise.all([
       this.prisma.rndtechnosoft_offers.findMany({
         where,
         orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
-        skip: (query.page - 1) * query.limit,
-        take: query.limit,
+        skip: (page - 1) * limit,
+        take: limit,
         include: {
-          rndtechnosoft_candidates: { select: { id: true, full_name: true, candidate_code: true } },
+          rndtechnosoft_candidates: { select: { id: true, full_name: true, candidate_code: true, email: true } },
+          rndtechnosoft_departments: { select: { id: true, department_name: true } },
+          rndtechnosoft_designations: { select: { id: true, designation_name: true } },
+          rndtechnosoft_employment_types: { select: { id: true, employment_type_name: true } },
+          rndtechnosoft_candidate_documents: {
+            select: {
+              id: true,
+              document_title: true,
+              document_type: true,
+              document_status: true,
+              version_number: true,
+              email_status: true,
+              updated_at: true,
+            },
+          },
           rndtechnosoft_offer_approvals: { include: { rndtechnosoft_tenant_members: MEMBER }, orderBy: { step_number: 'asc' } },
         },
       }),
       this.prisma.rndtechnosoft_offers.count({ where }),
+      this.prisma.rndtechnosoft_offers.groupBy({
+        by: ['offer_status'],
+        where: baseCountWhere,
+        _count: { id: true },
+      }),
     ]);
+
+    const statusCounts: Record<string, number> = {
+      ALL: 0,
+      DRAFT: 0,
+      PENDING_APPROVAL: 0,
+      APPROVED: 0,
+      SENT: 0,
+      ACCEPTED: 0,
+      DECLINED: 0,
+      EXPIRED: 0,
+      WITHDRAWN: 0,
+    };
+    for (const group of statusCountsRaw) {
+      if (statusCounts[group.offer_status] !== undefined) {
+        statusCounts[group.offer_status] = group._count.id;
+      }
+      statusCounts.ALL += group._count.id;
+    }
+
     return {
       items: rows.map((row) => {
         const current = this.currentStep(row.rndtechnosoft_offer_approvals, row.submission_number, row.offer_status);
@@ -85,17 +161,40 @@ export class OffersService {
           id: row.id,
           offerCode: row.offer_code,
           status: row.offer_status,
-          candidate: { id: row.rndtechnosoft_candidates.id, name: row.rndtechnosoft_candidates.full_name, code: row.rndtechnosoft_candidates.candidate_code },
+          candidate: {
+            id: row.rndtechnosoft_candidates.id,
+            name: row.rndtechnosoft_candidates.full_name,
+            code: row.rndtechnosoft_candidates.candidate_code,
+            email: row.rndtechnosoft_candidates.email,
+          },
           jobTitle: row.job_title,
+          department: row.rndtechnosoft_departments?.department_name ?? null,
+          designation: row.rndtechnosoft_designations?.designation_name ?? null,
+          employmentType: row.rndtechnosoft_employment_types?.employment_type_name ?? null,
           annualCtc: row.annual_ctc.toFixed(2),
           joiningDate: row.joining_date.toISOString().slice(0, 10),
           expiresOn: row.expires_on.toISOString().slice(0, 10),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          sentAt: row.sent_at,
+          candidateDocumentId: row.candidate_document_id,
+          document: row.rndtechnosoft_candidate_documents
+            ? {
+                id: row.rndtechnosoft_candidate_documents.id,
+                title: row.rndtechnosoft_candidate_documents.document_title,
+                type: row.rndtechnosoft_candidate_documents.document_type,
+                status: row.rndtechnosoft_candidate_documents.document_status,
+                version: row.rndtechnosoft_candidate_documents.version_number,
+                emailStatus: row.rndtechnosoft_candidate_documents.email_status,
+                updatedAt: row.rndtechnosoft_candidate_documents.updated_at,
+              }
+            : null,
           awaitingApprovalFrom: current ? nameOf(current.rndtechnosoft_tenant_members) : null,
           awaitingMe: current?.approver_tenant_member_id === actor.tenantMemberId,
-          updatedAt: row.updated_at,
         };
       }),
-      pagination: { page: query.page, limit: query.limit, total, totalPages: Math.max(1, Math.ceil(total / query.limit)) },
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+      statusCounts,
     };
   }
 
@@ -104,6 +203,22 @@ export class OffersService {
     const offer = await this.load(this.prisma, tenantId, offerId);
     const current = this.currentStep(offer.rndtechnosoft_offer_approvals, offer.submission_number, offer.offer_status);
     const letter = offer.rendered_body !== null ? { title: offer.rendered_title ?? '', body: offer.rendered_body } : await this.renderLetter(this.prisma, tenantId, offer);
+
+    const timeline = await this.prisma.rndtechnosoft_candidate_events.findMany({
+      where: {
+        tenant_id: tenantId,
+        candidate_id: offer.candidate_id,
+        event_type: { startsWith: 'OFFER_' },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 25,
+      include: {
+        rndtechnosoft_tenant_members: MEMBER,
+      },
+    });
+
+    const doc = offer.rndtechnosoft_candidate_documents;
+
     return {
       id: offer.id,
       offerCode: offer.offer_code,
@@ -120,8 +235,11 @@ export class OffersService {
       templateVersion: offer.rndtechnosoft_document_template_versions.version_number,
       jobTitle: offer.job_title,
       departmentId: offer.department_id,
+      departmentName: offer.rndtechnosoft_departments?.department_name ?? null,
       designationId: offer.designation_id,
+      designationName: offer.rndtechnosoft_designations?.designation_name ?? null,
       employmentTypeId: offer.employment_type_id,
+      employmentTypeName: offer.rndtechnosoft_employment_types?.employment_type_name ?? null,
       reportingManagerEmployeeId: offer.reporting_manager_employee_id,
       reportingManagerName: offer.reporting_manager ? [offer.reporting_manager.first_name, offer.reporting_manager.last_name].filter(Boolean).join(' ') : null,
       workLocation: offer.work_location,
@@ -133,6 +251,45 @@ export class OffersService {
       specialTerms: offer.special_terms,
       letter,
       letterIsFinal: offer.rendered_body !== null,
+      candidateDocumentId: offer.candidate_document_id,
+      document: doc
+        ? {
+            id: doc.id,
+            title: doc.document_title,
+            type: doc.document_type,
+            status: doc.document_status,
+            versionNumber: doc.version_number,
+            emailStatus: doc.email_status,
+            lastSentAt: doc.last_sent_at,
+            createdAt: doc.created_at,
+            updatedAt: doc.updated_at,
+            versions: doc.rndtechnosoft_candidate_document_versions.map((v) => ({
+              id: v.id,
+              versionNumber: v.version_number,
+              title: v.title,
+              changelogNote: v.changelog_note,
+              createdAt: v.created_at,
+              createdByName: nameOf(v.created_by),
+            })),
+            emails: doc.rndtechnosoft_candidate_document_emails.map((e) => ({
+              id: e.id,
+              toEmail: e.recipient_email,
+              subject: e.subject,
+              deliveryStatus: e.delivery_status,
+              sentAt: e.sent_at,
+              sentByName: nameOf(e.sender),
+              errorMessage: e.error_message,
+            })),
+          }
+        : null,
+      timeline: timeline.map((evt) => ({
+        id: evt.id,
+        eventType: evt.event_type,
+        summary: evt.summary,
+        notes: evt.notes,
+        createdAt: evt.created_at,
+        actorName: nameOf(evt.rndtechnosoft_tenant_members),
+      })),
       approvals: offer.rndtechnosoft_offer_approvals.map((a) => ({
         submission: a.submission_number,
         step: a.step_number,
@@ -148,6 +305,9 @@ export class OffersService {
       approvedAt: offer.approved_at,
       sentAt: offer.sent_at,
       sentBy: nameOf(offer.sent_by),
+      createdByName: nameOf(offer.created_by),
+      createdAt: offer.created_at,
+      updatedAt: offer.updated_at,
       respondedAt: offer.responded_at,
       acceptedName: offer.accepted_name,
       declineReason: offer.decline_reason,
@@ -213,11 +373,62 @@ export class OffersService {
         }
         const open = await tx.rndtechnosoft_offers.findFirst({ where: { tenant_id: tenantId, candidate_id: id, offer_status: { in: OPEN_STATUSES } }, select: { offer_code: true } });
         if (open) throw new ConflictException(`${open.offer_code} is still open for this candidate. Withdraw it before starting another.`);
+
+        // Find parent template ID
+        const templateVersion = await tx.rndtechnosoft_document_template_versions.findFirst({
+          where: { tenant_id: tenantId, id: data.offer.template_version_id },
+          select: { template_id: true },
+        });
+
+        const letter = await this.renderLetter(tx, tenantId, { offer_code: code, candidate_id: id, ...data.offer });
+        const docId = randomUUID();
+        const docVerId = randomUUID();
+
+        await tx.rndtechnosoft_candidate_documents.create({
+          data: {
+            id: docId,
+            tenant_id: tenantId,
+            candidate_id: id,
+            document_title: `${data.offer.job_title} Offer Letter`,
+            document_type: 'OFFER_LETTER',
+            document_status: 'DRAFT',
+            template_id: templateVersion?.template_id ?? null,
+            template_version_id: data.offer.template_version_id,
+            rendered_title: letter.title,
+            rendered_body: letter.body,
+            version_number: 1,
+            created_by_tenant_member_id: actor.tenantMemberId,
+            updated_by_tenant_member_id: actor.tenantMemberId,
+          },
+        });
+
+        await tx.rndtechnosoft_candidate_document_versions.create({
+          data: {
+            id: docVerId,
+            tenant_id: tenantId,
+            document_id: docId,
+            version_number: 1,
+            title: `${data.offer.job_title} Offer Letter`,
+            body: letter.body,
+            changelog_note: 'Initial offer draft created',
+            created_by_tenant_member_id: actor.tenantMemberId,
+          },
+        });
+
         await tx.rndtechnosoft_offers.create({
-          data: { id: offerId, tenant_id: tenantId, candidate_id: id, offer_code: code, offer_status: 'DRAFT', created_by_tenant_member_id: actor.tenantMemberId, ...data.offer },
+          data: {
+            id: offerId,
+            tenant_id: tenantId,
+            candidate_id: id,
+            offer_code: code,
+            offer_status: 'DRAFT',
+            candidate_document_id: docId,
+            created_by_tenant_member_id: actor.tenantMemberId,
+            ...data.offer,
+          },
         });
         await tx.rndtechnosoft_offer_components.createMany({ data: data.components.map((c) => ({ ...c, id: randomUUID(), tenant_id: tenantId, offer_id: offerId })) });
-        await this.candidates.recordEvent(tx, tenantId, id, { type: 'OFFER_DRAFTED', summary: `Offer ${code} drafted for ${data.offer.job_title}`, actorMemberId: actor.tenantMemberId, metadata: { offerId } });
+        await this.candidates.recordEvent(tx, tenantId, id, { type: 'OFFER_DRAFTED', summary: `Offer ${code} drafted for ${data.offer.job_title}`, actorMemberId: actor.tenantMemberId, metadata: { offerId, candidateDocumentId: docId } });
       }),
     );
     return this.get(tenantId, offerId, actor);
@@ -231,6 +442,21 @@ export class OffersService {
       await tx.rndtechnosoft_offers.update({ where: { tenant_id_id: { tenant_id: tenantId, id: offer.id } }, data: { ...data.offer, updated_at: new Date() } });
       await tx.rndtechnosoft_offer_components.deleteMany({ where: { tenant_id: tenantId, offer_id: offer.id } });
       await tx.rndtechnosoft_offer_components.createMany({ data: data.components.map((c) => ({ ...c, id: randomUUID(), tenant_id: tenantId, offer_id: offer.id })) });
+
+      if (offer.candidate_document_id) {
+        const letter = await this.renderLetter(tx, tenantId, { offer_code: offer.offer_code, candidate_id: offer.candidate_id, ...data.offer });
+        await tx.rndtechnosoft_candidate_documents.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: offer.candidate_document_id } },
+          data: {
+            document_title: `${data.offer.job_title} Offer Letter`,
+            template_version_id: data.offer.template_version_id,
+            rendered_title: letter.title,
+            rendered_body: letter.body,
+            updated_by_tenant_member_id: actor.tenantMemberId,
+            updated_at: new Date(),
+          },
+        });
+      }
     });
     return this.get(tenantId, offerId, actor);
   }
@@ -397,6 +623,36 @@ export class OffersService {
           where: { tenant_id_id: { tenant_id: tenantId, id: offer.id } },
           data: { offer_status: 'SENT', sent_at: new Date(), sent_by_tenant_member_id: actor.tenantMemberId, updated_at: new Date() },
         });
+
+        if (offer.candidate_document_id) {
+          await tx.rndtechnosoft_candidate_documents.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: offer.candidate_document_id } },
+            data: {
+              document_status: 'SENT',
+              email_status: 'SENT',
+              last_sent_at: new Date(),
+              last_sent_by_tenant_member_id: actor.tenantMemberId,
+              updated_at: new Date(),
+            },
+          });
+          await tx.rndtechnosoft_candidate_document_emails.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              candidate_id: offer.candidate_id,
+              document_id: offer.candidate_document_id,
+              version_number: 1,
+              recipient_email: offer.rndtechnosoft_candidates.email,
+              subject: `Your offer from ${company}: ${offer.job_title}`,
+              body_html: `<p>Dear ${offer.rndtechnosoft_candidates.full_name}, your offer letter (${offer.offer_code}) has been sent.</p>`,
+              attachment_filename: `${offer.offer_code}.pdf`,
+              sent_at: new Date(),
+              delivery_status: 'SENT',
+              sender_tenant_member_id: actor.tenantMemberId,
+            },
+          });
+        }
+
         const candidate = await this.candidates.lockCandidate(tx, tenantId, offer.candidate_id);
         await this.candidates.setStatus(tx, tenantId, offer.candidate_id, candidate.candidate_status as CandidateStatus, candidate.candidate_status === 'SELECTED' ? 'OFFER_SENT' : (candidate.candidate_status as CandidateStatus), {
           type: 'OFFER_SENT',
@@ -423,6 +679,14 @@ export class OffersService {
         where: { tenant_id: tenantId, offer_id: offer.id, approval_status: 'PENDING' },
         data: { approval_status: 'CANCELLED' },
       });
+
+      if (offer.candidate_document_id) {
+        await tx.rndtechnosoft_candidate_documents.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: offer.candidate_document_id } },
+          data: { document_status: 'ARCHIVED', updated_at: new Date(), updated_by_tenant_member_id: actor.tenantMemberId },
+        });
+      }
+
       const candidate = await this.candidates.lockCandidate(tx, tenantId, offer.candidate_id);
       const from = candidate.candidate_status as CandidateStatus;
       await this.candidates.setStatus(tx, tenantId, offer.candidate_id, from, from === 'OFFER_SENT' ? 'SELECTED' : from, {
@@ -498,6 +762,26 @@ export class OffersService {
           updated_at: new Date(),
         },
       });
+
+      if (offer.candidate_document_id) {
+        const docStatusMap: Record<string, string> = {
+          DRAFT: 'DRAFT',
+          PENDING_APPROVAL: 'IN_REVIEW',
+          APPROVED: 'APPROVED',
+          SENT: 'SENT',
+          ACCEPTED: 'ACCEPTED',
+          DECLINED: 'REJECTED',
+          EXPIRED: 'ARCHIVED',
+          WITHDRAWN: 'ARCHIVED',
+        };
+        const nextDocStatus = docStatusMap[targetStatus];
+        if (nextDocStatus) {
+          await tx.rndtechnosoft_candidate_documents.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: offer.candidate_document_id } },
+            data: { document_status: nextDocStatus, updated_at: new Date(), updated_by_tenant_member_id: actor.tenantMemberId },
+          });
+        }
+      }
 
       // Record candidate timeline event without mutating candidate stage
       await tx.rndtechnosoft_candidate_events.create({
@@ -682,11 +966,27 @@ export class OffersService {
       where: { tenant_id: tenantId, id: offerId },
       include: {
         rndtechnosoft_candidates: true,
+        rndtechnosoft_departments: { select: { id: true, department_name: true } },
+        rndtechnosoft_designations: { select: { id: true, designation_name: true } },
+        rndtechnosoft_employment_types: { select: { id: true, employment_type_name: true } },
         rndtechnosoft_document_template_versions: { include: { rndtechnosoft_document_templates: { select: { template_name: true } } } },
         rndtechnosoft_offer_components: { orderBy: { sort_order: 'asc' } },
         rndtechnosoft_offer_approvals: { include: { rndtechnosoft_tenant_members: MEMBER }, orderBy: [{ submission_number: 'desc' }, { step_number: 'asc' }] },
         sent_by: MEMBER,
+        created_by: MEMBER,
         reporting_manager: { select: { first_name: true, last_name: true, employee_code: true } },
+        rndtechnosoft_candidate_documents: {
+          include: {
+            rndtechnosoft_candidate_document_versions: {
+              orderBy: { version_number: 'desc' },
+              include: { created_by: MEMBER },
+            },
+            rndtechnosoft_candidate_document_emails: {
+              orderBy: { sent_at: 'desc' },
+              include: { sender: MEMBER },
+            },
+          },
+        },
       },
     });
     if (!offer) throw new NotFoundException('Offer not found.');

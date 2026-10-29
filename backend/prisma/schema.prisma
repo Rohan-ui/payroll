@@ -2817,6 +2817,7 @@ model rndtechnosoft_offers {
   decline_reason                String?   @db.Text
   withdrawn_reason              String?   @db.Text
   created_by_tenant_member_id   String?   @db.Uuid
+  candidate_document_id         String?   @db.Uuid
   created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
@@ -2825,6 +2826,7 @@ model rndtechnosoft_offers {
   rndtechnosoft_departments                rndtechnosoft_departments?               @relation(fields: [tenant_id, department_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_department")
   rndtechnosoft_designations               rndtechnosoft_designations?              @relation(fields: [tenant_id, designation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_designation")
   rndtechnosoft_employment_types           rndtechnosoft_employment_types?          @relation(fields: [tenant_id, employment_type_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_employment_type")
+  rndtechnosoft_candidate_documents        rndtechnosoft_candidate_documents?        @relation(fields: [tenant_id, candidate_document_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_offers_candidate_document")
   reporting_manager                        rndtechnosoft_employees?                 @relation("offer_reporting_manager", fields: [tenant_id, reporting_manager_employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_reporting_manager")
   sent_by                                  rndtechnosoft_tenant_members?            @relation("offer_sent_by", fields: [tenant_id, sent_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_sent_by")
   created_by                               rndtechnosoft_tenant_members?            @relation("offer_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_offers_created_by")
@@ -2835,6 +2837,7 @@ model rndtechnosoft_offers {
   @@unique([tenant_id, offer_code], map: "uq_offers_code")
   @@index([tenant_id, offer_status], map: "ix_offers_status")
   @@index([tenant_id, candidate_id], map: "ix_offers_candidate")
+  @@index([tenant_id, candidate_document_id], map: "ix_offers_candidate_document")
 }
 
 /// A line of the offered pay, per year.
@@ -2964,10 +2967,13 @@ model rndtechnosoft_candidate_documents {
   rndtechnosoft_candidate_document_versions       rndtechnosoft_candidate_document_versions[]
   rndtechnosoft_candidate_document_status_history rndtechnosoft_candidate_document_status_history[]
   rndtechnosoft_candidate_document_emails         rndtechnosoft_candidate_document_emails[]
+  rndtechnosoft_offers                            rndtechnosoft_offers[]
 
   @@unique([tenant_id, id], map: "uq_candidate_documents_tenant_id")
   @@index([tenant_id, candidate_id], map: "ix_candidate_documents_candidate")
   @@index([tenant_id, employee_id], map: "ix_candidate_documents_employee")
+  @@index([tenant_id, document_type], map: "ix_candidate_documents_type")
+  @@index([tenant_id, document_status], map: "ix_candidate_documents_status")
 }
 
 /// A revision snapshot of a candidate document for history and auditability.
