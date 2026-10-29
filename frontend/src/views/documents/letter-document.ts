@@ -4,6 +4,7 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import { Subscript } from '@tiptap/extension-subscript';
 import { Superscript } from '@tiptap/extension-superscript';
 import type { DocumentFormat } from '../../api/documents.api';
+import { CustomTable, CustomTableRow, CustomTableCell, CustomTableHeader } from './table-extension';
 
 /**
  * The letter editor's document schema. It stores only what the PDF renderer
@@ -166,6 +167,10 @@ export function letterExtensions(format: DocumentFormat, table: TableKind | null
     BlockFormat,
     Placeholder,
     CompensationTable.configure({ kind: table ?? 'OFFER_LETTER' }),
+    CustomTable,
+    CustomTableRow,
+    CustomTableCell,
+    CustomTableHeader,
   ];
 }
 
@@ -204,5 +209,55 @@ ${pm} .letter-pay-heading { font-weight: 700; font-size: 11pt; margin-bottom: 3p
 ${pm} .letter-pay-row { display: flex; justify-content: space-between; padding: 1pt 0; }
 ${pm} .letter-pay-total { font-weight: 700; border-top: 0.5pt solid #999; margin-top: 2pt; padding-top: 3pt; }
 ${pm} .letter-pay-note { margin-top: 3pt; font-size: 8pt; color: #64748b; font-style: italic; }
+
+/* Custom Rich Tables */
+${pm} table.letter-custom-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: ${s.table.spaceBefore}pt 0 ${s.table.spaceAfter}pt 0;
+  box-sizing: border-box;
+}
+${pm} table.letter-custom-table td,
+${pm} table.letter-custom-table th {
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+  border: 0.75pt solid #cbd5e1;
+  padding: 4pt 6pt;
+  min-height: 18pt;
+}
+${pm} table.letter-custom-table th {
+  font-weight: 600;
+  background-color: #f8fafc;
+}
+${pm} .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 20;
+  background-color: #0d9488;
+  pointer-events: none;
+}
+${pm}.resize-cursor {
+  cursor: col-resize;
+}
+${pm} .selectedCell {
+  background-color: rgba(13, 148, 136, 0.12) !important;
+  outline: 1px solid #0d9488;
+}
+${pm} .selectedCell:after {
+  z-index: 2;
+  position: absolute;
+  content: '';
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(13, 148, 136, 0.15);
+  pointer-events: none;
+}
 `;
 }

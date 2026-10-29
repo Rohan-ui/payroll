@@ -111,11 +111,12 @@ describe('formatted letter PDFs', () => {
       ])),
     );
     const parts = pages[0].texts;
+    const expectedJobTitle = sampleValues('OFFER_LETTER').job_title;
     expect(parts.map((t) => [t.text, t.font, t.size])).toEqual([
       ['We are ', 'Helvetica', 11],
       ['pleased to offer you', 'Helvetica-BoldOblique', 13],
       [' employment with ', 'Helvetica', 11],
-      ['Senior Backend Engineer', 'Times-Bold', 12],
+      [expectedJobTitle, 'Times-Bold', 12],
       ['.', 'Helvetica', 11],
     ]);
     // One line: a shared baseline, each piece starting where the one before ends.
@@ -127,10 +128,11 @@ describe('formatted letter PDFs', () => {
   it('prints the editor’s own output: font, size, colour and script as set', async () => {
     const fromEditor = editorOutput();
     const pages = await render(fromEditor, {}, A4_HEIGHT, { table: SAMPLE_OFFER_TABLE });
+    const expectedName = sampleValues('OFFER_LETTER').candidate_name;
     // Superscript text is three quarters of its size.
     expect(find(pages, 'Hello')).toMatchObject({ font: 'Times-BoldItalic', size: 13 * DOCUMENT_STYLE.script.scale });
-    expect(find(pages, 'Priya Rao')).toMatchObject({ font: 'Helvetica', size: 11 });
-    expect(find(pages, 'Next').top).toBeGreaterThan(find(pages, 'Priya Rao').top);
+    expect(find(pages, expectedName)).toMatchObject({ font: 'Helvetica', size: 11 });
+    expect(find(pages, 'Next').top).toBeGreaterThan(find(pages, expectedName).top);
     expect(find(pages, 'Hello').x).toBeCloseTo(20 * MM + 10 * MM, 2);
     expect(find(pages, 'Annual compensation')).toBeDefined();
   });
@@ -218,5 +220,65 @@ describe('formatted letter PDFs', () => {
         expect(t.top).toBeLessThan(A4_HEIGHT - 20 * MM - 20 * MM);
       }
     }
+  });
+
+  it('parses, validates and renders custom tables with merged cells and borders', async () => {
+    const tableDoc = doc(
+      para([text('Letter with custom salary table:')]),
+      {
+        type: 'table',
+        attrs: { alignment: 'center' },
+        content: [
+          {
+            type: 'tableRow',
+            attrs: { rowHeight: 24 },
+            content: [
+              {
+                type: 'tableHeader',
+                attrs: { colspan: 2, backgroundColor: '#f1f5f9', borderBottom: '1pt solid #000000', textAlign: 'center' },
+                content: [para([text('Annexure - A: Salary Structure', [{ type: 'bold' }])])],
+              },
+            ],
+          },
+          {
+            type: 'tableRow',
+            content: [
+              {
+                type: 'tableCell',
+                attrs: { borderRight: '1pt solid #000000', borderBottom: '0.5pt solid #000000' },
+                content: [para([text('Basic Salary')])],
+              },
+              {
+                type: 'tableCell',
+                attrs: { borderBottom: '0.5pt solid #000000', textAlign: 'right' },
+                content: [para([{ type: 'placeholder', attrs: { key: 'annual_salary' } }])],
+              },
+            ],
+          },
+        ],
+      },
+      para([text('End of letter.')]),
+    );
+
+    const parsed = parse(tableDoc);
+    expect(parsed.type).toBe('doc');
+    const tableNode = parsed.content!.find((n) => n.type === 'table')!;
+    expect(tableNode).toBeDefined();
+    expect(tableNode.content!.length).toBe(2);
+
+    // Verify fillDocument fills placeholders inside table cells
+    const filled = fillDocument(parsed, { annual_salary: 'INR 12,00,000.00' });
+    const textOut = documentText(filled);
+    expect(textOut.body).toContain('Annexure - A: Salary Structure');
+    expect(textOut.body).toContain('Basic Salary');
+    expect(textOut.body).toContain('INR 12,00,000.00');
+
+    // Verify PDF rendering renders the table
+    const pages = await render(filled);
+    expect(find(pages, 'Letter with custom salary table:')).toBeDefined();
+    expect(find(pages, 'Annexure - A: Salary Structure')).toBeDefined();
+    expect(find(pages, 'Basic Salary')).toBeDefined();
+    expect(find(pages, 'INR 12,00,000.00')).toBeDefined();
+    expect(find(pages, 'End of letter.')).toBeDefined();
   });
 });

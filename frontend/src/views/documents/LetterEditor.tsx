@@ -9,6 +9,14 @@ import { letterCss, letterExtensions, type TableKind } from './letter-document';
 import { LetterheadCanvas, PageElements, type CanvasImage } from './LetterheadCanvas';
 import { PT, pageFrame, type Page } from './letterhead-geometry';
 import { toLayout } from './LetterheadsView';
+import { TableToolbar } from './TableToolbar';
+import { InsertTableModal } from './InsertTableModal';
+import { TablePropertiesModal } from './TablePropertiesModal';
+import {
+  insertTable,
+  insertSalaryStructure,
+  getTableSelectionInfo,
+} from './table-extension';
 
 /**
  * The letter as a page: a formatting toolbar over an A4 (or Letter) sheet with
@@ -79,7 +87,13 @@ const Separator = () => <span aria-hidden="true" className="w-px h-6 bg-slate-20
 /** The toolbar: it shows the formatting where the cursor is, and changes the selection. */
 const tableName = (table: TableKind) => (table === 'QUOTATION' ? 'items table' : 'pay table');
 
-export const LetterToolbar: React.FC<{ editor: Editor; format: DocumentFormat; disabled: boolean; table: TableKind | null }> = ({ editor, format, disabled, table }) => {
+export const LetterToolbar: React.FC<{
+  editor: Editor;
+  format: DocumentFormat;
+  disabled: boolean;
+  table: TableKind | null;
+  onOpenInsertTable?: () => void;
+}> = ({ editor, format, disabled, table, onOpenInsertTable }) => {
   const s = format.style;
   const state = useEditorState({
     editor,
@@ -213,6 +227,7 @@ export const LetterToolbar: React.FC<{ editor: Editor; format: DocumentFormat; d
       <Separator />
       <div role="group" aria-label="Insert" className="flex items-center">
         {plain('Insert divider', SeparatorHorizontal, run((e) => e.chain().focus().setHorizontalRule().run()))}
+        {onOpenInsertTable && plain('Insert Table', Table2, onOpenInsertTable)}
         {table && plain(state.hasTable ? `The ${tableName(table)} is already in the document` : `Insert ${tableName(table)}`, Table2, run((e) => e.chain().focus().insertContentAt(e.state.selection.$from.after(1), { type: 'compensationTable' }).run()), state.hasTable)}
         {plain('Clear formatting', RemoveFormatting, () => {
           editor.chain().focus().unsetAllMarks().run();
@@ -322,13 +337,39 @@ export const LetterEditor: React.FC<{
   useEffect(() => { editor?.setEditable(editable); }, [editor, editable]);
   const css = useMemo(() => letterCss('.letter-page', format), [format]);
 
+  const [isInsertTableOpen, setIsInsertTableOpen] = useState(false);
+  const [isTablePropertiesOpen, setIsTablePropertiesOpen] = useState(false);
+
+  const tableInfo = useEditorState({
+    editor,
+    selector: ({ editor: e }) => (e ? getTableSelectionInfo(e.state) : null),
+  });
+
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] min-w-0">
       <style>{css}</style>
       {/* Sticks flush with the top of the scrolling page: the offsets cancel main's padding (p-4 sm:p-6 lg:p-8 in App), which a sticky element otherwise stays below. */}
-      <div className="sticky -top-4 sm:-top-6 lg:-top-8 z-20 flex flex-wrap items-center justify-between gap-1 border-b border-slate-200 dark:border-[#2B293E] bg-white/95 dark:bg-[#181724]/95 backdrop-blur rounded-t-2xl">
-        {editor && editable ? <LetterToolbar editor={editor} format={format} disabled={!editable} table={table} /> : <p className="px-3 py-2.5 text-xs text-slate-500">Read only</p>}
-        <div className="px-2 py-1.5">{zoomControls}</div>
+      <div className="sticky -top-4 sm:-top-6 lg:-top-8 z-20 flex flex-col border-b border-slate-200 dark:border-[#2B293E] bg-white/95 dark:bg-[#181724]/95 backdrop-blur rounded-t-2xl">
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          {editor && editable ? (
+            <LetterToolbar
+              editor={editor}
+              format={format}
+              disabled={!editable}
+              table={table}
+              onOpenInsertTable={() => setIsInsertTableOpen(true)}
+            />
+          ) : (
+            <p className="px-3 py-2.5 text-xs text-slate-500">Read only</p>
+          )}
+          <div className="px-2 py-1.5">{zoomControls}</div>
+        </div>
+        {editor && editable && tableInfo?.isInTable && (
+          <TableToolbar
+            editor={editor}
+            onOpenProperties={() => setIsTablePropertiesOpen(true)}
+          />
+        )}
       </div>
       <div ref={stageRef} className="overflow-x-auto bg-slate-100 dark:bg-[#12111B] p-4 sm:p-6 rounded-b-2xl">
         <div className="mx-auto w-fit" style={{ zoom }}>
@@ -340,6 +381,25 @@ export const LetterEditor: React.FC<{
       <p className="px-4 py-2 text-xs text-slate-500 border-t border-slate-200 dark:border-[#2B293E]">
         Faint lines mark roughly where pages break. Preview PDF shows the exact pages.
       </p>
+
+      {editor && (
+        <>
+          <InsertTableModal
+            isOpen={isInsertTableOpen}
+            onClose={() => setIsInsertTableOpen(false)}
+            onInsertTable={(rows, cols, withHeader) => insertTable(editor, rows, cols, withHeader)}
+            onInsertSalaryStructure={() => insertSalaryStructure(editor)}
+          />
+          <TablePropertiesModal
+            editor={editor}
+            isOpen={isTablePropertiesOpen}
+            onClose={() => setIsTablePropertiesOpen(false)}
+            cellAttrs={tableInfo?.cellAttrs ?? null}
+            rowCount={tableInfo?.rowCount ?? 0}
+            colCount={tableInfo?.colCount ?? 0}
+          />
+        </>
+      )}
     </div>
   );
 };

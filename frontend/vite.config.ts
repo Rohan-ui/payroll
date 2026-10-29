@@ -23,4 +23,15 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    port: 3000,
+    host: true,
+    headers: buildSecurityHeaders({ allowViteDevServer: false }),
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:4000',
+        changeOrigin: true,
+      },
+    },
+  },
 });

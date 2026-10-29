@@ -55,5 +55,11 @@ export default defineConfig({
     port: 3100,
     // Preview serves the real build, so use the production policy.
     headers: buildSecurityHeaders({ allowViteDevServer: false }),
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:4000',
+        changeOrigin: true,
+      },
+    },
   },
 });

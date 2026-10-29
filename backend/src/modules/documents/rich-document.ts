@@ -16,13 +16,29 @@ export interface DocMark {
   attrs?: { fontFamily?: FontKey | null; fontSize?: number | null; color?: string | null; backgroundColor?: string | null };
 }
 export interface DocNode {
-  type: 'doc' | 'paragraph' | 'heading' | 'bulletList' | 'orderedList' | 'listItem' | 'horizontalRule' | 'hardBreak' | 'text' | 'placeholder' | 'compensationTable';
-  attrs?: Record<string, string | number | null>;
+  type:
+    | 'doc'
+    | 'paragraph'
+    | 'heading'
+    | 'bulletList'
+    | 'orderedList'
+    | 'listItem'
+    | 'horizontalRule'
+    | 'hardBreak'
+    | 'text'
+    | 'placeholder'
+    | 'compensationTable'
+    | 'table'
+    | 'tableRow'
+    | 'tableHeader'
+    | 'tableCell';
+  attrs?: Record<string, unknown>;
   content?: DocNode[];
   text?: string;
   marks?: DocMark[];
 }
 export type BlockAlign = 'left' | 'center' | 'right' | 'justify';
+export type VerticalAlign = 'top' | 'middle' | 'bottom';
 
 /** Fonts every PDF reader has (the PDF standard fonts), so the PDF shows exactly the font chosen. */
 export const FONT_FAMILIES = {
@@ -60,7 +76,7 @@ export const DOCUMENT_STYLE = {
 };
 
 export const FONT_SIZE_RANGE = { min: 6, max: 72 };
-const LIMITS = { nodes: 4000, depth: 12, characters: 30000 };
+const LIMITS = { nodes: 15000, depth: 20, characters: 60000 };
 const COLOR = /^#[0-9a-f]{6}$/i;
 const ALIGNS: BlockAlign[] = ['left', 'center', 'right', 'justify'];
 const SIMPLE_MARKS = ['bold', 'italic', 'underline', 'strike', 'subscript', 'superscript'] as const;
@@ -147,6 +163,42 @@ export function parseDocument(kind: TemplateKind | string, input: unknown): DocN
     });
   };
 
+const BORDER_STYLE_REGEX = /^([0-9]+(\.[0-9]+)?pt)\s+(solid|dashed|dotted)\s+(#[0-9a-f]{6})$/i;
+const sanitizeBorder = (v: unknown): string | null => {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== 'string') return null;
+  const s = v.trim().toLowerCase();
+  if (s === 'none' || s === '0' || s === '0pt' || s === 'hidden') return 'none';
+  const m = s.match(BORDER_STYLE_REGEX);
+  if (m) {
+    const pt = parseFloat(m[1]);
+    if (pt >= 0.25 && pt <= 12) {
+      return `${Math.round(pt * 100) / 100}pt ${m[3]} ${m[4]}`;
+    }
+  }
+  return null;
+};
+
+  const cellAttrs = (attrs: Record<string, unknown>) => {
+    const colwidth = Array.isArray(attrs.colwidth)
+      ? attrs.colwidth.map((w) => num(w, 5, 2000, 'Column width')).filter((w): w is number => w !== null)
+      : null;
+    return {
+      colspan: num(attrs.colspan ?? 1, 1, 50, 'Colspan') ?? 1,
+      rowspan: num(attrs.rowspan ?? 1, 1, 100, 'Rowspan') ?? 1,
+      colwidth: colwidth && colwidth.length ? colwidth : null,
+      rowHeight: num(attrs.rowHeight, 8, 500, 'Row height'),
+      borderTop: sanitizeBorder(attrs.borderTop),
+      borderRight: sanitizeBorder(attrs.borderRight),
+      borderBottom: sanitizeBorder(attrs.borderBottom),
+      borderLeft: sanitizeBorder(attrs.borderLeft),
+      backgroundColor: typeof attrs.backgroundColor === 'string' && COLOR.test(attrs.backgroundColor) ? attrs.backgroundColor.toLowerCase() : null,
+      textAlign: typeof attrs.textAlign === 'string' && ALIGNS.includes(attrs.textAlign as BlockAlign) ? (attrs.textAlign as BlockAlign) : null,
+      verticalAlign: typeof attrs.verticalAlign === 'string' && ['top', 'middle', 'bottom'].includes(attrs.verticalAlign) ? (attrs.verticalAlign as VerticalAlign) : null,
+      padding: num(attrs.padding, 0, 48, 'Cell padding'),
+    };
+  };
+
   const block = (n: unknown, depth: number, top: boolean): DocNode => {
     nodes += 1;
     if (nodes > LIMITS.nodes || depth > LIMITS.depth) fail('The document is too long or too deeply nested. Shorten it and try again.');
@@ -184,6 +236,52 @@ export function parseDocument(kind: TemplateKind | string, input: unknown): DocN
         tables += 1;
         if (tables > 1) fail(`The ${TABLE_KINDS[kind]} can appear only once.`);
         return { type: 'compensationTable' };
+      case 'table': {
+        const tableChildren = () => {
+          const raw = Array.isArray((n as Record<string, unknown>).content)
+            ? ((n as Record<string, unknown>).content as unknown[])
+            : null;
+          if (!raw || raw.length === 0) throw new DocumentProblem('A table must have at least one row.');
+          return raw.map((c: unknown) => {
+            if (!isRecord(c) || c.type !== 'tableRow') throw new DocumentProblem('A table must contain table rows.');
+            return block(c, depth + 1, false);
+          });
+        };
+        const alignment = typeof attrs.alignment === 'string' && ['left', 'center', 'right'].includes(attrs.alignment) ? attrs.alignment : 'left';
+        return { type: 'table', attrs: { alignment }, content: tableChildren() };
+      }
+      case 'tableRow': {
+        const rowChildren = () => {
+          const raw = Array.isArray((n as Record<string, unknown>).content)
+            ? ((n as Record<string, unknown>).content as unknown[])
+            : null;
+          if (!raw || raw.length === 0) throw new DocumentProblem('A table row must have at least one cell.');
+          return raw.map((c: unknown) => {
+            if (!isRecord(c) || (c.type !== 'tableCell' && c.type !== 'tableHeader')) throw new DocumentProblem('A table row must contain cells.');
+            return block(c, depth + 1, false);
+          });
+        };
+        return { type: 'tableRow', attrs: { rowHeight: num(attrs.rowHeight, 8, 500, 'Row height') }, content: rowChildren() };
+      }
+      case 'tableHeader':
+      case 'tableCell': {
+        const cellType = n.type as 'tableCell' | 'tableHeader';
+        const cellChildren = () => {
+          const raw = Array.isArray((n as Record<string, unknown>).content)
+            ? ((n as Record<string, unknown>).content as unknown[])
+            : null;
+          if (!raw || raw.length === 0) {
+            return [{ type: 'paragraph' as const, attrs: blockAttrs({}), content: [] }];
+          }
+          return raw.map((c: unknown) => {
+            if (!isRecord(c) || !['paragraph', 'heading', 'bulletList', 'orderedList'].includes(c.type as string)) {
+              return { type: 'paragraph' as const, attrs: blockAttrs({}), content: [] };
+            }
+            return block(c, depth + 1, false);
+          });
+        };
+        return { type: cellType, attrs: cellAttrs(attrs), content: cellChildren() };
+      }
       default:
         return fail('The document has content that can’t be printed. Remove it and try again.');
     }
@@ -214,6 +312,26 @@ export function documentText(doc: DocNode): { title: string; body: string } {
       if (n.type === 'paragraph' || n.type === 'heading') blocks.push(prefix + textOf(n.content));
       else if (n.type === 'bulletList') n.content?.forEach((item) => walk(item.content, `${prefix}• `));
       else if (n.type === 'orderedList') n.content?.forEach((item, i) => walk(item.content, `${prefix}${Number(n.attrs?.start ?? 1) + i}. `));
+      else if (n.type === 'table') {
+        for (const row of n.content ?? []) {
+          const rowTexts: string[] = [];
+          for (const cell of row.content ?? []) {
+            const cellBlocks: string[] = [];
+            const cellWalk = (subNodes: DocNode[] | undefined) => {
+              for (const sub of subNodes ?? []) {
+                if (sub.type === 'paragraph' || sub.type === 'heading') cellBlocks.push(textOf(sub.content));
+                else if (sub.type === 'bulletList' || sub.type === 'orderedList') {
+                  sub.content?.forEach((item) => cellWalk(item.content));
+                }
+              }
+            };
+            cellWalk(cell.content);
+            const ct = cellBlocks.join(' ').trim();
+            if (ct) rowTexts.push(ct);
+          }
+          if (rowTexts.length) blocks.push(rowTexts.join(' | '));
+        }
+      }
     }
   };
   walk(doc.content);

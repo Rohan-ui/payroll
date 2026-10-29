@@ -30,6 +30,8 @@ export interface LayoutDoc {
   strokeColor(color: string): LayoutDoc;
   stroke(): LayoutDoc;
   addPage(): LayoutDoc;
+  dash?(length: number, options?: { space: number }): LayoutDoc;
+  undash?(): LayoutDoc;
 }
 
 interface Run {
@@ -281,8 +283,282 @@ export function drawDocument(doc: LayoutDoc, root: DocNode, ctx: LayoutContext, 
         space(S.table.spaceBefore);
         ctx.table();
         pending = S.table.spaceAfter;
+      } else if (n.type === 'table') {
+        drawTable(n, left, width);
       }
     });
+  };
+
+  const drawTable = (tableNode: DocNode, tableLeft: number, tableWidth: number) => {
+    const rows = tableNode.content ?? [];
+    if (rows.length === 0) return;
+
+    interface ParsedBorder {
+      thickness: number;
+      style: 'solid' | 'dashed' | 'dotted' | 'none';
+      color: string;
+    }
+    const parseBorder = (spec?: unknown): ParsedBorder => {
+      if (typeof spec !== 'string' || !spec) {
+        return { thickness: 0.5, style: 'solid', color: '#cbd5e1' };
+      }
+      const s = spec.trim().toLowerCase();
+      if (s === 'none') return { thickness: 0, style: 'none', color: '#000000' };
+      const m = s.match(/^([0-9]+(\.[0-9]+)?pt)\s+(solid|dashed|dotted)\s+(#[0-9a-f]{6})$/i);
+      if (m) {
+        return { thickness: Math.max(0.25, parseFloat(m[1])), style: m[3] as 'solid' | 'dashed' | 'dotted', color: m[4] };
+      }
+      return { thickness: 0.5, style: 'solid', color: '#cbd5e1' };
+    };
+
+    interface GridCell {
+      node: DocNode;
+      startRow: number;
+      startCol: number;
+      rowspan: number;
+      colspan: number;
+      isHeader: boolean;
+      bg: string | null;
+      borderTop: ParsedBorder;
+      borderRight: ParsedBorder;
+      borderBottom: ParsedBorder;
+      borderLeft: ParsedBorder;
+      vAlign: 'top' | 'middle' | 'bottom';
+      padding: number;
+      blocksData: { lines: Line[]; style: BlockStyle; height: number }[];
+      contentHeight: number;
+      minHeight: number;
+    }
+
+    const gridOccupied: boolean[][] = [];
+    const placedCells: GridCell[] = [];
+    let maxCols = 0;
+
+    rows.forEach((rowNode, r) => {
+      if (!gridOccupied[r]) gridOccupied[r] = [];
+      let col = 0;
+      (rowNode.content ?? []).forEach((cellNode) => {
+        while (gridOccupied[r][col]) {
+          col += 1;
+        }
+        const attrs = cellNode.attrs ?? {};
+        const colspan = Math.max(1, Number(attrs.colspan ?? 1));
+        const rowspan = Math.max(1, Number(attrs.rowspan ?? 1));
+
+        for (let dr = 0; dr < rowspan; dr += 1) {
+          const tr = r + dr;
+          if (!gridOccupied[tr]) gridOccupied[tr] = [];
+          for (let dc = 0; dc < colspan; dc += 1) {
+            gridOccupied[tr][col + dc] = true;
+          }
+        }
+
+        placedCells.push({
+          node: cellNode,
+          startRow: r,
+          startCol: col,
+          rowspan,
+          colspan,
+          isHeader: cellNode.type === 'tableHeader',
+          bg: typeof attrs.backgroundColor === 'string' && attrs.backgroundColor ? (attrs.backgroundColor as string) : (cellNode.type === 'tableHeader' ? '#f8fafc' : null),
+          borderTop: parseBorder(attrs.borderTop),
+          borderRight: parseBorder(attrs.borderRight),
+          borderBottom: parseBorder(attrs.borderBottom),
+          borderLeft: parseBorder(attrs.borderLeft),
+          vAlign: (attrs.verticalAlign as 'top' | 'middle' | 'bottom') || 'top',
+          padding: typeof attrs.padding === 'number' ? attrs.padding : 4,
+          blocksData: [],
+          contentHeight: 0,
+          minHeight: 0,
+        });
+
+        col += colspan;
+        if (col > maxCols) maxCols = col;
+      });
+      if (col > maxCols) maxCols = col;
+    });
+
+    if (maxCols === 0) return;
+
+    const rawColWidths: number[] = new Array(maxCols).fill(0);
+    placedCells.forEach((c) => {
+      const cw = c.node.attrs?.colwidth;
+      if (Array.isArray(cw) && cw.length > 0) {
+        if (c.colspan === 1 && typeof cw[0] === 'number' && cw[0] > 0) {
+          rawColWidths[c.startCol] = Math.max(rawColWidths[c.startCol], cw[0]);
+        } else if (c.colspan > 1 && cw.length >= c.colspan) {
+          for (let i = 0; i < c.colspan; i += 1) {
+            if (typeof cw[i] === 'number' && cw[i] > 0) {
+              rawColWidths[c.startCol + i] = Math.max(rawColWidths[c.startCol + i], cw[i]);
+            }
+          }
+        }
+      }
+    });
+
+    const totalRaw = rawColWidths.reduce((a, b) => a + b, 0);
+    let colWidths: number[] = [];
+    if (totalRaw > 0 && rawColWidths.every((w) => w > 0)) {
+      const scale = tableWidth / totalRaw;
+      colWidths = rawColWidths.map((w) => w * scale);
+    } else {
+      colWidths = new Array(maxCols).fill(tableWidth / maxCols);
+    }
+
+    const colX: number[] = [tableLeft];
+    for (let i = 0; i < maxCols; i += 1) {
+      colX.push(colX[i] + colWidths[i]);
+    }
+
+    placedCells.forEach((c) => {
+      let cellW = 0;
+      for (let i = 0; i < c.colspan; i += 1) {
+        cellW += colWidths[c.startCol + i] || 0;
+      }
+      const innerW = Math.max(8, cellW - 2 * c.padding);
+      const cellBlocks = c.node.content ?? [];
+      let cellContentH = 0;
+
+      c.blocksData = cellBlocks.map((b) => {
+        const style = styleOf(b, false);
+        if (c.node.attrs?.textAlign) {
+          style.align = c.node.attrs.textAlign as BlockAlign;
+        }
+        if (c.isHeader) {
+          style.bold = true;
+        }
+        const lines = breakLines(doc, pieces(b.content, style, safe), innerW, style);
+        const bHeight = lines.reduce((sum, l) => sum + l.above + l.below, 0);
+        cellContentH += bHeight;
+        return { lines, style, height: bHeight };
+      });
+
+      c.contentHeight = cellContentH;
+      const explicitH = typeof c.node.attrs?.rowHeight === 'number' ? c.node.attrs.rowHeight : 0;
+      c.minHeight = Math.max(explicitH, cellContentH + 2 * c.padding);
+    });
+
+    const numRows = rows.length;
+    const rowHeights: number[] = new Array(numRows).fill(16);
+
+    placedCells.forEach((c) => {
+      if (c.rowspan === 1) {
+        rowHeights[c.startRow] = Math.max(rowHeights[c.startRow], c.minHeight);
+      }
+    });
+
+    placedCells.forEach((c) => {
+      if (c.rowspan > 1) {
+        let spanH = 0;
+        for (let r = 0; r < c.rowspan; r += 1) {
+          spanH += rowHeights[c.startRow + r];
+        }
+        if (spanH < c.minHeight) {
+          const extra = (c.minHeight - spanH) / c.rowspan;
+          for (let r = 0; r < c.rowspan; r += 1) {
+            rowHeights[c.startRow + r] += extra;
+          }
+        }
+      }
+    });
+
+    space(S.table.spaceBefore);
+
+    const drawBorderLine = (x1: number, y1: number, x2: number, y2: number, border: ParsedBorder) => {
+      if (border.style === 'none' || border.thickness <= 0) return;
+      doc.lineWidth(border.thickness).strokeColor(border.color);
+      if (border.style === 'dashed' && doc.dash) {
+        doc.dash(3, { space: 2 });
+      } else if (border.style === 'dotted' && doc.dash) {
+        doc.dash(1, { space: 1.5 });
+      } else if (doc.undash) {
+        doc.undash();
+      }
+      doc.moveTo(x1, y1).lineTo(x2, y2).stroke();
+      if (doc.undash) doc.undash();
+    };
+
+    const hasHeader = placedCells.some((c) => c.startRow === 0 && c.isHeader);
+
+    const drawRowCells = (r: number, rowTopY: number) => {
+      const cellsInRow = placedCells.filter((c) => c.startRow === r);
+      cellsInRow.forEach((c) => {
+        const cX = colX[c.startCol];
+        let cW = 0;
+        for (let i = 0; i < c.colspan; i += 1) {
+          cW += colWidths[c.startCol + i];
+        }
+        let cH = 0;
+        for (let i = 0; i < c.rowspan; i += 1) {
+          cH += rowHeights[c.startRow + i];
+        }
+        const cY = rowTopY;
+
+        if (c.bg) {
+          doc.rect(cX, cY, cW, cH).fill(c.bg);
+        }
+
+        drawBorderLine(cX, cY, cX + cW, cY, c.borderTop);
+        drawBorderLine(cX, cY + cH, cX + cW, cY + cH, c.borderBottom);
+        drawBorderLine(cX, cY, cX, cY + cH, c.borderLeft);
+        drawBorderLine(cX + cW, cY, cX + cW, cY + cH, c.borderRight);
+
+        let textY = cY + c.padding;
+        if (c.vAlign === 'middle') {
+          textY = cY + Math.max(c.padding, (cH - c.contentHeight) / 2);
+        } else if (c.vAlign === 'bottom') {
+          textY = cY + cH - c.padding - c.contentHeight;
+        }
+
+        const innerW = Math.max(8, cW - 2 * c.padding);
+        const cellLeft = cX + c.padding;
+
+        c.blocksData.forEach((bd) => {
+          bd.lines.forEach((line) => {
+            const baseline = textY + line.above;
+            const free = innerW - line.width;
+            const justify = bd.style.align === 'justify' && !line.endsParagraph && !line.endsWithBreak && line.spaces > 0;
+            const extra = justify ? free / line.spaces : 0;
+            let lx = cellLeft + (bd.style.align === 'center' ? free / 2 : bd.style.align === 'right' ? free : 0);
+
+            for (const seg of line.segments) {
+              const run = seg.run;
+              const segWidth = seg.width + extra * seg.spaces;
+              const sy = baseline - run.shift;
+              const m = metrics(doc, run.font, run.size);
+              if (run.background) {
+                doc.rect(lx, sy - m.ascent, segWidth, m.ascent + m.descent).fill(run.background);
+              }
+              if (seg.text) {
+                doc.font(run.font).fontSize(run.size).fillColor(run.color).text(seg.text, lx, sy, { lineBreak: false, baseline: 'alphabetic', ...(extra ? { wordSpacing: extra } : {}) });
+              }
+              const rule = (at: number) => doc.moveTo(lx, at).lineTo(lx + segWidth, at).lineWidth(Math.max(0.5, run.size / 16)).strokeColor(run.color).stroke();
+              if (run.underline) rule(sy + run.size * 0.12);
+              if (run.strike) rule(sy - run.size * 0.28);
+              lx += segWidth;
+            }
+            textY += line.above + line.below;
+          });
+        });
+      });
+    };
+
+    for (let r = 0; r < numRows; r += 1) {
+      const rHeight = rowHeights[r];
+      if (doc.y + rHeight > bottom() && !atTop()) {
+        doc.addPage();
+        if (hasHeader && r > 0) {
+          const hY = doc.y;
+          drawRowCells(0, hY);
+          doc.y = hY + rowHeights[0];
+        }
+      }
+      const rowTopY = doc.y;
+      drawRowCells(r, rowTopY);
+      doc.y = rowTopY + rHeight;
+    }
+
+    pending = S.table.spaceAfter;
   };
 
   blocks(root.content, ctx.left, ctx.width, false);

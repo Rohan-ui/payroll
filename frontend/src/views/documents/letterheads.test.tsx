@@ -212,7 +212,7 @@ describe('offer letters', () => {
     await settle();
     expect(calls.find((c) => c.url === '/api/v1/onboarding/offers/o1/pdf')?.method).toBe('GET');
     expect(viewer()?.querySelector('h2')?.textContent).toBe('Offer OFR-2026-100001');
-    expect(viewer()?.textContent).toContain('Preview: this is not the sent letter.');
+    expect(viewer()?.textContent).toContain('Preview: this is a generated preview of the current wording.');
     expect(clicks).not.toHaveBeenCalled();
     expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(0);
     act(() => button('Download', viewer()!)?.click());

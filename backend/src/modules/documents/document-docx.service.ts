@@ -6,6 +6,7 @@ import {
   Footer,
   Header,
   HeadingLevel,
+  HeightRule,
   Packer,
   PageNumber,
   Paragraph,
@@ -15,6 +16,7 @@ import {
   TableRow,
   TextRun,
   UnderlineType,
+  VerticalAlign,
   WidthType,
 } from 'docx';
 import { DocMark, DocNode, FontKey } from './rich-document';
@@ -174,6 +176,10 @@ export class DocumentDocxService {
       }
       case 'compensationTable': {
         output.push(this.createCompensationTable());
+        break;
+      }
+      case 'table': {
+        output.push(this.createCustomTable(node));
         break;
       }
       default: {
@@ -374,6 +380,160 @@ export class DocumentDocxService {
           children: [dataCell('Total Cost to Company (CTC)', AlignmentType.LEFT, true), dataCell('Refer terms', AlignmentType.RIGHT, true)],
         }),
       ],
+    });
+  }
+
+  private createCustomTable(tableNode: DocNode): Table {
+    const rows = tableNode.content ?? [];
+    const parseDocxBorder = (spec?: unknown) => {
+      if (typeof spec !== 'string' || !spec) {
+        return { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' };
+      }
+      const s = spec.trim().toLowerCase();
+      if (s === 'none' || s === '0' || s === '0pt') {
+        return { style: BorderStyle.NONE, size: 0, color: 'auto' };
+      }
+      const m = s.match(/^([0-9]+(\.[0-9]+)?pt)\s+(solid|dashed|dotted)\s+(#[0-9a-f]{6})$/i);
+      if (m) {
+        const pt = parseFloat(m[1]);
+        const size = Math.round(pt * 8);
+        let style: (typeof BorderStyle)[keyof typeof BorderStyle] = BorderStyle.SINGLE;
+        if (m[3] === 'dashed') style = BorderStyle.DASHED;
+        else if (m[3] === 'dotted') style = BorderStyle.DOTTED;
+        const color = m[4].replace('#', '');
+        return { style, size, color };
+      }
+      return { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' };
+    };
+
+    let maxCols = 0;
+    const rawColWidths: number[] = [];
+
+    rows.forEach((rowNode) => {
+      let colIdx = 0;
+      (rowNode.content ?? []).forEach((cellNode) => {
+        const attrs = cellNode.attrs ?? {};
+        const colspan = Math.max(1, Number(attrs.colspan ?? 1));
+        const cw = attrs.colwidth;
+        if (Array.isArray(cw) && cw.length > 0) {
+          if (colspan === 1 && typeof cw[0] === 'number') {
+            rawColWidths[colIdx] = Math.max(rawColWidths[colIdx] || 0, cw[0]);
+          }
+        }
+        colIdx += colspan;
+      });
+      if (colIdx > maxCols) maxCols = colIdx;
+    });
+
+    const TOTAL_TABLE_WIDTH_TWIPS = 9000;
+    let colWidthsTwips: number[] = [];
+    if (maxCols > 0) {
+      const sumRaw = rawColWidths.reduce((a, b) => a + (b || 0), 0);
+      if (sumRaw > 0 && rawColWidths.length === maxCols && rawColWidths.every((w) => w > 0)) {
+        colWidthsTwips = rawColWidths.map((w) => Math.round((w / sumRaw) * TOTAL_TABLE_WIDTH_TWIPS));
+      } else {
+        const uniform = Math.round(TOTAL_TABLE_WIDTH_TWIPS / maxCols);
+        colWidthsTwips = new Array(maxCols).fill(uniform);
+      }
+    }
+
+    const docxRows: TableRow[] = [];
+
+    rows.forEach((rowNode, rIndex) => {
+      const isHeaderRow = rIndex === 0 && (rowNode.content ?? []).some((c) => c.type === 'tableHeader');
+      const rowAttrs = rowNode.attrs ?? {};
+      const rowHeightPt = typeof rowAttrs.rowHeight === 'number' ? rowAttrs.rowHeight : undefined;
+      const rowHeightTwips = rowHeightPt ? Math.round(rowHeightPt * PT_TO_TWIP) : undefined;
+
+      let currentColIdx = 0;
+      const rowCells: TableCell[] = [];
+
+      (rowNode.content ?? []).forEach((cellNode) => {
+        const isHeader = cellNode.type === 'tableHeader';
+        const attrs = cellNode.attrs ?? {};
+        const colspan = Math.max(1, Number(attrs.colspan ?? 1));
+        const rowspan = Math.max(1, Number(attrs.rowspan ?? 1));
+
+        let cellWidthTwips: number | undefined = undefined;
+        if (colWidthsTwips.length >= currentColIdx + colspan) {
+          let sum = 0;
+          for (let i = 0; i < colspan; i += 1) {
+            sum += colWidthsTwips[currentColIdx + i] || 0;
+          }
+          cellWidthTwips = sum;
+        }
+
+        const paddingPt = typeof attrs.padding === 'number' ? attrs.padding : 4;
+        const paddingTwips = Math.round(paddingPt * PT_TO_TWIP);
+
+        const vAlign = attrs.verticalAlign as string | undefined;
+        let verticalAlign: (typeof VerticalAlign)[keyof typeof VerticalAlign] = VerticalAlign.TOP;
+        if (vAlign === 'middle') verticalAlign = VerticalAlign.CENTER;
+        else if (vAlign === 'bottom') verticalAlign = VerticalAlign.BOTTOM;
+
+        const bgColor = typeof attrs.backgroundColor === 'string' && /^#[0-9a-f]{6}$/i.test(attrs.backgroundColor)
+          ? attrs.backgroundColor.replace('#', '')
+          : isHeader
+          ? 'F8FAFC'
+          : undefined;
+
+        const cellParagraphs: Paragraph[] = [];
+        if (cellNode.content && Array.isArray(cellNode.content)) {
+          for (const block of cellNode.content) {
+            if (block.type === 'paragraph') {
+              if (attrs.textAlign && !block.attrs?.textAlign) {
+                block.attrs = { ...(block.attrs ?? {}), textAlign: attrs.textAlign };
+              }
+              cellParagraphs.push(this.createParagraph(block));
+            } else if (block.type === 'heading') {
+              cellParagraphs.push(this.createHeading(block));
+            }
+          }
+        }
+        if (cellParagraphs.length === 0) {
+          cellParagraphs.push(new Paragraph({ children: [] }));
+        }
+
+        rowCells.push(
+          new TableCell({
+            columnSpan: colspan > 1 ? colspan : undefined,
+            rowSpan: rowspan > 1 ? rowspan : undefined,
+            width: cellWidthTwips ? { size: cellWidthTwips, type: WidthType.DXA } : undefined,
+            shading: bgColor ? { fill: bgColor, type: ShadingType.CLEAR } : undefined,
+            verticalAlign,
+            margins: {
+              top: paddingTwips,
+              bottom: paddingTwips,
+              left: paddingTwips,
+              right: paddingTwips,
+            },
+            borders: {
+              top: parseDocxBorder(attrs.borderTop),
+              bottom: parseDocxBorder(attrs.borderBottom),
+              left: parseDocxBorder(attrs.borderLeft),
+              right: parseDocxBorder(attrs.borderRight),
+            },
+            children: cellParagraphs,
+          }),
+        );
+
+        currentColIdx += colspan;
+      });
+
+      docxRows.push(
+        new TableRow({
+          tableHeader: isHeaderRow,
+          cantSplit: true,
+          height: rowHeightTwips ? { value: rowHeightTwips, rule: HeightRule.ATLEAST } : undefined,
+          children: rowCells,
+        }),
+      );
+    });
+
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: colWidthsTwips.length ? colWidthsTwips : undefined,
+      rows: docxRows,
     });
   }
 }
