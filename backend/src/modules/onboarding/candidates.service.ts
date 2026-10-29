@@ -377,10 +377,11 @@ export class CandidatesService {
     const candidateId = this.idOr404(id);
     if (!isCandidateStatus(input.status)) throw new BadRequestException('Choose a valid status.');
     const to = input.status;
+    let from: CandidateStatus = to;
     await this.prisma.$transaction(async (tx) => {
       const current = await this.lockCandidate(tx, tenantId, candidateId);
       if (current.archived_at) throw new ConflictException('Restore the candidate before changing their status.');
-      const from = current.candidate_status as CandidateStatus;
+      from = current.candidate_status as CandidateStatus;
       const refusal = refuseManualMove(from, to);
       if (refusal) throw new ConflictException(refusal);
       await this.setStatus(tx, tenantId, candidateId, from, to, {
@@ -389,6 +390,17 @@ export class CandidatesService {
         notes: input.notes?.trim() || null,
         actorMemberId: actor.tenantMemberId,
       });
+    });
+    await this.audit.log({
+      tenantId,
+      actorUserId: actor.userId,
+      actorTenantMemberId: actor.tenantMemberId,
+      actionCode: 'ONBOARDING_STATUS_CHANGED',
+      entityType: 'CANDIDATE',
+      entityId: candidateId,
+      oldValues: { status: from },
+      newValues: { status: to },
+      metadata: { notes: input.notes?.trim() || null },
     });
     return this.get(tenantId, candidateId, actor.tenantMemberId);
   }

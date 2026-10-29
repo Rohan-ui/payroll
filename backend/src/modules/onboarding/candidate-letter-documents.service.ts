@@ -1,12 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuditService } from '@/modules/audit/audit.service';
+import { AccessService } from '@/common/access/access.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { TemplatesService } from '@/modules/documents/templates.service';
 import { DocumentPdfService, LetterPdf, PageMargins, PdfLayout, uniformMargins } from '@/modules/documents/document-pdf.service';
@@ -59,7 +61,7 @@ const KIND_DISPLAY_NAMES: Record<string, string> = {
 };
 
 export const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
-  DRAFT: ['IN_REVIEW', 'APPROVED', 'WITHDRAWN'],
+  DRAFT: ['IN_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   IN_REVIEW: ['DRAFT', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   APPROVED: ['SENT', 'IN_REVIEW', 'REJECTED', 'WITHDRAWN'],
   SENT: ['DELIVERED', 'VIEWED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'WITHDRAWN'],
@@ -84,6 +86,7 @@ export class CandidateLetterDocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
     private readonly templates: TemplatesService,
     private readonly pdf: DocumentPdfService,
     private readonly docx: DocumentDocxService,
@@ -732,15 +735,28 @@ export class CandidateLetterDocumentsService {
       return { success: true, status: currentStatus, message: 'Status already set to ' + currentStatus };
     }
 
-    const allowed = VALID_STATUS_TRANSITIONS[currentStatus] || [];
-    if (!allowed.includes(targetStatus)) {
-      throw new BadRequestException(
-        `Invalid status transition: Cannot change status from ${currentStatus} to ${targetStatus}. Permitted next statuses: ${allowed.join(', ') || 'None'}`,
+    const isOverride = Boolean(dto.isOverride);
+    if (isOverride) {
+      await this.access.assertHoldsAll(
+        tenantId,
+        actor.tenantMemberId,
+        ['onboarding.candidates.override'],
+        'You do not have permission to override document status.',
       );
-    }
+      if (!dto.reason || dto.reason.trim().length < 10) {
+        throw new BadRequestException('An override reason of at least 10 characters is required.');
+      }
+    } else {
+      const allowed = VALID_STATUS_TRANSITIONS[currentStatus] || [];
+      if (!allowed.includes(targetStatus)) {
+        throw new BadRequestException(
+          `Invalid status transition: Cannot change status from ${currentStatus} to ${targetStatus}. Permitted next statuses: ${allowed.join(', ') || 'None'}`,
+        );
+      }
 
-    if (['REJECTED', 'WITHDRAWN'].includes(targetStatus) && !dto.reason?.trim()) {
-      throw new BadRequestException(`A reason is required when transitioning status to ${targetStatus}.`);
+      if (['REJECTED', 'WITHDRAWN'].includes(targetStatus) && !dto.reason?.trim()) {
+        throw new BadRequestException(`A reason is required when transitioning status to ${targetStatus}.`);
+      }
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -763,23 +779,34 @@ export class CandidateLetterDocumentsService {
           from_status: currentStatus,
           to_status: targetStatus,
           reason: dto.reason?.trim() ?? null,
+          is_override: isOverride,
           changed_by_tenant_member_id: actor.tenantMemberId,
         },
       });
 
       // 3. Record candidate timeline event
+      // Candidate recruitment stage is NOT altered: from_status & to_status remain null.
       await tx.rndtechnosoft_candidate_events.create({
         data: {
           id: randomUUID(),
           tenant_id: tenantId,
           candidate_id: candidateId,
-          event_type: 'DOCUMENT_STATUS_CHANGED',
-          from_status: currentStatus,
-          to_status: targetStatus,
-          summary: `Document "${doc.document_title}" status changed to ${targetStatus}`,
+          event_type: isOverride ? 'DOCUMENT_STATUS_OVERRIDDEN' : 'DOCUMENT_STATUS_CHANGED',
+          from_status: null,
+          to_status: null,
+          is_override: isOverride,
+          summary: isOverride
+            ? `Document "${doc.document_title}" status overridden to ${targetStatus}`
+            : `Document "${doc.document_title}" status changed to ${targetStatus}`,
           notes: dto.reason?.trim() ?? null,
           actor_tenant_member_id: actor.tenantMemberId,
-          metadata: { documentId: doc.id, documentTitle: doc.document_title },
+          metadata: {
+            documentId: doc.id,
+            documentTitle: doc.document_title,
+            fromStatus: currentStatus,
+            toStatus: targetStatus,
+            isOverride,
+          },
         },
       });
 
@@ -788,14 +815,17 @@ export class CandidateLetterDocumentsService {
 
     await this.audit.log({
       tenantId,
+      actorUserId: actor.userId,
       actorTenantMemberId: actor.tenantMemberId,
-      actionCode: 'CANDIDATE_DOCUMENT_STATUS_CHANGED',
+      actionCode: isOverride ? 'CANDIDATE_DOCUMENT_STATUS_OVERRIDDEN' : 'CANDIDATE_DOCUMENT_STATUS_CHANGED',
       entityType: 'candidate_document',
       entityId: doc.id,
-      newValues: {
-        fromStatus: currentStatus,
-        toStatus: targetStatus,
-        reason: dto.reason,
+      oldValues: { document_status: currentStatus },
+      newValues: { document_status: targetStatus, isOverride },
+      metadata: {
+        reason: dto.reason?.trim() ?? null,
+        documentTitle: doc.document_title,
+        candidateId,
       },
     });
 
@@ -832,7 +862,9 @@ export class CandidateLetterDocumentsService {
       fromStatus: h.from_status,
       toStatus: h.to_status,
       reason: h.reason,
+      isOverride: h.is_override ?? false,
       createdAt: h.created_at,
+      changedAt: h.created_at,
       changedByName: h.changed_by?.rndtechnosoft_users.display_name || h.changed_by?.rndtechnosoft_users.email || 'System',
     }));
   }

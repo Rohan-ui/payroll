@@ -289,6 +289,18 @@ export class OnboardingController {
     return { success: true, data: await this.offers.withdraw(tenantId, id, body.reason, actor), message: 'Offer withdrawn' };
   }
 
+  @Post('offers/:id/status')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.offers.manage')
+  async changeOfferStatus(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Body() body: ChangeDocumentStatusDto,
+  ) {
+    return { success: true, data: await this.offers.changeStatus(tenantId, id, body, actor), message: 'Offer status updated' };
+  }
+
   // ── Document Templates (managed in Documents & Letterheads) ──
 
   /** Document templates available for onboarding (offer letters, contracts, agreements, etc.) */

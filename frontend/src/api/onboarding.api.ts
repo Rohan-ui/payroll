@@ -559,6 +559,8 @@ export const onboardingApi = {
   rejectOffer: (id: string, comment: string) => apiClient.post<Envelope<OfferActionResult>>(`${BASE}/offers/${id}/reject`, { comment }).then((r) => r.data),
   sendOffer: (id: string) => apiClient.post<Envelope<OfferActionResult>>(`${BASE}/offers/${id}/send`).then((r) => r.data),
   withdrawOffer: (id: string, reason: string) => apiClient.post<Envelope<OfferActionResult>>(`${BASE}/offers/${id}/withdraw`, { reason }).then((r) => r.data),
+  changeOfferStatus: (id: string, payload: { newStatus: string; reason?: string; isOverride?: boolean }) =>
+    apiClient.post<Envelope<OfferActionResult>>(`${BASE}/offers/${id}/status`, payload).then((r) => r.data),
 
   /** Offer letter templates, to choose one for an offer (they are managed in Documents & letterheads). */
   listTemplates: () => apiClient.get<Envelope<TemplateSummary[]>>(`${BASE}/templates`).then((r) => r.data),
@@ -603,7 +605,7 @@ export const onboardingApi = {
     fetchFile(`/api/v1${BASE}/candidates/${candidateId}/letter-documents/${docId}/docx`),
 
   // Status transitions & history
-  changeDocumentStatus: (candidateId: string, docId: string, payload: { newStatus: string; reason?: string }) =>
+  changeDocumentStatus: (candidateId: string, docId: string, payload: { newStatus: string; reason?: string; isOverride?: boolean }) =>
     apiClient.post<Envelope<{ id: string; documentStatus: string; updatedAt: string }>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/status`, payload).then((r) => r.data),
   getDocumentStatusHistory: (candidateId: string, docId: string) =>
     apiClient.get<Envelope<DocumentStatusHistoryItem[]>>(`${BASE}/candidates/${candidateId}/letter-documents/${docId}/status-history`).then((r) => r.data),
@@ -712,6 +714,8 @@ export interface DocumentStatusHistoryItem {
   reason: string | null;
   changedAt: string;
   changedByName: string | null;
+  isOverride?: boolean;
+  createdAt?: string;
 }
 
 export interface DocumentVersionItem {

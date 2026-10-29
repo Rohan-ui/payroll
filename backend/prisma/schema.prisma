@@ -2988,6 +2988,7 @@ model rndtechnosoft_candidate_document_status_history {
   from_status                 String   @db.VarChar(24)
   to_status                   String   @db.VarChar(24)
   reason                      String?  @db.Text
+  is_override                 Boolean  @default(false)
   changed_by_tenant_member_id String?  @db.Uuid
   created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 

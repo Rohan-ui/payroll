@@ -6,6 +6,11 @@ describe('candidate workflow', () => {
     expect(refuseManualMove('NEW', 'SCREENING')).toBeNull();
     expect(refuseManualMove('NEW', 'REJECTED')).toBeNull();
     expect(refuseManualMove('SCREENING', 'WITHDRAWN')).toBeNull();
+    expect(refuseManualMove('SELECTED', 'OFFER_SENT')).toBeNull();
+    expect(refuseManualMove('SELECTED', 'DOCUMENT_COLLECTION')).toBeNull();
+    expect(refuseManualMove('SELECTED', 'READY_TO_JOIN')).toBeNull();
+    expect(refuseManualMove('SELECTED', 'REJECTED')).toBeNull();
+    expect(refuseManualMove('SELECTED', 'WITHDRAWN')).toBeNull();
     expect(refuseManualMove('OFFER_ACCEPTED', 'WITHDRAWN')).toBeNull();
   });
 

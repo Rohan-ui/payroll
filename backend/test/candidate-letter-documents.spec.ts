@@ -62,9 +62,15 @@ describe('Candidate Letter Documents System', () => {
       }),
     };
 
+    const mockAccess = {
+      assertHoldsAll: async () => undefined,
+      getMemberPermissions: async () => ['onboarding.candidates.override'],
+    };
+
     service = new CandidateLetterDocumentsService(
       prisma as any,
       audit,
+      mockAccess as any,
       templates,
       pdf,
       docx,

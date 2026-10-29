@@ -631,6 +631,10 @@ export class ChangeDocumentStatusDto {
   @IsString()
   @MaxLength(1000)
   reason?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isOverride?: boolean;
 }
 
 export class RestoreDocumentVersionDto {

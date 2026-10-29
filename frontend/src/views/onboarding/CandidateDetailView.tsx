@@ -3,7 +3,7 @@ import { ArrowLeft, UserCheck, Fingerprint, ExternalLink, Sparkles } from 'lucid
 import { Badge } from '../../components/ui/Badge';
 import { Dialog } from '../../components/ui/Dialog';
 import { useAuth } from '../../context/AuthContext';
-import { usePayroll } from '../../context/PayrollContext';
+import { useOptionalPayroll } from '../../context/PayrollContext';
 import { toast } from '../../lib/toast';
 import {
   CANDIDATE_STATUSES,
@@ -58,7 +58,9 @@ const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-
 export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack, onEdit, onOpenOffer, onCreateOffer }) => {
   const ids = useId();
   const { can } = useAuth();
-  const { setSelectedEmployeeId, navigateTo } = usePayroll();
+  const payroll = useOptionalPayroll();
+  const setSelectedEmployeeId = payroll?.setSelectedEmployeeId;
+  const navigateTo = payroll?.navigateTo;
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>(null);
@@ -141,8 +143,10 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedEmployeeId(candidate.employeeId);
-                  navigateTo('employee-detail');
+                  if (candidate.employeeId && setSelectedEmployeeId && navigateTo) {
+                    setSelectedEmployeeId(candidate.employeeId);
+                    navigateTo('employee-detail');
+                  }
                 }}
                 className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-700 text-white inline-flex items-center gap-1.5 shadow-sm"
               >
@@ -166,10 +170,22 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
             </button>
           )}
           {can('onboarding.candidates.manage') && !archived && candidate.manualMoves.length > 0 && (
-            <button type="button" onClick={() => setOpen({ kind: 'move' })} className={actionClass}>Change stage</button>
+            <button
+              type="button"
+              onClick={() => setOpen({ kind: 'move' })}
+              className={`${actionClass} text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800/60 bg-teal-50/50 dark:bg-teal-500/10 hover:bg-teal-100/60`}
+            >
+              Change stage
+            </button>
           )}
           {can('onboarding.candidates.override') && !archived && candidate.status !== 'JOINED' && (
-            <button type="button" onClick={() => setOpen({ kind: 'override' })} className={actionClass}>Override stage</button>
+            <button
+              type="button"
+              onClick={() => setOpen({ kind: 'override' })}
+              className={`${actionClass} text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 bg-amber-50/50 dark:bg-amber-500/10 hover:bg-amber-100/60`}
+            >
+              Override stage
+            </button>
           )}
           {can('onboarding.candidates.manage') && !archived && (
             <button type="button" onClick={() => onEdit(candidate)} className={actionClass}>Edit</button>
@@ -244,8 +260,10 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
           <button
             type="button"
             onClick={() => {
-              setSelectedEmployeeId(candidate.employeeId);
-              navigateTo('employee-detail');
+              if (candidate.employeeId && setSelectedEmployeeId && navigateTo) {
+                setSelectedEmployeeId(candidate.employeeId);
+                navigateTo('employee-detail');
+              }
             }}
             className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 hover:bg-teal-700 text-white inline-flex items-center gap-1.5 shrink-0 self-start sm:self-center shadow-sm"
           >
@@ -452,7 +470,7 @@ const StageDialog: React.FC<{ candidate: CandidateDetail; override: boolean; onC
   const [busy, setBusy] = useState(false);
   const save = async () => {
     if (!status) return setError('Choose the new stage.');
-    if (override && text.trim().length < 10) return setError('Explain the override in at least 10 characters.');
+    if (override && text.trim().length < 10) return setError('Explain the administrative override in at least 10 characters.');
     setBusy(true);
     setError(null);
     try {
@@ -465,19 +483,26 @@ const StageDialog: React.FC<{ candidate: CandidateDetail; override: boolean; onC
   };
   return (
     <Dialog
-      title={override ? 'Override the stage' : 'Change stage'}
+      title={override ? 'Override Candidate Stage (Administrative)' : 'Change Candidate Stage'}
       description={
         override
-          ? 'Moves the candidate outside the normal workflow. Your reason is recorded on the timeline and in the audit log.'
-          : `The candidate is ${STATUS_LABELS[candidate.status].toLowerCase()}. Other stages are reached by scheduling and deciding on interviews.`
+          ? 'Administratively moves the candidate to any recruitment workflow stage outside the standard progression rules. A mandatory reason (min 10 characters) is permanently saved in the database, timeline, and audit log.'
+          : `Move the candidate along the defined recruitment workflow progression. Current stage: ${STATUS_LABELS[candidate.status]}.`
       }
       onClose={onClose}
       size="sm"
       footer={
         <>
           <button type="button" onClick={onClose} className={actionClass}>Cancel</button>
-          <button type="button" disabled={busy} onClick={save} className="px-4 py-2 text-sm font-semibold rounded-xl bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50">
-            {busy ? 'Saving…' : status ? `Move to ${STATUS_LABELS[status]}` : 'Change stage'}
+          <button
+            type="button"
+            disabled={busy || !status || (override && text.trim().length < 10)}
+            onClick={save}
+            className={`px-4 py-2 text-sm font-semibold rounded-xl text-white disabled:opacity-50 transition-colors ${
+              override ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
+            }`}
+          >
+            {busy ? 'Saving…' : status ? `${override ? 'Override to' : 'Move to'} ${STATUS_LABELS[status]}` : override ? 'Override stage' : 'Change stage'}
           </button>
         </>
       }
@@ -485,11 +510,27 @@ const StageDialog: React.FC<{ candidate: CandidateDetail; override: boolean; onC
       {error && <p role="alert" className="mb-3 p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-800">{error}</p>}
       <label htmlFor={`${ids}-status`} className={labelClass}>New stage *</label>
       <select id={`${ids}-status`} value={status} onChange={(e) => setStatus(e.target.value as CandidateStatus)} className={fieldClass}>
-        <option value="">Choose</option>
+        <option value="">Choose new stage</option>
         {choices.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
       </select>
-      <label htmlFor={`${ids}-text`} className={`${labelClass} mt-3`}>{override ? 'Reason *' : 'Note (optional)'}</label>
-      <textarea id={`${ids}-text`} rows={3} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} className={fieldClass} />
+      <label htmlFor={`${ids}-text`} className={`${labelClass} mt-3`}>
+        {override ? (
+          <>
+            Override reason <span className="text-red-500 font-semibold">* (min 10 characters)</span>
+          </>
+        ) : (
+          'Note (optional)'
+        )}
+      </label>
+      <textarea
+        id={`${ids}-text`}
+        rows={3}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        maxLength={2000}
+        placeholder={override ? 'Enter detailed reason for the administrative override…' : 'Add an optional note…'}
+        className={fieldClass}
+      />
     </Dialog>
   );
 };

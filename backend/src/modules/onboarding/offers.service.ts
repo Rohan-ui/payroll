@@ -437,6 +437,103 @@ export class OffersService {
     return { offer: await this.get(tenantId, offerId, actor), notifications: [] as OnboardingSendOutcome[] };
   }
 
+  /** Explicitly changes or administratively overrides the status of an offer. */
+  async changeStatus(
+    tenantId: string,
+    offerId: string,
+    dto: { newStatus?: string; toStatus?: string; status?: string; reason?: string; isOverride?: boolean },
+    actor: AuthenticatedTenantUser,
+  ) {
+    const offer = await this.lockOffer(this.prisma, tenantId, offerId);
+    const currentStatus = offer.offer_status;
+    const targetStatus = dto.newStatus || dto.toStatus || dto.status;
+    if (!targetStatus) {
+      throw new BadRequestException('Choose a valid offer status.');
+    }
+    if (currentStatus === targetStatus) {
+      return { offer: await this.get(tenantId, offerId, actor), notifications: [] as OnboardingSendOutcome[] };
+    }
+
+    const isOverride = Boolean(dto.isOverride);
+    if (isOverride) {
+      await this.access.assertHoldsAll(
+        tenantId,
+        actor.tenantMemberId,
+        ['onboarding.candidates.override'],
+        'You do not have permission to override offer status.',
+      );
+      if (!dto.reason || dto.reason.trim().length < 10) {
+        throw new BadRequestException('An override reason of at least 10 characters is required.');
+      }
+    } else {
+      const allowedTransitions: Record<string, string[]> = {
+        DRAFT: ['PENDING_APPROVAL', 'APPROVED', 'WITHDRAWN'],
+        PENDING_APPROVAL: ['APPROVED', 'DRAFT', 'WITHDRAWN'],
+        APPROVED: ['SENT', 'WITHDRAWN'],
+        SENT: ['ACCEPTED', 'DECLINED', 'EXPIRED', 'WITHDRAWN'],
+        ACCEPTED: ['WITHDRAWN'],
+        DECLINED: ['DRAFT', 'WITHDRAWN'],
+        EXPIRED: ['DRAFT', 'WITHDRAWN'],
+        WITHDRAWN: ['DRAFT'],
+      };
+      const allowed = allowedTransitions[currentStatus] || [];
+      if (!allowed.includes(targetStatus)) {
+        throw new BadRequestException(
+          `Invalid status transition: Cannot change status from ${currentStatus} to ${targetStatus}. Permitted next statuses: ${allowed.join(', ') || 'None'}`,
+        );
+      }
+      if (['DECLINED', 'WITHDRAWN'].includes(targetStatus) && !dto.reason?.trim()) {
+        throw new BadRequestException(`A reason is required when transitioning status to ${targetStatus}.`);
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rndtechnosoft_offers.update({
+        where: { tenant_id_id: { tenant_id: tenantId, id: offerId } },
+        data: {
+          offer_status: targetStatus,
+          ...(targetStatus === 'ACCEPTED' ? { responded_at: new Date(), accepted_name: 'Manual Acceptance' } : {}),
+          ...(targetStatus === 'WITHDRAWN' ? { withdrawn_reason: dto.reason?.trim() ?? null } : {}),
+          ...(targetStatus === 'DECLINED' ? { decline_reason: dto.reason?.trim() ?? null, responded_at: new Date() } : {}),
+          updated_at: new Date(),
+        },
+      });
+
+      // Record candidate timeline event without mutating candidate stage
+      await tx.rndtechnosoft_candidate_events.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          candidate_id: offer.candidate_id,
+          event_type: isOverride ? 'OFFER_STATUS_OVERRIDDEN' : 'OFFER_STATUS_CHANGED',
+          from_status: null,
+          to_status: null,
+          is_override: isOverride,
+          summary: isOverride
+            ? `Offer ${offer.offer_code} status overridden to ${targetStatus}`
+            : `Offer ${offer.offer_code} status changed to ${targetStatus}`,
+          notes: dto.reason?.trim() ?? null,
+          actor_tenant_member_id: actor.tenantMemberId,
+          metadata: { offerId: offer.id, fromStatus: currentStatus, toStatus: targetStatus, isOverride },
+        },
+      });
+    });
+
+    await this.audit.log({
+      tenantId,
+      actorUserId: actor.userId,
+      actorTenantMemberId: actor.tenantMemberId,
+      actionCode: isOverride ? 'ONBOARDING_OFFER_STATUS_OVERRIDDEN' : 'ONBOARDING_OFFER_STATUS_CHANGED',
+      entityType: 'OFFER',
+      entityId: offer.id,
+      oldValues: { status: currentStatus },
+      newValues: { status: targetStatus, isOverride },
+      metadata: { reason: dto.reason?.trim() ?? null },
+    });
+
+    return { offer: await this.get(tenantId, offerId, actor), notifications: [] as OnboardingSendOutcome[] };
+  }
+
   /** Sent offers past their last day become expired, and their candidates return to selected for a new offer. */
   async expireDue(tenantId: string) {
     const due = await this.prisma.rndtechnosoft_offers.findMany({

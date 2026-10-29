@@ -71,7 +71,7 @@ import { EmailTemplateEditorModal } from './EmailTemplateEditorModal';
 import { EmailTemplatesView } from '../documents/EmailTemplatesView';
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
-  DRAFT: ['IN_REVIEW', 'APPROVED', 'WITHDRAWN'],
+  DRAFT: ['IN_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   IN_REVIEW: ['DRAFT', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   APPROVED: ['SENT', 'IN_REVIEW', 'REJECTED', 'WITHDRAWN'],
   SENT: ['DELIVERED', 'VIEWED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'WITHDRAWN'],
@@ -82,6 +82,19 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
   EXPIRED: ['DRAFT', 'WITHDRAWN'],
   WITHDRAWN: ['DRAFT'],
 };
+
+const ALL_DOCUMENT_STATUSES: string[] = [
+  'DRAFT',
+  'IN_REVIEW',
+  'APPROVED',
+  'SENT',
+  'DELIVERED',
+  'VIEWED',
+  'ACCEPTED',
+  'REJECTED',
+  'EXPIRED',
+  'WITHDRAWN',
+];
 
 const STATUS_VARIANTS: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'purple'> = {
   DRAFT: 'neutral',
@@ -324,6 +337,7 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
   const ids = useId();
   const { can } = useAuth();
   const canManage = can('onboarding.documents.manage');
+  const canOverride = can('onboarding.candidates.override');
 
   // Documents list state
   const [documents, setDocuments] = useState<CandidateLetterDocumentSummary[]>([]);
@@ -375,6 +389,7 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
   const [statusModalDoc, setStatusModalDoc] = useState<CandidateLetterDocumentSummary | null>(null);
   const [selectedNextStatus, setSelectedNextStatus] = useState<string>('');
   const [statusReason, setStatusReason] = useState<string>('');
+  const [isOverrideMode, setIsOverrideMode] = useState<boolean>(false);
   const [statusHistory, setStatusHistory] = useState<DocumentStatusHistoryItem[]>([]);
   const [statusLoading, setStatusLoading] = useState<boolean>(false);
   const [updatingStatus, setUpdatingStatus] = useState<boolean>(false);
@@ -636,6 +651,7 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
   // ── Status Management Handlers ───────────────────────────────
   const openStatusModal = async (doc: CandidateLetterDocumentSummary) => {
     setStatusModalDoc(doc);
+    setIsOverrideMode(false);
     const allowed = VALID_STATUS_TRANSITIONS[doc.documentStatus] || [];
     setSelectedNextStatus(allowed[0] || '');
     setStatusReason('');
@@ -652,9 +668,16 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
 
   const handleUpdateStatus = async () => {
     if (!statusModalDoc || !selectedNextStatus) return;
-    if (['REJECTED', 'WITHDRAWN'].includes(selectedNextStatus) && !statusReason.trim()) {
-      toast.error(`A reason is required when transitioning status to ${STATUS_LABELS[selectedNextStatus] || selectedNextStatus}.`);
-      return;
+    if (isOverrideMode) {
+      if (statusReason.trim().length < 10) {
+        toast.error('Administrative override requires an explanatory reason of at least 10 characters.');
+        return;
+      }
+    } else {
+      if (['REJECTED', 'WITHDRAWN'].includes(selectedNextStatus) && !statusReason.trim()) {
+        toast.error(`A reason is required when transitioning status to ${STATUS_LABELS[selectedNextStatus] || selectedNextStatus}.`);
+        return;
+      }
     }
 
     setUpdatingStatus(true);
@@ -662,8 +685,13 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
       await onboardingApi.changeDocumentStatus(candidateId, statusModalDoc.id, {
         newStatus: selectedNextStatus,
         reason: statusReason.trim() || undefined,
+        isOverride: isOverrideMode,
       });
-      toast.success(`Status changed to ${STATUS_LABELS[selectedNextStatus] || selectedNextStatus}`);
+      toast.success(
+        isOverrideMode
+          ? `Status administratively overridden to ${STATUS_LABELS[selectedNextStatus] || selectedNextStatus}`
+          : `Status changed to ${STATUS_LABELS[selectedNextStatus] || selectedNextStatus}`
+      );
       setStatusModalDoc(null);
       loadDocuments();
     } catch (e) {
@@ -1168,6 +1196,18 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
                       </button>
                     )}
 
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => openStatusModal(doc)}
+                        className={`${actionClass} font-semibold text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 bg-amber-50/50 dark:bg-amber-500/10 hover:bg-amber-100/60`}
+                        title="Change or Override Lifecycle Status"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        <span>Status</span>
+                      </button>
+                    )}
+
                     {/* Action Menu (More actions dropdown) */}
                     <div className="relative">
                       <button
@@ -1647,8 +1687,12 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
       {/* ── Status Management Modal ────────────────────────────── */}
       {statusModalDoc && (
         <Dialog
-          title="Change Document Status"
-          description={`Update lifecycle status for “${statusModalDoc.documentTitle}”.`}
+          title={isOverrideMode ? 'Override Document Status (Administrative)' : 'Change Document Status'}
+          description={
+            isOverrideMode
+              ? `Administrative override for “${statusModalDoc.documentTitle}”. Bypasses standard lifecycle progression. Reason is permanently recorded in the audit trail.`
+              : `Update lifecycle status for “${statusModalDoc.documentTitle}”.`
+          }
           onClose={() => setStatusModalDoc(null)}
           size="md"
           footer={
@@ -1658,11 +1702,15 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
               </button>
               <button
                 type="button"
-                disabled={updatingStatus || !selectedNextStatus}
+                disabled={updatingStatus || !selectedNextStatus || (isOverrideMode && statusReason.trim().length < 10)}
                 onClick={handleUpdateStatus}
-                className={primaryClass}
+                className={
+                  isOverrideMode
+                    ? 'inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-50 transition-colors'
+                    : primaryClass
+                }
               >
-                {updatingStatus ? 'Updating…' : 'Update Status'}
+                {updatingStatus ? 'Updating…' : isOverrideMode ? 'Override Status' : 'Update Status'}
               </button>
             </div>
           }
@@ -1675,39 +1723,82 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
               </Badge>
             </div>
 
+            {canOverride && (
+              <div className="flex items-center gap-2 p-3 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/20 text-xs">
+                <input
+                  type="checkbox"
+                  id="doc-override-mode"
+                  checked={isOverrideMode}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsOverrideMode(checked);
+                    if (checked) {
+                      const list = ALL_DOCUMENT_STATUSES.filter((s) => s !== statusModalDoc.documentStatus);
+                      setSelectedNextStatus(list[0] || '');
+                    } else {
+                      const normalAllowed = VALID_STATUS_TRANSITIONS[statusModalDoc.documentStatus] || [];
+                      setSelectedNextStatus(normalAllowed[0] || '');
+                    }
+                  }}
+                  className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                />
+                <label htmlFor="doc-override-mode" className="font-semibold text-amber-900 dark:text-amber-200 cursor-pointer select-none">
+                  Administrative Override (bypass standard transition progression)
+                </label>
+              </div>
+            )}
+
             <div>
               <label className={labelClass}>
                 Next Status <span className="text-red-500">*</span>
               </label>
-              {(VALID_STATUS_TRANSITIONS[statusModalDoc.documentStatus] || []).length === 0 ? (
-                <p className="text-xs text-slate-500 p-2.5 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5">
-                  No permitted transitions available from this status.
-                </p>
-              ) : (
-                <select
-                  value={selectedNextStatus}
-                  onChange={(e) => setSelectedNextStatus(e.target.value)}
-                  className={fieldClass}
-                >
-                  {(VALID_STATUS_TRANSITIONS[statusModalDoc.documentStatus] || []).map((st) => (
-                    <option key={st} value={st}>
-                      {STATUS_LABELS[st] || st}
-                    </option>
-                  ))}
-                </select>
-              )}
+              {(() => {
+                const availableStatuses = isOverrideMode
+                  ? ALL_DOCUMENT_STATUSES.filter((st) => st !== statusModalDoc.documentStatus)
+                  : (VALID_STATUS_TRANSITIONS[statusModalDoc.documentStatus] || []);
+
+                if (availableStatuses.length === 0) {
+                  return (
+                    <p className="text-xs text-slate-500 p-2.5 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5">
+                      No permitted standard transitions available from this status.{canOverride ? ' Enable Administrative Override above to set any lifecycle status.' : ''}
+                    </p>
+                  );
+                }
+
+                return (
+                  <select
+                    value={selectedNextStatus}
+                    onChange={(e) => setSelectedNextStatus(e.target.value)}
+                    className={fieldClass}
+                  >
+                    {availableStatuses.map((st) => (
+                      <option key={st} value={st}>
+                        {STATUS_LABELS[st] || st}
+                      </option>
+                    ))}
+                  </select>
+                );
+              })()}
             </div>
 
             <div>
               <label className={labelClass}>
-                Reason / Comment {['REJECTED', 'WITHDRAWN'].includes(selectedNextStatus) ? <span className="text-red-500">*</span> : <span className="text-slate-400 font-normal">(Optional)</span>}
+                Reason / Comment {isOverrideMode ? (
+                  <span className="text-red-500 font-semibold">* (Mandatory: min 10 characters for administrative override)</span>
+                ) : ['REJECTED', 'WITHDRAWN'].includes(selectedNextStatus) ? (
+                  <span className="text-red-500">*</span>
+                ) : (
+                  <span className="text-slate-400 font-normal">(Optional)</span>
+                )}
               </label>
               <textarea
                 rows={3}
                 value={statusReason}
                 onChange={(e) => setStatusReason(e.target.value)}
                 placeholder={
-                  ['REJECTED', 'WITHDRAWN'].includes(selectedNextStatus)
+                  isOverrideMode
+                    ? 'Enter reason for administrative override (mandatory, min 10 chars)…'
+                    : ['REJECTED', 'WITHDRAWN'].includes(selectedNextStatus)
                     ? 'Enter reason for rejection or withdrawal (mandatory)…'
                     : 'Add audit note explaining this status change…'
                 }
@@ -1730,14 +1821,21 @@ export const CandidateLetterDocuments: React.FC<Props> = ({ candidateId, candida
                   {statusHistory.map((item) => (
                     <li key={item.id} className="ml-4 text-xs">
                       <div className="absolute -left-1.5 mt-1.5 w-3 h-3 rounded-full border-2 border-white dark:border-[#181724] bg-teal-500" />
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          {item.toStatus}
+                          {STATUS_LABELS[item.toStatus] || item.toStatus}
                         </span>
                         {item.fromStatus && (
-                          <span className="text-[11px] text-slate-400">from {item.fromStatus}</span>
+                          <span className="text-[11px] text-slate-400">
+                            from {STATUS_LABELS[item.fromStatus] || item.fromStatus}
+                          </span>
                         )}
-                        <span className="text-[11px] text-slate-400 ml-auto">{formatDateTime(item.changedAt)}</span>
+                        {item.isOverride && (
+                          <Badge variant="warning" size="sm">Override</Badge>
+                        )}
+                        <span className="text-[11px] text-slate-400 ml-auto">
+                          {formatDateTime(item.changedAt || item.createdAt)}
+                        </span>
                       </div>
                       <p className="text-[11px] text-slate-500 mt-0.5">
                         By {item.changedByName || 'System'}
