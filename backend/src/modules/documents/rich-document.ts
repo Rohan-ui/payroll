@@ -131,7 +131,8 @@ export function parseDocument(kind: TemplateKind | string, input: unknown): DocN
         // A style with nothing set is no style.
         if (Object.values(attrs).some((v) => v !== null)) out.push({ type: 'textStyle', attrs });
       } else {
-        fail('The document has formatting that can’t be printed. Remove it and try again.');
+        const markType = isRecord(m) && typeof m.type === 'string' ? m.type : 'unrecognized mark';
+        fail(`The document has formatting that can’t be printed (${markType}). Remove it and try again.`);
       }
     }
     return out.length ? out : undefined;
@@ -282,8 +283,10 @@ const sanitizeBorder = (v: unknown): string | null => {
         };
         return { type: cellType, attrs: cellAttrs(attrs), content: cellChildren() };
       }
-      default:
-        return fail('The document has content that can’t be printed. Remove it and try again.');
+      default: {
+        const typeName = isRecord(n) && typeof n.type === 'string' ? n.type : 'unrecognized block';
+        return fail(`The document has content that can’t be printed (${typeName}). Remove it and try again.`);
+      }
     }
   };
 
