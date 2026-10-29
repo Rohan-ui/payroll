@@ -758,4 +758,227 @@ export class UpdateEmailTemplateDto {
   isActive?: boolean;
 }
 
+export class ConvertToEmployeeDto {
+  @IsString({ message: 'Employee ID / code is required' })
+  @MinLength(1)
+  @MaxLength(64)
+  employeeCode!: string;
+
+  @IsString({ message: 'First name is required' })
+  @MinLength(1)
+  @MaxLength(100)
+  firstName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  middleName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  lastName?: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'Enter a valid work email' })
+  @MaxLength(320)
+  workEmail?: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'Enter a valid personal email' })
+  @MaxLength(320)
+  personalEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  workMobile?: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true }, { message: 'Date of birth must be YYYY-MM-DD' })
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  genderCode?: string;
+
+  @IsDateString({ strict: true }, { message: 'Joining date must be YYYY-MM-DD' })
+  joiningDate!: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  designationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  employmentTypeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  employmentStatus?: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true }, { message: 'Probation end date must be YYYY-MM-DD' })
+  probationEndDate?: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true }, { message: 'Confirmation date must be YYYY-MM-DD' })
+  confirmationDate?: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true }, { message: 'Employment end date must be YYYY-MM-DD' })
+  employmentEndDate?: string;
+
+  @IsOptional()
+  @IsUUID()
+  reportingManagerEmployeeId?: string;
+
+  // Address
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  currentAddressLine1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  currentAddressLine2?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  currentCity?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  currentState?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  currentPostalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  currentCountryCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  permanentAddressLine1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  permanentAddressLine2?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  permanentCity?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  permanentState?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  permanentPostalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  permanentCountryCode?: string;
+
+  // Emergency contact
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  emergencyContactName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  emergencyContactRelationship?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  emergencyContactPhone?: string;
+
+  // Compensation / Payroll
+  @IsOptional()
+  @IsUUID()
+  salaryStructureId?: string;
+
+  @IsOptional()
+  @Matches(/^\d{1,14}(\.\d{1,2})?$/, { message: 'Annual CTC must be a valid monetary amount' })
+  annualCtc?: string;
+
+  @IsOptional()
+  @Matches(/^\d{1,14}(\.\d{1,2})?$/, { message: 'Monthly gross must be a valid monetary amount' })
+  monthlyGrossTarget?: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true }, { message: 'Salary effective from must be YYYY-MM-DD' })
+  salaryEffectiveFrom?: string;
+
+  // Bank
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  bankName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  branchName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  accountNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  ifsc?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  accountHolderName?: string;
+
+  // Statutory
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  pan?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  aadhaarLast4?: string;
+
+  // COSEC
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  cosecEmployeeId?: string;
+}
+
 

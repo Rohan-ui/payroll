@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useId, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, UserCheck, Fingerprint, ExternalLink, Sparkles } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Dialog } from '../../components/ui/Dialog';
 import { useAuth } from '../../context/AuthContext';
+import { usePayroll } from '../../context/PayrollContext';
 import { toast } from '../../lib/toast';
 import {
   CANDIDATE_STATUSES,
@@ -31,6 +32,7 @@ import { OFFER_VARIANT } from './OfferDetailView';
 import { OFFER_STATUS_LABELS } from '../../api/onboarding.api';
 import { CandidateDocuments } from './CandidateDocuments';
 import { CandidateLetterDocuments } from './CandidateLetterDocuments';
+import { ConvertToEmployeeModal } from './ConvertToEmployeeModal';
 
 interface Props {
   candidateId: string;
@@ -56,9 +58,11 @@ const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-
 export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack, onEdit, onOpenOffer, onCreateOffer }) => {
   const ids = useId();
   const { can } = useAuth();
+  const { setSelectedEmployeeId, navigateTo } = usePayroll();
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>(null);
+  const [showConvertModal, setShowConvertModal] = useState(false);
   const [emailNotice, setEmailNotice] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
   const [note, setNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -131,6 +135,31 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* Candidate-to-Employee Conversion or View Employee Profile */}
+          {candidate.employeeId || candidate.status === 'JOINED' ? (
+            candidate.employeeId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedEmployeeId(candidate.employeeId);
+                  navigateTo('employee-detail');
+                }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-700 text-white inline-flex items-center gap-1.5 shadow-sm"
+              >
+                <UserCheck className="w-3.5 h-3.5" /> View Employee
+              </button>
+            )
+          ) : (
+            can('onboarding.candidates.manage') && !archived && (
+              <button
+                type="button"
+                onClick={() => setShowConvertModal(true)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-700 text-white inline-flex items-center gap-1.5 shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Convert to Employee
+              </button>
+            )
+          )}
           {canSchedule && (
             <button type="button" onClick={() => setOpen({ kind: 'schedule' })} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-500 hover:bg-teal-600 text-white">
               Schedule interview
@@ -165,6 +194,64 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
         <div role="status" className={`p-3 rounded-xl border text-sm flex items-start justify-between gap-3 ${emailNotice.tone === 'ok' ? 'border-teal-200 bg-teal-50 text-teal-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
           <span>{emailNotice.text}</span>
           <button type="button" onClick={() => setEmailNotice(null)} className="text-xs font-semibold underline shrink-0">Dismiss</button>
+        </div>
+      )}
+
+      {/* Converted Employee & COSEC Attendance Banner */}
+      {candidate.employeeId && (
+        <div className="p-4 rounded-2xl border border-teal-200 dark:border-teal-900 bg-teal-50/50 dark:bg-teal-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0">
+              <UserCheck className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-300">
+                  Official HRMS Employee
+                </span>
+                <Badge variant="success" size="sm">
+                  {candidate.linkedEmployee?.employeeCode || 'Active Employee'}
+                </Badge>
+                {candidate.linkedEmployee?.cosecMapping?.mappingStatus && (
+                  <Badge
+                    variant={
+                      candidate.linkedEmployee.cosecMapping.mappingStatus === 'MAPPED'
+                        ? 'success'
+                        : candidate.linkedEmployee.cosecMapping.mappingStatus === 'MAPPING_PENDING'
+                        ? 'warning'
+                        : 'danger'
+                    }
+                    size="sm"
+                  >
+                    <Fingerprint className="w-3 h-3 mr-1 inline" />
+                    {candidate.linkedEmployee.cosecMapping.mappingStatus === 'MAPPED'
+                      ? `COSEC Mapped (${candidate.linkedEmployee.cosecMapping.cosecEmployeeId || 'ID set'})`
+                      : candidate.linkedEmployee.cosecMapping.mappingStatus === 'MAPPING_PENDING'
+                      ? 'COSEC Mapping Pending'
+                      : candidate.linkedEmployee.cosecMapping.mappingStatus}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                {candidate.linkedEmployee?.name || candidate.fullName} · {candidate.linkedEmployee?.workEmail || candidate.email}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {candidate.linkedEmployee?.hireDate ? `Joined ${formatDate(candidate.linkedEmployee.hireDate)}` : 'Onboarded'}
+                {candidate.linkedEmployee?.cosecMapping?.lastSyncedAt && ` · Biometrics Synced: ${new Date(candidate.linkedEmployee.cosecMapping.lastSyncedAt).toLocaleString('en-IN')}`}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedEmployeeId(candidate.employeeId);
+              navigateTo('employee-detail');
+            }}
+            className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 hover:bg-teal-700 text-white inline-flex items-center gap-1.5 shrink-0 self-start sm:self-center shadow-sm"
+          >
+            <span>View Employee Profile</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
@@ -333,6 +420,18 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
         >
           <p className="text-sm text-slate-600 dark:text-slate-300">A candidate with a scheduled interview can't be archived; cancel the interview first.</p>
         </Dialog>
+      )}
+
+      {showConvertModal && (
+        <ConvertToEmployeeModal
+          candidateId={candidate.id}
+          candidateName={candidate.fullName}
+          onClose={() => setShowConvertModal(false)}
+          onSuccess={(_res) => {
+            setShowConvertModal(false);
+            load();
+          }}
+        />
       )}
     </div>
   );

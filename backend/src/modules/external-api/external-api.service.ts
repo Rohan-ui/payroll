@@ -12,12 +12,14 @@
  * can use directly or feed into existing services.
  */
 
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { AuditService } from '../audit/audit.service';
 import { cosecGet, cosecTestConnection } from './cosec-api.client';
 import { decryptPlatformSecret, encryptPlatformSecret } from '../super-admin/auth/platform-crypto.util';
+import { SetCosecMappingDto } from './dto/cosec-sync.dto';
 import {
   serializeCosecUsers,
   serializeCosecMonthlyAttendance,
@@ -98,7 +100,12 @@ const COSEC_PUNCH_SOURCES = ['COSEC_SYNC', 'COSEC_DEVICE'];
 
 @Injectable()
 export class ExternalApiService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ExternalApiService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /* ── Config ───────────────────────────────────────────────── */
 
@@ -340,12 +347,43 @@ export class ExternalApiService {
         branchId = branch.id;
       }
 
-      // 4. Upsert employee
-      let employee = await this.prisma.rndtechnosoft_employees.findFirst({
-        where: { tenant_id: tenantId, employee_code: employeeCode },
+      // 4. Preferred matching order:
+      // Rule 1: Explicit COSEC Employee ID mapping
+      const mapping = await this.prisma.rndtechnosoft_employee_cosec_mappings.findFirst({
+        where: { tenant_id: tenantId, cosec_employee_id: employeeCode },
       });
+      let employee = mapping
+        ? await this.prisma.rndtechnosoft_employees.findFirst({
+            where: { tenant_id: tenantId, id: mapping.employee_id },
+          })
+        : null;
+
+      // Rule 2: Existing verified external identifier / exact employee_code match
+      if (!employee) {
+        employee = await this.prisma.rndtechnosoft_employees.findFirst({
+          where: { tenant_id: tenantId, employee_code: employeeCode },
+        });
+      }
+
+      // Rule 3: Exact normalized email matching (only when unambiguous single match)
+      if (!employee && workEmail && workEmail.trim()) {
+        const normEmail = workEmail.trim().toLowerCase();
+        const emailMatches = await this.prisma.rndtechnosoft_employees.findMany({
+          where: {
+            tenant_id: tenantId,
+            OR: [
+              { work_email: { equals: normEmail, mode: 'insensitive' } },
+              { personal_email: { equals: normEmail, mode: 'insensitive' } },
+            ],
+          },
+        });
+        if (emailMatches.length === 1) {
+          employee = emailMatches[0];
+        }
+      }
 
       if (!employee) {
+        // Create new employee from COSEC
         employee = await this.prisma.rndtechnosoft_employees.create({
           data: {
             id: randomUUID(),
@@ -363,18 +401,18 @@ export class ExternalApiService {
           },
         });
       } else {
+        // Matched existing employee! Preserve their existing employee_code!
         employee = await this.prisma.rndtechnosoft_employees.update({
           where: { id: employee.id },
           data: {
             first_name: firstName,
             last_name: lastName,
-            date_of_birth: dateOfBirth,
-            gender_code: genderCode,
-            work_email: workEmail,
-            personal_email: workEmail,
-            work_mobile: workMobile,
-            hire_date: hireDate,
-            employee_status: u.active === '0' ? 'INACTIVE' : 'ACTIVE',
+            date_of_birth: dateOfBirth ?? employee.date_of_birth,
+            gender_code: genderCode ?? employee.gender_code,
+            work_email: workEmail ?? employee.work_email,
+            personal_email: workEmail ?? employee.personal_email,
+            work_mobile: workMobile ?? employee.work_mobile,
+            employee_status: u.active === '0' ? 'INACTIVE' : employee.employee_status,
           },
         });
       }
@@ -430,6 +468,30 @@ export class ExternalApiService {
         }
       }
 
+      // 7. Upsert verified mapping record in rndtechnosoft_employee_cosec_mappings
+      await this.prisma.rndtechnosoft_employee_cosec_mappings.upsert({
+        where: { tenant_id_employee_id: { tenant_id: tenantId, employee_id: employee.id } },
+        update: {
+          cosec_employee_id: employeeCode,
+          mapping_status: 'MAPPED',
+          verification_status: 'VERIFIED',
+          last_synced_at: new Date(),
+          last_sync_result: `Mapped to COSEC user ${employeeCode}`,
+          updated_at: new Date(),
+        },
+        create: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          employee_id: employee.id,
+          cosec_employee_id: employeeCode,
+          mapping_status: 'MAPPED',
+          mapping_source: 'AUTOMATIC',
+          verification_status: 'VERIFIED',
+          last_synced_at: new Date(),
+          last_sync_result: `Mapped to COSEC user ${employeeCode}`,
+        },
+      });
+
       syncedEmployees.push({
         id: employee.id,
         employeeCode: employee.employee_code,
@@ -437,42 +499,31 @@ export class ExternalApiService {
       });
     }
 
-    // 7. Delete mock employees for this tenant (any employee not in validEmployeeCodes)
-    const mockEmployees = await this.prisma.rndtechnosoft_employees.findMany({
+    // 8. Ensure any existing HRMS employees without a mapping record are set to MAPPING_PENDING
+    const unmappedEmployees = await this.prisma.rndtechnosoft_employees.findMany({
       where: {
         tenant_id: tenantId,
-        employee_code: { notIn: validEmployeeCodes },
+        rndtechnosoft_employee_cosec_mappings: null,
       },
-      select: { id: true, employee_code: true },
+      select: { id: true },
     });
-
-    let deletedMockCount = 0;
-    if (mockEmployees.length > 0) {
-      const mockIds = mockEmployees.map((m) => m.id);
-      await this.prisma.rndtechnosoft_attendance_records.deleteMany({
-        where: { tenant_id: tenantId, employee_id: { in: mockIds } },
-      });
-      await this.prisma.rndtechnosoft_employee_employments.deleteMany({
-        where: { tenant_id: tenantId, employee_id: { in: mockIds } },
-      });
-      await this.prisma.rndtechnosoft_employee_identifiers.deleteMany({
-        where: { tenant_id: tenantId, employee_id: { in: mockIds } },
-      });
-      await this.prisma.rndtechnosoft_employee_bank_accounts.deleteMany({
-        where: { tenant_id: tenantId, employee_id: { in: mockIds } },
-      });
-      await this.prisma.rndtechnosoft_employee_salary_assignments.deleteMany({
-        where: { tenant_id: tenantId, employee_id: { in: mockIds } },
-      });
-      const delRes = await this.prisma.rndtechnosoft_employees.deleteMany({
-        where: { tenant_id: tenantId, id: { in: mockIds } },
-      });
-      deletedMockCount = delRes.count;
+    for (const unmapped of unmappedEmployees) {
+      await this.prisma.rndtechnosoft_employee_cosec_mappings.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          employee_id: unmapped.id,
+          cosec_employee_id: null,
+          mapping_status: 'MAPPING_PENDING',
+          mapping_source: 'AUTOMATIC',
+          verification_status: 'UNVERIFIED',
+        },
+      }).catch(() => {});
     }
 
     return {
       syncedCount: syncedEmployees.length,
-      deletedMockCount,
+      deletedMockCount: 0,
       employees: syncedEmployees,
     };
   }
@@ -564,17 +615,38 @@ export class ExternalApiService {
 
     // Employees and their days in one go, not one query per row.
     const codes = [...new Set(items.map((item) => item.employeeCode))];
-    const employees = await this.prisma.rndtechnosoft_employees.findMany({
-      where: { tenant_id: tenantId, employee_code: { in: codes } },
-      select: { id: true, employee_code: true },
+
+    // 1. Check explicit mappings first
+    const mappings = await this.prisma.rndtechnosoft_employee_cosec_mappings.findMany({
+      where: {
+        tenant_id: tenantId,
+        cosec_employee_id: { in: codes },
+        mapping_status: 'MAPPED',
+      },
+      select: { employee_id: true, cosec_employee_id: true },
     });
-    const employeeByCode = new Map(employees.map((e) => [e.employee_code, e.id]));
-    result.unmatchedUsers = codes.filter((code) => !employeeByCode.has(code));
+    const employeeByCosecId = new Map(mappings.map((m) => [m.cosec_employee_id!, m.employee_id]));
+
+    // 2. Fallback to direct employee_code match
+    const unmappedCodes = codes.filter((c) => !employeeByCosecId.has(c));
+    let employeeByCode = new Map<string, string>();
+    if (unmappedCodes.length > 0) {
+      const employees = await this.prisma.rndtechnosoft_employees.findMany({
+        where: { tenant_id: tenantId, employee_code: { in: unmappedCodes } },
+        select: { id: true, employee_code: true },
+      });
+      employeeByCode = new Map(employees.map((e) => [e.employee_code, e.id]));
+    }
+
+    const resolveEmployeeId = (code: string) => employeeByCosecId.get(code) || employeeByCode.get(code);
+
+    result.unmatchedUsers = codes.filter((code) => !resolveEmployeeId(code));
+    const allEmployeeIds = [...new Set(codes.map(resolveEmployeeId).filter((id): id is string => Boolean(id)))];
     const dates = items.map((item) => item.date).sort();
     const existing = await this.prisma.rndtechnosoft_attendance_records.findMany({
       where: {
         tenant_id: tenantId,
-        employee_id: { in: employees.map((e) => e.id) },
+        employee_id: { in: allEmployeeIds },
         attendance_date: { gte: new Date(`${dates[0]}T00:00:00.000Z`), lte: new Date(`${dates[dates.length - 1]}T00:00:00.000Z`) },
       },
       include: {
@@ -596,7 +668,7 @@ export class ExternalApiService {
     const time = (d: Date | null | undefined) => (d ? d.getTime() : null);
 
     for (const item of items) {
-      const employeeId = employeeByCode.get(item.employeeCode);
+      const employeeId = resolveEmployeeId(item.employeeCode);
       if (!employeeId) continue;
       result.syncedRecords++;
       const current = recordByDay.get(`${employeeId}|${item.date}`);
@@ -724,11 +796,27 @@ export class ExternalApiService {
     for (const rec of records) {
       if (!rec.employeeCode) continue;
 
-      // Find employee in this tenant
-      const employee = await this.prisma.rndtechnosoft_employees.findFirst({
+      // Find employee in this tenant via COSEC mapping first, fallback to employee_code
+      const mapping = await this.prisma.rndtechnosoft_employee_cosec_mappings.findFirst({
+        where: { tenant_id: tenantId, cosec_employee_id: rec.employeeCode },
+        include: { rndtechnosoft_employees: true },
+      });
+      const employee = mapping?.rndtechnosoft_employees ?? await this.prisma.rndtechnosoft_employees.findFirst({
         where: { tenant_id: tenantId, employee_code: rec.employeeCode },
       });
       if (!employee) continue;
+
+      if (mapping) {
+        await this.prisma.rndtechnosoft_employee_cosec_mappings.update({
+          where: { id: mapping.id },
+          data: {
+            last_synced_at: new Date(),
+            last_sync_result: `Monthly attendance synced for ${month}`,
+            mapping_status: 'MAPPED',
+            updated_at: new Date(),
+          },
+        });
+      }
 
       // Clean existing attendance records for that employee in this month
       const [year, mon] = month.split('-').map(Number);
@@ -849,6 +937,675 @@ export class ExternalApiService {
       monthly: {
         syncedCount: monthlyCount,
       },
+    };
+  }
+
+  /* ── COSEC Employee Mappings & Reconciliation ──────────────────────────── */
+
+  /**
+   * Get the COSEC mapping status for a specific employee.
+   */
+  async getEmployeeMapping(tenantId: string, employeeId: string) {
+    const employee = await this.prisma.rndtechnosoft_employees.findFirst({
+      where: { id: employeeId, tenant_id: tenantId },
+      select: {
+        id: true,
+        employee_code: true,
+        first_name: true,
+        last_name: true,
+        work_email: true,
+        employee_status: true,
+      },
+    });
+    if (!employee) {
+      throw new NotFoundException(`Employee ${employeeId} not found in workspace`);
+    }
+
+    const mapping = await this.prisma.rndtechnosoft_employee_cosec_mappings.findUnique({
+      where: {
+        tenant_id_employee_id: {
+          tenant_id: tenantId,
+          employee_id: employeeId,
+        },
+      },
+    });
+
+    const isConfigured = await this.isCosecConfigured(tenantId);
+
+    if (!mapping) {
+      return {
+        id: null,
+        tenantId,
+        employeeId: employee.id,
+        employeeCode: employee.employee_code,
+        employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
+        workEmail: employee.work_email,
+        cosecEmployeeId: null,
+        mappingStatus: 'MAPPING_PENDING' as const,
+        mappingSource: 'AUTOMATIC' as const,
+        verificationStatus: 'UNVERIFIED' as const,
+        lastSyncedAt: null,
+        lastSyncResult: null,
+        reviewNotes: null,
+        isCosecConfigured: isConfigured,
+      };
+    }
+
+    return {
+      id: mapping.id,
+      tenantId: mapping.tenant_id,
+      employeeId: employee.id,
+      employeeCode: employee.employee_code,
+      employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
+      workEmail: employee.work_email,
+      cosecEmployeeId: mapping.cosec_employee_id,
+      mappingStatus: mapping.mapping_status,
+      mappingSource: mapping.mapping_source,
+      verificationStatus: mapping.verification_status,
+      lastSyncedAt: mapping.last_synced_at,
+      lastSyncResult: mapping.last_sync_result,
+      reviewNotes: mapping.review_notes,
+      isCosecConfigured: isConfigured,
+      createdAt: mapping.created_at,
+      updatedAt: mapping.updated_at,
+    };
+  }
+
+  /**
+   * Check if a given COSEC User/Employee ID exists in COSEC, and whether it's
+   * already linked to another employee in this tenant.
+   */
+  async lookupCosecUser(tenantId: string, cosecId: string) {
+    const trimmed = (cosecId ?? '').trim();
+    if (!trimmed) {
+      throw new BadRequestException('COSEC Employee ID is required for lookup');
+    }
+
+    // Check if already mapped in this tenant
+    const existingMapping = await this.prisma.rndtechnosoft_employee_cosec_mappings.findFirst({
+      where: {
+        tenant_id: tenantId,
+        cosec_employee_id: trimmed,
+      },
+      include: {
+        rndtechnosoft_employees: {
+          select: { id: true, employee_code: true, first_name: true, last_name: true },
+        },
+      },
+    });
+
+    let alreadyMappedTo: {
+      employeeId: string;
+      employeeCode: string;
+      employeeName: string;
+    } | null = null;
+
+    if (existingMapping?.rndtechnosoft_employees) {
+      const emp = existingMapping.rndtechnosoft_employees;
+      alreadyMappedTo = {
+        employeeId: emp.id,
+        employeeCode: emp.employee_code,
+        employeeName: `${emp.first_name} ${emp.last_name}`.trim(),
+      };
+    }
+
+    // Check if COSEC is configured
+    const isConfigured = await this.isCosecConfigured(tenantId);
+    let existsInCosec = false;
+    let cosecUser: SerializedCosecUser | null = null;
+
+    if (isConfigured) {
+      try {
+        const cosecUsers = await this.getUsers(tenantId);
+        const match = cosecUsers.find(
+          (u) => (u.cosecUserId || u.referenceCode || '').trim().toUpperCase() === trimmed.toUpperCase(),
+        );
+        if (match) {
+          existsInCosec = true;
+          cosecUser = match;
+        }
+      } catch (err) {
+        // If COSEC is temporarily unreachable, do not fail lookup completely
+        this.logger.warn(`Could not query COSEC users during lookup: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    return {
+      cosecId: trimmed,
+      isConfigured,
+      existsInCosec,
+      cosecUser,
+      alreadyMapped: !!alreadyMappedTo,
+      alreadyMappedTo,
+    };
+  }
+
+  /**
+   * Set or update manual COSEC mapping for an employee.
+   * Enforces uniqueness of cosec_employee_id per tenant.
+   */
+  async setEmployeeMapping(
+    tenantId: string,
+    employeeId: string,
+    dto: SetCosecMappingDto,
+    actor: { userId?: string; tenantMemberId?: string },
+  ) {
+    const employee = await this.prisma.rndtechnosoft_employees.findFirst({
+      where: { id: employeeId, tenant_id: tenantId },
+    });
+    if (!employee) {
+      throw new NotFoundException(`Employee ${employeeId} not found in workspace`);
+    }
+
+    const trimmedCosecId = (dto.cosecEmployeeId ?? '').trim();
+    if (!trimmedCosecId) {
+      throw new BadRequestException('COSEC Employee ID cannot be empty');
+    }
+
+    // Check uniqueness within the workspace
+    const conflict = await this.prisma.rndtechnosoft_employee_cosec_mappings.findFirst({
+      where: {
+        tenant_id: tenantId,
+        cosec_employee_id: trimmedCosecId,
+        NOT: { employee_id: employeeId },
+      },
+      include: {
+        rndtechnosoft_employees: {
+          select: { employee_code: true, first_name: true, last_name: true },
+        },
+      },
+    });
+
+    if (conflict) {
+      const emp = conflict.rndtechnosoft_employees;
+      throw new ConflictException(
+        `COSEC Employee ID "${trimmedCosecId}" is already mapped to ${emp.first_name} ${emp.last_name} (${emp.employee_code}).`,
+      );
+    }
+
+    // Check if the user exists in COSEC (best-effort verification)
+    let verificationStatus = 'UNVERIFIED';
+    let mappingStatus = 'MAPPED';
+    if (await this.isCosecConfigured(tenantId)) {
+      try {
+        const cosecUsers = await this.getUsers(tenantId);
+        const match = cosecUsers.find(
+          (u) => (u.cosecUserId || u.referenceCode || '').trim().toUpperCase() === trimmedCosecId.toUpperCase(),
+        );
+        if (match) {
+          verificationStatus = 'VERIFIED';
+          mappingStatus = 'MAPPED';
+        } else {
+          verificationStatus = 'FAILED';
+          mappingStatus = 'NOT_FOUND';
+        }
+      } catch {
+        // If COSEC API is offline, keep UNVERIFIED but MAPPED
+        verificationStatus = 'UNVERIFIED';
+        mappingStatus = 'MAPPED';
+      }
+    }
+
+    const existing = await this.prisma.rndtechnosoft_employee_cosec_mappings.findUnique({
+      where: {
+        tenant_id_employee_id: { tenant_id: tenantId, employee_id: employeeId },
+      },
+    });
+
+    const result = await this.prisma.rndtechnosoft_employee_cosec_mappings.upsert({
+      where: {
+        tenant_id_employee_id: { tenant_id: tenantId, employee_id: employeeId },
+      },
+      create: {
+        id: randomUUID(),
+        tenant_id: tenantId,
+        employee_id: employeeId,
+        cosec_employee_id: trimmedCosecId,
+        mapping_status: mappingStatus,
+        mapping_source: 'MANUAL',
+        verification_status: verificationStatus,
+        review_notes: dto.notes ?? null,
+        created_by_tenant_member_id: actor.tenantMemberId || null,
+        updated_by_tenant_member_id: actor.tenantMemberId || null,
+      },
+      update: {
+        cosec_employee_id: trimmedCosecId,
+        mapping_status: mappingStatus,
+        mapping_source: 'MANUAL',
+        verification_status: verificationStatus,
+        review_notes: dto.notes !== undefined ? dto.notes : undefined,
+        updated_by_tenant_member_id: actor.tenantMemberId || null,
+        updated_at: new Date(),
+      },
+    });
+
+    await this.audit.log({
+      tenantId,
+      actorUserId: actor.userId,
+      actorTenantMemberId: actor.tenantMemberId,
+      actionCode: existing ? 'COSEC_MAPPING_UPDATED' : 'COSEC_MAPPING_CREATED',
+      entityType: 'EMPLOYEE_COSEC_MAPPING',
+      entityId: result.id,
+      oldValues: existing
+        ? {
+            cosecEmployeeId: existing.cosec_employee_id,
+            mappingStatus: existing.mapping_status,
+          }
+        : undefined,
+      newValues: {
+        cosecEmployeeId: trimmedCosecId,
+        mappingStatus,
+        verificationStatus,
+        employeeId,
+        employeeCode: employee.employee_code,
+      },
+      metadata: { notes: dto.notes },
+    });
+
+    return this.getEmployeeMapping(tenantId, employeeId);
+  }
+
+  /**
+   * Remove COSEC mapping for an employee.
+   */
+  async removeEmployeeMapping(
+    tenantId: string,
+    employeeId: string,
+    actor: { userId?: string; tenantMemberId?: string },
+  ) {
+    const existing = await this.prisma.rndtechnosoft_employee_cosec_mappings.findUnique({
+      where: {
+        tenant_id_employee_id: { tenant_id: tenantId, employee_id: employeeId },
+      },
+    });
+    if (!existing) {
+      return { success: true };
+    }
+
+    await this.prisma.rndtechnosoft_employee_cosec_mappings.update({
+      where: { id: existing.id },
+      data: {
+        cosec_employee_id: null,
+        mapping_status: 'MAPPING_PENDING',
+        verification_status: 'UNVERIFIED',
+        updated_by_tenant_member_id: actor.tenantMemberId || null,
+        updated_at: new Date(),
+      },
+    });
+
+    await this.audit.log({
+      tenantId,
+      actorUserId: actor.userId,
+      actorTenantMemberId: actor.tenantMemberId,
+      actionCode: 'COSEC_MAPPING_REMOVED',
+      entityType: 'EMPLOYEE_COSEC_MAPPING',
+      entityId: existing.id,
+      oldValues: {
+        cosecEmployeeId: existing.cosec_employee_id,
+        mappingStatus: existing.mapping_status,
+      },
+      newValues: {
+        cosecEmployeeId: null,
+        mappingStatus: 'MAPPING_PENDING',
+      },
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * Get reconciliation status across all employees in the workspace.
+   */
+  async getReconciliation(tenantId: string) {
+    const [employees, mappings, isConfigured] = await Promise.all([
+      this.prisma.rndtechnosoft_employees.findMany({
+        where: { tenant_id: tenantId, employee_status: 'ACTIVE' },
+        select: {
+          id: true,
+          employee_code: true,
+          first_name: true,
+          last_name: true,
+          work_email: true,
+          rndtechnosoft_employee_employments: {
+            where: { effective_to: null },
+            take: 1,
+            include: {
+              rndtechnosoft_departments: { select: { department_name: true } },
+            },
+          },
+        },
+        orderBy: { employee_code: 'asc' },
+      }),
+      this.prisma.rndtechnosoft_employee_cosec_mappings.findMany({
+        where: { tenant_id: tenantId },
+      }),
+      this.isCosecConfigured(tenantId),
+    ]);
+
+    let cosecUsers: SerializedCosecUser[] = [];
+    if (isConfigured) {
+      try {
+        cosecUsers = await this.getUsers(tenantId);
+      } catch (err) {
+        this.logger.warn(`Could not load COSEC users for reconciliation: ${err}`);
+      }
+    }
+
+    const mappingByEmployeeId = new Map(mappings.map((m) => [m.employee_id, m]));
+    const mappedCosecIds = new Set(
+      mappings
+        .filter((m) => m.cosec_employee_id && m.mapping_status === 'MAPPED')
+        .map((m) => m.cosec_employee_id!.toUpperCase()),
+    );
+
+    const unmappedEmployees: any[] = [];
+    let mappedCount = 0;
+    let pendingCount = 0;
+    let notFoundCount = 0;
+    let reviewCount = 0;
+
+    for (const emp of employees) {
+      const mapping = mappingByEmployeeId.get(emp.id);
+      const status = mapping?.mapping_status ?? 'MAPPING_PENDING';
+
+      if (status === 'MAPPED') {
+        mappedCount++;
+      } else {
+        if (status === 'MAPPING_PENDING') pendingCount++;
+        else if (status === 'NOT_FOUND') notFoundCount++;
+        else if (status === 'REQUIRES_REVIEW') reviewCount++;
+
+        // Look for suggested match in COSEC users
+        let suggestedMatch: SerializedCosecUser | null = null;
+        if (cosecUsers.length > 0) {
+          // By employee_code
+          const byCode = cosecUsers.find(
+            (cu) => (cu.cosecUserId || cu.referenceCode || '').trim().toUpperCase() === emp.employee_code.toUpperCase(),
+          );
+          if (byCode) {
+            suggestedMatch = byCode;
+          } else if (emp.work_email) {
+            // By exact work_email
+            const byEmail = cosecUsers.filter(
+              (cu) => cu.email && cu.email.toLowerCase() === emp.work_email!.toLowerCase(),
+            );
+            if (byEmail.length === 1) {
+              suggestedMatch = byEmail[0];
+            }
+          }
+        }
+
+        unmappedEmployees.push({
+          employeeId: emp.id,
+          employeeCode: emp.employee_code,
+          name: `${emp.first_name} ${emp.last_name}`.trim(),
+          workEmail: emp.work_email,
+          department: emp.rndtechnosoft_employee_employments[0]?.rndtechnosoft_departments?.department_name || null,
+          mappingStatus: status,
+          currentCosecId: mapping?.cosec_employee_id ?? null,
+          suggestedMatch: suggestedMatch
+            ? {
+                cosecId: (suggestedMatch.cosecUserId || suggestedMatch.referenceCode || '').trim(),
+                name: suggestedMatch.name,
+                email: suggestedMatch.email,
+              }
+            : null,
+        });
+      }
+    }
+
+    // Unmatched COSEC users: COSEC users that are not mapped to any active employee
+    const unmatchedCosecUsers = cosecUsers
+      .filter((cu) => {
+        const id = (cu.cosecUserId || cu.referenceCode || '').trim().toUpperCase();
+        return id && !mappedCosecIds.has(id);
+      })
+      .map((cu) => ({
+        cosecId: (cu.cosecUserId || cu.referenceCode || '').trim(),
+        name: cu.name,
+        email: cu.email,
+        department: cu.department,
+        designation: cu.designation,
+      }));
+
+    return {
+      isConfigured,
+      totalEmployees: employees.length,
+      totalCosecUsers: cosecUsers.length,
+      mappedCount,
+      pendingCount,
+      notFoundCount,
+      reviewCount,
+      unmappedEmployees,
+      unmatchedCosecUsers,
+    };
+  }
+
+  /**
+   * Run automated reconciliation between HRMS employees and COSEC users.
+   * 3-tier matching:
+   *  Tier 1: Explicit mapping already established
+   *  Tier 2: Exact employee_code match
+   *  Tier 3: Exact normalized email match (single match only)
+   * Never matches by name alone.
+   */
+  async reconcile(tenantId: string, actor: { userId?: string; tenantMemberId?: string }) {
+    const isConfigured = await this.isCosecConfigured(tenantId);
+    if (!isConfigured) {
+      throw new BadRequestException('COSEC is not configured for this workspace.');
+    }
+
+    const [employees, existingMappings, cosecUsers] = await Promise.all([
+      this.prisma.rndtechnosoft_employees.findMany({
+        where: { tenant_id: tenantId, employee_status: 'ACTIVE' },
+      }),
+      this.prisma.rndtechnosoft_employee_cosec_mappings.findMany({
+        where: { tenant_id: tenantId },
+      }),
+      this.getUsers(tenantId),
+    ]);
+
+    const cosecById = new Map<string, SerializedCosecUser>();
+    const cosecByEmail = new Map<string, SerializedCosecUser[]>();
+    for (const u of cosecUsers) {
+      const codeKey = (u.cosecUserId || u.referenceCode || '').trim().toUpperCase();
+      if (codeKey) {
+        cosecById.set(codeKey, u);
+      }
+      if (u.email) {
+        const emailKey = u.email.trim().toLowerCase();
+        const list = cosecByEmail.get(emailKey) ?? [];
+        list.push(u);
+        cosecByEmail.set(emailKey, list);
+      }
+    }
+
+    const mappingByEmployeeId = new Map(existingMappings.map((m) => [m.employee_id, m]));
+    const claimedCosecIds = new Set<string>();
+
+    let newlyMappedCount = 0;
+    let verifiedCount = 0;
+    let notFoundCount = 0;
+    let reviewRequiredCount = 0;
+
+    // Track already claimed mapped COSEC IDs
+    for (const m of existingMappings) {
+      if (m.cosec_employee_id && m.mapping_status === 'MAPPED') {
+        claimedCosecIds.add(m.cosec_employee_id.trim().toUpperCase());
+      }
+    }
+
+    for (const emp of employees) {
+      const existing = mappingByEmployeeId.get(emp.id);
+
+      // Tier 1: Check existing explicit mapping
+      if (existing?.cosec_employee_id) {
+        const cosecKey = existing.cosec_employee_id.trim().toUpperCase();
+        if (cosecById.has(cosecKey)) {
+          if (existing.verification_status !== 'VERIFIED' || existing.mapping_status !== 'MAPPED') {
+            await this.prisma.rndtechnosoft_employee_cosec_mappings.update({
+              where: { id: existing.id },
+              data: {
+                verification_status: 'VERIFIED',
+                mapping_status: 'MAPPED',
+                updated_at: new Date(),
+              },
+            });
+          }
+          verifiedCount++;
+        } else {
+          // COSEC ID no longer in COSEC
+          await this.prisma.rndtechnosoft_employee_cosec_mappings.update({
+            where: { id: existing.id },
+            data: {
+              verification_status: 'FAILED',
+              mapping_status: 'NOT_FOUND',
+              updated_at: new Date(),
+            },
+          });
+          notFoundCount++;
+        }
+        continue;
+      }
+
+      // Tier 2: Exact employee_code match
+      const codeKey = emp.employee_code.trim().toUpperCase();
+      const codeMatch = cosecById.get(codeKey);
+      if (codeMatch && !claimedCosecIds.has(codeKey)) {
+        const cosecIdVal = (codeMatch.cosecUserId || codeMatch.referenceCode || '').trim();
+        await this.prisma.rndtechnosoft_employee_cosec_mappings.upsert({
+          where: { tenant_id_employee_id: { tenant_id: tenantId, employee_id: emp.id } },
+          create: {
+            id: randomUUID(),
+            tenant_id: tenantId,
+            employee_id: emp.id,
+            cosec_employee_id: cosecIdVal,
+            mapping_status: 'MAPPED',
+            mapping_source: 'AUTOMATIC',
+            verification_status: 'VERIFIED',
+            created_by_tenant_member_id: actor.tenantMemberId || null,
+            updated_by_tenant_member_id: actor.tenantMemberId || null,
+          },
+          update: {
+            cosec_employee_id: cosecIdVal,
+            mapping_status: 'MAPPED',
+            mapping_source: 'AUTOMATIC',
+            verification_status: 'VERIFIED',
+            updated_by_tenant_member_id: actor.tenantMemberId || null,
+            updated_at: new Date(),
+          },
+        });
+        claimedCosecIds.add(codeKey);
+        newlyMappedCount++;
+        continue;
+      }
+
+      // Tier 3: Exact email match (unambiguous 1-to-1 only)
+      if (emp.work_email) {
+        const emailKey = emp.work_email.trim().toLowerCase();
+        const emailMatches = cosecByEmail.get(emailKey) ?? [];
+        if (emailMatches.length === 1) {
+          const matchedCosec = emailMatches[0];
+          const cosecIdVal = (matchedCosec.cosecUserId || matchedCosec.referenceCode || '').trim();
+          const matchKey = cosecIdVal.toUpperCase();
+          if (matchKey && !claimedCosecIds.has(matchKey)) {
+            await this.prisma.rndtechnosoft_employee_cosec_mappings.upsert({
+              where: { tenant_id_employee_id: { tenant_id: tenantId, employee_id: emp.id } },
+              create: {
+                id: randomUUID(),
+                tenant_id: tenantId,
+                employee_id: emp.id,
+                cosec_employee_id: cosecIdVal,
+                mapping_status: 'MAPPED',
+                mapping_source: 'AUTOMATIC',
+                verification_status: 'VERIFIED',
+                review_notes: `Matched automatically via email (${emp.work_email})`,
+                created_by_tenant_member_id: actor.tenantMemberId || null,
+                updated_by_tenant_member_id: actor.tenantMemberId || null,
+              },
+              update: {
+                cosec_employee_id: cosecIdVal,
+                mapping_status: 'MAPPED',
+                mapping_source: 'AUTOMATIC',
+                verification_status: 'VERIFIED',
+                review_notes: `Matched automatically via email (${emp.work_email})`,
+                updated_by_tenant_member_id: actor.tenantMemberId || null,
+                updated_at: new Date(),
+              },
+            });
+            claimedCosecIds.add(matchKey);
+            newlyMappedCount++;
+            continue;
+          }
+        } else if (emailMatches.length > 1) {
+          // Ambiguous email: mark REQUIRES_REVIEW
+          await this.prisma.rndtechnosoft_employee_cosec_mappings.upsert({
+            where: { tenant_id_employee_id: { tenant_id: tenantId, employee_id: emp.id } },
+            create: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              employee_id: emp.id,
+              cosec_employee_id: null,
+              mapping_status: 'REQUIRES_REVIEW',
+              mapping_source: 'AUTOMATIC',
+              verification_status: 'FAILED',
+              review_notes: `Multiple COSEC users share email ${emp.work_email}. Manual mapping required.`,
+              created_by_tenant_member_id: actor.tenantMemberId || null,
+              updated_by_tenant_member_id: actor.tenantMemberId || null,
+            },
+            update: {
+              mapping_status: 'REQUIRES_REVIEW',
+              review_notes: `Multiple COSEC users share email ${emp.work_email}. Manual mapping required.`,
+              updated_by_tenant_member_id: actor.tenantMemberId || null,
+              updated_at: new Date(),
+            },
+          });
+          reviewRequiredCount++;
+          continue;
+        }
+      }
+
+      // No match: ensure MAPPING_PENDING row exists
+      if (!existing) {
+        await this.prisma.rndtechnosoft_employee_cosec_mappings.create({
+          data: {
+            id: randomUUID(),
+            tenant_id: tenantId,
+            employee_id: emp.id,
+            cosec_employee_id: null,
+            mapping_status: 'MAPPING_PENDING',
+            mapping_source: 'AUTOMATIC',
+            verification_status: 'UNVERIFIED',
+            created_by_tenant_member_id: actor.tenantMemberId || null,
+            updated_by_tenant_member_id: actor.tenantMemberId || null,
+          },
+        });
+      }
+    }
+
+    await this.audit.log({
+      tenantId,
+      actorUserId: actor.userId,
+      actorTenantMemberId: actor.tenantMemberId,
+      actionCode: 'COSEC_RECONCILIATION_RUN',
+      entityType: 'COSEC_RECONCILIATION',
+      newValues: {
+        newlyMappedCount,
+        verifiedCount,
+        notFoundCount,
+        reviewRequiredCount,
+        totalEmployees: employees.length,
+        totalCosecUsers: cosecUsers.length,
+      },
+    });
+
+    return {
+      newlyMappedCount,
+      verifiedCount,
+      notFoundCount,
+      reviewRequiredCount,
+      totalEmployees: employees.length,
+      totalCosecUsers: cosecUsers.length,
     };
   }
 

@@ -19,6 +19,7 @@ import { CosecRefreshNote, useCosecRefresh } from './attendance/CosecRefresh';
 import { SalaryPanel } from './payroll/SalaryPanel';
 import { ReportingManagerCard } from './employee/ReportingManagerCard';
 import { SignInCard } from './employee/SignInCard';
+import { CosecMappingCard } from './employee/CosecMappingCard';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import { monthName } from './payroll/PayrollOverviewTab';
@@ -317,6 +318,11 @@ export const EmployeeDetailView: React.FC = () => {
 
           <ReportingManagerCard employeeId={emp.id} />
           <SignInCard employeeId={emp.id} name={emp.name || emp.code} />
+          <CosecMappingCard
+            employeeId={emp.id}
+            employeeCode={emp.code}
+            employeeName={emp.name || emp.code}
+          />
 
           {/* Statutory card */}
           <Card>

@@ -624,6 +624,7 @@ model rndtechnosoft_employees {
   rndtechnosoft_performance_kra_scopes rndtechnosoft_performance_kra_scopes[]
   rndtechnosoft_performance_appraisals rndtechnosoft_performance_appraisals[]
   rndtechnosoft_employee_separations   rndtechnosoft_employee_separations[]
+  rndtechnosoft_employee_cosec_mappings rndtechnosoft_employee_cosec_mappings?
 
   @@unique([tenant_id, employee_code], map: "uq_employees_1")
   @@unique([tenant_id, user_id], map: "uq_employees_2")
@@ -1565,6 +1566,8 @@ model rndtechnosoft_tenant_members {
   candidate_doc_status_changes_made           rndtechnosoft_candidate_document_status_history[]  @relation("candidate_doc_status_changed_by")
   candidate_doc_emails_sent                   rndtechnosoft_candidate_document_emails[]          @relation("candidate_doc_email_sender")
   candidate_docs_last_sent                    rndtechnosoft_candidate_documents[]               @relation("candidate_doc_last_sent_by")
+  cosec_mappings_created                      rndtechnosoft_employee_cosec_mappings[]           @relation("cosec_mapping_created_by")
+  cosec_mappings_updated                      rndtechnosoft_employee_cosec_mappings[]           @relation("cosec_mapping_updated_by")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
@@ -1728,6 +1731,7 @@ model rndtechnosoft_tenants {
   rndtechnosoft_candidate_document_emails         rndtechnosoft_candidate_document_emails[]
   rndtechnosoft_letterheads                    rndtechnosoft_letterheads[]
   rndtechnosoft_cosec_sync_states              rndtechnosoft_cosec_sync_states?
+  rndtechnosoft_employee_cosec_mappings       rndtechnosoft_employee_cosec_mappings[]
   rndtechnosoft_email_sequences                rndtechnosoft_email_sequences[]
   rndtechnosoft_email_suppressions             rndtechnosoft_email_suppressions[]
 
@@ -3204,6 +3208,36 @@ model rndtechnosoft_cosec_sync_states {
   updated_at           DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
   rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cosec_sync_states_tenant")
+}
+
+/// Biometric device (COSEC) mapping for an HRMS employee.
+model rndtechnosoft_employee_cosec_mappings {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  employee_id                 String    @db.Uuid
+  cosec_employee_id           String?   @db.VarChar(64)
+  /// MAPPING_PENDING, MAPPED, NOT_FOUND, REQUIRES_REVIEW, SYNC_ERROR
+  mapping_status              String    @default("MAPPING_PENDING") @db.VarChar(32)
+  /// AUTOMATIC, MANUAL
+  mapping_source              String    @default("AUTOMATIC") @db.VarChar(32)
+  /// UNVERIFIED, VERIFIED, REJECTED
+  verification_status         String    @default("UNVERIFIED") @db.VarChar(32)
+  last_synced_at              DateTime? @db.Timestamptz(6)
+  last_sync_result            String?   @db.VarChar(500)
+  review_notes                String?   @db.VarChar(500)
+  created_by_tenant_member_id String?   @db.Uuid
+  updated_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants        rndtechnosoft_tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_cosec_mappings_tenant")
+  rndtechnosoft_employees      rndtechnosoft_employees       @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_cosec_mappings_employee")
+  created_by                   rndtechnosoft_tenant_members? @relation("cosec_mapping_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_cosec_mappings_created_by")
+  updated_by                   rndtechnosoft_tenant_members? @relation("cosec_mapping_updated_by", fields: [tenant_id, updated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_cosec_mappings_updated_by")
+
+  @@unique([tenant_id, employee_id], map: "uq_employee_cosec_mappings_employee")
+  @@unique([tenant_id, cosec_employee_id], map: "uq_employee_cosec_mappings_cosec_id")
+  @@index([tenant_id, mapping_status], map: "ix_employee_cosec_mappings_status")
 }
 
 /// An automatic email sequence (drip): emails sent on a schedule to enrolled CRM leads until they reply, bounce, unsubscribe, close or are stopped.

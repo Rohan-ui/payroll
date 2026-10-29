@@ -106,6 +106,25 @@ export interface TimelineEvent {
   createdAt: string;
 }
 
+export interface LinkedEmployeeSummary {
+  id: string;
+  employeeCode: string;
+  firstName: string;
+  lastName: string | null;
+  name: string;
+  workEmail: string | null;
+  employeeStatus: string;
+  hireDate: string | null;
+  cosecMapping: {
+    cosecEmployeeId: string | null;
+    mappingStatus: 'MAPPED' | 'MAPPING_PENDING' | 'NOT_FOUND' | 'REQUIRES_REVIEW' | 'SYNC_ERROR' | string;
+    mappingSource: string;
+    verificationStatus: string;
+    lastSyncedAt: string | null;
+    lastSyncResult: string | null;
+  } | null;
+}
+
 export interface CandidateDetail extends CandidateSummary {
   designationId: string | null;
   designationName: string | null;
@@ -114,10 +133,101 @@ export interface CandidateDetail extends CandidateSummary {
   address: string | null;
   notes: string | null;
   employeeId: string | null;
+  linkedEmployee?: LinkedEmployeeSummary | null;
   manualMoves: CandidateStatus[];
   timeline: TimelineEvent[];
   interviews: CandidateInterview[];
   offers: { id: string; offerCode: string; status: OfferStatus; jobTitle: string; annualCtc: string; joiningDate: string; updatedAt: string }[];
+}
+
+export interface ConversionDefaults {
+  candidateId: string;
+  candidateCode: string;
+  defaults: {
+    employeeCode: string;
+    firstName: string;
+    lastName: string;
+    workEmail: string;
+    personalEmail: string;
+    workMobile: string | null;
+    dateOfBirth: string | null;
+    genderCode: string | null;
+    joiningDate: string;
+    departmentId: string | null;
+    designationId: string | null;
+    employmentTypeId: string | null;
+    currentAddressLine1: string | null;
+    annualCtc: string | null;
+    monthlyGrossTarget: string | null;
+    salaryEffectiveFrom: string;
+    cosecEmployeeId: string;
+  };
+  masters: {
+    departments: Array<{ id: string; department_name: string }>;
+    designations: Array<{ id: string; designation_name: string }>;
+    employmentTypes: Array<{ id: string; employment_type_name: string; employment_type_code: string }>;
+    branches: Array<{ id: string; branch_name: string; branch_code: string }>;
+    salaryStructures: Array<{ id: string; salary_structure_name: string; salary_structure_code: string }>;
+    managers: Array<{ id: string; employeeCode: string; name: string }>;
+  };
+}
+
+export interface ConvertToEmployeeInput {
+  employeeCode: string;
+  firstName: string;
+  middleName?: string;
+  lastName?: string;
+  workEmail?: string;
+  personalEmail?: string;
+  workMobile?: string;
+  dateOfBirth?: string;
+  genderCode?: string;
+  joiningDate: string;
+  departmentId?: string;
+  designationId?: string;
+  employmentTypeId?: string;
+  branchId?: string;
+  employmentStatus?: string;
+  probationEndDate?: string;
+  confirmationDate?: string;
+  employmentEndDate?: string;
+  reportingManagerEmployeeId?: string;
+  currentAddressLine1?: string;
+  currentAddressLine2?: string;
+  currentCity?: string;
+  currentState?: string;
+  currentPostalCode?: string;
+  currentCountryCode?: string;
+  permanentAddressLine1?: string;
+  permanentAddressLine2?: string;
+  permanentCity?: string;
+  permanentState?: string;
+  permanentPostalCode?: string;
+  permanentCountryCode?: string;
+  emergencyContactName?: string;
+  emergencyContactRelationship?: string;
+  emergencyContactPhone?: string;
+  salaryStructureId?: string;
+  annualCtc?: string;
+  monthlyGrossTarget?: string;
+  salaryEffectiveFrom?: string;
+  bankName?: string;
+  branchName?: string;
+  accountNumber?: string;
+  ifsc?: string;
+  accountHolderName?: string;
+  cosecEmployeeId?: string;
+}
+
+export interface ConversionResult {
+  success: boolean;
+  employeeId: string;
+  employeeCode: string;
+  name: string;
+  cosecMapping: {
+    cosecEmployeeId: string | null;
+    mappingStatus: string;
+  };
 }
 
 export type OfferStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'SENT' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'WITHDRAWN';
@@ -407,6 +517,10 @@ export const onboardingApi = {
   getCandidate: (id: string) => apiClient.get<Envelope<CandidateDetail>>(`${BASE}/candidates/${id}`).then((r) => r.data),
   createCandidate: (input: CandidateInput) => apiClient.post<Envelope<CandidateDetail>>(`${BASE}/candidates`, input).then((r) => r.data),
   updateCandidate: (id: string, input: CandidateInput) => apiClient.put<Envelope<CandidateDetail>>(`${BASE}/candidates/${id}`, input).then((r) => r.data),
+  getConversionDefaults: (candidateId: string) =>
+    apiClient.get<Envelope<ConversionDefaults>>(`${BASE}/candidates/${candidateId}/conversion-defaults`).then((r) => r.data),
+  convertToEmployee: (candidateId: string, input: ConvertToEmployeeInput) =>
+    apiClient.post<Envelope<ConversionResult>>(`${BASE}/candidates/${candidateId}/convert-to-employee`, input).then((r) => r.data),
   move: (id: string, status: CandidateStatus, notes?: string) =>
     apiClient.post<Envelope<CandidateDetail>>(`${BASE}/candidates/${id}/move`, { status, ...(notes ? { notes } : {}) }).then((r) => r.data),
   override: (id: string, status: CandidateStatus, reason: string) =>

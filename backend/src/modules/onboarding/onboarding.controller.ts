@@ -17,6 +17,7 @@ import {
   CancelInterviewDto,
   CandidateInputDto,
   CandidateNoteDto,
+  ConvertToEmployeeDto,
   DashboardQueryDto,
   InterviewDecisionDto,
   InterviewFeedbackDto,
@@ -105,6 +106,25 @@ export class OnboardingController {
   @RequirePermissions('onboarding.candidates.manage')
   async updateCandidate(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Body() body: CandidateInputDto) {
     return { success: true, data: await this.candidates.update(tenantId, id, body, actor), message: 'Candidate updated' };
+  }
+
+  @Get('candidates/:id/conversion-defaults')
+  @RequirePermissions('onboarding.candidates.manage')
+  async getConversionDefaults(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return { success: true, data: await this.candidates.getConversionDefaults(tenantId, id) };
+  }
+
+  @Post('candidates/:id/convert-to-employee')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.candidates.manage')
+  async convertToEmployee(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Body() body: ConvertToEmployeeDto,
+  ) {
+    const result = await this.candidates.convertToEmployee(tenantId, id, body, actor);
+    return { success: true, data: result, message: 'Candidate converted to employee successfully' };
   }
 
   @Post('candidates/:id/move')

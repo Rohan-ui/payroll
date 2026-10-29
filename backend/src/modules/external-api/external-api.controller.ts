@@ -3,6 +3,8 @@ import {
   Get,
   Post,
   Put,
+  Delete,
+  Param,
   Body,
   Query,
   HttpCode,
@@ -17,7 +19,12 @@ import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { CosecSyncService } from './cosec-sync.service';
-import { CosecAutoSyncDto, CosecRefreshEmployeeDto, CosecRefreshMonthDto } from './dto/cosec-sync.dto';
+import {
+  CosecAutoSyncDto,
+  CosecRefreshEmployeeDto,
+  CosecRefreshMonthDto,
+  SetCosecMappingDto,
+} from './dto/cosec-sync.dto';
 
 @Controller('external-api')
 export class ExternalApiController {
@@ -257,5 +264,93 @@ export class ExternalApiController {
     @Query('month') month?: string,
   ) {
     return this.externalApiService.syncAll(tenantId, month);
+  }
+
+  /**
+   * GET /external-api/cosec/mappings/lookup/:cosecId
+   * Validate COSEC ID against live COSEC users and check for existing employee mapping.
+   */
+  @Get('cosec/mappings/lookup/:cosecId')
+  @RequirePermissions('attendance.integration.view')
+  async lookupCosecUser(
+    @CurrentTenant() tenantId: string,
+    @Param('cosecId') cosecId: string,
+  ) {
+    return this.externalApiService.lookupCosecUser(tenantId, cosecId);
+  }
+
+  /**
+   * GET /external-api/cosec/mappings/:employeeId
+   * Get COSEC mapping status for a specific employee.
+   */
+  @Get('cosec/mappings/:employeeId')
+  @RequirePermissions('people.view')
+  async getEmployeeMapping(
+    @CurrentTenant() tenantId: string,
+    @Param('employeeId') employeeId: string,
+  ) {
+    return this.externalApiService.getEmployeeMapping(tenantId, employeeId);
+  }
+
+  /**
+   * PUT /external-api/cosec/mappings/:employeeId
+   * Set or update manual COSEC ID mapping for an employee.
+   */
+  @Put('cosec/mappings/:employeeId')
+  @RequirePermissions('people.update')
+  async setEmployeeMapping(
+    @CurrentTenant() tenantId: string,
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: SetCosecMappingDto,
+  ) {
+    return this.externalApiService.setEmployeeMapping(tenantId, employeeId, body, {
+      userId: actor.userId,
+      tenantMemberId: actor.tenantMemberId,
+    });
+  }
+
+  /**
+   * DELETE /external-api/cosec/mappings/:employeeId
+   * Remove COSEC mapping for an employee.
+   */
+  @Delete('cosec/mappings/:employeeId')
+  @RequirePermissions('people.update')
+  async removeEmployeeMapping(
+    @CurrentTenant() tenantId: string,
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+  ) {
+    return this.externalApiService.removeEmployeeMapping(tenantId, employeeId, {
+      userId: actor.userId,
+      tenantMemberId: actor.tenantMemberId,
+    });
+  }
+
+  /**
+   * GET /external-api/cosec/reconciliation
+   * Summary of mapped/unmapped employees and unmatched COSEC users.
+   */
+  @Get('cosec/reconciliation')
+  @RequirePermissions('attendance.integration.view')
+  async getReconciliation(@CurrentTenant() tenantId: string) {
+    return this.externalApiService.getReconciliation(tenantId);
+  }
+
+  /**
+   * POST /external-api/cosec/reconcile
+   * Run automated 3-tier reconciliation between HRMS employees and COSEC users.
+   */
+  @Post('cosec/reconcile')
+  @RequirePermissions('attendance.integration.update')
+  @HttpCode(HttpStatus.OK)
+  async reconcile(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+  ) {
+    return this.externalApiService.reconcile(tenantId, {
+      userId: actor.userId,
+      tenantMemberId: actor.tenantMemberId,
+    });
   }
 }

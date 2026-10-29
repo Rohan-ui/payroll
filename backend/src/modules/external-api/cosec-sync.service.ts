@@ -175,9 +175,14 @@ export class CosecSyncService {
     const end = monthEnd < today ? monthEnd : today;
     if (start > today) return { status: 'SYNCED' as const, syncedAt: now.toISOString(), changedRecords: 0, matched: true };
 
+    const mapping = await this.prisma.rndtechnosoft_employee_cosec_mappings.findUnique({
+      where: { tenant_id_employee_id: { tenant_id: tenantId, employee_id: employee.id } },
+    });
+    const cosecQueryId = mapping?.cosec_employee_id || employee.employee_code;
+
     let result;
     try {
-      result = await this.externalApi.syncDailyAttendance(tenantId, start, end, { employeeCode: employee.employee_code });
+      result = await this.externalApi.syncDailyAttendance(tenantId, start, end, { employeeCode: cosecQueryId });
     } catch (error) {
       this.logger.warn(`COSEC refresh failed: tenant=${tenantId} employee=${employee.id} error=${error instanceof Error ? error.name : 'unknown'}`);
       throw new ServiceUnavailableException(`The latest punches could not be fetched from COSEC: ${safeError(error)}`);

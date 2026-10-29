@@ -1,4 +1,4 @@
-import { IsBoolean, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 /** Switches the every-minute COSEC sync on or off for this workspace. */
 export class CosecAutoSyncDto {
@@ -22,3 +22,33 @@ export class CosecRefreshMonthDto {
   @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Choose a month as YYYY-MM.' })
   month!: string;
 }
+
+export class SetCosecMappingDto {
+  @IsString({ message: 'COSEC Employee ID must be a string.' })
+  @MinLength(1, { message: 'COSEC Employee ID is required.' })
+  @MaxLength(64)
+  cosecEmployeeId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+
+export class LinkCosecMappingDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  employeeId!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  cosecEmployeeId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+

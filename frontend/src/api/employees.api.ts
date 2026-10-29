@@ -140,4 +140,119 @@ export const employeesApi = {
   }> => {
     return apiClient.get(`/employees/meta/ifsc/${encodeURIComponent(code.trim().toUpperCase())}`);
   },
+
+  // COSEC Attendance Integration & Mapping
+  getCosecMapping: async (employeeId: string): Promise<EmployeeCosecMapping> => {
+    return apiClient.get<EmployeeCosecMapping>(`/external-api/cosec/mappings/${employeeId}`);
+  },
+
+  setCosecMapping: async (
+    employeeId: string,
+    data: { cosecEmployeeId: string; notes?: string },
+  ): Promise<EmployeeCosecMapping> => {
+    return apiClient.put<EmployeeCosecMapping>(`/external-api/cosec/mappings/${employeeId}`, data);
+  },
+
+  removeCosecMapping: async (employeeId: string): Promise<{ success: boolean }> => {
+    return apiClient.delete<{ success: boolean }>(`/external-api/cosec/mappings/${employeeId}`);
+  },
+
+  lookupCosecUser: async (cosecId: string): Promise<CosecLookupResult> => {
+    return apiClient.get<CosecLookupResult>(`/external-api/cosec/mappings/lookup/${encodeURIComponent(cosecId.trim())}`);
+  },
+
+  getCosecReconciliation: async (): Promise<CosecReconciliationSummary> => {
+    return apiClient.get<CosecReconciliationSummary>('/external-api/cosec/reconciliation');
+  },
+
+  runCosecReconcile: async (): Promise<{
+    newlyMappedCount: number;
+    verifiedCount: number;
+    notFoundCount: number;
+    reviewRequiredCount: number;
+    totalEmployees: number;
+    totalCosecUsers: number;
+  }> => {
+    return apiClient.post('/external-api/cosec/reconcile');
+  },
+
+  refreshEmployeeAttendance: async (employeeId: string, month: string): Promise<{
+    status: string;
+    syncedAt?: string;
+    changedRecords?: number;
+    skippedLocked?: number;
+    matched?: boolean;
+  }> => {
+    return apiClient.post('/external-api/cosec/refresh-employee', { employeeId, month });
+  },
 };
+
+export interface EmployeeCosecMapping {
+  id: string | null;
+  tenantId: string;
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  workEmail: string | null;
+  cosecEmployeeId: string | null;
+  mappingStatus: 'MAPPED' | 'MAPPING_PENDING' | 'NOT_FOUND' | 'REQUIRES_REVIEW' | 'SYNC_ERROR' | string;
+  mappingSource: 'AUTOMATIC' | 'MANUAL' | 'CANDIDATE_CONVERSION' | string;
+  verificationStatus: 'UNVERIFIED' | 'VERIFIED' | 'FAILED' | string;
+  lastSyncedAt: string | null;
+  lastSyncResult: string | null;
+  reviewNotes: string | null;
+  isCosecConfigured: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CosecLookupResult {
+  cosecId: string;
+  isConfigured: boolean;
+  existsInCosec: boolean;
+  cosecUser: {
+    cosecUserId: string;
+    name: string;
+    email: string | null;
+    department: string | null;
+    designation: string | null;
+  } | null;
+  alreadyMapped: boolean;
+  alreadyMappedTo: {
+    employeeId: string;
+    employeeCode: string;
+    employeeName: string;
+  } | null;
+}
+
+export interface CosecReconciliationSummary {
+  isConfigured: boolean;
+  totalEmployees: number;
+  totalCosecUsers: number;
+  mappedCount: number;
+  pendingCount: number;
+  notFoundCount: number;
+  reviewCount: number;
+  unmappedEmployees: Array<{
+    employeeId: string;
+    employeeCode: string;
+    name: string;
+    workEmail: string | null;
+    department: string | null;
+    mappingStatus: string;
+    currentCosecId: string | null;
+    suggestedMatch: {
+      cosecId: string;
+      name: string;
+      email: string | null;
+    } | null;
+  }>;
+  unmatchedCosecUsers: Array<{
+    cosecId: string;
+    name: string;
+    email: string | null;
+    department: string | null;
+    designation: string | null;
+  }>;
+}
+
