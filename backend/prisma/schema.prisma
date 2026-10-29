@@ -1568,6 +1568,8 @@ model rndtechnosoft_tenant_members {
   candidate_docs_last_sent                    rndtechnosoft_candidate_documents[]               @relation("candidate_doc_last_sent_by")
   cosec_mappings_created                      rndtechnosoft_employee_cosec_mappings[]           @relation("cosec_mapping_created_by")
   cosec_mappings_updated                      rndtechnosoft_employee_cosec_mappings[]           @relation("cosec_mapping_updated_by")
+  onboarding_workflows_created                rndtechnosoft_onboarding_workflows[]              @relation("onboarding_workflow_created_by")
+  onboarding_workflow_versions_published      rndtechnosoft_onboarding_workflow_versions[]      @relation("onboarding_workflow_version_published_by")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
@@ -1743,6 +1745,10 @@ model rndtechnosoft_tenants {
   rndtechnosoft_performance_workflows     rndtechnosoft_performance_workflows[]
   rndtechnosoft_performance_cycles        rndtechnosoft_performance_cycles[]
   rndtechnosoft_employee_separations      rndtechnosoft_employee_separations[]
+  rndtechnosoft_onboarding_workflows            rndtechnosoft_onboarding_workflows[]
+  rndtechnosoft_onboarding_workflow_versions   rndtechnosoft_onboarding_workflow_versions[]
+  rndtechnosoft_onboarding_workflow_stages     rndtechnosoft_onboarding_workflow_stages[]
+  rndtechnosoft_onboarding_workflow_transitions rndtechnosoft_onboarding_workflow_transitions[]
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
@@ -2581,6 +2587,9 @@ model rndtechnosoft_candidates {
   document_link_number        Int       @default(0)
   document_link_sent_at       DateTime? @db.Timestamptz(6)
   document_link_expires_at    DateTime? @db.Timestamptz(6)
+  workflow_id                 String?   @db.Uuid
+  workflow_version_id         String?   @db.Uuid
+  current_stage_id            String?   @db.Uuid
   created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
@@ -2597,11 +2606,16 @@ model rndtechnosoft_candidates {
   rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests[]
   rndtechnosoft_candidate_documents        rndtechnosoft_candidate_documents[]
   rndtechnosoft_candidate_document_emails   rndtechnosoft_candidate_document_emails[]
+  rndtechnosoft_onboarding_workflows        rndtechnosoft_onboarding_workflows?        @relation(fields: [tenant_id, workflow_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_candidates_workflow")
+  rndtechnosoft_onboarding_workflow_versions rndtechnosoft_onboarding_workflow_versions? @relation(fields: [tenant_id, workflow_version_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_candidates_workflow_version")
+  current_stage                             rndtechnosoft_onboarding_workflow_stages?   @relation(fields: [tenant_id, current_stage_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_candidates_stage")
 
   @@unique([tenant_id, id], map: "uq_candidates_tenant_id")
   @@unique([tenant_id, candidate_code], map: "uq_candidates_code")
   @@unique([tenant_id, employee_id], map: "uq_candidates_employee")
   @@index([tenant_id, candidate_status], map: "ix_candidates_status")
+  @@index([tenant_id, workflow_id], map: "ix_candidates_workflow")
+  @@index([tenant_id, current_stage_id], map: "ix_candidates_current_stage")
   @@index([tenant_id, created_at(sort: Desc)], map: "ix_candidates_created")
 }
 
@@ -4600,3 +4614,110 @@ model rndtechnosoft_separation_clearance_items {
   @@unique([tenant_id, id], map: "uq_separation_clearance_items_tenant_id")
   @@index([tenant_id, separation_id, display_order], map: "ix_separation_clearance_items_separation")
 }
+
+/// Dynamic Onboarding Workflows: visual, versioned, configurable onboarding workflow pipelines
+model rndtechnosoft_onboarding_workflows {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  workflow_code               String    @db.VarChar(64)
+  name                        String    @db.VarChar(160)
+  description                 String?   @db.Text
+  module                      String    @default("ONBOARDING") @db.VarChar(64)
+  trigger_type                String    @default("MANUAL") @db.VarChar(64)
+  is_active                   Boolean   @default(true)
+  is_default                  Boolean   @default(false)
+  created_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                      rndtechnosoft_tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_workflows_tenant")
+  created_by                                 rndtechnosoft_tenant_members?               @relation("onboarding_workflow_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_workflows_created_by")
+  rndtechnosoft_onboarding_workflow_versions rndtechnosoft_onboarding_workflow_versions[]
+  rndtechnosoft_candidates                   rndtechnosoft_candidates[]
+
+  @@unique([tenant_id, id], map: "uq_onboarding_workflows_tenant_id")
+  @@unique([tenant_id, workflow_code], map: "uq_onboarding_workflows_code")
+  @@index([tenant_id, is_active], map: "ix_onboarding_workflows_active")
+  @@index([tenant_id, module], map: "ix_onboarding_workflows_module")
+}
+
+/// One version of an onboarding workflow. Published versions are immutable; drafts are editable.
+model rndtechnosoft_onboarding_workflow_versions {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  workflow_id                   String    @db.Uuid
+  version_number                Int
+  version_status                String    @default("DRAFT") @db.VarChar(16)
+  change_summary                String?   @db.VarChar(500)
+  published_by_tenant_member_id String?   @db.Uuid
+  published_at                  DateTime? @db.Timestamptz(6)
+  canvas_layout                 Json?
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                          rndtechnosoft_tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_workflow_versions_tenant")
+  rndtechnosoft_onboarding_workflows             rndtechnosoft_onboarding_workflows              @relation(fields: [tenant_id, workflow_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_onboarding_workflow_versions_workflow")
+  published_by                                   rndtechnosoft_tenant_members?                    @relation("onboarding_workflow_version_published_by", fields: [tenant_id, published_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_workflow_versions_published_by")
+  rndtechnosoft_onboarding_workflow_stages       rndtechnosoft_onboarding_workflow_stages[]
+  rndtechnosoft_onboarding_workflow_transitions  rndtechnosoft_onboarding_workflow_transitions[]
+  rndtechnosoft_candidates                       rndtechnosoft_candidates[]
+
+  @@unique([tenant_id, id], map: "uq_onboarding_workflow_versions_tenant_id")
+  @@unique([tenant_id, workflow_id, version_number], map: "uq_onboarding_workflow_versions_number")
+  @@index([tenant_id, workflow_id, version_status], map: "ix_onboarding_workflow_versions_status")
+}
+
+/// One stage of an onboarding workflow version (node in the n8n canvas)
+model rndtechnosoft_onboarding_workflow_stages {
+  id                  String   @id @db.Uuid
+  tenant_id           String   @db.Uuid
+  workflow_version_id String   @db.Uuid
+  stage_key           String   @db.VarChar(64)
+  name                String   @db.VarChar(160)
+  description         String?  @db.Text
+  stage_type          String   @default("STANDARD") @db.VarChar(32)
+  is_initial          Boolean  @default(false)
+  is_terminal         Boolean  @default(false)
+  color_code          String?  @db.VarChar(32)
+  icon_name           String?  @db.VarChar(48)
+  position_x          Float    @default(0)
+  position_y          Float    @default(0)
+  display_order       Int      @default(0)
+  stage_config        Json?
+  is_active           Boolean  @default(true)
+  created_at          DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at          DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                          rndtechnosoft_tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_workflow_stages_tenant")
+  rndtechnosoft_onboarding_workflow_versions     rndtechnosoft_onboarding_workflow_versions       @relation(fields: [tenant_id, workflow_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_onboarding_workflow_stages_version")
+  outgoing_transitions                           rndtechnosoft_onboarding_workflow_transitions[]  @relation("transition_from_stage")
+  incoming_transitions                           rndtechnosoft_onboarding_workflow_transitions[]  @relation("transition_to_stage")
+  rndtechnosoft_candidates                       rndtechnosoft_candidates[]
+
+  @@unique([tenant_id, id], map: "uq_onboarding_workflow_stages_tenant_id")
+  @@unique([tenant_id, workflow_version_id, stage_key], map: "uq_onboarding_workflow_stages_key")
+  @@index([tenant_id, workflow_version_id, display_order], map: "ix_onboarding_workflow_stages_order")
+}
+
+/// Permitted transitions between stages in an onboarding workflow version (directed edge in n8n canvas)
+model rndtechnosoft_onboarding_workflow_transitions {
+  id                  String   @id @db.Uuid
+  tenant_id           String   @db.Uuid
+  workflow_version_id String   @db.Uuid
+  from_stage_id       String   @db.Uuid
+  to_stage_id         String   @db.Uuid
+  name                String?  @db.VarChar(120)
+  condition_type      String?  @db.VarChar(32)
+  transition_config   Json?
+  created_at          DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                      rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_workflow_transitions_tenant")
+  rndtechnosoft_onboarding_workflow_versions rndtechnosoft_onboarding_workflow_versions @relation(fields: [tenant_id, workflow_version_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_onboarding_workflow_transitions_version")
+  from_stage                                 rndtechnosoft_onboarding_workflow_stages   @relation("transition_from_stage", fields: [tenant_id, from_stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_transitions_from")
+  to_stage                                   rndtechnosoft_onboarding_workflow_stages   @relation("transition_to_stage", fields: [tenant_id, to_stage_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_transitions_to")
+
+  @@unique([tenant_id, id], map: "uq_onboarding_workflow_transitions_tenant_id")
+  @@unique([tenant_id, workflow_version_id, from_stage_id, to_stage_id], map: "uq_onboarding_workflow_transitions_pair")
+  @@index([tenant_id, workflow_version_id], map: "ix_onboarding_workflow_transitions_ver")
+}
+

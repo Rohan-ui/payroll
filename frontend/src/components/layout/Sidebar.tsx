@@ -74,19 +74,22 @@ export const Sidebar: React.FC = () => {
               </div>
 
               {/* Collapse to Symbols Toggle Button */}
-              <button
-                onClick={toggleMode}
-                title="Collapse to symbols (Ctrl+B)"
-                aria-label="Collapse to symbols"
-                className={cn(
-                  'w-6 h-6 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 shrink-0',
-                  theme === 'dark'
-                    ? 'text-slate-400 hover:text-white hover:bg-white/10'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100',
-                )}
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
+<button
+  onClick={toggleMode}
+  title="Collapse to symbols (Ctrl+B)"
+  aria-label="Collapse to symbols"
+  className={cn(
+    'w-6 h-6 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 shrink-0',
+    theme === 'dark'
+      ? 'text-slate-400 hover:text-white hover:bg-white/10'
+      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100',
+  )}
+>
+  <span className="flex items-center ">
+    <ChevronLeft className="w-3.5 h-3.5" />
+    <ChevronLeft className="w-3.5 h-3.5 -ml-5" />
+  </span>
+</button>
             </div>
 
             <div className="flex items-center justify-between gap-1.5 min-w-0 px-0.5">
@@ -119,19 +122,20 @@ export const Sidebar: React.FC = () => {
             </div>
 
             {/* Expand to Full Names Toggle Button */}
-            <button
-              onClick={toggleMode}
-              title="Expand sidebar (show full module names - Ctrl+B)"
-              aria-label="Expand sidebar"
-              className={cn(
-                'w-7 h-7 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
-                theme === 'dark'
-                  ? 'text-slate-400 hover:text-white hover:bg-white/10'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100',
-              )}
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+<button
+  onClick={toggleMode}
+  title="Expand sidebar (show full module names - Ctrl+B)"
+  aria-label="Expand sidebar"
+  className={cn(
+    'w-7 h-7 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+    theme === 'dark'
+      ? 'text-slate-400 hover:text-white hover:bg-white/10'
+      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100',
+  )}
+>
+  <ChevronRight className="w-4 h-4" />
+  <ChevronRight className="w-4 h-4 -ml-2.5" />
+</button>
           </div>
         )}
       </div>

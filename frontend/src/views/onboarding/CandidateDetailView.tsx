@@ -16,6 +16,11 @@ import {
   type OnboardingMeta,
 } from '../../api/onboarding.api';
 import {
+  onboardingWorkflowsApi,
+  type CandidateStageOptionsResponse,
+  type CandidateWorkflowStageOption,
+} from '../../api/onboarding-workflows.api';
+import {
   DECISION_LABELS,
   fieldClass,
   formatAmount,
@@ -463,31 +468,88 @@ const StageDialog: React.FC<{ candidate: CandidateDetail; override: boolean; onC
   onDone,
 }) => {
   const ids = useId();
-  const choices = override ? CANDIDATE_STATUSES.filter((s) => s !== candidate.status && s !== 'JOINED') : candidate.manualMoves;
-  const [status, setStatus] = useState<CandidateStatus | ''>('');
+  const [workflowData, setWorkflowData] = useState<CandidateStageOptionsResponse | null>(null);
+  const [loadingOptions, setLoadingOptions] = useState(true);
+  const [status, setStatus] = useState<string>('');
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    onboardingWorkflowsApi
+      .getCandidateStageOptions(candidate.id)
+      .then((data) => {
+        if (mounted) {
+          setWorkflowData(data);
+          setLoadingOptions(false);
+        }
+      })
+      .catch(() => {
+        if (mounted) setLoadingOptions(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [candidate.id]);
+
+  // Dynamic choices if workflow is active, otherwise fallback to legacy candidate.manualMoves
+  const choices = workflowData
+    ? override
+      ? workflowData.allStages
+          .filter((s) => s.stageKey !== candidate.status)
+          .map((s) => ({ value: s.stageKey, label: `${s.name} (${s.stageType})`, obj: s }))
+      : workflowData.validNextStages.map((s) => ({
+          value: s.stageKey,
+          label: s.transitionName ? `${s.name} — ${s.transitionName}` : `${s.name} (${s.stageType})`,
+          obj: s,
+        }))
+    : override
+    ? CANDIDATE_STATUSES.filter((s) => s !== candidate.status && s !== 'JOINED').map((s) => ({
+        value: s,
+        label: STATUS_LABELS[s],
+        obj: null,
+      }))
+    : candidate.manualMoves.map((s) => ({
+        value: s,
+        label: STATUS_LABELS[s],
+        obj: null,
+      }));
+
+  const currentStageName =
+    workflowData?.currentStage?.name ||
+    STATUS_LABELS[candidate.status as CandidateStatus] ||
+    candidate.status;
+
+  const selectedChoice = choices.find((c) => c.value === status);
+  const targetLabel = selectedChoice?.label || status;
+
   const save = async () => {
     if (!status) return setError('Choose the new stage.');
     if (override && text.trim().length < 10) return setError('Explain the administrative override in at least 10 characters.');
     setBusy(true);
     setError(null);
     try {
-      onDone(override ? await onboardingApi.override(candidate.id, status, text.trim()) : await onboardingApi.move(candidate.id, status, text.trim() || undefined));
+      const updated = override
+        ? await onboardingWorkflowsApi.overrideCandidateStage(candidate.id, status, text.trim())
+        : await onboardingWorkflowsApi.changeCandidateStage(candidate.id, status, text.trim() || undefined);
+      onDone(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The stage could not be changed.');
     } finally {
       setBusy(false);
     }
   };
+
   return (
     <Dialog
       title={override ? 'Override Candidate Stage (Administrative)' : 'Change Candidate Stage'}
       description={
         override
-          ? 'Administratively moves the candidate to any recruitment workflow stage outside the standard progression rules. A mandatory reason (min 10 characters) is permanently saved in the database, timeline, and audit log.'
-          : `Move the candidate along the defined recruitment workflow progression. Current stage: ${STATUS_LABELS[candidate.status]}.`
+          ? `Administratively moves the candidate to any recruitment workflow stage outside standard progression rules. Current stage: ${currentStageName}. A mandatory reason (min 10 characters) is permanently logged.`
+          : `Move the candidate along permitted workflow transitions. Current stage: ${currentStageName}.${
+              workflowData?.workflow ? ` (Workflow: ${workflowData.workflow.name} v${workflowData.workflow.versionNumber})` : ''
+            }`
       }
       onClose={onClose}
       size="sm"
@@ -502,17 +564,35 @@ const StageDialog: React.FC<{ candidate: CandidateDetail; override: boolean; onC
               override ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
             }`}
           >
-            {busy ? 'Saving…' : status ? `${override ? 'Override to' : 'Move to'} ${STATUS_LABELS[status]}` : override ? 'Override stage' : 'Change stage'}
+            {busy ? 'Saving…' : status ? `${override ? 'Override to' : 'Move to'} ${targetLabel}` : override ? 'Override stage' : 'Change stage'}
           </button>
         </>
       }
     >
       {error && <p role="alert" className="mb-3 p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-800">{error}</p>}
-      <label htmlFor={`${ids}-status`} className={labelClass}>New stage *</label>
-      <select id={`${ids}-status`} value={status} onChange={(e) => setStatus(e.target.value as CandidateStatus)} className={fieldClass}>
-        <option value="">Choose new stage</option>
-        {choices.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-      </select>
+
+      {loadingOptions ? (
+        <div className="py-4 text-center text-xs text-slate-500">Loading workflow stage options…</div>
+      ) : choices.length === 0 ? (
+        <div className="p-3 mb-3 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-800">
+          No permitted next stages found for current stage <strong>{currentStageName}</strong>. If this candidate is in a terminal stage, no further standard transitions are permitted. Use &quot;Override Stage&quot; if an administrative correction is required.
+        </div>
+      ) : (
+        <>
+          <label htmlFor={`${ids}-status`} className={labelClass}>
+            {override ? 'Target stage (Administrative override) *' : 'Next permitted stage *'}
+          </label>
+          <select id={`${ids}-status`} value={status} onChange={(e) => setStatus(e.target.value)} className={fieldClass}>
+            <option value="">Choose new stage</option>
+            {choices.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
       <label htmlFor={`${ids}-text`} className={`${labelClass} mt-3`}>
         {override ? (
           <>

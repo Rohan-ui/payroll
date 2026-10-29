@@ -25,8 +25,8 @@ type Tx = Prisma.TransactionClient;
 export interface CandidateEventInput {
   type: string;
   summary: string;
-  from?: CandidateStatus | null;
-  to?: CandidateStatus | null;
+  from?: CandidateStatus | string | null;
+  to?: CandidateStatus | string | null;
   notes?: string | null;
   isOverride?: boolean;
   actorMemberId?: string | null;
@@ -85,6 +85,16 @@ export class CandidatesService {
         include: {
           rndtechnosoft_departments: { select: { department_name: true } },
           recruiter: MEMBER_WITH_USER,
+          current_stage: {
+            select: {
+              id: true,
+              stage_key: true,
+              name: true,
+              stage_type: true,
+              color_code: true,
+              icon_name: true,
+            },
+          },
           rndtechnosoft_interviews: {
             where: { interview_status: 'SCHEDULED' },
             orderBy: { scheduled_start: 'asc' },
@@ -129,6 +139,19 @@ export class CandidatesService {
         rndtechnosoft_offers: {
           orderBy: { created_at: 'desc' },
           select: { id: true, offer_code: true, offer_status: true, job_title: true, annual_ctc: true, joining_date: true, updated_at: true },
+        },
+        current_stage: true,
+        rndtechnosoft_onboarding_workflows: {
+          select: { id: true, name: true, workflow_code: true },
+        },
+        rndtechnosoft_onboarding_workflow_versions: {
+          include: {
+            rndtechnosoft_onboarding_workflow_stages: {
+              where: { is_active: true },
+              orderBy: [{ display_order: 'asc' }, { created_at: 'asc' }],
+            },
+            rndtechnosoft_onboarding_workflow_transitions: true,
+          },
         },
       },
     });
@@ -200,6 +223,44 @@ export class CandidatesService {
       }
     }
 
+    const version = candidate.rndtechnosoft_onboarding_workflow_versions;
+    const stages = version?.rndtechnosoft_onboarding_workflow_stages || [];
+    const currentStage =
+      candidate.current_stage ||
+      stages.find((s) => s.id === candidate.current_stage_id) ||
+      stages.find((s) => s.stage_key === candidate.candidate_status) ||
+      null;
+
+    const dynamicOutgoing =
+      currentStage && version
+        ? version.rndtechnosoft_onboarding_workflow_transitions
+            .filter((t) => t.from_stage_id === currentStage.id)
+            .map((t) => {
+              const dest = stages.find((s) => s.id === t.to_stage_id);
+              if (!dest) return null;
+              return {
+                id: dest.id,
+                stageKey: dest.stage_key,
+                name: dest.name,
+                stageType: dest.stage_type,
+                isTerminal: dest.is_terminal,
+                colorCode: dest.color_code,
+                iconName: dest.icon_name,
+                transitionName: t.name || `Move to ${dest.name}`,
+                stageConfig: dest.stage_config,
+              };
+            })
+            .filter(Boolean)
+        : [];
+
+    const computedManualMoves = candidate.archived_at
+      ? []
+      : dynamicOutgoing.length > 0
+      ? dynamicOutgoing.map((s: any) => s.stageKey)
+      : isCandidateStatus(status)
+      ? manualMoves(status)
+      : [];
+
     return {
       ...this.toSummary(candidate),
       designationName: candidate.rndtechnosoft_designations?.designation_name ?? null,
@@ -210,7 +271,30 @@ export class CandidatesService {
       employmentTypeId: candidate.employment_type_id,
       employeeId: candidate.employee_id,
       linkedEmployee,
-      manualMoves: candidate.archived_at ? [] : manualMoves(status),
+      currentStage: currentStage
+        ? {
+            id: currentStage.id,
+            stageKey: currentStage.stage_key,
+            name: currentStage.name,
+            description: currentStage.description,
+            stageType: currentStage.stage_type,
+            isInitial: currentStage.is_initial,
+            isTerminal: currentStage.is_terminal,
+            colorCode: currentStage.color_code,
+            iconName: currentStage.icon_name,
+            stageConfig: currentStage.stage_config,
+          }
+        : null,
+      validNextStages: dynamicOutgoing,
+      workflow: candidate.rndtechnosoft_onboarding_workflows
+        ? {
+            id: candidate.rndtechnosoft_onboarding_workflows.id,
+            name: candidate.rndtechnosoft_onboarding_workflows.name,
+            code: candidate.rndtechnosoft_onboarding_workflows.workflow_code,
+            versionNumber: version?.version_number ?? 1,
+          }
+        : null,
+      manualMoves: computedManualMoves,
       timeline: candidate.rndtechnosoft_candidate_events.map((event) => ({
         id: event.id,
         type: event.event_type,
@@ -321,16 +405,54 @@ export class CandidatesService {
     await this.assertEmailFree(tenantId, data.email);
 
     const id = randomUUID();
+
+    // Bind new candidates to active published onboarding workflow if available
+    const activeWorkflow = await this.prisma.rndtechnosoft_onboarding_workflows.findFirst({
+      where: { tenant_id: tenantId, is_active: true },
+      orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
+      include: {
+        rndtechnosoft_onboarding_workflow_versions: {
+          where: { version_status: 'PUBLISHED' },
+          orderBy: { version_number: 'desc' },
+          take: 1,
+          include: {
+            rndtechnosoft_onboarding_workflow_stages: {
+              where: { is_active: true },
+              orderBy: [{ display_order: 'asc' }],
+            },
+          },
+        },
+      },
+    });
+
+    const publishedVersion = activeWorkflow?.rndtechnosoft_onboarding_workflow_versions[0];
+    const initialStage =
+      publishedVersion?.rndtechnosoft_onboarding_workflow_stages.find((s) => s.is_initial) ||
+      publishedVersion?.rndtechnosoft_onboarding_workflow_stages[0];
+
+    const initialStatus = initialStage?.stage_key || 'NEW';
+
     const candidate = await this.withCandidateCode((code) =>
       this.prisma.$transaction(async (tx) => {
         const created = await tx.rndtechnosoft_candidates.create({
-          data: { id, tenant_id: tenantId, candidate_code: code, candidate_status: 'NEW', created_by_tenant_member_id: actor.tenantMemberId, ...data },
+          data: {
+            id,
+            tenant_id: tenantId,
+            candidate_code: code,
+            candidate_status: initialStatus,
+            workflow_id: activeWorkflow?.id || null,
+            workflow_version_id: publishedVersion?.id || null,
+            current_stage_id: initialStage?.id || null,
+            created_by_tenant_member_id: actor.tenantMemberId,
+            ...data,
+          },
         });
         await this.recordEvent(tx, tenantId, id, {
           type: 'CREATED',
-          summary: `Candidate added for ${data.applied_position}`,
-          to: 'NEW',
+          summary: `Candidate added for ${data.applied_position}${initialStage ? ` (${initialStage.name})` : ''}`,
+          to: initialStatus,
           actorMemberId: actor.tenantMemberId,
+          metadata: publishedVersion ? { workflowVersionId: publishedVersion.id, stageId: initialStage?.id } : undefined,
         });
         return created;
       }),
@@ -372,25 +494,123 @@ export class CandidatesService {
     return this.get(tenantId, candidateId, actor.tenantMemberId);
   }
 
-  /** A move by hand, only along the workflow's allowed steps. */
+  /** A move along the workflow's allowed steps. Supports dynamic workflow stages. */
   async move(tenantId: string, id: string, input: MoveCandidateDto, actor: AuthenticatedTenantUser) {
     const candidateId = this.idOr404(id);
-    if (!isCandidateStatus(input.status)) throw new BadRequestException('Choose a valid status.');
-    const to = input.status;
-    let from: CandidateStatus = to;
+    const toInput = input.status.trim();
+    if (!toInput) throw new BadRequestException('Choose a valid status.');
+
+    let fromStatus = '';
+    let toStatus = '';
+    let targetStageName = toInput;
+
     await this.prisma.$transaction(async (tx) => {
       const current = await this.lockCandidate(tx, tenantId, candidateId);
       if (current.archived_at) throw new ConflictException('Restore the candidate before changing their status.');
-      from = current.candidate_status as CandidateStatus;
-      const refusal = refuseManualMove(from, to);
-      if (refusal) throw new ConflictException(refusal);
-      await this.setStatus(tx, tenantId, candidateId, from, to, {
+      fromStatus = current.candidate_status;
+
+      let versionId = current.workflow_version_id;
+      if (!versionId) {
+        const activeWf = await tx.rndtechnosoft_onboarding_workflows.findFirst({
+          where: { tenant_id: tenantId, is_active: true },
+          orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
+          include: {
+            rndtechnosoft_onboarding_workflow_versions: {
+              where: { version_status: 'PUBLISHED' },
+              orderBy: { version_number: 'desc' },
+              take: 1,
+            },
+          },
+        });
+        versionId = activeWf?.rndtechnosoft_onboarding_workflow_versions[0]?.id ?? null;
+      }
+
+      if (versionId) {
+        const stages = await tx.rndtechnosoft_onboarding_workflow_stages.findMany({
+          where: { tenant_id: tenantId, workflow_version_id: versionId },
+        });
+
+        const currentStage =
+          (current.current_stage_id && stages.find((s) => s.id === current.current_stage_id)) ||
+          stages.find((s) => s.stage_key === fromStatus) ||
+          stages[0];
+
+        const targetStage =
+          stages.find((s) => s.id === toInput) ||
+          stages.find((s) => s.stage_key === toInput);
+
+        if (!targetStage) {
+          if (isCandidateStatus(toInput)) {
+            const refusal = refuseManualMove(fromStatus as CandidateStatus, toInput);
+            if (refusal) throw new ConflictException(refusal);
+            toStatus = toInput;
+            targetStageName = CANDIDATE_STATUS_LABELS[toInput as CandidateStatus] || toInput;
+            await tx.rndtechnosoft_candidates.update({
+              where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
+              data: { candidate_status: toStatus, updated_at: new Date() },
+            });
+          } else {
+            throw new BadRequestException(`Target stage '${toInput}' is not valid for this workflow.`);
+          }
+        } else {
+          targetStageName = targetStage.name;
+          toStatus = targetStage.stage_key;
+
+          if (currentStage && currentStage.id === targetStage.id) {
+            throw new ConflictException(`The candidate is already in stage '${targetStage.name}'.`);
+          }
+
+          if (currentStage) {
+            const transition = await tx.rndtechnosoft_onboarding_workflow_transitions.findFirst({
+              where: {
+                tenant_id: tenantId,
+                workflow_version_id: versionId,
+                from_stage_id: currentStage.id,
+                to_stage_id: targetStage.id,
+              },
+            });
+
+            if (!transition) {
+              throw new ConflictException(
+                `A transition from '${currentStage.name}' to '${targetStage.name}' is not permitted by the workflow progression rules. Use Override Stage if an exception is required.`,
+              );
+            }
+          }
+
+          await tx.rndtechnosoft_candidates.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
+            data: {
+              candidate_status: targetStage.stage_key,
+              current_stage_id: targetStage.id,
+              workflow_version_id: versionId,
+              updated_at: new Date(),
+            },
+          });
+        }
+      } else {
+        if (!isCandidateStatus(toInput)) throw new BadRequestException('Choose a valid status.');
+        const to = toInput as CandidateStatus;
+        const refusal = refuseManualMove(fromStatus as CandidateStatus, to);
+        if (refusal) throw new ConflictException(refusal);
+        toStatus = to;
+        targetStageName = CANDIDATE_STATUS_LABELS[to];
+
+        await tx.rndtechnosoft_candidates.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
+          data: { candidate_status: to, updated_at: new Date() },
+        });
+      }
+
+      await this.recordEvent(tx, tenantId, candidateId, {
         type: 'STATUS_CHANGED',
-        summary: `Moved to ${CANDIDATE_STATUS_LABELS[to]}`,
+        summary: `Moved to ${targetStageName}`,
+        from: fromStatus,
+        to: toStatus,
         notes: input.notes?.trim() || null,
         actorMemberId: actor.tenantMemberId,
       });
     });
+
     await this.audit.log({
       tenantId,
       actorUserId: actor.userId,
@@ -398,33 +618,114 @@ export class CandidatesService {
       actionCode: 'ONBOARDING_STATUS_CHANGED',
       entityType: 'CANDIDATE',
       entityId: candidateId,
-      oldValues: { status: from },
-      newValues: { status: to },
+      oldValues: { status: fromStatus },
+      newValues: { status: toStatus },
       metadata: { notes: input.notes?.trim() || null },
     });
+
     return this.get(tenantId, candidateId, actor.tenantMemberId);
   }
 
   /** Any move except into or out of Joined, with a reason, recorded as an override. */
   async override(tenantId: string, id: string, input: OverrideCandidateStatusDto, actor: AuthenticatedTenantUser) {
     const candidateId = this.idOr404(id);
-    if (!isCandidateStatus(input.status)) throw new BadRequestException('Choose a valid status.');
-    const to = input.status;
-    let from: CandidateStatus = to;
+    const toInput = input.status.trim();
+    if (!toInput) throw new BadRequestException('Choose a valid status.');
+
+    let fromStatus = '';
+    let toStatus = '';
+    let targetStageName = toInput;
+
     await this.prisma.$transaction(async (tx) => {
       const current = await this.lockCandidate(tx, tenantId, candidateId);
       if (current.archived_at) throw new ConflictException('Restore the candidate before changing their status.');
-      from = current.candidate_status as CandidateStatus;
-      const refusal = refuseOverride(from, to);
-      if (refusal) throw new ConflictException(refusal);
-      await this.setStatus(tx, tenantId, candidateId, from, to, {
+
+      fromStatus = current.candidate_status;
+
+      let versionId = current.workflow_version_id;
+      if (!versionId) {
+        const activeWf = await tx.rndtechnosoft_onboarding_workflows.findFirst({
+          where: { tenant_id: tenantId, is_active: true },
+          orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
+          include: {
+            rndtechnosoft_onboarding_workflow_versions: {
+              where: { version_status: 'PUBLISHED' },
+              orderBy: { version_number: 'desc' },
+              take: 1,
+            },
+          },
+        });
+        versionId = activeWf?.rndtechnosoft_onboarding_workflow_versions[0]?.id ?? null;
+      }
+
+      if (versionId) {
+        const stages = await tx.rndtechnosoft_onboarding_workflow_stages.findMany({
+          where: { tenant_id: tenantId, workflow_version_id: versionId },
+        });
+
+        const targetStage =
+          stages.find((s) => s.id === toInput) ||
+          stages.find((s) => s.stage_key === toInput);
+
+        if (!targetStage) {
+          if (isCandidateStatus(toInput)) {
+            const refusal = refuseOverride(fromStatus as CandidateStatus, toInput);
+            if (refusal) throw new ConflictException(refusal);
+            toStatus = toInput;
+            targetStageName = CANDIDATE_STATUS_LABELS[toInput as CandidateStatus] || toInput;
+            await tx.rndtechnosoft_candidates.update({
+              where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
+              data: { candidate_status: toStatus, updated_at: new Date() },
+            });
+          } else {
+            throw new BadRequestException(`Target stage '${toInput}' is not valid for this workflow.`);
+          }
+        } else {
+          if (fromStatus === 'JOINED') {
+            throw new ConflictException('This candidate is already an employee; change the employee record instead.');
+          }
+          if (targetStage.stage_key === 'JOINED') {
+            throw new ConflictException('A candidate joins only by being converted to an employee.');
+          }
+
+          toStatus = targetStage.stage_key;
+          targetStageName = targetStage.name;
+
+          await tx.rndtechnosoft_candidates.update({
+            where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
+            data: {
+              candidate_status: targetStage.stage_key,
+              current_stage_id: targetStage.id,
+              workflow_version_id: versionId,
+              updated_at: new Date(),
+            },
+          });
+        }
+      } else {
+        if (!isCandidateStatus(toInput)) throw new BadRequestException('Choose a valid status.');
+        const to = toInput as CandidateStatus;
+        const refusal = refuseOverride(fromStatus as CandidateStatus, to);
+        if (refusal) throw new ConflictException(refusal);
+        toStatus = to;
+        targetStageName = CANDIDATE_STATUS_LABELS[to];
+
+        await tx.rndtechnosoft_candidates.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
+          data: { candidate_status: to, updated_at: new Date() },
+        });
+      }
+
+      await this.recordEvent(tx, tenantId, candidateId, {
         type: 'STATUS_OVERRIDDEN',
-        summary: `Status overridden to ${CANDIDATE_STATUS_LABELS[to]}`,
+        summary: `Status overridden to ${targetStageName}`,
+        from: fromStatus,
+        to: toStatus,
         notes: input.reason.trim(),
         isOverride: true,
         actorMemberId: actor.tenantMemberId,
       });
     });
+
     await this.audit.log({
       tenantId,
       actorUserId: actor.userId,
@@ -432,10 +733,11 @@ export class CandidatesService {
       actionCode: 'ONBOARDING_STATUS_OVERRIDDEN',
       entityType: 'CANDIDATE',
       entityId: candidateId,
-      oldValues: { status: from },
-      newValues: { status: to },
+      oldValues: { status: fromStatus },
+      newValues: { status: toStatus },
       metadata: { reason: input.reason.trim() },
     });
+
     return this.get(tenantId, candidateId, actor.tenantMemberId);
   }
 
@@ -967,6 +1269,14 @@ export class CandidatesService {
     updated_at: Date;
     rndtechnosoft_departments?: { department_name: string } | null;
     recruiter?: { rndtechnosoft_users: { display_name: string | null; email: string } } | null;
+    current_stage?: {
+      id: string;
+      stage_key: string;
+      name: string;
+      stage_type: string;
+      color_code: string | null;
+      icon_name: string | null;
+    } | null;
   }) {
     return {
       id: row.id,
@@ -984,6 +1294,13 @@ export class CandidatesService {
       recruiterMemberId: row.recruiter_tenant_member_id,
       recruiterName: memberName(row.recruiter),
       status: row.candidate_status,
+      stageName:
+        row.current_stage?.name ??
+        CANDIDATE_STATUS_LABELS[row.candidate_status as CandidateStatus] ??
+        row.candidate_status,
+      stageType: row.current_stage?.stage_type ?? null,
+      stageColor: row.current_stage?.color_code ?? null,
+      stageIcon: row.current_stage?.icon_name ?? null,
       archivedAt: row.archived_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

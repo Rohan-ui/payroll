@@ -142,7 +142,8 @@ export class ListCandidatesQueryDto {
 }
 
 export class MoveCandidateDto {
-  @IsIn(CANDIDATE_STATUSES)
+  @IsString()
+  @MaxLength(64)
   status!: string;
 
   @IsOptional()
@@ -152,7 +153,8 @@ export class MoveCandidateDto {
 }
 
 export class OverrideCandidateStatusDto {
-  @IsIn(CANDIDATE_STATUSES)
+  @IsString()
+  @MaxLength(64)
   status!: string;
 
   @IsString()
