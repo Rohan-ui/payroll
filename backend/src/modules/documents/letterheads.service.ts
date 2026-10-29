@@ -262,7 +262,7 @@ export class LetterheadsService {
     elements: ElementData[],
     letterheadId: string | null,
   ): Promise<PdfLetterhead> {
-    const read = (key: string | null, hidden: boolean) => (key && !hidden ? this.storage.read(tenantId, key) : Promise.resolve(null));
+    const read = (key: string | null, hidden: boolean) => (key && !hidden ? this.storage.read(tenantId, key).catch(() => null) : Promise.resolve(null));
     const [logo, headerImage, footerImage, pdfElements] = await Promise.all([
       read(row.logo_storage_key, row.is_logo_hidden),
       read(row.header_image_storage_key, row.is_header_art_hidden),
@@ -298,7 +298,7 @@ export class LetterheadsService {
     const assets = assetIds.length && letterheadId
       ? await this.prisma.rndtechnosoft_letterhead_assets.findMany({ where: { tenant_id: tenantId, letterhead_id: letterheadId, id: { in: assetIds } }, select: { id: true, storage_key: true } })
       : [];
-    const bytes = new Map(await Promise.all(assets.map(async (a) => [a.id, await this.storage.read(tenantId, a.storage_key)] as const)));
+    const bytes = new Map(await Promise.all(assets.map(async (a) => [a.id, await this.storage.read(tenantId, a.storage_key).catch(() => null)] as const)));
     return visible.flatMap((e): PdfElement[] => {
       const image = e.asset_id ? bytes.get(e.asset_id) ?? null : null;
       // An image element whose image is gone draws nothing rather than an empty box.
