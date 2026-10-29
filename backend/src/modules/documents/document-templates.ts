@@ -107,6 +107,8 @@ export const HR_COMMON_PLACEHOLDERS: { key: string; description: string; sample:
   { key: 'total_b_annual', description: 'Total employer contributions (annual)', sample: 'INR 21,600.00' },
   { key: 'pf_employee', description: 'PF employee contribution (monthly)', sample: 'INR 1,800.00' },
   { key: 'pf_employee_annual', description: 'PF employee contribution (annual)', sample: 'INR 21,600.00' },
+  { key: 'esic_employee', description: 'ESIC employee deduction (monthly)', sample: 'INR 0.00' },
+  { key: 'esic_employee_annual', description: 'ESIC employee deduction (annual)', sample: 'INR 0.00' },
   { key: 'pt', description: 'Professional tax (monthly)', sample: 'INR 200.00' },
   { key: 'pt_annual', description: 'Professional tax (annual)', sample: 'INR 2,400.00' },
   { key: 'total_c', description: 'Total deductions (monthly)', sample: 'INR 2,000.00' },

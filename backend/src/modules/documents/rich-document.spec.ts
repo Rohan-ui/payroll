@@ -80,11 +80,12 @@ describe('formatted letter documents', () => {
     const d = parse(defaultDocument('OFFER_LETTER'));
     const body = documentText(d).body;
     expect(documentText(d).title).toBe('OFFER LETTER');
-    for (const key of ['today', 'offer_reference', 'candidate_name', 'company_name', 'job_title', 'department', 'designation', 'reporting_manager', 'work_location', 'employment_type', 'salary', 'joining_date', 'probation_period', 'special_terms', 'offer_expiry_date']) {
+    for (const key of ['today', 'candidate_name', 'candidate_address', 'candidate_phone', 'candidate_email', 'designation', 'joining_date', 'basic_salary', 'hra', 'special_allowance', 'gross_salary', 'pf_employer', 'esic_employer', 'total_b', 'pf_employee', 'esic_employee', 'pt', 'total_c', 'net_salary', 'monthly_ctc', 'annual_salary', 'recruiter_name']) {
       expect(body).toContain(`{{${key}}}`);
     }
-    expect(body).toContain('Terms & Conditions');
-    expect(body).toContain('Authorized Signatory');
+    expect(body).toContain('Annexure - A');
+    expect(body).toContain('Annexure - B');
+    expect(body).toContain('Acceptance of offer');
   });
 
   it('turn plain-text templates into documents without losing a word', () => {

@@ -93,11 +93,11 @@ describe('Custom Table Builder & Editor Extension', () => {
     // Verify Annexure header row
     const annexureRow = rows[0];
     expect(annexureRow.content?.[0].attrs?.colspan).toBe(4);
-    expect(annexureRow.content?.[0].attrs?.textAlign).toBe('right');
+    expect(annexureRow.content?.[0].attrs?.textAlign).toBe('center');
 
     // Verify Section A (Basic, HRA, Special Allowance, Total Gross)
     const basicRow = rows[3];
-    expect(basicRow.content?.[0].attrs?.rowspan).toBe(4); // "A" Section code spans 4 rows
+    expect(basicRow.content?.[0].attrs?.rowspan).toBe(3); // "INCOME" Section code spans 3 rows
     expect(basicRow.content?.[0].attrs?.verticalAlign).toBe('middle');
 
     // Verify presence of salary placeholders
@@ -233,7 +233,7 @@ describe('Custom Table Builder & Editor Extension', () => {
     const cell0 = row0.content?.[0] as DocNode;
     expect(['tableCell', 'tableHeader']).toContain(cell0.type);
     expect(cell0.attrs?.colspan).toBe(4);
-    expect(cell0.attrs?.textAlign).toBe('right');
+    expect(cell0.attrs?.textAlign).toBe('center');
 
     editor.destroy();
   });

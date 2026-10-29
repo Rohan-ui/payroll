@@ -405,6 +405,193 @@ export function legacyDocument(kind: TemplateKind, title: string, body: string):
   return { type: 'doc', content };
 }
 
+function buildDefaultSalaryTable(): DocNode {
+  const makeCell = (
+    textVal: string,
+    options: {
+      colspan?: number;
+      rowspan?: number;
+      colwidth?: number[];
+      isHeader?: boolean;
+      bold?: boolean;
+      textAlign?: 'left' | 'center' | 'right' | 'justify';
+      verticalAlign?: 'top' | 'middle' | 'bottom';
+      backgroundColor?: string;
+    } = {},
+  ): DocNode => {
+    const isH = Boolean(options.isHeader);
+    const cellType = isH ? 'tableHeader' : 'tableCell';
+    const marks: DocMark[] | undefined = options.bold ? [{ type: 'bold' }] : undefined;
+
+    const pNode: DocNode = {
+      type: 'paragraph',
+      attrs: { ...noBlock, textAlign: options.textAlign || 'left', spaceBefore: 0, spaceAfter: 0, lineHeight: 1.15 },
+      ...(textVal ? { content: withPlaceholders(textVal, marks) } : {}),
+    };
+
+    return {
+      type: cellType,
+      attrs: {
+        colspan: options.colspan ?? 1,
+        rowspan: options.rowspan ?? 1,
+        colwidth: options.colwidth ?? null,
+        rowHeight: null,
+        borderTop: '0.75pt solid #000000',
+        borderRight: '0.75pt solid #000000',
+        borderBottom: '0.75pt solid #000000',
+        borderLeft: '0.75pt solid #000000',
+        backgroundColor: options.backgroundColor ?? null,
+        textAlign: options.textAlign ?? null,
+        verticalAlign: options.verticalAlign ?? 'middle',
+        padding: 3,
+      },
+      content: [pNode],
+    };
+  };
+
+  const r = (...cells: DocNode[]): DocNode => ({
+    type: 'tableRow',
+    content: cells,
+  });
+
+  return {
+    type: 'table',
+    attrs: { alignment: 'center' },
+    content: [
+      // Row 0: Annexure - A
+      r(makeCell('Annexure - A', { colspan: 4, isHeader: true, bold: true, textAlign: 'center', backgroundColor: '#f8fafc' })),
+
+      // Row 1: Title
+      r(makeCell('Salary Structure for [{{candidate_name}} ({{designation}})]', { colspan: 4, isHeader: true, bold: true, textAlign: 'center', backgroundColor: '#f1f5f9' })),
+
+      // Row 2: Headers
+      r(
+        makeCell('', { colwidth: [70], isHeader: true }),
+        makeCell('', { colwidth: [35], isHeader: true }),
+        makeCell('Head Of Account', { colwidth: [260], isHeader: true, bold: true, textAlign: 'center', backgroundColor: '#f8fafc' }),
+        makeCell('Current', { colwidth: [120], isHeader: true, bold: true, textAlign: 'center', backgroundColor: '#f8fafc' }),
+      ),
+
+      // Row 3: Section A - Basic
+      r(
+        makeCell('INCOME', { rowspan: 3, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell('(A)', { rowspan: 3, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell('Basic Salary'),
+        makeCell('{{basic_salary}}', { textAlign: 'right' }),
+      ),
+      // Row 4: HRA
+      r(
+        makeCell('House Rent Allowance'),
+        makeCell('{{hra}}', { textAlign: 'right' }),
+      ),
+      // Row 5: Special Allowance
+      r(
+        makeCell('Special Allowance'),
+        makeCell('{{special_allowance}}', { textAlign: 'right' }),
+      ),
+
+      // Row 6: Spacer
+      r(makeCell(''), makeCell(''), makeCell(''), makeCell('')),
+
+      // Row 7: Total Gross (A)
+      r(
+        makeCell(''),
+        makeCell(''),
+        makeCell('Total Gross (A)', { bold: true, textAlign: 'center' }),
+        makeCell('{{gross_salary}}', { bold: true, textAlign: 'right' }),
+      ),
+
+      // Row 8: Spacer
+      r(makeCell(''), makeCell(''), makeCell(''), makeCell('')),
+
+      // Row 9: Section B - Retirals / Employer contribution
+      r(
+        makeCell('INCOME', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell('(B)', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell('Provident Fund (12%)', { bold: true, textAlign: 'center' }),
+        makeCell('{{pf_employer}}', { textAlign: 'right' }),
+      ),
+      // Row 10: ESIC Employer
+      r(
+        makeCell('Company Contribution', { rowspan: 2, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell(''),
+        makeCell('ESIC (3.25%)'),
+        makeCell('{{esic_employer}}', { textAlign: 'right' }),
+      ),
+      // Row 11: Total (B)
+      r(
+        makeCell(''),
+        makeCell('Total (B)', { bold: true }),
+        makeCell('{{total_b}}', { bold: true, textAlign: 'right' }),
+      ),
+
+      // Row 12: Spacer
+      r(makeCell(''), makeCell(''), makeCell(''), makeCell('')),
+
+      // Row 13: Section C - Deductions
+      r(
+        makeCell('DEDUCTION', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell('(C)', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell('Provident Fund (12%)', { bold: true, textAlign: 'center' }),
+        makeCell('{{pf_employee}}', { textAlign: 'right' }),
+      ),
+      // Row 14: ESIC Employee
+      r(
+        makeCell('Employee Contribution', { rowspan: 2, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+        makeCell(''),
+        makeCell('ESIC (0.75%)'),
+        makeCell('{{esic_employee}}', { textAlign: 'right' }),
+      ),
+      // Row 15: Professional Tax
+      r(
+        makeCell(''),
+        makeCell('Professional Tax'),
+        makeCell('{{pt}}', { textAlign: 'right' }),
+      ),
+      // Row 16: Total (C)
+      r(
+        makeCell(''),
+        makeCell(''),
+        makeCell('Total (C)', { bold: true }),
+        makeCell('{{total_c}}', { bold: true, textAlign: 'right' }),
+      ),
+
+      // Row 17: Spacer
+      r(makeCell(''), makeCell(''), makeCell(''), makeCell('')),
+
+      // Row 18: Net In-Hand
+      r(
+        makeCell(''),
+        makeCell(''),
+        makeCell('NET IN HAND SALARY (A - C)', { bold: true, textAlign: 'center' }),
+        makeCell('{{net_salary}}', { bold: true, textAlign: 'right' }),
+      ),
+
+      // Row 19: Spacer
+      r(makeCell(''), makeCell(''), makeCell(''), makeCell('')),
+
+      // Row 20: Total Monthly CTC
+      r(
+        makeCell(''),
+        makeCell('(C)', { bold: true, textAlign: 'center' }),
+        makeCell('TOTAL MONTHLY CTC (A + B)', { bold: true, textAlign: 'center' }),
+        makeCell('{{monthly_ctc}}', { bold: true, textAlign: 'right' }),
+      ),
+
+      // Row 21: Spacer
+      r(makeCell(''), makeCell(''), makeCell(''), makeCell('')),
+
+      // Row 22: Total Annually CTC
+      r(
+        makeCell(''),
+        makeCell('(E)', { bold: true, textAlign: 'center' }),
+        makeCell('TOTAL ANNUALLY CTC', { bold: true, textAlign: 'center' }),
+        makeCell('{{annual_salary}}', { bold: true, textAlign: 'right' }),
+      ),
+    ],
+  };
+}
+
 /** The wording a new template starts with; every part of it can be changed. */
 export function defaultDocument(kind: TemplateKind): DocNode | null {
   const heading = (level: number, text: string, attrs: Partial<typeof noBlock> = {}): DocNode => ({ type: 'heading', attrs: { level, ...noBlock, ...attrs }, content: withPlaceholders(text) });
@@ -584,24 +771,73 @@ export function defaultDocument(kind: TemplateKind): DocNode | null {
       ],
     };
   }
+  const bulletList = (...items: string[]): DocNode => ({
+    type: 'bulletList',
+    content: items.map((t) => ({
+      type: 'listItem',
+      content: [p(t, { spaceBefore: 0, spaceAfter: 2 })],
+    })),
+  });
+
+  const orderedList = (...items: string[]): DocNode => ({
+    type: 'orderedList',
+    attrs: { start: 1 },
+    content: items.map((t) => ({
+      type: 'listItem',
+      content: [p(t, { spaceBefore: 0, spaceAfter: 2 })],
+    })),
+  });
+
   return {
     type: 'doc',
     content: [
-      heading(1, 'OFFER LETTER', { textAlign: 'center', spaceAfter: 18 }),
-      p('Date: {{today}}\nOffer Reference: {{offer_reference}}', { spaceAfter: 14 }),
-      p('Dear {{candidate_name}},', { spaceAfter: 10 }),
-      p('We are pleased to offer you employment with {{company_name}} for the position of {{job_title}} in the {{department}} department, with the designation of {{designation}}.', { textAlign: 'justify' }),
-      p('You will report to {{reporting_manager}} and will be based at {{work_location}}. Your employment will be on a {{employment_type}} basis.', { textAlign: 'justify' }),
-      p('Your annual compensation will be {{salary}}, subject to applicable company policies, statutory deductions, and the terms and conditions of your employment.', { textAlign: 'justify' }),
-      { type: 'compensationTable' },
-      p('Your expected date of joining is {{joining_date}}. You will be required to complete a probationary period of {{probation_period}}, during which your performance and suitability for the role will be evaluated in accordance with company policies.', { textAlign: 'justify' }),
-      heading(3, 'Terms & Conditions'),
-      p('{{special_terms}}', { textAlign: 'justify' }),
-      p('This offer is subject to the successful completion of any required background verification, submission and verification of relevant documents, and compliance with the applicable policies and procedures of {{company_name}}.', { textAlign: 'justify' }),
-      p('Please confirm your acceptance of this offer on or before {{offer_expiry_date}}. If we do not receive your acceptance by this date, this offer may be considered withdrawn unless otherwise agreed in writing.', { textAlign: 'justify' }),
-      p('We are delighted to have you join {{company_name}} and look forward to your contribution and success with the organization.', { textAlign: 'justify' }),
-      p('Sincerely,', { spaceBefore: 12, spaceAfter: 24 }),
-      p('{{company_name}}\nAuthorized Signatory\n{{reporting_manager}}'),
+      // ═══════════════════════════════════════════════════════════════════════
+      // Page 1: Offer Letter and Terms of Appointment
+      // ═══════════════════════════════════════════════════════════════════════
+      heading(1, 'OFFER LETTER', { textAlign: 'center', spaceAfter: 14 }),
+      p('Date: {{today}}', { textAlign: 'right', spaceAfter: 14 }),
+      p('To,\nName: {{candidate_name}}\nAddress: {{candidate_address}}\nMobile No.:+91 {{candidate_phone}}\nE-mail: {{candidate_email}}', { spaceAfter: 12 }),
+      p('Dear {{candidate_name}},', { spaceAfter: 8 }),
+      p('Welcome to the RnD Technosoft Family!', { spaceAfter: 8 }),
+      p('RnD Technosoft is pleased to offer you the position of {{designation}}. We are confident that you would have a rewarding experience working with us in RnD Technosoft and the Company also would benefit from your knowledge & experience.', { textAlign: 'justify', spaceAfter: 10 }),
+      p('The following are the terms of appointment for the above position:', { spaceAfter: 6 }),
+      bulletList(
+        'Your CTC would be as per details enclosed in Annexure - A.',
+        'You will be eligible for leaves as per the “Leave Policy” of the company. (From January to December).',
+        'You will be on probation for a period of 6 months from the date of joining.',
+        'As a valuable resource of the organization, the management can utilize your services in any work of the Company.',
+        'Notice period for resignation is 2 months.',
+        'The appointment is liable to be terminated by the company for any breach of the terms and conditions of the contract detailed in the appointment letter.',
+        'The detailed appointment letter elaborating the terms and conditions of the appointment will be issued to your joining the company.',
+      ),
+      p('The offer of appointment is provisional and subject to your reference checks being found satisfactory, verification of documents (Annexure - B) on your joining the Company.', { textAlign: 'justify', spaceBefore: 10, spaceAfter: 16 }),
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // Page 2: Acceptance Notice and Annexure - A Salary Structure Table
+      // ═══════════════════════════════════════════════════════════════════════
+      p('On receipt of letter, please send the revered mail of acceptance within 7 days from the issuance of the letter. Please join latest by {{joining_date}} or earlier and report at RnD Technosoft, Vapi, failing which this offer would be deemed as cancelled.', { textAlign: 'justify', spaceAfter: 14 }),
+      buildDefaultSalaryTable(),
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // Page 3: Annexure - B Documents & Signatures
+      // ═══════════════════════════════════════════════════════════════════════
+      heading(2, 'Annexure - B', { spaceBefore: 18, spaceAfter: 8 }),
+      p('The Following documents are required to be submitted by you at the time of joining (original and photocopy):', { spaceAfter: 6 }),
+      orderedList(
+        'Mark sheet and degree certificate for graduation & masters.',
+        'Passport size photo',
+        'Adhaar card',
+        'Relieving letter of previous organization',
+        'Appointment letter of previous organization',
+        'Experience letter of previous each organization',
+        'Last 3 month’s salary slip (with Self Attested)',
+        'Acceptance of this Offer Letter (Hard Copy with Self Attested)',
+        'Copy of the receipt issued by employer (as the case may be) along with UAN number.',
+      ),
+      p('With best wishes,\nYour faithfully,\nFor RnD Technosoft.', { spaceBefore: 12, spaceAfter: 14 }),
+      p('Signature & Acknowledgment\n{{recruiter_name}}', { spaceAfter: 18 }),
+      p('------------------------------------------------- Acceptance of offer --------------------------------------------', { textAlign: 'center', spaceAfter: 18 }),
+      p('Signature & Acknowledgment                                                  Date: {{today}}\n{{candidate_name}}', { spaceBefore: 8 }),
     ],
   };
 }

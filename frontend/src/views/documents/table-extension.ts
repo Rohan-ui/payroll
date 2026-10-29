@@ -367,8 +367,8 @@ export function createSalaryStructureTable(schema: Schema) {
     } = {},
   ) => {
     const type = options.isHeader ? headerType : cellType;
-    const items = Array.isArray(content) ? content : [content];
-    const nodes = items.map((it) => (typeof it === 'string' ? (options.bold ? boldText(it) : text(it)) : it));
+    const items = Array.isArray(content) ? content : (content ? [content] : []);
+    const nodes = items.filter((it) => it !== '').map((it) => (typeof it === 'string' ? (options.bold ? boldText(it) : text(it)) : it));
     const p = pType.create(
       {
         textAlign: options.textAlign || 'left',
@@ -404,14 +404,14 @@ export function createSalaryStructureTable(schema: Schema) {
         colspan: 4,
         isHeader: true,
         bold: true,
-        textAlign: 'right',
+        textAlign: 'center',
         backgroundColor: '#f8fafc',
       }),
     ]),
 
     // Row 1: Title
     rowType.create({}, [
-      makeCell('SALARY STRUCTURE & COMPENSATION BREAKDOWN', {
+      makeCell('Salary Structure for [{{candidate_name}} ({{designation}})]', {
         colspan: 4,
         isHeader: true,
         bold: true,
@@ -422,90 +422,127 @@ export function createSalaryStructureTable(schema: Schema) {
 
     // Row 2: Table Column Headers
     rowType.create({}, [
-      makeCell('Sec', { colwidth: [45], isHeader: true, bold: true, textAlign: 'center', backgroundColor: '#f8fafc' }),
-      makeCell('Head Of Account', { colwidth: [280], isHeader: true, bold: true, textAlign: 'left', backgroundColor: '#f8fafc' }),
-      makeCell('Current (INR/Mo)', { colwidth: [120], isHeader: true, bold: true, textAlign: 'right', backgroundColor: '#f8fafc' }),
-      makeCell('Annual (INR/Yr)', { colwidth: [120], isHeader: true, bold: true, textAlign: 'right', backgroundColor: '#f8fafc' }),
+      makeCell('', { colwidth: [70], isHeader: true }),
+      makeCell('', { colwidth: [35], isHeader: true }),
+      makeCell('Head Of Account', { colwidth: [260], isHeader: true, bold: true, textAlign: 'center', backgroundColor: '#f8fafc' }),
+      makeCell('Current', { colwidth: [120], isHeader: true, bold: true, textAlign: 'center', backgroundColor: '#f8fafc' }),
     ]),
 
     // Row 3: Section A - Basic
     rowType.create({}, [
-      makeCell('A', { rowspan: 4, bold: true, textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f8fafc' }),
+      makeCell('INCOME', { rowspan: 3, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+      makeCell('(A)', { rowspan: 3, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
       makeCell('Basic Salary'),
       makeCell('{{basic_salary}}', { textAlign: 'right' }),
-      makeCell('{{basic_salary_annual}}', { textAlign: 'right' }),
     ]),
     // Row 4: HRA
     rowType.create({}, [
-      makeCell('House Rent Allowance (HRA)'),
+      makeCell('House Rent Allowance'),
       makeCell('{{hra}}', { textAlign: 'right' }),
-      makeCell('{{hra_annual}}', { textAlign: 'right' }),
     ]),
     // Row 5: Special Allowance
     rowType.create({}, [
       makeCell('Special Allowance'),
       makeCell('{{special_allowance}}', { textAlign: 'right' }),
-      makeCell('{{special_allowance_annual}}', { textAlign: 'right' }),
     ]),
-    // Row 6: Total Gross (A)
+
+    // Row 6: Spacer
+    rowType.create({}, [makeCell(''), makeCell(''), makeCell(''), makeCell('')]),
+
+    // Row 7: Total Gross (A)
     rowType.create({}, [
-      makeCell('Total Gross Earnings (A)', { bold: true }),
+      makeCell(''),
+      makeCell(''),
+      makeCell('Total Gross (A)', { bold: true, textAlign: 'center' }),
       makeCell('{{gross_salary}}', { bold: true, textAlign: 'right' }),
-      makeCell('{{gross_salary_annual}}', { bold: true, textAlign: 'right' }),
     ]),
 
-    // Row 7: Section B - Retirals / Employer contribution
+    // Row 8: Spacer
+    rowType.create({}, [makeCell(''), makeCell(''), makeCell(''), makeCell('')]),
+
+    // Row 9: Section B - Retirals / Employer contribution
     rowType.create({}, [
-      makeCell('B', { rowspan: 3, bold: true, textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f8fafc' }),
-      makeCell('Provident Fund (Employer Contribution)'),
+      makeCell('INCOME', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+      makeCell('(B)', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+      makeCell('Provident Fund (12%)', { bold: true, textAlign: 'center' }),
       makeCell('{{pf_employer}}', { textAlign: 'right' }),
-      makeCell('{{pf_employer_annual}}', { textAlign: 'right' }),
     ]),
-    // Row 8: ESIC Employer
+    // Row 10: ESIC Employer
     rowType.create({}, [
-      makeCell('ESIC (Employer Contribution)'),
+      makeCell('Company Contribution', { rowspan: 2, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+      makeCell(''),
+      makeCell('ESIC (3.25%)'),
       makeCell('{{esic_employer}}', { textAlign: 'right' }),
-      makeCell('{{esic_employer_annual}}', { textAlign: 'right' }),
     ]),
-    // Row 9: Total (B)
+    // Row 11: Total (B)
     rowType.create({}, [
-      makeCell('Total Employer Contributions (B)', { bold: true }),
+      makeCell(''),
+      makeCell('Total (B)', { bold: true }),
       makeCell('{{total_b}}', { bold: true, textAlign: 'right' }),
-      makeCell('{{total_b_annual}}', { bold: true, textAlign: 'right' }),
     ]),
 
-    // Row 10: Section C - Deductions
+    // Row 12: Spacer
+    rowType.create({}, [makeCell(''), makeCell(''), makeCell(''), makeCell('')]),
+
+    // Row 13: Section C - Deductions
     rowType.create({}, [
-      makeCell('C', { rowspan: 3, bold: true, textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f8fafc' }),
-      makeCell('Provident Fund (Employee Contribution)'),
+      makeCell('DEDUCTION', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+      makeCell('(C)', { bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+      makeCell('Provident Fund (12%)', { bold: true, textAlign: 'center' }),
       makeCell('{{pf_employee}}', { textAlign: 'right' }),
-      makeCell('{{pf_employee_annual}}', { textAlign: 'right' }),
     ]),
-    // Row 11: Professional Tax
+    // Row 14: ESIC Employee
     rowType.create({}, [
-      makeCell('Professional Tax (PT)'),
+      makeCell('Employee Contribution', { rowspan: 2, bold: true, textAlign: 'center', verticalAlign: 'middle' }),
+      makeCell(''),
+      makeCell('ESIC (0.75%)'),
+      makeCell('{{esic_employee}}', { textAlign: 'right' }),
+    ]),
+    // Row 15: Professional Tax
+    rowType.create({}, [
+      makeCell(''),
+      makeCell('Professional Tax'),
       makeCell('{{pt}}', { textAlign: 'right' }),
-      makeCell('{{pt_annual}}', { textAlign: 'right' }),
     ]),
-    // Row 12: Total Deductions (C)
+    // Row 16: Total (C)
     rowType.create({}, [
-      makeCell('Total Deductions (C)', { bold: true }),
+      makeCell(''),
+      makeCell(''),
+      makeCell('Total (C)', { bold: true }),
       makeCell('{{total_c}}', { bold: true, textAlign: 'right' }),
-      makeCell('{{total_c_annual}}', { bold: true, textAlign: 'right' }),
     ]),
 
-    // Row 13: Net In-Hand
+    // Row 17: Spacer
+    rowType.create({}, [makeCell(''), makeCell(''), makeCell(''), makeCell('')]),
+
+    // Row 18: Net In-Hand
     rowType.create({}, [
-      makeCell('Net In-Hand Salary [A - C]', { colspan: 2, bold: true, backgroundColor: '#f8fafc' }),
-      makeCell('{{net_salary}}', { bold: true, textAlign: 'right', backgroundColor: '#f8fafc' }),
-      makeCell('{{net_salary_annual}}', { bold: true, textAlign: 'right', backgroundColor: '#f8fafc' }),
+      makeCell(''),
+      makeCell(''),
+      makeCell('NET IN HAND SALARY (A - C)', { bold: true, textAlign: 'center' }),
+      makeCell('{{net_salary}}', { bold: true, textAlign: 'right' }),
     ]),
 
-    // Row 14: Total CTC
+    // Row 19: Spacer
+    rowType.create({}, [makeCell(''), makeCell(''), makeCell(''), makeCell('')]),
+
+    // Row 20: Total Monthly CTC
     rowType.create({}, [
-      makeCell('Total Cost to Company (CTC) [A + B]', { colspan: 2, bold: true, backgroundColor: '#e2e8f0' }),
-      makeCell('{{salary}}', { bold: true, textAlign: 'right', backgroundColor: '#e2e8f0' }),
-      makeCell('{{annual_salary}}', { bold: true, textAlign: 'right', backgroundColor: '#e2e8f0' }),
+      makeCell(''),
+      makeCell('(C)', { bold: true, textAlign: 'center' }),
+      makeCell('TOTAL MONTHLY CTC (A + B)', { bold: true, textAlign: 'center' }),
+      makeCell('{{monthly_ctc}}', { bold: true, textAlign: 'right' }),
+    ]),
+
+    // Row 21: Spacer
+    rowType.create({}, [makeCell(''), makeCell(''), makeCell(''), makeCell('')]),
+
+    // Row 22: Total Annually CTC
+    rowType.create({}, [
+      makeCell(''),
+      makeCell('(E)', { bold: true, textAlign: 'center' }),
+      makeCell('TOTAL ANNUALLY CTC', { bold: true, textAlign: 'center' }),
+      makeCell('{{annual_salary}}', { bold: true, textAlign: 'right' }),
     ]),
   ];
 
