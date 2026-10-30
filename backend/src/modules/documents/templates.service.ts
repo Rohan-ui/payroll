@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
@@ -7,6 +7,7 @@ import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.
 import { AVAILABLE_TEMPLATE_KINDS, PLACEHOLDERS, renderTemplate, SAMPLE_OFFER_TABLE, sampleTable, sampleValues, templateProblem, TemplateKind, TEMPLATE_KINDS } from './document-templates';
 import { LetterheadsService } from './letterheads.service';
 import { DocumentPdfService, PageMargins, PdfLetterhead, uniformMargins } from './document-pdf.service';
+import { PrivateStorageService } from '@/common/storage/private-storage.service';
 import { defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, FONT_FAMILIES, FONT_SIZE_RANGE, legacyDocument, parseDocument } from './rich-document';
 
 /** A letter as sent by the editor: a formatted document, or (from before formatting) a heading and plain text. */
@@ -60,6 +61,7 @@ export class TemplatesService {
     private readonly audit: AuditService,
     private readonly letterheads: LetterheadsService,
     private readonly pdf: DocumentPdfService,
+    @Optional() private readonly storage?: PrivateStorageService,
   ) {}
 
   placeholders() {
@@ -256,6 +258,7 @@ export class TemplatesService {
     const text = this.preview(input.kind, input);
     const layout = await this.layoutColumns(tenantId, DEFAULT_LAYOUT, input, { allowArchived: true });
     const company = (await this.prisma.rndtechnosoft_tenants.findUniqueOrThrow({ where: { id: tenantId }, select: { legal_name: true } })).legal_name;
+    const images = await this.resolveDocumentImages(tenantId, text.document);
     return this.pdf.render(
       {
         companyName: company,
@@ -267,9 +270,43 @@ export class TemplatesService {
         table: sampleTable(input.kind as TemplateKind),
         footer: 'Sample preview with made-up data. This is not a real document.',
         watermark: 'SAMPLE',
+        images,
       },
       await this.letterheads.layoutFor(tenantId, layout),
     );
+  }
+
+  /** Resolves binary image buffers for documentImage nodes from storage or data URIs */
+  async resolveDocumentImages(tenantId: string, docNode?: DocNode): Promise<Record<string, Buffer>> {
+    const images: Record<string, Buffer> = {};
+    if (!docNode) return images;
+
+    const assetIds: string[] = [];
+    const walk = (node: DocNode) => {
+      if (node.type === 'documentImage' && node.attrs) {
+        const assetId = node.attrs.assetId as string | undefined;
+        if (assetId) assetIds.push(assetId);
+      }
+      node.content?.forEach(walk);
+    };
+    walk(docNode);
+
+    if (assetIds.length > 0) {
+      const rows = await this.prisma.rndtechnosoft_document_assets.findMany({
+        where: { tenant_id: tenantId, id: { in: assetIds } },
+        select: { id: true, storage_key: true },
+      });
+      for (const row of rows) {
+        if (this.storage) {
+          try {
+            images[row.id] = await this.storage.read(tenantId, row.storage_key);
+          } catch {
+            // Skip if missing
+          }
+        }
+      }
+    }
+    return images;
   }
 
   /** A sample offer letter on a letterhead, to check the letterhead before saving it. */

@@ -264,14 +264,27 @@ describe('HRMS onboarding documents', () => {
     it('moves the candidate to verification, then ready to join once every required document is verified', async () => {
       const aadhaar = await requestNamed(ids.main, 'Aadhaar card');
       ids.aadhaar = aadhaar.id;
-      const uploaded = await upload(a.token, `/onboarding/candidates/${ids.main}/documents/${aadhaar.id}/files`, JPG, 'aadhaar.jpg');
-      ids.aadhaarV1 = uploaded.body.data.requests.find((r: Request) => r.id === aadhaar.id).files[0].id;
+
+      // Upload Front Side
+      const uploadedFront = await upload(a.token, `/onboarding/candidates/${ids.main}/documents/${aadhaar.id}/files`, JPG, 'aadhaar-front.jpg');
+      expect(uploadedFront.body.data.candidateStatus).toBe('DOCUMENT_COLLECTION');
+
+      // Upload Back Side
+      const uploaded = await upload(a.token, `/onboarding/candidates/${ids.main}/documents/${aadhaar.id}/files`, JPG, 'aadhaar-back.jpg');
+      const aadhaarReq = uploaded.body.data.requests.find((r: Request) => r.id === aadhaar.id);
+      ids.aadhaarFront = (aadhaarReq.files.find((f: any) => f.slotName === 'Front Side') || aadhaarReq.files[1])?.id;
+      ids.aadhaarBack = (aadhaarReq.files.find((f: any) => f.slotName === 'Back Side') || aadhaarReq.files[0])?.id;
+      ids.aadhaarV1 = ids.aadhaarFront;
       expect(uploaded.body.data.candidateStatus).toBe('VERIFICATION');
 
       expect((await call('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.panV2}/verify`, viewer.token)).status).toBe(403);
       expect((await asB('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.panV2}/verify`)).status).toBe(404);
       expect((await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.panV2}/verify`)).body.data.documents.candidateStatus).toBe('VERIFICATION');
-      const done = await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.aadhaarV1}/verify`);
+
+      // Verify Front Side
+      await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.aadhaarFront}/verify`);
+      // Verify Back Side
+      const done = await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.aadhaarBack}/verify`);
       expect(done.status).toBe(200);
       // The optional resume is still missing; it does not hold the candidate back.
       expect(done.body.data.documents.candidateStatus).toBe('READY_TO_JOIN');
@@ -284,15 +297,15 @@ describe('HRMS onboarding documents', () => {
     });
 
     it('rejects a document with a reason, even after verifying it, and the candidate goes back to collection', async () => {
-      const short = await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.aadhaarV1}/reject`, { reason: 'no' });
+      const short = await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.aadhaarBack}/reject`, { reason: 'no' });
       expect(short.status).toBe(400);
-      const rejected = await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.aadhaarV1}/reject`, { reason: 'The photo is blurred; the number is unreadable.' });
+      const rejected = await asA('post', `/onboarding/candidates/${ids.main}/documents/files/${ids.aadhaarBack}/reject`, { reason: 'The photo is blurred; the number is unreadable.' });
       expect(rejected.status).toBe(200);
       expect(rejected.body.data.documents.candidateStatus).toBe('DOCUMENT_COLLECTION');
       expect((await requestNamed(ids.main, 'Aadhaar card')).state).toBe('REJECTED');
       // No upload link was sent yet, so there is nothing to tell the candidate to use.
       expect(rejected.body.data.notifications).toEqual([]);
-      const audit = await prisma.rndtechnosoft_audit_logs.findFirstOrThrow({ where: { tenant_id: a.tenantId, action_code: 'ONBOARDING_DOCUMENT_REJECTED', entity_id: ids.aadhaarV1 } });
+      const audit = await prisma.rndtechnosoft_audit_logs.findFirstOrThrow({ where: { tenant_id: a.tenantId, action_code: 'ONBOARDING_DOCUMENT_REJECTED', entity_id: ids.aadhaarBack } });
       expect(audit.old_values).toEqual({ reviewStatus: 'VERIFIED' });
     });
 
@@ -358,13 +371,13 @@ describe('HRMS onboarding documents', () => {
 
       const uploaded = await publicUpload(links.first, ids.aadhaar, JPG, 'aadhaar-clear.jpg');
       expect(uploaded.status).toBe(201);
-      expect(uploaded.body.data.requests[1]).toMatchObject({ state: 'PENDING_REVIEW', lastFilename: 'aadhaar-clear.jpg', canUpload: true });
+      expect(uploaded.body.data.requests[1]).toMatchObject({ state: 'PARTIALLY_VERIFIED', lastFilename: 'aadhaar-clear.jpg', canUpload: true });
       expect(await statusOf(ids.main)).toBe('VERIFICATION');
-      const row = await prisma.rndtechnosoft_candidate_document_files.findFirstOrThrow({ where: { request_id: ids.aadhaar, version_number: 2 } });
+      const row = await prisma.rndtechnosoft_candidate_document_files.findFirstOrThrow({ where: { request_id: ids.aadhaar, version_number: 3 } });
       expect(row).toMatchObject({ uploaded_via: 'CANDIDATE', uploaded_by_tenant_member_id: null, content_type: 'image/jpeg' });
       ids.aadhaarV2 = row.id;
       const timeline = (await asA('get', `/onboarding/candidates/${ids.main}`)).body.data.timeline as { summary: string }[];
-      expect(timeline.map((e) => e.summary)).toContain('Aadhaar card uploaded by the candidate (version 2)');
+      expect(timeline.map((e) => e.summary)).toContain('Aadhaar card (Back Side) uploaded by the candidate (version 3)');
     });
 
     it('tells the candidate why a document was rejected, without the link', async () => {

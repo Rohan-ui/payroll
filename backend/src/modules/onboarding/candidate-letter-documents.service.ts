@@ -2411,17 +2411,44 @@ export class CandidateLetterDocumentsService {
 
     const initialStatus = this.mapDocStatusToOfferStatus(doc.documentStatus || 'DRAFT');
 
-    // If candidate has an open offer with another doc, we cannot violate uq_offers_one_open
+    // If candidate has an open offer, we cannot violate uq_offers_one_open
     if (candidate.rndtechnosoft_offers.length > 0 && ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT'].includes(initialStatus)) {
-      for (const prior of candidate.rndtechnosoft_offers) {
-        if (!prior.candidate_document_id) {
-          await tx.rndtechnosoft_offers.update({
-            where: { tenant_id_id: { tenant_id: tenantId, id: prior.id } },
-            data: { candidate_document_id: doc.id, updated_at: new Date() },
-          });
-          return;
-        }
+      const priorWithoutDoc = candidate.rndtechnosoft_offers.find((p) => !p.candidate_document_id);
+      if (priorWithoutDoc) {
+        await tx.rndtechnosoft_offers.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: priorWithoutDoc.id } },
+          data: {
+            candidate_document_id: doc.id,
+            rendered_title: doc.renderedTitle || doc.documentTitle,
+            rendered_body: doc.renderedBody || 'Offer of employment',
+            rendered_document: doc.renderedDocument as Prisma.InputJsonValue,
+            template_version_id: templateVersionId,
+            updated_at: new Date(),
+          },
+        });
+        return;
       }
+
+      // If existing open offer is DRAFT, update it to link to this document
+      const draftOffer = candidate.rndtechnosoft_offers.find((p) => p.offer_status === 'DRAFT');
+      if (draftOffer) {
+        await tx.rndtechnosoft_offers.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: draftOffer.id } },
+          data: {
+            candidate_document_id: doc.id,
+            rendered_title: doc.renderedTitle || doc.documentTitle,
+            rendered_body: doc.renderedBody || 'Offer of employment',
+            rendered_document: doc.renderedDocument as Prisma.InputJsonValue,
+            template_version_id: templateVersionId,
+            updated_at: new Date(),
+          },
+        });
+        return;
+      }
+
+      // An open offer already exists (e.g. PENDING_APPROVAL, APPROVED, or SENT)
+      // Do not create another open offer to preserve uq_offers_one_open
+      return;
     }
 
     const offerCode = await this.generateOfferCode(tenantId);

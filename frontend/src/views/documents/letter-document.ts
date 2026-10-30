@@ -5,6 +5,7 @@ import { Subscript } from '@tiptap/extension-subscript';
 import { Superscript } from '@tiptap/extension-superscript';
 import type { DocumentFormat } from '../../api/documents.api';
 import { CustomTable, CustomTableRow, CustomTableCell, CustomTableHeader } from './table-extension';
+import { DocumentImageExtension } from './document-image-extension';
 
 /**
  * The letter editor's document schema. It stores only what the PDF renderer
@@ -171,6 +172,7 @@ export function letterExtensions(format: DocumentFormat, table: TableKind | null
     CustomTableRow,
     CustomTableCell,
     CustomTableHeader,
+    DocumentImageExtension,
   ];
 }
 

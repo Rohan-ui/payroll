@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Param, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Param, Post, Put, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
@@ -38,6 +38,9 @@ import {
   GenerateCandidateDocumentDto,
   SaveCandidateDocumentDto,
   UpdateCandidateDocumentDto,
+  CreateDocumentTypeDto,
+  UpdateDocumentTypeDto,
+  UploadFileMetaDto,
   ChangeDocumentStatusDto,
   CreateEmailTemplateDto,
   UpdateEmailTemplateDto,
@@ -336,15 +339,20 @@ export class OnboardingController {
 
   @Post('candidates/:id/documents/:requestId/files')
   @RequirePermissions('onboarding.documents.manage')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_BYTES, files: 1, fields: 0 } }))
+  @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: MAX_FILE_BYTES, files: 20 } }))
   async uploadDocument(
     @CurrentTenant() tenantId: string,
     @CurrentUser() actor: AuthenticatedTenantUser,
     @Param('id') id: string,
     @Param('requestId') requestId: string,
-    @UploadedFile() file: UploadedDocument | undefined,
+    @UploadedFiles() files: UploadedDocument[] = [],
+    @Body() body?: UploadFileMetaDto,
   ) {
-    return { success: true, data: await this.documents.uploadByStaff(tenantId, id, requestId, file, actor), message: 'Document uploaded' };
+    return {
+      success: true,
+      data: await this.documents.uploadByStaff(tenantId, id, requestId, files, actor, body),
+      message: 'Document uploaded',
+    };
   }
 
   /** One uploaded file, to view or save. Only through this route: files are never served directly. */
@@ -361,14 +369,57 @@ export class OnboardingController {
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('onboarding.documents.verify')
   async verifyDocument(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Param('fileId') fileId: string) {
-    return { success: true, data: await this.documents.verify(tenantId, id, fileId, actor), message: 'Document verified' };
+    return { success: true, data: await this.documents.verify(tenantId, id, fileId, actor), message: 'Document file verified' };
   }
 
   @Post('candidates/:id/documents/files/:fileId/reject')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('onboarding.documents.verify')
   async rejectDocument(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Param('fileId') fileId: string, @Body() body: RejectDocumentDto) {
-    return { success: true, data: await this.documents.reject(tenantId, id, fileId, body.reason, actor), message: 'Document rejected' };
+    return { success: true, data: await this.documents.reject(tenantId, id, fileId, body.reason, actor), message: 'Document file rejected' };
+  }
+
+  @Post('candidates/:id/documents/:requestId/verify')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.documents.verify')
+  async verifyDocumentRequest(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('requestId') requestId: string,
+  ) {
+    const result = await this.documents.verifyRequest(tenantId, id, requestId, actor);
+    return { success: true, data: result.documents, notifications: result.notifications, message: 'Document verified' };
+  }
+
+  @Post('candidates/:id/documents/:requestId/reject')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.documents.verify')
+  async rejectDocumentRequest(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('requestId') requestId: string,
+    @Body() body: RejectDocumentDto,
+  ) {
+    const result = await this.documents.rejectRequest(tenantId, id, requestId, body.reason, actor);
+    return { success: true, data: result.documents, notifications: result.notifications, message: 'Document rejected' };
+  }
+
+  @Delete('candidates/:id/documents/:requestId/files/:fileId')
+  @RequirePermissions('onboarding.documents.manage')
+  async removeDocumentFile(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Param('requestId') requestId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.documents.removeFile(tenantId, id, requestId, fileId, actor),
+      message: 'File removed',
+    };
   }
 
   @Post('candidates/:id/documents/link')
@@ -376,6 +427,45 @@ export class OnboardingController {
   @RequirePermissions('onboarding.documents.manage')
   async sendDocumentLink(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string) {
     return { success: true, data: await this.documents.sendLink(tenantId, id, actor) };
+  }
+
+  // ── Document Types Master ───────────────────────────────────
+
+  @Get('document-types')
+  @RequirePermissions('onboarding.view')
+  async listDocumentTypes(@CurrentTenant() tenantId: string) {
+    return { success: true, data: await this.documents.listDocumentTypes(tenantId) };
+  }
+
+  @Post('document-types')
+  @RequirePermissions('onboarding.documents.manage')
+  async createDocumentType(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: CreateDocumentTypeDto,
+  ) {
+    return { success: true, data: await this.documents.createDocumentType(tenantId, body, actor), message: 'Document type created' };
+  }
+
+  @Put('document-types/:id')
+  @RequirePermissions('onboarding.documents.manage')
+  async updateDocumentType(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Body() body: UpdateDocumentTypeDto,
+  ) {
+    return { success: true, data: await this.documents.updateDocumentType(tenantId, id, body, actor), message: 'Document type updated' };
+  }
+
+  @Delete('document-types/:id')
+  @RequirePermissions('onboarding.documents.manage')
+  async deleteDocumentType(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+  ) {
+    return { success: true, data: await this.documents.deleteDocumentType(tenantId, id, actor), message: 'Document type deleted' };
   }
 
   // ── Candidate Letter & Onboarding Generated Documents ────────

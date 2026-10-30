@@ -7,6 +7,7 @@ import {
   Header,
   HeadingLevel,
   HeightRule,
+  ImageRun,
   Packer,
   PageNumber,
   Paragraph,
@@ -39,6 +40,7 @@ export interface DocxOptions {
   title?: string;
   companyName?: string;
   reference?: string;
+  images?: Record<string, Buffer>;
   layout?: {
     pageSize?: 'A4' | 'LETTER';
     marginsMm?: PageMargins;
@@ -58,7 +60,7 @@ export class DocumentDocxService {
 
     if (docNode && docNode.content && Array.isArray(docNode.content)) {
       for (const child of docNode.content) {
-        this.convertNode(child, children);
+        this.convertNode(child, children, 0, options);
       }
     }
 
@@ -131,7 +133,7 @@ export class DocumentDocxService {
     return await Packer.toBuffer(doc);
   }
 
-  private convertNode(node: DocNode, output: (Paragraph | Table)[], depth = 0) {
+  private convertNode(node: DocNode, output: (Paragraph | Table)[], depth = 0, options: DocxOptions = {}) {
     switch (node.type) {
       case 'paragraph': {
         output.push(this.createParagraph(node));
@@ -182,10 +184,45 @@ export class DocumentDocxService {
         output.push(this.createCustomTable(node));
         break;
       }
+      case 'documentImage': {
+        const attrs = node.attrs as Record<string, unknown> | undefined;
+        if (!attrs) break;
+        const key = (attrs.assetId as string) || (attrs.id as string);
+        let buffer: Buffer | null = options.images?.[key] ?? null;
+        if (!buffer && typeof attrs.src === 'string' && attrs.src.startsWith('data:image/')) {
+          const parts = attrs.src.split(',');
+          if (parts[1]) buffer = Buffer.from(parts[1], 'base64');
+        }
+        if (buffer) {
+          const widthMm = Number(attrs.widthMm) || 45;
+          const heightMm = Number(attrs.heightMm) || 20;
+          const widthPx = Math.max(16, Math.min(800, Math.round(widthMm * 3.7795)));
+          const heightPx = Math.max(16, Math.min(800, Math.round(heightMm * 3.7795)));
+          const align = attrs.alignment === 'center' ? AlignmentType.CENTER : attrs.alignment === 'right' ? AlignmentType.RIGHT : AlignmentType.LEFT;
+          const isJpg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+          const imgType: 'png' | 'jpg' = isJpg ? 'jpg' : 'png';
+          output.push(
+            new Paragraph({
+              alignment: align,
+              children: [
+                new ImageRun({
+                  data: buffer,
+                  transformation: {
+                    width: widthPx,
+                    height: heightPx,
+                  },
+                  type: imgType,
+                }),
+              ],
+            }),
+          );
+        }
+        break;
+      }
       default: {
         if (node.content) {
           for (const child of node.content) {
-            this.convertNode(child, output, depth);
+            this.convertNode(child, output, depth, options);
           }
         }
         break;

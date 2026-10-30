@@ -5,12 +5,13 @@ import {
   Building2, Edit3, Trash2, CheckCircle2, X, RefreshCw,
   Check, AlertCircle, Layers,
   Plus, Eye, EyeOff, Cpu, HardDrive,
-  MessageSquare, Server, Globe, Save, Smartphone, Radio, Copy, FileText, Briefcase
+  MessageSquare, Server, Globe, Save, Smartphone, Radio, Copy, FileText, Briefcase, FileCheck
 } from 'lucide-react';
 
 import LeadIntegrationsCenter from '@/components/crm/LeadIntegrationsCenter';
 import IndustriesMaster from '@/components/crm/IndustriesMaster';
 import { DocumentsView } from './documents/DocumentsView';
+import { DocumentTypesMaster } from './settings/DocumentTypesMaster';
 import { PhoneInputWithCountryCode } from '@/components/crm/PhoneInputWithCountryCode';
 import { EmploymentTypesMaster } from './settings/EmploymentTypesMaster';
 import { WorkflowBuilderView } from './onboarding/workflow-builder/WorkflowBuilderView';
@@ -26,6 +27,7 @@ type SettingsTab =
   | 'modules'
   | 'documents'
   | 'employment-types'
+  | 'document-types'
   | 'onboarding-workflow'
   | 'integrations'
   | 'industries';
@@ -821,6 +823,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
     modules: { label: 'Modules & Apps', icon: <Layers className="w-3.5 h-3.5" aria-hidden="true" /> },
     documents: { label: 'Documents & letterheads', icon: <FileText className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
     'employment-types': { label: 'Employment Types', icon: <Briefcase className="w-3.5 h-3.5 text-amber-600" aria-hidden="true" /> },
+    'document-types': { label: 'Candidate Document Types', icon: <FileCheck className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
     'onboarding-workflow': { label: 'Onboarding Workflow Builder', icon: <Layers className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
     integrations: { label: 'Lead Channels & APIs', icon: <Radio className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" /> },
     industries: { label: 'Industry Taxonomy', icon: <Layers className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" /> },
@@ -2088,6 +2091,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
       {currentTab === 'industries' && <IndustriesMaster />}
       {currentTab === 'documents' && <DocumentsView />}
       {currentTab === 'employment-types' && <EmploymentTypesMaster canEdit={canEditOrg} />}
+      {currentTab === 'document-types' && <DocumentTypesMaster />}
       {currentTab === 'onboarding-workflow' && <WorkflowBuilderView />}
 
       {/* DIALOG: ADD TEAM MEMBER */}

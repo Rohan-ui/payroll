@@ -3,8 +3,10 @@ import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/r
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Baseline, Bold, Highlighter, IndentDecrease, IndentIncrease, Italic, List, ListOrdered,
   Redo2, RemoveFormatting, SeparatorHorizontal, Strikethrough, Subscript, Superscript, Table2, Underline, Undo2, X,
+  Image as ImageIcon, PenLine,
 } from 'lucide-react';
-import type { DocumentFormat, Letterhead, LetterDocument, PageMargins } from '../../api/documents.api';
+import { NodeSelection } from '@tiptap/pm/state';
+import type { DocumentFormat, Letterhead, LetterDocument, PageMargins, DocumentAssetCategory } from '../../api/documents.api';
 import { letterCss, letterExtensions, type TableKind } from './letter-document';
 import { LetterheadCanvas, PageElements, type CanvasImage } from './LetterheadCanvas';
 import { PT, pageFrame, type Page } from './letterhead-geometry';
@@ -17,6 +19,9 @@ import {
   insertSalaryStructure,
   getTableSelectionInfo,
 } from './table-extension';
+import type { DocumentImageAttrs } from './document-image-extension';
+import { ImagePropertiesToolbar } from './ImagePropertiesToolbar';
+import { DocumentAssetLibraryModal } from './DocumentAssetLibraryModal';
 
 /**
  * The letter as a page: a formatting toolbar over an A4 (or Letter) sheet with
@@ -93,7 +98,9 @@ export const LetterToolbar: React.FC<{
   disabled: boolean;
   table: TableKind | null;
   onOpenInsertTable?: () => void;
-}> = ({ editor, format, disabled, table, onOpenInsertTable }) => {
+  onOpenInsertImage?: () => void;
+  onOpenInsertSignature?: () => void;
+}> = ({ editor, format, disabled, table, onOpenInsertTable, onOpenInsertImage, onOpenInsertSignature }) => {
   const s = format.style;
   const state = useEditorState({
     editor,
@@ -228,6 +235,8 @@ export const LetterToolbar: React.FC<{
       <div role="group" aria-label="Insert" className="flex items-center">
         {plain('Insert divider', SeparatorHorizontal, run((e) => e.chain().focus().setHorizontalRule().run()))}
         {onOpenInsertTable && plain('Insert Table', Table2, onOpenInsertTable)}
+        {onOpenInsertImage && plain('Insert Image', ImageIcon, onOpenInsertImage)}
+        {onOpenInsertSignature && plain('Insert Signature', PenLine, onOpenInsertSignature)}
         {table && plain(state.hasTable ? `The ${tableName(table)} is already in the document` : `Insert ${tableName(table)}`, Table2, run((e) => e.chain().focus().insertContentAt(e.state.selection.$from.after(1), { type: 'compensationTable' }).run()), state.hasTable)}
         {plain('Clear formatting', RemoveFormatting, () => {
           editor.chain().focus().unsetAllMarks().run();
@@ -339,11 +348,79 @@ export const LetterEditor: React.FC<{
 
   const [isInsertTableOpen, setIsInsertTableOpen] = useState(false);
   const [isTablePropertiesOpen, setIsTablePropertiesOpen] = useState(false);
+  const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
+  const [isSignatureOnly, setIsSignatureOnly] = useState(false);
+  const [isReplacingImage, setIsReplacingImage] = useState(false);
 
   const tableInfo = useEditorState({
     editor,
     selector: ({ editor: e }) => (e ? getTableSelectionInfo(e.state) : null),
   });
+
+  const selectedImageAttrs = useEditorState({
+    editor,
+    selector: ({ editor: e }): DocumentImageAttrs | null => {
+      if (!e) return null;
+      const { selection } = e.state;
+      if (selection instanceof NodeSelection && selection.node.type.name === 'documentImage') {
+        return selection.node.attrs as DocumentImageAttrs;
+      }
+      return null;
+    },
+  });
+
+  const handleAssetSelected = (asset: {
+    src: string;
+    assetId: string;
+    name: string;
+    category: DocumentAssetCategory;
+    widthPx: number;
+    heightPx: number;
+  }) => {
+    if (!editor) return;
+
+    if (isReplacingImage && selectedImageAttrs) {
+      editor.commands.updateAttributes('documentImage', {
+        src: asset.src,
+        assetId: asset.assetId,
+        category: asset.category,
+      });
+      setIsReplacingImage(false);
+      return;
+    }
+
+    const defaultW =
+      asset.category === 'AUTHORIZED_SIGNATURE'
+        ? 45
+        : asset.category === 'STAMP_SEAL'
+        ? 35
+        : asset.category === 'COMPANY_LOGO'
+        ? 50
+        : 60;
+    const ratio =
+      asset.widthPx && asset.heightPx
+        ? Math.round((asset.widthPx / asset.heightPx) * 1000) / 1000
+        : 2.25;
+    const defaultH = Math.round((defaultW / ratio) * 10) / 10;
+
+    editor.commands.insertDocumentImage({
+      src: asset.src,
+      assetId: asset.assetId,
+      alt: asset.name,
+      category: asset.category,
+      widthMm: defaultW,
+      heightMm: defaultH,
+      aspectRatio: ratio,
+      positionMode: 'front',
+      page: 1,
+      xMm: 25,
+      yMm: 50,
+      alignment: 'left',
+      zIndex: 10,
+      isLocked: false,
+      opacity: 1,
+    });
+  };
 
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] min-w-0">
@@ -358,6 +435,16 @@ export const LetterEditor: React.FC<{
               disabled={!editable}
               table={table}
               onOpenInsertTable={() => setIsInsertTableOpen(true)}
+              onOpenInsertImage={() => {
+                setIsSignatureOnly(false);
+                setIsReplacingImage(false);
+                setIsAssetModalOpen(true);
+              }}
+              onOpenInsertSignature={() => {
+                setIsSignatureOnly(true);
+                setIsReplacingImage(false);
+                setIsAssetModalOpen(true);
+              }}
             />
           ) : (
             <p className="px-3 py-2.5 text-xs text-slate-500">Read only</p>
@@ -368,6 +455,17 @@ export const LetterEditor: React.FC<{
           <TableToolbar
             editor={editor}
             onOpenProperties={() => setIsTablePropertiesOpen(true)}
+          />
+        )}
+        {editor && editable && selectedImageAttrs && (
+          <ImagePropertiesToolbar
+            editor={editor}
+            imageAttrs={selectedImageAttrs}
+            onOpenReplaceModal={() => {
+              setIsReplacingImage(true);
+              setIsSignatureOnly(selectedImageAttrs.category === 'AUTHORIZED_SIGNATURE');
+              setIsAssetModalOpen(true);
+            }}
           />
         )}
       </div>
@@ -397,6 +495,16 @@ export const LetterEditor: React.FC<{
             cellAttrs={tableInfo?.cellAttrs ?? null}
             rowCount={tableInfo?.rowCount ?? 0}
             colCount={tableInfo?.colCount ?? 0}
+          />
+          <DocumentAssetLibraryModal
+            isOpen={isAssetModalOpen}
+            onClose={() => {
+              setIsAssetModalOpen(false);
+              setIsReplacingImage(false);
+            }}
+            onSelect={handleAssetSelected}
+            isSignatureOnly={isSignatureOnly}
+            initialCategory={isSignatureOnly ? 'AUTHORIZED_SIGNATURE' : 'ALL'}
           />
         </>
       )}

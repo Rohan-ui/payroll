@@ -24,6 +24,8 @@ export interface LetterPdf {
   footer?: string;
   /** Printed faintly across every page, for samples and previews that are not the final document. */
   watermark?: string;
+  /** Images stored by assetId or id, mapping to Buffer */
+  images?: Record<string, Buffer>;
 }
 
 /**
@@ -272,8 +274,64 @@ export class DocumentPdfService {
     };
 
     const table = letter.table;
+    const docImages: Record<string, unknown>[] = [];
+    const collectImages = (node?: DocNode) => {
+      if (!node) return;
+      if (node.type === 'documentImage' && node.attrs) {
+        docImages.push(node.attrs);
+      }
+      node.content?.forEach(collectImages);
+    };
+    collectImages(letter.document);
+
+    const resolveBuffer = (attrs: Record<string, unknown>): Buffer | null => {
+      const key = (attrs.assetId as string) || (attrs.id as string);
+      if (letter.images?.[key]) return letter.images[key];
+      const src = attrs.src as string;
+      if (src && src.startsWith('data:image/')) {
+        const parts = src.split(',');
+        if (parts[1]) return Buffer.from(parts[1], 'base64');
+      }
+      return null;
+    };
+
+    const drawImage = (node: DocNode, left: number, width: number) => {
+      const attrs = node.attrs as Record<string, unknown> | undefined;
+      if (!attrs) return;
+      const mode = (attrs.positionMode as string) || 'front';
+      if (mode === 'behind' || mode === 'front') return; // Handled in page-level pass
+
+      const buf = resolveBuffer(attrs);
+      if (!buf) return;
+      const opened = open(buf);
+      if (!opened) return;
+
+      const widthPt = (Number(attrs.widthMm) || 45) * MM;
+      const heightPt = (Number(attrs.heightMm) || 20) * MM;
+      if (doc.y + heightPt > bottom() && heightPt <= usable()) doc.addPage();
+
+      const align = (attrs.alignment as string) || 'left';
+      const x = align === 'center' ? left + (width - widthPt) / 2 : align === 'right' ? left + width - widthPt : left;
+      doc.save();
+      const opacity = Number(attrs.opacity);
+      if (Number.isFinite(opacity) && opacity < 1 && opacity >= 0) doc.opacity(opacity);
+      doc.image(opened, x, doc.y, { width: widthPt, height: heightPt });
+      doc.restore();
+      doc.y += heightPt + 8;
+    };
+
     if (letter.document) {
-      drawDocument(doc as unknown as LayoutDoc, letter.document, { left: margin, width, table: table ? () => this.table(doc, table, margin, width, keepTogether) : undefined }, pdfSafe);
+      drawDocument(
+        doc as unknown as LayoutDoc,
+        letter.document,
+        {
+          left: margin,
+          width,
+          table: table ? () => this.table(doc, table, margin, width, keepTogether) : undefined,
+          drawImage,
+        },
+        pdfSafe,
+      );
       // A letter that doesn't place the pay table gets it at the end, as before.
       if (table && !letter.document.content?.some((n) => n.type === 'compensationTable')) this.table(doc, table, margin, width, keepTogether);
     } else {
@@ -304,13 +362,35 @@ export class DocumentPdfService {
       doc.text(note, margin, doc.y, { width });
     }
 
-    // Header, footer, page numbers and watermark on every page, drawn once the page count is known.
+    // Header, footer, page numbers, watermark and free-position images on every page.
     const range = doc.bufferedPageRange();
     for (let index = range.start; index < range.start + range.count; index += 1) {
       doc.switchToPage(index);
+      const pageNumber = index - range.start + 1;
       const kept = { ...doc.page.margins };
       // Drawing inside the margins must not start new pages.
       doc.page.margins = { top: 0, bottom: 0, left: 0, right: 0 };
+
+      // 1. Draw 'behind' free-positioned images on this page
+      const behindImages = docImages.filter((img) => (Number(img.page) || 1) === pageNumber && img.positionMode === 'behind');
+      for (const img of behindImages) {
+        const buf = resolveBuffer(img);
+        if (buf) {
+          const opened = open(buf);
+          if (opened) {
+            doc.save();
+            const opacity = Number(img.opacity);
+            if (Number.isFinite(opacity) && opacity < 1 && opacity >= 0) doc.opacity(opacity);
+            const x = (Number(img.xMm) || 0) * MM;
+            const y = (Number(img.yMm) || 0) * MM;
+            const w = (Number(img.widthMm) || 45) * MM;
+            const h = (Number(img.heightMm) || 20) * MM;
+            doc.image(opened, x, y, { width: w, height: h });
+            doc.restore();
+          }
+        }
+      }
+
       if (images && frame.header && frame.footer) {
         this.header(doc, images, frame.header);
         this.footer(doc, images, frame.footer);
@@ -323,6 +403,29 @@ export class DocumentPdfService {
         doc.font('Helvetica').fontSize(8).fillColor(GREY).text(`Page ${index - range.start + 1} of ${range.count}`, margin, y, { width, align: 'right', lineBreak: false });
       }
       for (const element of inFront) this.element(doc, element);
+
+      // 2. Draw 'front' free-positioned images on this page, ordered by zIndex
+      const frontImages = docImages
+        .filter((img) => (Number(img.page) || 1) === pageNumber && (img.positionMode === 'front' || !img.positionMode))
+        .sort((a, b) => (Number(a.zIndex) || 10) - (Number(b.zIndex) || 10));
+      for (const img of frontImages) {
+        const buf = resolveBuffer(img);
+        if (buf) {
+          const opened = open(buf);
+          if (opened) {
+            doc.save();
+            const opacity = Number(img.opacity);
+            if (Number.isFinite(opacity) && opacity < 1 && opacity >= 0) doc.opacity(opacity);
+            const x = (Number(img.xMm) || 0) * MM;
+            const y = (Number(img.yMm) || 0) * MM;
+            const w = (Number(img.widthMm) || 45) * MM;
+            const h = (Number(img.heightMm) || 20) * MM;
+            doc.image(opened, x, y, { width: w, height: h });
+            doc.restore();
+          }
+        }
+      }
+
       if (letter.watermark) this.watermark(doc, pdfSafe(letter.watermark));
       doc.page.margins = kept;
     }

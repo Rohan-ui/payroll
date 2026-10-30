@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, apiFetch } from './client';
 import { fetchFile, postForPdf, uploadForm } from './onboarding.api';
 
 /**
@@ -228,6 +228,24 @@ export interface LetterheadInput {
 /** Letterhead images larger than this are refused by the server. */
 export const MAX_LETTERHEAD_IMAGE_BYTES = 2 * 1024 * 1024;
 
+export type DocumentAssetCategory =
+  | 'COMPANY_LOGO'
+  | 'AUTHORIZED_SIGNATURE'
+  | 'STAMP_SEAL'
+  | 'OTHER';
+
+export interface DocumentAssetItem {
+  id: string;
+  category: DocumentAssetCategory;
+  name: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  widthPx: number;
+  heightPx: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const documentsApi = {
   listTemplates: (kind?: string) => apiClient.get<Envelope<TemplateSummary[]>>(`${BASE}/templates${qs({ kind })}`).then((r) => r.data),
   placeholders: () =>
@@ -249,4 +267,27 @@ export const documentsApi = {
   uploadLetterheadAsset: (id: string, file: File) => uploadForm<LetterheadAsset>(`${BASE}/letterheads/${id}/assets`, file, 'The image is larger than 2 MB. Upload a smaller copy.'),
   removeLetterheadImage: (id: string, slot: LetterheadImageSlot) => apiClient.delete<Envelope<Letterhead>>(`${BASE}/letterheads/${id}/images/${slot}`).then((r) => r.data),
   previewLetterheadPdf: (input: LetterheadInput, letterheadId?: string) => postForPdf(`${BASE}/letterheads/preview-pdf`, { ...input, ...(letterheadId ? { letterheadId } : {}) }),
+  listAssets: (category?: DocumentAssetCategory) => apiClient.get<Envelope<DocumentAssetItem[]>>(`${BASE}/assets${qs({ category })}`).then((r) => r.data),
+  getAsset: (id: string) => apiClient.get<Envelope<DocumentAssetItem>>(`${BASE}/assets/${id}`).then((r) => r.data),
+  uploadAsset: async (file: File, meta?: { category?: DocumentAssetCategory; name?: string; widthPx?: number; heightPx?: number }): Promise<DocumentAssetItem> => {
+    const form = new FormData();
+    form.append('file', file);
+    if (meta?.category) form.append('category', meta.category);
+    if (meta?.name) form.append('name', meta.name);
+    if (meta?.widthPx) form.append('widthPx', String(meta.widthPx));
+    if (meta?.heightPx) form.append('heightPx', String(meta.heightPx));
+    const res = await apiFetch(`/api/v1${BASE}/assets`, {
+      method: 'POST',
+      body: form,
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      const message = body?.message;
+      throw new Error(Array.isArray(message) ? message.join(', ') : message || 'The image could not be uploaded.');
+    }
+    return body.data as DocumentAssetItem;
+  },
+  renameAsset: (id: string, name: string, category?: DocumentAssetCategory) => apiClient.patch<Envelope<DocumentAssetItem>>(`${BASE}/assets/${id}`, { name, category }).then((r) => r.data),
+  deleteAsset: (id: string) => apiClient.delete<Envelope<{ deleted: boolean }>>(`${BASE}/assets/${id}`).then((r) => r.data),
+  assetFileUrl: (id: string) => `/api/v1${BASE}/assets/${id}/file`,
 };

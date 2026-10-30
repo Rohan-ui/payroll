@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Param, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Param, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
@@ -7,7 +7,16 @@ import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.
 import { fileResponse } from '@/modules/onboarding/file-response';
 import { TemplatesService } from './templates.service';
 import { LetterheadsService, MAX_LETTERHEAD_IMAGE_BYTES } from './letterheads.service';
-import { CreateTemplateDto, LetterheadInputDto, LetterheadPreviewDto, TemplateDraftDto, TemplatePreviewDto } from './dto/documents.dto';
+import { DocumentAssetsService, MAX_DOCUMENT_ASSET_BYTES } from './document-assets.service';
+import {
+  CreateDocumentAssetDto,
+  CreateTemplateDto,
+  LetterheadInputDto,
+  LetterheadPreviewDto,
+  TemplateDraftDto,
+  TemplatePreviewDto,
+  UpdateDocumentAssetDto,
+} from './dto/documents.dto';
 
 /**
  * Documents & letterheads: the workspace's document templates (offer letters,
@@ -17,7 +26,11 @@ import { CreateTemplateDto, LetterheadInputDto, LetterheadPreviewDto, TemplateDr
  */
 @Controller('documents')
 export class DocumentsController {
-  constructor(private readonly templates: TemplatesService, private readonly letterheads: LetterheadsService) {}
+  constructor(
+    private readonly templates: TemplatesService,
+    private readonly letterheads: LetterheadsService,
+    private readonly assets: DocumentAssetsService,
+  ) {}
 
   // ── Templates ───────────────────────────────────────────────
 
@@ -181,4 +194,62 @@ export class DocumentsController {
     const image = await this.letterheads.asset(tenantId, id, assetId);
     return fileResponse(image.bytes, image.contentType, `image.${image.contentType === 'image/png' ? 'png' : 'jpg'}`);
   }
+
+  // ── Document Assets Library (Signatures, Stamps, Logos, Images) ─────
+
+  @Get('assets')
+  @RequirePermissions('documents.view')
+  async listAssets(@CurrentTenant() tenantId: string, @Query('category') category?: string) {
+    return { success: true, data: await this.assets.list(tenantId, category) };
+  }
+
+  @Post('assets')
+  @RequirePermissions('documents.templates.manage')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_DOCUMENT_ASSET_BYTES, files: 1 } }))
+  async uploadAsset(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: CreateDocumentAssetDto,
+    @UploadedFile() file: { buffer: Buffer; size: number } | undefined,
+  ) {
+    return { success: true, data: await this.assets.upload(tenantId, file, body, actor), message: 'Image uploaded successfully' };
+  }
+
+  @Get('assets/:id')
+  @RequirePermissions('documents.view')
+  async getAsset(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return { success: true, data: await this.assets.get(tenantId, id) };
+  }
+
+  @Get('assets/:id/file')
+  @RequirePermissions('documents.view')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Cache-Control', 'private, no-store')
+  async getAssetFile(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    const asset = await this.assets.getFile(tenantId, id);
+    const ext = asset.contentType.split('/')[1] || 'png';
+    return fileResponse(asset.bytes, asset.contentType, `asset-${id}.${ext}`);
+  }
+
+  @Patch('assets/:id')
+  @RequirePermissions('documents.templates.manage')
+  async renameAsset(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+    @Body() body: UpdateDocumentAssetDto,
+  ) {
+    return { success: true, data: await this.assets.rename(tenantId, id, body, actor), message: 'Asset updated' };
+  }
+
+  @Delete('assets/:id')
+  @RequirePermissions('documents.templates.manage')
+  async deleteAsset(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id') id: string,
+  ) {
+    return { success: true, data: await this.assets.delete(tenantId, id, actor), message: 'Asset deleted' };
+  }
 }
+

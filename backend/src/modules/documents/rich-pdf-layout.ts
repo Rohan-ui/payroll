@@ -57,6 +57,8 @@ export interface LayoutContext {
   width: number;
   /** Draws the pay table at the current position (offer letters). */
   table?: () => void;
+  /** Draws a document image (inline or flow) at the current position */
+  drawImage?: (node: DocNode, left: number, width: number) => void;
 }
 
 /** A font's ascent and descent at a size, in points. */
@@ -285,6 +287,8 @@ export function drawDocument(doc: LayoutDoc, root: DocNode, ctx: LayoutContext, 
         pending = S.table.spaceAfter;
       } else if (n.type === 'table') {
         drawTable(n, left, width);
+      } else if (n.type === 'documentImage' && ctx.drawImage) {
+        ctx.drawImage(n, left, width);
       }
     });
   };

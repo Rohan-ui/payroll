@@ -1512,6 +1512,8 @@ model rndtechnosoft_tenant_members {
   rndtechnosoft_offer_approvals                                                                                                                   rndtechnosoft_offer_approvals[]
   requested_candidate_documents                                                                                                                   rndtechnosoft_candidate_document_requests[] @relation("candidate_document_request_created_by")
   created_letterheads                                                                                                                             rndtechnosoft_letterheads[]                 @relation("letterhead_created_by")
+  created_document_assets                                                                                                                         rndtechnosoft_document_assets[]             @relation("document_asset_created_by")
+  created_document_types                                                                                                                          rndtechnosoft_document_types[]              @relation("document_types_created_by")
   uploaded_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_uploaded_by")
   reviewed_candidate_documents                                                                                                                    rndtechnosoft_candidate_document_files[]    @relation("candidate_document_reviewed_by")
   candidate_docs_created                                                                                                                          rndtechnosoft_candidate_documents[]         @relation("candidate_doc_created_by")
@@ -1732,6 +1734,8 @@ model rndtechnosoft_tenants {
   rndtechnosoft_candidate_document_status_history rndtechnosoft_candidate_document_status_history[]
   rndtechnosoft_candidate_document_emails         rndtechnosoft_candidate_document_emails[]
   rndtechnosoft_letterheads                    rndtechnosoft_letterheads[]
+  rndtechnosoft_document_assets                rndtechnosoft_document_assets[]
+  rndtechnosoft_document_types                 rndtechnosoft_document_types[]
   rndtechnosoft_cosec_sync_states              rndtechnosoft_cosec_sync_states?
   rndtechnosoft_employee_cosec_mappings       rndtechnosoft_employee_cosec_mappings[]
   rndtechnosoft_email_sequences                rndtechnosoft_email_sequences[]
@@ -2874,25 +2878,70 @@ model rndtechnosoft_offer_approvals {
   @@index([tenant_id, approver_tenant_member_id, approval_status], map: "ix_offer_approvals_approver")
 }
 
+/// Configurable document types per tenant with dynamic upload limits and slot definitions.
+model rndtechnosoft_document_types {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  code                        String    @db.VarChar(50)
+  name                        String    @db.VarChar(120)
+  description                 String?   @db.Text
+  is_required                 Boolean   @default(true)
+  min_files                   Int       @default(1)
+  max_files                   Int       @default(1)
+  allowed_formats             Json?
+  max_file_size_bytes         Int       @default(10485760)
+  allow_images                Boolean   @default(true)
+  allow_pdf                   Boolean   @default(true)
+  requires_front_back         Boolean   @default(false)
+  allow_multiple_pages        Boolean   @default(false)
+  requires_verification       Boolean   @default(true)
+  can_reupload_rejected       Boolean   @default(true)
+  slots                       Json?
+  is_active                   Boolean   @default(true)
+  created_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                     rndtechnosoft_tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_document_types_tenant")
+  created_by                                rndtechnosoft_tenant_members?              @relation("document_types_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_types_created_by")
+  rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests[]
+
+  @@unique([tenant_id, id], map: "uq_document_types_tenant_id")
+  @@unique([tenant_id, code], map: "uq_document_types_tenant_code")
+  @@index([tenant_id, is_active], map: "ix_document_types_tenant_active")
+}
+
 /// A document asked of a candidate (PAN card, degree certificate, ...). Its uploads are kept as numbered versions.
 model rndtechnosoft_candidate_document_requests {
   id                          String   @id @db.Uuid
   tenant_id                   String   @db.Uuid
   candidate_id                String   @db.Uuid
-  document_type               String   @db.VarChar(40)
+  document_type               String   @db.VarChar(50)
   document_label              String   @db.VarChar(120)
   is_required                 Boolean  @default(true)
+  document_type_id            String?  @db.Uuid
+  min_files                   Int      @default(1)
+  max_files                   Int      @default(1)
+  slots                       Json?
+  requires_front_back         Boolean  @default(false)
+  allow_multiple_pages        Boolean  @default(false)
+  requires_verification       Boolean  @default(true)
+  can_reupload_rejected       Boolean  @default(true)
+  allowed_formats             Json?
+  max_file_size_bytes         Int      @default(10485760)
   created_by_tenant_member_id String?  @db.Uuid
   created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
   rndtechnosoft_candidates               rndtechnosoft_candidates                 @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_requests_candidate")
   created_by                             rndtechnosoft_tenant_members?            @relation("candidate_document_request_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_requests_created_by")
+  rndtechnosoft_document_types           rndtechnosoft_document_types?           @relation(fields: [tenant_id, document_type_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_document_requests_type_id")
   rndtechnosoft_candidate_document_files rndtechnosoft_candidate_document_files[]
 
   @@unique([tenant_id, id], map: "uq_document_requests_tenant_id")
   @@unique([tenant_id, candidate_id, id], map: "uq_document_requests_candidate_id")
   @@index([tenant_id, candidate_id], map: "ix_document_requests_candidate")
+  @@index([tenant_id, document_type_id], map: "ix_document_requests_type_id")
 }
 
 /// One uploaded version of a requested document, stored privately, with its review.
@@ -2914,15 +2963,23 @@ model rndtechnosoft_candidate_document_files {
   reviewed_by_tenant_member_id String?   @db.Uuid
   reviewed_at                  DateTime? @db.Timestamptz(6)
   rejection_reason             String?   @db.Text
+  slot_name                    String?   @db.VarChar(100)
+  replaced_file_id             String?   @db.Uuid
   created_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
   rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests @relation(fields: [tenant_id, candidate_id, request_id], references: [tenant_id, candidate_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_files_request")
   uploaded_by                               rndtechnosoft_tenant_members?             @relation("candidate_document_uploaded_by", fields: [tenant_id, uploaded_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_files_uploaded_by")
   reviewed_by                               rndtechnosoft_tenant_members?             @relation("candidate_document_reviewed_by", fields: [tenant_id, reviewed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_files_reviewed_by")
+  replaced_file                             rndtechnosoft_candidate_document_files?   @relation("document_file_replacement", fields: [tenant_id, replaced_file_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_document_files_replaced")
+  replacements                              rndtechnosoft_candidate_document_files[]  @relation("document_file_replacement")
 
+  @@unique([tenant_id, id], map: "uq_document_files_tenant_id")
   @@unique([tenant_id, request_id, version_number], map: "uq_document_files_version")
   @@index([tenant_id, candidate_id], map: "ix_document_files_candidate")
   @@index([tenant_id, review_status], map: "ix_document_files_review")
+  @@index([tenant_id, request_id, slot_name], map: "ix_document_files_slot")
+  @@index([tenant_id, replaced_file_id], map: "ix_document_files_replaced")
 }
 
 /// A document generated from a template for a candidate or employee, edited and saved.
@@ -3134,6 +3191,28 @@ model rndtechnosoft_letterhead_assets {
 
   @@unique([tenant_id, id], map: "uq_letterhead_assets_tenant_id")
   @@unique([tenant_id, letterhead_id, id], map: "uq_letterhead_assets_letterhead_id")
+}
+
+/// Reusable images and signatures for documents (offer letters, agreements, etc.), stored privately.
+model rndtechnosoft_document_assets {
+  id                          String    @id @db.Uuid
+  tenant_id                   String    @db.Uuid
+  asset_name                  String    @db.VarChar(160)
+  category                    String    @default("OTHER") @db.VarChar(64)
+  storage_key                 String    @db.VarChar(500)
+  file_type                   String    @db.VarChar(64)
+  file_size                   Int
+  width_px                    Int
+  height_px                   Int
+  created_by_tenant_member_id String?   @db.Uuid
+  created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants       rndtechnosoft_tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_assets_tenant")
+  created_by                  rndtechnosoft_tenant_members? @relation("document_asset_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_assets_created_by")
+
+  @@unique([tenant_id, id], map: "uq_document_assets_tenant_id")
+  @@index([tenant_id, category], map: "ix_document_assets_category")
 }
 
 /// A design element placed on every page of a letterhead, such as a text or image watermark: in mm from the page's top-left, drawn behind or in front of the letter text in layer order.

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { HR_COMMON_PLACEHOLDERS, PLACEHOLDERS, TABLE_KINDS, templateProblem, TemplateKind } from './document-templates';
 
 /**
@@ -15,6 +16,27 @@ export interface DocMark {
   type: 'bold' | 'italic' | 'underline' | 'strike' | 'subscript' | 'superscript' | 'textStyle';
   attrs?: { fontFamily?: FontKey | null; fontSize?: number | null; color?: string | null; backgroundColor?: string | null };
 }
+
+export interface DocImageAttrs {
+  id: string;
+  src: string;
+  assetId?: string | null;
+  alt?: string;
+  category?: 'COMPANY_LOGO' | 'AUTHORIZED_SIGNATURE' | 'STAMP_SEAL' | 'OTHER';
+  widthMm: number;
+  heightMm: number;
+  aspectRatio: number;
+  lockAspectRatio: boolean;
+  positionMode: 'inline' | 'square' | 'topBottom' | 'behind' | 'front';
+  page: number;
+  xMm: number;
+  yMm: number;
+  alignment: 'left' | 'center' | 'right' | 'custom';
+  zIndex: number;
+  isLocked: boolean;
+  opacity: number;
+}
+
 export interface DocNode {
   type:
     | 'doc'
@@ -31,7 +53,8 @@ export interface DocNode {
     | 'table'
     | 'tableRow'
     | 'tableHeader'
-    | 'tableCell';
+    | 'tableCell'
+    | 'documentImage';
   attrs?: Record<string, unknown>;
   content?: DocNode[];
   text?: string;
@@ -78,6 +101,7 @@ export const DOCUMENT_STYLE = {
 export const FONT_SIZE_RANGE = { min: 6, max: 72 };
 const LIMITS = { nodes: 15000, depth: 20, characters: 60000 };
 const COLOR = /^#[0-9a-f]{6}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALIGNS: BlockAlign[] = ['left', 'center', 'right', 'justify'];
 const SIMPLE_MARKS = ['bold', 'italic', 'underline', 'strike', 'subscript', 'superscript'] as const;
 
@@ -282,6 +306,58 @@ const sanitizeBorder = (v: unknown): string | null => {
           });
         };
         return { type: cellType, attrs: cellAttrs(attrs), content: cellChildren() };
+      }
+      case 'documentImage': {
+        const id = typeof attrs.id === 'string' && attrs.id.trim() ? attrs.id.trim() : randomUUID();
+        const src = typeof attrs.src === 'string' ? attrs.src : '';
+        const assetId = typeof attrs.assetId === 'string' && UUID.test(attrs.assetId) ? attrs.assetId : null;
+        const alt = typeof attrs.alt === 'string' ? attrs.alt.slice(0, 300) : '';
+        const category = typeof attrs.category === 'string' && ['COMPANY_LOGO', 'AUTHORIZED_SIGNATURE', 'STAMP_SEAL', 'OTHER'].includes(attrs.category)
+          ? attrs.category
+          : 'OTHER';
+        const widthMm = num(attrs.widthMm, 5, 300, 'Image width (mm)') ?? 45;
+        const heightMm = num(attrs.heightMm, 5, 400, 'Image height (mm)') ?? 20;
+        const aspectRatio = typeof attrs.aspectRatio === 'number' && Number.isFinite(attrs.aspectRatio) && attrs.aspectRatio > 0
+          ? Math.round(attrs.aspectRatio * 1000) / 1000
+          : Math.round((widthMm / heightMm) * 1000) / 1000;
+        const lockAspectRatio = attrs.lockAspectRatio !== false;
+        const posMode = typeof attrs.positionMode === 'string' && ['inline', 'square', 'topBottom', 'behind', 'front'].includes(attrs.positionMode)
+          ? (attrs.positionMode as 'inline' | 'square' | 'topBottom' | 'behind' | 'front')
+          : 'front';
+        const page = typeof attrs.page === 'number' && Number.isInteger(attrs.page) && attrs.page >= 1 && attrs.page <= 100
+          ? attrs.page
+          : 1;
+        const xMm = num(attrs.xMm, -50, 400, 'Horizontal position (xMm)') ?? 20;
+        const yMm = num(attrs.yMm, -50, 500, 'Vertical position (yMm)') ?? 20;
+        const alignment = typeof attrs.alignment === 'string' && ['left', 'center', 'right', 'custom'].includes(attrs.alignment)
+          ? (attrs.alignment as 'left' | 'center' | 'right' | 'custom')
+          : 'left';
+        const zIndex = typeof attrs.zIndex === 'number' && Number.isInteger(attrs.zIndex) ? Math.min(1000, Math.max(0, attrs.zIndex)) : 10;
+        const isLocked = Boolean(attrs.isLocked);
+        const opacity = typeof attrs.opacity === 'number' && Number.isFinite(attrs.opacity) ? Math.min(1, Math.max(0, Math.round(attrs.opacity * 100) / 100)) : 1;
+
+        return {
+          type: 'documentImage',
+          attrs: {
+            id,
+            src,
+            assetId,
+            alt,
+            category,
+            widthMm,
+            heightMm,
+            aspectRatio,
+            lockAspectRatio,
+            positionMode: posMode,
+            page,
+            xMm,
+            yMm,
+            alignment,
+            zIndex,
+            isLocked,
+            opacity,
+          },
+        };
       }
       default: {
         const typeName = isRecord(n) && typeof n.type === 'string' ? n.type : 'unrecognized block';

@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { TemplatesView } from './TemplatesView';
 import { LetterheadsView } from './LetterheadsView';
 import { EmailTemplatesView } from './EmailTemplatesView';
+import { DocumentTypesMaster } from '../settings/DocumentTypesMaster';
 
-type Tab = 'templates' | 'email-templates' | 'letterheads';
+type Tab = 'templates' | 'candidate-document-types' | 'email-templates' | 'letterheads';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'templates', label: 'Document Templates' },
+  { id: 'candidate-document-types', label: 'Candidate Document Types' },
   { id: 'email-templates', label: 'Email Templates' },
   { id: 'letterheads', label: 'Letterheads' },
 ];
@@ -22,7 +24,7 @@ export const DocumentsView: React.FC = () => {
       <div>
         <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Documents & letterheads</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Templates for offer letters, appointment letters, and agreements; reusable email templates; and printable letterheads.
+          Templates for offer letters, appointment letters, and agreements; candidate document upload rules; reusable email templates; and printable letterheads.
         </p>
       </div>
       <div role="tablist" aria-label="Documents & letterheads" className="flex gap-1 border-b border-slate-200 dark:border-[#2B293E] overflow-x-auto">
@@ -35,6 +37,7 @@ export const DocumentsView: React.FC = () => {
       </div>
       <div role="tabpanel" id="documents-panel" aria-labelledby={`documents-tab-${tab}`}>
         {tab === 'templates' && <TemplatesView />}
+        {tab === 'candidate-document-types' && <DocumentTypesMaster />}
         {tab === 'email-templates' && <EmailTemplatesView />}
         {tab === 'letterheads' && <LetterheadsView />}
       </div>

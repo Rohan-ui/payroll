@@ -412,3 +412,30 @@ export class LetterheadPreviewDto extends LetterheadInputDto {
   @IsUUID()
   letterheadId?: string;
 }
+
+export const DOCUMENT_ASSET_CATEGORIES = ['COMPANY_LOGO', 'AUTHORIZED_SIGNATURE', 'STAMP_SEAL', 'OTHER'] as const;
+export type DocumentAssetCategory = (typeof DOCUMENT_ASSET_CATEGORIES)[number];
+
+export class CreateDocumentAssetDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  name!: string;
+
+  @IsOptional()
+  @IsIn(DOCUMENT_ASSET_CATEGORIES)
+  category?: DocumentAssetCategory;
+}
+
+export class UpdateDocumentAssetDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  name?: string;
+
+  @IsOptional()
+  @IsIn(DOCUMENT_ASSET_CATEGORIES)
+  category?: DocumentAssetCategory;
+}
+

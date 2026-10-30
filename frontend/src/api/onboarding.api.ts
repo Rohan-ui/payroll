@@ -458,12 +458,21 @@ export interface CandidateListQuery {
   documents?: 'to_verify';
 }
 
-export type DocumentState = 'MISSING' | 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED';
+export type DocumentState =
+  | 'MISSING'
+  | 'INCOMPLETE'
+  | 'PENDING_REVIEW'
+  | 'PARTIALLY_VERIFIED'
+  | 'VERIFIED'
+  | 'REJECTED';
+
 export type FileReviewStatus = 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED' | 'SUPERSEDED';
 
 export const DOCUMENT_STATE_LABELS: Record<DocumentState, string> = {
   MISSING: 'Not uploaded',
+  INCOMPLETE: 'Incomplete',
   PENDING_REVIEW: 'To verify',
+  PARTIALLY_VERIFIED: 'Partially verified',
   VERIFIED: 'Verified',
   REJECTED: 'Rejected',
 };
@@ -488,6 +497,15 @@ export interface DocumentFile {
   reviewedBy: string | null;
   reviewedAt: string | null;
   rejectionReason: string | null;
+  slotName?: string | null;
+  replacedFileId?: string | null;
+  isActive?: boolean;
+}
+
+export interface DocumentSlotStatus {
+  slotName: string;
+  isUploaded: boolean;
+  file: DocumentFile | null;
 }
 
 export interface DocumentRequest {
@@ -495,10 +513,46 @@ export interface DocumentRequest {
   type: string;
   label: string;
   isRequired: boolean;
+  documentTypeId?: string | null;
+  minFiles: number;
+  maxFiles: number;
+  slots: string[] | null;
+  requiresFrontBack?: boolean;
+  allowMultiplePages?: boolean;
+  requiresVerification?: boolean;
+  canReuploadRejected?: boolean;
+  allowedFormats?: string[];
+  maxFileSizeBytes?: number;
   state: DocumentState;
+  status: DocumentState;
   createdAt: string;
+  activeFilesCount: number;
+  historicalCount: number;
+  slotsStatus: DocumentSlotStatus[] | null;
   /** Newest first. */
   files: DocumentFile[];
+}
+
+export interface DocumentTypeItem {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  isRequired: boolean;
+  minFiles: number;
+  maxFiles: number;
+  allowedFormats: string[];
+  maxFileSizeBytes: number;
+  allowImages: boolean;
+  allowPdf: boolean;
+  requiresFrontBack: boolean;
+  allowMultiplePages: boolean;
+  requiresVerification: boolean;
+  canReuploadRejected: boolean;
+  slots: string[] | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CandidateDocuments {
@@ -507,7 +561,17 @@ export interface CandidateDocuments {
   canSendLink: boolean;
   link: { sentAt: string | null; expiresAt: string | null };
   counts: { required: number; verified: number; toReview: number };
-  types: { type: string; label: string }[];
+  types: {
+    type: string;
+    label: string;
+    documentTypeId?: string;
+    minFiles?: number;
+    maxFiles?: number;
+    slots?: string[] | null;
+    isRequired?: boolean;
+    requiresFrontBack?: boolean;
+    allowMultiplePages?: boolean;
+  }[];
   requests: DocumentRequest[];
 }
 
@@ -542,6 +606,31 @@ export function postForPdf(path: string, body: unknown): Promise<ArrayBuffer> {
 export async function uploadForm<T>(path: string, file: File, tooLarge = 'The file is larger than 10 MB. Upload a smaller copy.'): Promise<T> {
   const form = new FormData();
   form.append('file', file);
+  const response = await apiFetch(`/api/v1${path}`, { method: 'POST', body: form });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = response.status === 413 ? tooLarge : body?.message;
+    throw new Error(Array.isArray(message) ? message.join(', ') : message || 'The file could not be uploaded. Try again.');
+  }
+  return body.data as T;
+}
+
+export async function uploadMultiForm<T>(
+  path: string,
+  fileOrFiles: File | File[],
+  meta?: { slotName?: string; replacedFileId?: string },
+  tooLarge = 'The file is larger than 10 MB. Upload a smaller copy.',
+): Promise<T> {
+  const form = new FormData();
+  const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+  for (const f of files) {
+    form.append('files', f);
+  }
+  if (files.length > 0) {
+    form.append('file', files[0]);
+  }
+  if (meta?.slotName) form.append('slotName', meta.slotName);
+  if (meta?.replacedFileId) form.append('replacedFileId', meta.replacedFileId);
   const response = await apiFetch(`/api/v1${path}`, { method: 'POST', body: form });
   const body = await response.json().catch(() => null);
   if (!response.ok) {
@@ -652,17 +741,47 @@ export const onboardingApi = {
 
 
   documents: (candidateId: string) => apiClient.get<Envelope<CandidateDocuments>>(`${BASE}/candidates/${candidateId}/documents`).then((r) => r.data),
-  requestDocuments: (candidateId: string, items: { type: string; label?: string; isRequired: boolean }[]) =>
-    apiClient.post<Envelope<CandidateDocuments>>(`${BASE}/candidates/${candidateId}/documents`, { items }).then((r) => r.data),
+  requestDocuments: (
+    candidateId: string,
+    items: {
+      type: string;
+      label?: string;
+      isRequired: boolean;
+      documentTypeId?: string;
+      minFiles?: number;
+      maxFiles?: number;
+      slots?: string[];
+    }[],
+  ) => apiClient.post<Envelope<CandidateDocuments>>(`${BASE}/candidates/${candidateId}/documents`, { items }).then((r) => r.data),
   removeDocumentRequest: (candidateId: string, requestId: string) =>
     apiClient.delete<Envelope<CandidateDocuments>>(`${BASE}/candidates/${candidateId}/documents/${requestId}`).then((r) => r.data),
-  uploadDocument: (candidateId: string, requestId: string, file: File) => uploadForm<CandidateDocuments>(`${BASE}/candidates/${candidateId}/documents/${requestId}/files`, file),
+  uploadDocument: (
+    candidateId: string,
+    requestId: string,
+    fileOrFiles: File | File[],
+    meta?: { slotName?: string; replacedFileId?: string },
+  ) => uploadMultiForm<CandidateDocuments>(`${BASE}/candidates/${candidateId}/documents/${requestId}/files`, fileOrFiles, meta),
   documentFileUrl: (candidateId: string, fileId: string) => `/api/v1${BASE}/candidates/${candidateId}/documents/files/${fileId}`,
   verifyDocument: (candidateId: string, fileId: string) =>
     apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/files/${fileId}/verify`).then((r) => r.data),
   rejectDocument: (candidateId: string, fileId: string, reason: string) =>
     apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/files/${fileId}/reject`, { reason }).then((r) => r.data),
+  verifyDocumentRequest: (candidateId: string, requestId: string) =>
+    apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/${requestId}/verify`).then((r) => r.data),
+  rejectDocumentRequest: (candidateId: string, requestId: string, reason: string) =>
+    apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/${requestId}/reject`, { reason }).then((r) => r.data),
+  removeDocumentFile: (candidateId: string, requestId: string, fileId: string) =>
+    apiClient.delete<Envelope<CandidateDocuments>>(`${BASE}/candidates/${candidateId}/documents/${requestId}/files/${fileId}`).then((r) => r.data),
   sendDocumentLink: (candidateId: string) => apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/link`).then((r) => r.data),
+
+  // ── Document Types Master ───────────────────────────────────
+  listDocumentTypes: () => apiClient.get<Envelope<DocumentTypeItem[]>>(`${BASE}/document-types`).then((r) => r.data),
+  createDocumentType: (data: Partial<DocumentTypeItem>) =>
+    apiClient.post<Envelope<DocumentTypeItem>>(`${BASE}/document-types`, data).then((r) => r.data),
+  updateDocumentType: (id: string, data: Partial<DocumentTypeItem>) =>
+    apiClient.put<Envelope<DocumentTypeItem>>(`${BASE}/document-types/${id}`, data).then((r) => r.data),
+  deleteDocumentType: (id: string) =>
+    apiClient.delete<Envelope<{ message: string }>>(`${BASE}/document-types/${id}`).then((r) => r.data),
 
   // ── Candidate Generated & Editable Letter Documents ───────────
   listAvailableTemplates: (kind?: string) =>

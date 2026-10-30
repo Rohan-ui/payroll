@@ -514,7 +514,8 @@ export class DeclineOfferDto {
 // ── Documents ─────────────────────────────────────────────────
 
 export class DocumentRequestItemDto {
-  @IsIn(DOCUMENT_TYPES)
+  @IsString()
+  @MaxLength(50)
   type!: string;
 
   /** The name the candidate sees; the type's name when left out. */
@@ -525,12 +526,33 @@ export class DocumentRequestItemDto {
 
   @IsBoolean()
   isRequired!: boolean;
+
+  @IsOptional()
+  @IsUUID()
+  documentTypeId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  minFiles?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  maxFiles?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  slots?: string[];
 }
 
 export class RequestDocumentsDto {
   @IsArray()
   @ArrayMinSize(1, { message: 'Choose at least one document.' })
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(40)
   @ValidateNested({ each: true })
   @Type(() => DocumentRequestItemDto)
   items!: DocumentRequestItemDto[];
@@ -542,6 +564,168 @@ export class RejectDocumentDto {
   @MinLength(3, { message: 'Say why the document is not accepted, so the candidate can fix it.' })
   @MaxLength(1000)
   reason!: string;
+}
+
+export class CreateDocumentTypeDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(50)
+  @Matches(/^[A-Za-z0-9_-]+$/, { message: 'Code must contain only letters, numbers, hyphens or underscores.' })
+  code!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isRequired?: boolean = true;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  minFiles?: number = 1;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  maxFiles?: number = 1;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allowedFormats?: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1024)
+  @Max(50 * 1024 * 1024)
+  maxFileSizeBytes?: number = 10 * 1024 * 1024;
+
+  @IsOptional()
+  @IsBoolean()
+  allowImages?: boolean = true;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPdf?: boolean = true;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresFrontBack?: boolean = false;
+
+  @IsOptional()
+  @IsBoolean()
+  allowMultiplePages?: boolean = false;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresVerification?: boolean = true;
+
+  @IsOptional()
+  @IsBoolean()
+  canReuploadRejected?: boolean = true;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  slots?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean = true;
+}
+
+export class UpdateDocumentTypeDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isRequired?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  minFiles?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  maxFiles?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allowedFormats?: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1024)
+  @Max(50 * 1024 * 1024)
+  maxFileSizeBytes?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowImages?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPdf?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresFrontBack?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowMultiplePages?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresVerification?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canReuploadRejected?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  slots?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UploadFileMetaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  slotName?: string;
+
+  @IsOptional()
+  @IsUUID()
+  replacedFileId?: string;
 }
 
 /** An offer's unsaved form, to preview its letter before saving. */
