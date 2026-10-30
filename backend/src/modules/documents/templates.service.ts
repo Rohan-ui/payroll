@@ -8,7 +8,7 @@ import { AVAILABLE_TEMPLATE_KINDS, PLACEHOLDERS, renderTemplate, SAMPLE_OFFER_TA
 import { LetterheadsService } from './letterheads.service';
 import { DocumentPdfService, PageMargins, PdfLetterhead, uniformMargins } from './document-pdf.service';
 import { PrivateStorageService } from '@/common/storage/private-storage.service';
-import { defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, FONT_FAMILIES, FONT_SIZE_RANGE, legacyDocument, parseDocument } from './rich-document';
+import { defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, FONT_FAMILIES, FONT_SIZE_RANGE, legacyDocument, parseDocument, cleanDocumentForRender, hasCompensationTable } from './rich-document';
 
 /** A letter as sent by the editor: a formatted document, or (from before formatting) a heading and plain text. */
 export interface ContentInput {
@@ -258,7 +258,9 @@ export class TemplatesService {
     const text = this.preview(input.kind, input);
     const layout = await this.layoutColumns(tenantId, DEFAULT_LAYOUT, input, { allowArchived: true });
     const company = (await this.prisma.rndtechnosoft_tenants.findUniqueOrThrow({ where: { id: tenantId }, select: { legal_name: true } })).legal_name;
-    const images = await this.resolveDocumentImages(tenantId, text.document);
+    const cleanedDoc = text.document ? cleanDocumentForRender(text.document) : undefined;
+    const images = await this.resolveDocumentImages(tenantId, cleanedDoc);
+    const hasComp = cleanedDoc ? hasCompensationTable(cleanedDoc) : true;
     return this.pdf.render(
       {
         companyName: company,
@@ -266,9 +268,8 @@ export class TemplatesService {
         dateText: sampleValues(input.kind as TemplateKind).today ?? '',
         title: text.title,
         body: text.body,
-        document: text.document,
-        table: sampleTable(input.kind as TemplateKind),
-        footer: 'Sample preview with made-up data. This is not a real document.',
+        document: cleanedDoc,
+        table: hasComp ? sampleTable(input.kind as TemplateKind) : undefined,
         watermark: 'SAMPLE',
         images,
       },

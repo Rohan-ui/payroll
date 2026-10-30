@@ -3,7 +3,7 @@ import { execFile } from 'child_process';
 import { existsSync, promises as fsPromises } from 'fs';
 import { randomUUID } from 'crypto';
 import * as pdfkit from 'pdfkit';
-import { DocNode, FONT_FAMILIES, FontKey } from './rich-document';
+import { cleanDocumentForRender, DocNode, FONT_FAMILIES, FontKey } from './rich-document';
 import { drawDocument, LayoutDoc } from './rich-pdf-layout';
 import { DocumentHtmlService } from './document-html.service';
 
@@ -390,9 +390,10 @@ export class DocumentPdfService {
     };
 
     if (letter.document) {
+      const docToDraw = cleanDocumentForRender(letter.document);
       drawDocument(
         doc as unknown as LayoutDoc,
-        letter.document,
+        docToDraw,
         {
           left: margin,
           width,
@@ -401,8 +402,6 @@ export class DocumentPdfService {
         },
         pdfSafe,
       );
-      // A letter that doesn't place the pay table gets it at the end, as before.
-      if (table && !letter.document.content?.some((n) => n.type === 'compensationTable')) this.table(doc, table, margin, width, keepTogether);
     } else {
       if (!letterhead) doc.font('Helvetica-Bold').fontSize(15).text(pdfSafe(letter.companyName), margin, doc.y, { width }).moveDown(0.3);
       doc.font('Helvetica').fontSize(9).fillColor(GREY).text(`Ref: ${letter.reference}    Date: ${letter.dateText}`, margin, doc.y, { width });

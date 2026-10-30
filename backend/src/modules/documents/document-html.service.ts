@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DocMark, DocNode, DOCUMENT_STYLE, FONT_FAMILIES, FontKey } from './rich-document';
+import { cleanDocumentForRender, DocMark, DocNode, DOCUMENT_STYLE, FONT_FAMILIES, FontKey } from './rich-document';
 import { LetterPdf, PdfElement, PdfLayout, PdfLetterhead, PdfTable, PLAIN_LAYOUT } from './document-pdf.service';
 
 const PAGE_DIMENSIONS_MM = {
@@ -55,8 +55,9 @@ export class DocumentHtmlService {
     const headerHtml = this.renderHeader(lh, letter.companyName, headerOffset, headerH, left, right, pageDim.width);
     const footerHtml = this.renderFooter(lh, letter.footer, footerOffset, footerH, left, right, pageDim.width);
     const elementsHtml = this.renderElements(lh?.elements, letter.watermark, pageDim);
-    const bodyHtml = letter.document
-      ? this.renderDocNode(letter.document, letter)
+    const cleanedDoc = letter.document ? cleanDocumentForRender(letter.document) : undefined;
+    const bodyHtml = cleanedDoc
+      ? this.renderDocNode(cleanedDoc, letter)
       : this.renderLegacyBody(letter, contentWidthMm);
 
     const pageNumberBottomMargin = Math.max(8, Math.round(bodyBottom / 2));
@@ -273,8 +274,8 @@ export class DocumentHtmlService {
       box-sizing: border-box;
       position: relative;
       border: 0.75pt solid #cbd5e1;
-      padding: 4pt 6pt;
-      min-height: 18pt;
+      padding: 3pt 5pt;
+      min-height: 14pt;
       word-wrap: break-word;
       overflow-wrap: break-word;
     }

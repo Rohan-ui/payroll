@@ -5,7 +5,7 @@ import { makePng } from '../../../test/support/png';
 import { inspectPdf } from '../../../test/support/pdf-content';
 import { sampleValues, SAMPLE_OFFER_TABLE } from './document-templates';
 import { DocumentPdfService, PdfLayout, PdfLetterhead, uniformMargins } from './document-pdf.service';
-import { defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, legacyDocument, parseDocument } from './rich-document';
+import { cleanDocumentForRender, defaultDocument, DocNode, DOCUMENT_STYLE, documentText, DocumentProblem, fillDocument, hasCompensationTable, legacyDocument, parseDocument } from './rich-document';
 
 const PDFDocument = ((pdfkit as unknown as { default?: unknown }).default ?? pdfkit) as unknown as typeof import('pdfkit');
 const A4_HEIGHT = 841.89;
@@ -281,5 +281,52 @@ describe('formatted letter PDFs', () => {
     expect(find(pages, 'Basic Salary')).toBeDefined();
     expect(find(pages, 'INR 12,00,000.00')).toBeDefined();
     expect(find(pages, 'End of letter.')).toBeDefined();
+  });
+
+  it('normalizes manual page breaks by collapsing runs of 5 or more empty paragraphs', () => {
+    const raw = doc(
+      para([text('Page 1 content')]),
+      para([]),
+      para([]),
+      para([]),
+      para([]),
+      para([]),
+      para([text('Page 2 content')]),
+    ) as DocNode;
+
+    const cleaned = cleanDocumentForRender(raw);
+    expect(cleaned.content!.length).toBe(3);
+    expect(cleaned.content![0].type).toBe('paragraph');
+    expect(cleaned.content![1].type).toBe('pageBreak');
+    expect(cleaned.content![2].type).toBe('paragraph');
+  });
+
+  it('does not collapse fewer than 5 empty paragraphs into a page break', () => {
+    const raw = doc(
+      para([text('Block 1')]),
+      para([]),
+      para([]),
+      para([]),
+      para([text('Block 2')]),
+    ) as DocNode;
+
+    const cleaned = cleanDocumentForRender(raw);
+    expect(cleaned.content!.length).toBe(5);
+    expect(cleaned.content!.every((n) => n.type === 'paragraph')).toBe(true);
+  });
+
+  it('detects whether a document contains a compensationTable node recursively', () => {
+    const withoutComp = doc(para([text('Hello')]), { type: 'table', content: [] }) as DocNode;
+    expect(hasCompensationTable(withoutComp)).toBe(false);
+
+    const withComp = doc(para([text('Hello')]), { type: 'compensationTable' }) as DocNode;
+    expect(hasCompensationTable(withComp)).toBe(true);
+  });
+
+  it('does not append an unwanted compensation table to a rich document that has not added one', async () => {
+    const letterDoc = doc(para([text('Offer without pay table')])) as DocNode;
+    const pages = await render(letterDoc, {}, A4_HEIGHT, { table: SAMPLE_OFFER_TABLE });
+    expect(find(pages, 'Offer without pay table')).toBeDefined();
+    expect(pages.some((p) => p.texts.some((t) => t.text.includes('Annual compensation')))).toBe(false);
   });
 });

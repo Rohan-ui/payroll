@@ -925,3 +925,73 @@ export function defaultDocument(kind: TemplateKind): DocNode | null {
     ],
   };
 }
+
+/** Whether a node is an empty paragraph (contains no text or only whitespace). */
+export function isEmptyParagraphNode(node: DocNode): boolean {
+  if (node.type !== 'paragraph') return false;
+  if (!node.content || node.content.length === 0) return true;
+  return node.content.every((c) => {
+    if (c.type === 'text') return !c.text || !c.text.trim();
+    if (c.type === 'hardBreak') return true;
+    return false;
+  });
+}
+
+/** Recursively checks whether a document contains a compensationTable node. */
+export function hasCompensationTable(doc?: DocNode): boolean {
+  if (!doc) return false;
+  if (doc.type === 'compensationTable') return true;
+  return (doc.content ?? []).some((child) => hasCompensationTable(child));
+}
+
+/**
+ * Normalizes document nodes for rendering:
+ * 1. Collapses runs of 5 or more consecutive empty paragraphs (typed by users to create manual page breaks) into a single pageBreak node.
+ * 2. Removes empty paragraphs immediately preceding or following a pageBreak to avoid pushing content unnecessarily down the next page.
+ */
+export function cleanDocumentForRender(doc: DocNode): DocNode {
+  if (!doc || !doc.content) return doc;
+  const nodes = doc.content;
+  const out: DocNode[] = [];
+  let emptyRun: DocNode[] = [];
+
+  const flushEmpty = () => {
+    if (emptyRun.length >= 5) {
+      out.push({ type: 'pageBreak' });
+    } else {
+      out.push(...emptyRun);
+    }
+    emptyRun = [];
+  };
+
+  for (const node of nodes) {
+    if (isEmptyParagraphNode(node)) {
+      emptyRun.push(node);
+    } else {
+      flushEmpty();
+      if (node.type === 'pageBreak') {
+        while (out.length > 0 && isEmptyParagraphNode(out[out.length - 1])) {
+          out.pop();
+        }
+      }
+      out.push(node);
+    }
+  }
+  flushEmpty();
+
+  const finalNodes: DocNode[] = [];
+  let afterBreak = false;
+  for (const n of out) {
+    if (n.type === 'pageBreak') {
+      finalNodes.push(n);
+      afterBreak = true;
+    } else if (afterBreak && isEmptyParagraphNode(n)) {
+      continue;
+    } else {
+      afterBreak = false;
+      finalNodes.push(n);
+    }
+  }
+
+  return { ...doc, content: finalNodes };
+}

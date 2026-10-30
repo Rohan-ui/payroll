@@ -226,6 +226,13 @@ export function drawDocument(doc: LayoutDoc, root: DocNode, ctx: LayoutContext, 
     const w = Math.max(10, width - style.indent);
     const lines = breakLines(doc, pieces(n.content, style, safe), w, style);
     const height = lines.reduce((sum, l) => sum + l.above + l.below, 0);
+
+    const isEmpty = lines.length === 0 || (lines.length === 1 && lines[0].segments.length === 0);
+    if (isEmpty && atTop()) {
+      pending = 0;
+      return;
+    }
+
     space(style.spaceBefore);
     // Short paragraphs (a signature, a clause) and headings with what follows stay whole.
     const whole = height + keepWithNext;
@@ -468,6 +475,11 @@ export function drawDocument(doc: LayoutDoc, root: DocNode, ctx: LayoutContext, 
         }
       }
     });
+
+    const totalTableHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+    if (totalTableHeight <= usable() && doc.y + totalTableHeight > bottom() && !atTop()) {
+      doc.addPage();
+    }
 
     space(S.table.spaceBefore);
 
