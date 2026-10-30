@@ -276,4 +276,12 @@ describe('letter PDFs', () => {
     expect(readableImage(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]))).toBeNull();
     expect(readableImage(Buffer.from('<svg></svg>'))).toBeNull();
   });
+
+  it('renders pixel-consistent PDF via headless Chromium when requested', async () => {
+    const doc = { companyName: 'Acme', reference: 'REF-1', dateText: '30 October 2026', title: 'Offer Letter', body: 'This is a test paragraph.' };
+    const pdfBuf = await pdf.render(doc, layout(), { engine: 'chromium' });
+    expect(pdfBuf).toBeInstanceOf(Buffer);
+    expect(pdfBuf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(pdfBuf.length).toBeGreaterThan(1000);
+  });
 });

@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
 import {
-  AlignCenter, AlignJustify, AlignLeft, AlignRight, Baseline, Bold, Highlighter, IndentDecrease, IndentIncrease, Italic, List, ListOrdered,
+  AlignCenter, AlignJustify, AlignLeft, AlignRight, Baseline, Bold, FileDown, Highlighter, IndentDecrease, IndentIncrease, Italic, List, ListOrdered,
   Redo2, RemoveFormatting, SeparatorHorizontal, Strikethrough, Subscript, Superscript, Table2, Underline, Undo2, X,
   Image as ImageIcon, PenLine,
 } from 'lucide-react';
@@ -234,6 +234,7 @@ export const LetterToolbar: React.FC<{
       <Separator />
       <div role="group" aria-label="Insert" className="flex items-center">
         {plain('Insert divider', SeparatorHorizontal, run((e) => e.chain().focus().setHorizontalRule().run()))}
+        {plain('Insert page break (Ctrl+Enter)', FileDown, run((e) => e.chain().focus().insertContent({ type: 'pageBreak' }).run()))}
         {onOpenInsertTable && plain('Insert Table', Table2, onOpenInsertTable)}
         {onOpenInsertImage && plain('Insert Image', ImageIcon, onOpenInsertImage)}
         {onOpenInsertSignature && plain('Insert Signature', PenLine, onOpenInsertSignature)}
@@ -256,14 +257,63 @@ const LetterPage: React.FC<{
   /** Images of the letterhead's page elements, by image id. */
   elementImages: Record<string, CanvasImage>;
   showPageNumbers: boolean;
+  onPageCountChange?: (n: number) => void;
   children: React.ReactNode;
-}> = ({ page, margins, letterhead, images, elementImages, showPageNumbers, children }) => {
+}> = ({ page, margins, letterhead, images, elementImages, showPageNumbers, onPageCountChange, children }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [numPages, setNumPages] = useState(1);
+
   // Where the PDF's text starts and stops: inside the margins, 12 pt below the header and 8 pt above the footer.
   const { header, footer, body } = pageFrame(page, margins, letterhead && toLayout(letterhead));
-  const bodyMm = Math.max(1, body.height);
   // Page numbers sit below the footer (or the text), or just above the footer when there is no room below it.
   const below = footer ? page.height - footer.top - footer.height : margins.bottom;
   const numberBottom = below >= 10 * PT ? Math.max(1, (below - 3) / 2) : (footer ? page.height - footer.top : below) + 1;
+  const headerHeight = (header?.top ?? 0) + (header?.height ?? 0) + 2;
+  const footerHeight = page.height - (footer?.top ?? page.height);
+
+  useEffect(() => {
+    onPageCountChange?.(numPages);
+  }, [numPages, onPageCountChange]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const updatePagesAndBreaks = () => {
+      // 1 mm in screen pixels at zoom = 1
+      const mmPx = 96 / 25.4;
+      const pageHeightPx = page.height * mmPx;
+
+      // Calculate gap to next page for manual page breaks
+      const breaks = el.querySelectorAll<HTMLElement>('.letter-page-break');
+      breaks.forEach((b) => {
+        b.style.minHeight = '0px';
+      });
+
+      breaks.forEach((b) => {
+        const topPx = b.offsetTop;
+        const topMm = topPx / mmPx;
+        const curPage = Math.floor(topMm / page.height);
+        const nextPageBodyStartMm = (curPage + 1) * page.height + body.top;
+        const neededGapMm = Math.max(12, nextPageBodyStartMm - topMm);
+        b.style.minHeight = `${neededGapMm}mm`;
+      });
+
+      const totalH = el.scrollHeight;
+      const calculatedPages = Math.max(1, Math.ceil((totalH - 2) / pageHeightPx));
+      setNumPages(calculatedPages);
+    };
+
+    updatePagesAndBreaks();
+
+    const observer = new ResizeObserver(() => {
+      updatePagesAndBreaks();
+    });
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [page.height, body.top, body.height]);
+
   const canvas = letterhead && (
     <LetterheadCanvas
       page={page}
@@ -279,38 +329,112 @@ const LetterPage: React.FC<{
       printOnly
     />
   );
+
   return (
-    <div data-letter-page className="letter-page relative bg-white shadow-md ring-1 ring-slate-300" style={{ width: `${page.width}mm`, minHeight: `${page.height}mm` }}>
-      {/* Watermarks behind the text, as on the first page of the PDF (which repeats them on every page). */}
-      {letterhead && <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="behind" />}
-      {canvas && (
-        <>
-          <div aria-hidden="true" className="absolute inset-x-0 top-0 overflow-hidden pointer-events-none" style={{ height: `${(header?.top ?? 0) + (header?.height ?? 0) + 2}mm` }}>{canvas}</div>
-          <div aria-hidden="true" className="absolute inset-x-0 bottom-0 overflow-hidden pointer-events-none" style={{ height: `${page.height - (footer?.top ?? page.height)}mm` }}>
-            <div className="absolute left-0 bottom-0">{canvas}</div>
-          </div>
-        </>
-      )}
+    <div
+      ref={containerRef}
+      data-letter-page
+      className="letter-page relative bg-white shadow-md ring-1 ring-slate-300"
+      style={{
+        width: `${page.width}mm`,
+        minHeight: `${numPages * page.height}mm`,
+      }}
+    >
+      {/* Repeating Letterhead and Elements on Every Page */}
+      {Array.from({ length: numPages }).map((_, i) => {
+        const pageTopMm = i * page.height;
+        return (
+          <React.Fragment key={i}>
+            {/* Watermarks behind the text for this page */}
+            {letterhead && (
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 overflow-hidden pointer-events-none"
+                style={{ top: `${pageTopMm}mm`, height: `${page.height}mm`, zIndex: 0 }}
+              >
+                <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="behind" />
+              </div>
+            )}
+
+            {/* Letterhead Header for this page */}
+            {canvas && (
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 overflow-hidden pointer-events-none"
+                style={{ top: `${pageTopMm}mm`, height: `${headerHeight}mm`, zIndex: 5 }}
+              >
+                {canvas}
+              </div>
+            )}
+
+            {/* Letterhead Footer for this page */}
+            {canvas && (
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 overflow-hidden pointer-events-none"
+                style={{ top: `${pageTopMm + page.height - footerHeight}mm`, height: `${footerHeight}mm`, zIndex: 5 }}
+              >
+                <div className="absolute left-0 bottom-0">{canvas}</div>
+              </div>
+            )}
+
+            {/* Watermarks in front of the text for this page */}
+            {letterhead && (
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 overflow-hidden pointer-events-none"
+                style={{ top: `${pageTopMm}mm`, height: `${page.height}mm`, zIndex: 15 }}
+              >
+                <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="front" />
+              </div>
+            )}
+
+            {/* Running Page Number for this page */}
+            {showPageNumbers && (
+              <span
+                aria-hidden="true"
+                className="absolute text-[8pt] text-[#555555] select-none pointer-events-none"
+                style={{
+                  right: `${margins.right}mm`,
+                  top: `${pageTopMm + page.height - numberBottom - 4}mm`,
+                  fontFamily: 'Helvetica, Arial, sans-serif',
+                  zIndex: 10,
+                }}
+              >
+                Page {i + 1} of {numPages}
+              </span>
+            )}
+
+            {/* Page Boundary Indicator between pages */}
+            {i > 0 && (
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 flex items-center justify-center pointer-events-none select-none"
+                style={{ top: `${pageTopMm}mm`, height: 0, zIndex: 25 }}
+              >
+                <div className="w-full border-t-2 border-dashed border-teal-500/50 relative">
+                  <span className="absolute left-1/2 -translate-x-1/2 -top-2.5 bg-teal-50 text-teal-800 dark:bg-teal-950 dark:text-teal-200 border border-teal-400/80 text-[10px] font-semibold tracking-wide uppercase px-3 py-0.5 rounded-full shadow-sm">
+                    Page {i} End • Page {i + 1} Start
+                  </span>
+                </div>
+              </div>
+            )}
+          </React.Fragment>
+        );
+      })}
+
+      {/* Printable Content Area */}
       <div
-        className="relative"
+        className="relative z-10"
         style={{
           paddingTop: `${body.top}mm`,
           paddingBottom: `${page.height - body.top - body.height}mm`,
           paddingLeft: `${body.left}mm`,
           paddingRight: `${page.width - body.left - body.width}mm`,
-          // Faint lines where pages break, roughly; the PDF preview shows the exact pages.
-          backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent calc(${bodyMm}mm - 1px), #cbd5e1 calc(${bodyMm}mm - 1px), #cbd5e1 ${bodyMm}mm)`,
-          backgroundOrigin: 'content-box',
-          backgroundClip: 'content-box',
         }}
       >
         {children}
       </div>
-      {/* Watermarks in front of the text: shown, but never in the way of typing or selecting. */}
-      {letterhead && <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="front" />}
-      {showPageNumbers && (
-        <span aria-hidden="true" className="absolute text-[8pt] text-[#555555]" style={{ right: `${margins.right}mm`, bottom: `${numberBottom}mm`, fontFamily: 'Helvetica, Arial, sans-serif' }}>Page 1</span>
-      )}
     </div>
   );
 };
@@ -351,6 +475,7 @@ export const LetterEditor: React.FC<{
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
   const [isSignatureOnly, setIsSignatureOnly] = useState(false);
   const [isReplacingImage, setIsReplacingImage] = useState(false);
+  const [pageCount, setPageCount] = useState(1);
 
   const tableInfo = useEditorState({
     editor,
@@ -471,14 +596,15 @@ export const LetterEditor: React.FC<{
       </div>
       <div ref={stageRef} className="overflow-x-auto bg-slate-100 dark:bg-[#12111B] p-4 sm:p-6 rounded-b-2xl">
         <div className="mx-auto w-fit" style={{ zoom }}>
-          <LetterPage page={page} margins={margins} letterhead={letterhead} images={letterheadImages} elementImages={elementImages} showPageNumbers={showPageNumbers}>
+          <LetterPage page={page} margins={margins} letterhead={letterhead} images={letterheadImages} elementImages={elementImages} showPageNumbers={showPageNumbers} onPageCountChange={setPageCount}>
             <EditorContent editor={editor} />
           </LetterPage>
         </div>
       </div>
-      <p className="px-4 py-2 text-xs text-slate-500 border-t border-slate-200 dark:border-[#2B293E]">
-        Faint lines mark roughly where pages break. Preview PDF shows the exact pages.
-      </p>
+      <div className="flex flex-wrap items-center justify-between px-4 py-2 text-xs text-slate-500 border-t border-slate-200 dark:border-[#2B293E]">
+        <span>WYSIWYG Page View ({page.width} × {page.height} mm). Preview PDF generates pixel-consistent output.</span>
+        <span>Total Pages: <strong className="font-semibold text-slate-700 dark:text-slate-300">{pageCount}</strong></span>
+      </div>
 
       {editor && (
         <>

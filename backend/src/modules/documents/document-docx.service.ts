@@ -9,6 +9,7 @@ import {
   HeightRule,
   ImageRun,
   Packer,
+  PageBreak,
   PageNumber,
   Paragraph,
   ShadingType,
@@ -182,6 +183,10 @@ export class DocumentDocxService {
       }
       case 'table': {
         output.push(this.createCustomTable(node));
+        break;
+      }
+      case 'pageBreak': {
+        output.push(new Paragraph({ children: [new PageBreak()] }));
         break;
       }
       case 'documentImage': {

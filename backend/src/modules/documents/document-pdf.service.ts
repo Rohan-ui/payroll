@@ -1,7 +1,19 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { execFile } from 'child_process';
+import { existsSync, promises as fsPromises } from 'fs';
+import { randomUUID } from 'crypto';
 import * as pdfkit from 'pdfkit';
 import { DocNode, FONT_FAMILIES, FontKey } from './rich-document';
 import { drawDocument, LayoutDoc } from './rich-pdf-layout';
+import { DocumentHtmlService } from './document-html.service';
+
+const CHROME_PATHS = ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
+export function getChromePath(): string | null {
+  for (const p of CHROME_PATHS) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 // pdfkit is a CommonJS class export: the build (CommonJS) gets it directly, the ES-module test runner as `default`.
 const PDFDocument = ((pdfkit as unknown as { default?: unknown }).default ?? pdfkit) as unknown as typeof import('pdfkit');
@@ -217,7 +229,64 @@ export function readableImage(bytes: Buffer): { width: number; height: number } 
  */
 @Injectable()
 export class DocumentPdfService {
-  render(letter: LetterPdf, layout: PdfLayout = PLAIN_LAYOUT): Promise<Buffer> {
+  constructor(private readonly htmlService?: DocumentHtmlService) {}
+
+  async render(
+    letter: LetterPdf,
+    layout: PdfLayout = PLAIN_LAYOUT,
+    options?: { engine?: 'chromium' | 'pdfkit' },
+  ): Promise<Buffer> {
+    const chromePath = getChromePath();
+    const isTest = process.env.JEST_WORKER_ID !== undefined;
+    const forcePdfkit = options?.engine === 'pdfkit' || process.env.PDF_ENGINE === 'pdfkit';
+    const forceChromium = options?.engine === 'chromium';
+
+    if (chromePath && !forcePdfkit && (forceChromium || !isTest)) {
+      try {
+        return await this.renderChromium(letter, layout, chromePath);
+      } catch (err) {
+        console.warn('Chromium PDF render failed, falling back to pdfkit:', (err as Error)?.message);
+      }
+    }
+
+    return this.renderPdfkit(letter, layout);
+  }
+
+  async renderChromium(letter: LetterPdf, layout: PdfLayout = PLAIN_LAYOUT, chromePath = '/usr/bin/google-chrome'): Promise<Buffer> {
+    const htmlGenerator = this.htmlService || new DocumentHtmlService();
+    const html = htmlGenerator.generateHtml(letter, layout);
+    const id = randomUUID();
+    const tempHtml = `/tmp/rnd-pdf-${id}.html`;
+    const tempPdf = `/tmp/rnd-pdf-${id}.pdf`;
+
+    try {
+      await fsPromises.writeFile(tempHtml, html, 'utf8');
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          chromePath,
+          [
+            '--headless=new',
+            '--disable-gpu',
+            '--no-sandbox',
+            '--no-pdf-header-footer',
+            `--print-to-pdf=${tempPdf}`,
+            tempHtml,
+          ],
+          { timeout: 20000 },
+          (error) => {
+            if (error) return reject(error);
+            resolve();
+          },
+        );
+      });
+      return await fsPromises.readFile(tempPdf);
+    } finally {
+      fsPromises.unlink(tempHtml).catch(() => undefined);
+      fsPromises.unlink(tempPdf).catch(() => undefined);
+    }
+  }
+
+  renderPdfkit(letter: LetterPdf, layout: PdfLayout = PLAIN_LAYOUT): Promise<Buffer> {
     const letterhead = layout.letterhead;
     const frame = pageFrame(layout);
     const { page, body } = frame;

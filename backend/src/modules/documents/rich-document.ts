@@ -47,6 +47,7 @@ export interface DocNode {
     | 'listItem'
     | 'horizontalRule'
     | 'hardBreak'
+    | 'pageBreak'
     | 'text'
     | 'placeholder'
     | 'compensationTable'
@@ -359,6 +360,8 @@ const sanitizeBorder = (v: unknown): string | null => {
           },
         };
       }
+      case 'pageBreak':
+        return { type: 'pageBreak' };
       default: {
         const typeName = isRecord(n) && typeof n.type === 'string' ? n.type : 'unrecognized block';
         return fail(`The document has content that can’t be printed (${typeName}). Remove it and try again.`);
@@ -894,12 +897,14 @@ export function defaultDocument(kind: TemplateKind): DocNode | null {
       // ═══════════════════════════════════════════════════════════════════════
       // Page 2: Acceptance Notice and Annexure - A Salary Structure Table
       // ═══════════════════════════════════════════════════════════════════════
+      { type: 'pageBreak' },
       p('On receipt of letter, please send the revered mail of acceptance within 7 days from the issuance of the letter. Please join latest by {{joining_date}} or earlier and report at RnD Technosoft, Vapi, failing which this offer would be deemed as cancelled.', { textAlign: 'justify', spaceAfter: 14 }),
       buildDefaultSalaryTable(),
 
       // ═══════════════════════════════════════════════════════════════════════
       // Page 3: Annexure - B Documents & Signatures
       // ═══════════════════════════════════════════════════════════════════════
+      { type: 'pageBreak' },
       heading(2, 'Annexure - B', { spaceBefore: 18, spaceAfter: 8 }),
       p('The Following documents are required to be submitted by you at the time of joining (original and photocopy):', { spaceAfter: 6 }),
       orderedList(

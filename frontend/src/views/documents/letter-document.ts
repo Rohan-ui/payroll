@@ -156,6 +156,33 @@ export const CompensationTable = Node.create<{ kind: TableKind }>({
   },
 });
 
+/** A manual page break that splits content cleanly across physical pages. */
+export const PageBreak = Node.create({
+  name: 'pageBreak',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: true,
+  parseHTML() {
+    return [
+      { tag: 'div[data-page-break]' },
+      { tag: 'div.letter-page-break' },
+    ];
+  },
+  renderHTML() {
+    return [
+      'div',
+      { 'data-page-break': '', class: 'letter-page-break' },
+      ['div', { class: 'letter-page-break-badge' }, 'Page Break'],
+    ];
+  },
+  addKeyboardShortcuts() {
+    return {
+      'Mod-Enter': () => this.editor.commands.insertContent({ type: 'pageBreak' }),
+    };
+  },
+});
+
 /** The editor's extensions. Links, code and quotes are left out: the PDF doesn't print them. */
 export function letterExtensions(format: DocumentFormat, table: TableKind | null = 'OFFER_LETTER') {
   return [
@@ -173,6 +200,7 @@ export function letterExtensions(format: DocumentFormat, table: TableKind | null
     CustomTableCell,
     CustomTableHeader,
     DocumentImageExtension,
+    PageBreak,
   ];
 }
 
@@ -260,6 +288,59 @@ ${pm} .selectedCell:after {
   bottom: 0;
   background: rgba(13, 148, 136, 0.15);
   pointer-events: none;
+}
+
+/* Page Break in Editor and Print */
+${pm} .letter-page-break {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 16pt 0;
+  min-height: 24px;
+  box-sizing: border-box;
+  cursor: pointer;
+  user-select: none;
+}
+${pm} .letter-page-break::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1.5px;
+  background: repeating-linear-gradient(90deg, #0d9488, #0d9488 6px, transparent 6px, transparent 12px);
+}
+${pm} .letter-page-break-badge {
+  position: relative;
+  background: #0d9488;
+  color: #ffffff;
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+${pm} .letter-page-break.ProseMirror-selectednode .letter-page-break-badge {
+  outline: 2px solid #042f2e;
+  outline-offset: 2px;
+}
+@media print {
+  ${pm} .letter-page-break {
+    break-before: page !important;
+    page-break-before: always !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    visibility: hidden !important;
+  }
 }
 `;
 }

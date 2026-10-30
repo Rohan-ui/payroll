@@ -222,9 +222,17 @@ server {
     }
     location ^~ /api/ { return 404; }
 
-    location ^~ /assets/ {
+    location /assets/ {
+        include /etc/nginx/mime.types;
+        types {
+            text/javascript js mjs;
+            application/javascript js mjs;
+            text/css css;
+            image/svg+xml svg svgz;
+            application/wasm wasm;
+        }
         try_files $uri =404;
-        expires 7d;
+        expires 1y;
         add_header Cache-Control "public, immutable";
     }
     # The portal uses #hash routes; everything else falls back to its entry file.

@@ -3,3 +3,4 @@
 /backend/.env
 /backend/dist
 /backend/.env.example
+*.md

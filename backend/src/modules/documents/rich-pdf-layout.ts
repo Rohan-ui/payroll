@@ -287,6 +287,9 @@ export function drawDocument(doc: LayoutDoc, root: DocNode, ctx: LayoutContext, 
         pending = S.table.spaceAfter;
       } else if (n.type === 'table') {
         drawTable(n, left, width);
+      } else if (n.type === 'pageBreak') {
+        if (!atTop()) doc.addPage();
+        pending = 0;
       } else if (n.type === 'documentImage' && ctx.drawImage) {
         ctx.drawImage(n, left, width);
       }
