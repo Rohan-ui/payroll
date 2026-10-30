@@ -300,7 +300,7 @@ export class DocumentPdfService {
     }
     const margin = body.left;
     const doc = new PDFDocument({
-      size: layout.pageSize,
+      size: [page.width, page.height],
       bufferPages: true,
       margins: {
         top: body.top,

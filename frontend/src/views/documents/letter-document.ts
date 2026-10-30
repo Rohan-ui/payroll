@@ -290,26 +290,15 @@ ${pm} .selectedCell:after {
   pointer-events: none;
 }
 
-/* Page Break in Editor and Print */
+/* Page Break in Editor and Print (Word/DOCX style paper separation) */
 ${pm} .letter-page-break {
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  margin: 16pt 0;
-  min-height: 24px;
   box-sizing: border-box;
   cursor: pointer;
   user-select: none;
-}
-${pm} .letter-page-break::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1.5px;
-  background: repeating-linear-gradient(90deg, #0d9488, #0d9488 6px, transparent 6px, transparent 12px);
 }
 ${pm} .letter-page-break-badge {
   position: relative;
@@ -319,12 +308,13 @@ ${pm} .letter-page-break-badge {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 2px 10px;
+  padding: 3px 12px;
   border-radius: 9999px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  z-index: 20;
 }
 ${pm} .letter-page-break.ProseMirror-selectednode .letter-page-break-badge {
   outline: 2px solid #042f2e;

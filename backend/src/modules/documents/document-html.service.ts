@@ -31,7 +31,8 @@ export class DocumentHtmlService {
    * Matches the template editor's typography, margins, tables, images, and page dimensions exactly.
    */
   generateHtml(letter: LetterPdf, layout: PdfLayout = PLAIN_LAYOUT): string {
-    const pageSizeKey = layout.pageSize === 'LETTER' ? 'LETTER' : 'A4';
+    const rawSize = String(layout.pageSize || '').trim().toUpperCase();
+    const pageSizeKey: 'A4' | 'LETTER' = rawSize === 'LETTER' ? 'LETTER' : 'A4';
     const pageDim = PAGE_DIMENSIONS_MM[pageSizeKey];
     const m = layout.marginsMm || { top: 20, right: 20, bottom: 20, left: 20 };
     const lh = layout.letterhead;
@@ -67,7 +68,7 @@ export class DocumentHtmlService {
   <title>${escapeHtml(letter.title || 'Document')}</title>
   <style>
     @page {
-      size: ${pageDim.width}mm ${pageDim.height}mm;
+      size: ${pageSizeKey === 'LETTER' ? 'letter portrait' : 'A4 portrait'};
       margin: 0 0 ${pageNumberBottomMargin}mm 0;
       ${
         layout.showPageNumbers

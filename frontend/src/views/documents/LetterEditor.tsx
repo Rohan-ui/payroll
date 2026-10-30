@@ -248,6 +248,8 @@ export const LetterToolbar: React.FC<{
   );
 };
 
+const GAP_PX = 28;
+
 /** The sheet: page size and margins in millimetres, the letterhead drawn as it prints, the letter in between. */
 const LetterPage: React.FC<{
   page: Page;
@@ -271,6 +273,10 @@ const LetterPage: React.FC<{
   const headerHeight = (header?.top ?? 0) + (header?.height ?? 0) + 2;
   const footerHeight = page.height - (footer?.top ?? page.height);
 
+  const mmPx = 96 / 25.4;
+  const pageHeightPx = page.height * mmPx;
+  const sheetTotalPx = pageHeightPx + GAP_PX;
+
   useEffect(() => {
     onPageCountChange?.(numPages);
   }, [numPages, onPageCountChange]);
@@ -280,10 +286,6 @@ const LetterPage: React.FC<{
     if (!el) return;
 
     const updatePagesAndBreaks = () => {
-      // 1 mm in screen pixels at zoom = 1
-      const mmPx = 96 / 25.4;
-      const pageHeightPx = page.height * mmPx;
-
       // Calculate gap to next page for manual page breaks
       const breaks = el.querySelectorAll<HTMLElement>('.letter-page-break');
       breaks.forEach((b) => {
@@ -292,15 +294,15 @@ const LetterPage: React.FC<{
 
       breaks.forEach((b) => {
         const topPx = b.offsetTop;
-        const topMm = topPx / mmPx;
-        const curPage = Math.floor(topMm / page.height);
-        const nextPageBodyStartMm = (curPage + 1) * page.height + body.top;
-        const neededGapMm = Math.max(12, nextPageBodyStartMm - topMm);
-        b.style.minHeight = `${neededGapMm}mm`;
+        const curPage = Math.floor(topPx / sheetTotalPx);
+        const nextSheetStartPx = (curPage + 1) * sheetTotalPx;
+        const nextSheetBodyStartPx = nextSheetStartPx + body.top * mmPx;
+        const neededGapPx = Math.max(GAP_PX, nextSheetBodyStartPx - topPx);
+        b.style.minHeight = `${neededGapPx}px`;
       });
 
       const totalH = el.scrollHeight;
-      const calculatedPages = Math.max(1, Math.ceil((totalH - 2) / pageHeightPx));
+      const calculatedPages = Math.max(1, Math.ceil((totalH - body.top * mmPx) / pageHeightPx));
       setNumPages(calculatedPages);
     };
 
@@ -312,7 +314,7 @@ const LetterPage: React.FC<{
     observer.observe(el);
 
     return () => observer.disconnect();
-  }, [page.height, body.top, body.height]);
+  }, [page.height, body.top, body.height, sheetTotalPx, mmPx, pageHeightPx]);
 
   const canvas = letterhead && (
     <LetterheadCanvas
@@ -334,69 +336,62 @@ const LetterPage: React.FC<{
     <div
       ref={containerRef}
       data-letter-page
-      className="letter-page relative bg-white shadow-md ring-1 ring-slate-300"
+      className="letter-page relative select-text"
       style={{
         width: `${page.width}mm`,
-        minHeight: `${numPages * page.height}mm`,
+        minHeight: `${numPages * sheetTotalPx - GAP_PX}px`,
       }}
     >
-      {/* Repeating Letterhead and Elements on Every Page */}
+      {/* Discrete Physical Paper Sheets (Word / DOCX Style) */}
       {Array.from({ length: numPages }).map((_, i) => {
-        const pageTopMm = i * page.height;
+        const sheetTopPx = i * sheetTotalPx;
         return (
-          <React.Fragment key={i}>
-            {/* Watermarks behind the text for this page */}
+          <div
+            key={i}
+            data-sheet-number={i + 1}
+            className="letter-sheet absolute inset-x-0 bg-white shadow-xl ring-1 ring-slate-900/10 pointer-events-none rounded-none"
+            style={{
+              top: `${sheetTopPx}px`,
+              height: `${page.height}mm`,
+              zIndex: 0,
+            }}
+          >
+            {/* Watermarks behind the text for this sheet */}
             {letterhead && (
-              <div
-                aria-hidden="true"
-                className="absolute inset-x-0 overflow-hidden pointer-events-none"
-                style={{ top: `${pageTopMm}mm`, height: `${page.height}mm`, zIndex: 0 }}
-              >
+              <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
                 <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="behind" />
               </div>
             )}
 
-            {/* Letterhead Header for this page */}
+            {/* Letterhead Header for this sheet */}
             {canvas && (
-              <div
-                aria-hidden="true"
-                className="absolute inset-x-0 overflow-hidden pointer-events-none"
-                style={{ top: `${pageTopMm}mm`, height: `${headerHeight}mm`, zIndex: 5 }}
-              >
+              <div aria-hidden="true" className="absolute inset-x-0 top-0 overflow-hidden" style={{ height: `${headerHeight}mm`, zIndex: 5 }}>
                 {canvas}
               </div>
             )}
 
-            {/* Letterhead Footer for this page */}
+            {/* Letterhead Footer for this sheet */}
             {canvas && (
-              <div
-                aria-hidden="true"
-                className="absolute inset-x-0 overflow-hidden pointer-events-none"
-                style={{ top: `${pageTopMm + page.height - footerHeight}mm`, height: `${footerHeight}mm`, zIndex: 5 }}
-              >
+              <div aria-hidden="true" className="absolute inset-x-0 bottom-0 overflow-hidden" style={{ height: `${footerHeight}mm`, zIndex: 5 }}>
                 <div className="absolute left-0 bottom-0">{canvas}</div>
               </div>
             )}
 
-            {/* Watermarks in front of the text for this page */}
+            {/* Watermarks in front of the text for this sheet */}
             {letterhead && (
-              <div
-                aria-hidden="true"
-                className="absolute inset-x-0 overflow-hidden pointer-events-none"
-                style={{ top: `${pageTopMm}mm`, height: `${page.height}mm`, zIndex: 15 }}
-              >
+              <div aria-hidden="true" className="absolute inset-0 overflow-hidden" style={{ zIndex: 15 }}>
                 <PageElements elements={letterhead.elements} images={elementImages} page={page} zoom={1} layer="front" />
               </div>
             )}
 
-            {/* Running Page Number for this page */}
+            {/* Running Page Number for this sheet */}
             {showPageNumbers && (
               <span
                 aria-hidden="true"
-                className="absolute text-[8pt] text-[#555555] select-none pointer-events-none"
+                className="absolute text-[8pt] text-[#555555] select-none"
                 style={{
                   right: `${margins.right}mm`,
-                  top: `${pageTopMm + page.height - numberBottom - 4}mm`,
+                  bottom: `${numberBottom}mm`,
                   fontFamily: 'Helvetica, Arial, sans-serif',
                   zIndex: 10,
                 }}
@@ -404,22 +399,7 @@ const LetterPage: React.FC<{
                 Page {i + 1} of {numPages}
               </span>
             )}
-
-            {/* Page Boundary Indicator between pages */}
-            {i > 0 && (
-              <div
-                aria-hidden="true"
-                className="absolute inset-x-0 flex items-center justify-center pointer-events-none select-none"
-                style={{ top: `${pageTopMm}mm`, height: 0, zIndex: 25 }}
-              >
-                <div className="w-full border-t-2 border-dashed border-teal-500/50 relative">
-                  <span className="absolute left-1/2 -translate-x-1/2 -top-2.5 bg-teal-50 text-teal-800 dark:bg-teal-950 dark:text-teal-200 border border-teal-400/80 text-[10px] font-semibold tracking-wide uppercase px-3 py-0.5 rounded-full shadow-sm">
-                    Page {i} End • Page {i + 1} Start
-                  </span>
-                </div>
-              </div>
-            )}
-          </React.Fragment>
+          </div>
         );
       })}
 
@@ -594,7 +574,7 @@ export const LetterEditor: React.FC<{
           />
         )}
       </div>
-      <div ref={stageRef} className="overflow-x-auto bg-slate-100 dark:bg-[#12111B] p-4 sm:p-6 rounded-b-2xl">
+      <div ref={stageRef} className="overflow-x-auto bg-slate-200/80 dark:bg-[#0c0b14] p-6 sm:p-10 rounded-b-2xl">
         <div className="mx-auto w-fit" style={{ zoom }}>
           <LetterPage page={page} margins={margins} letterhead={letterhead} images={letterheadImages} elementImages={elementImages} showPageNumbers={showPageNumbers} onPageCountChange={setPageCount}>
             <EditorContent editor={editor} />
