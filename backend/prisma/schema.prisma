@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL_REAL")
 }
 
 model rndtechnosoft_attendance_adjustments {
@@ -2989,6 +2989,7 @@ model rndtechnosoft_candidate_documents {
   candidate_id                String    @db.Uuid
   employee_id                 String?   @db.Uuid
   template_id                 String?   @db.Uuid
+  separation_id               String?  @db.Uuid
   template_version_id         String?   @db.Uuid
   document_title              String    @db.VarChar(200)
   document_type               String    @db.VarChar(64)
@@ -3014,6 +3015,7 @@ model rndtechnosoft_candidate_documents {
 
   rndtechnosoft_tenants                           rndtechnosoft_tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_tenant")
   rndtechnosoft_candidates                        rndtechnosoft_candidates                          @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_candidate")
+  rndtechnosoft_employee_separations              rndtechnosoft_employee_separations?                @relation(fields: [tenant_id,separation_id ], references : [tenant_id,id ],onDelete: NoAction, onUpdate:NoAction, map: "fk_candidate_documents_separation")
   rndtechnosoft_employees                         rndtechnosoft_employees?                          @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_employee")
   rndtechnosoft_document_templates                rndtechnosoft_document_templates?                 @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template")
   rndtechnosoft_document_template_versions        rndtechnosoft_document_template_versions?        @relation(fields: [tenant_id, template_version_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template_version")
@@ -3031,6 +3033,7 @@ model rndtechnosoft_candidate_documents {
   @@index([tenant_id, employee_id], map: "ix_candidate_documents_employee")
   @@index([tenant_id, document_type], map: "ix_candidate_documents_type")
   @@index([tenant_id, document_status], map: "ix_candidate_documents_status")
+  @@index([tenant_id, separation_id])
 }
 
 /// A revision snapshot of a candidate document for history and auditability.
@@ -4672,6 +4675,7 @@ model rndtechnosoft_employee_separations {
   completed_by                             rndtechnosoft_tenant_members?             @relation("separation_completed_by", fields: [tenant_id, completed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_completed_by")
   closed_by                                rndtechnosoft_tenant_members?             @relation("separation_closed_by", fields: [tenant_id, closed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_closed_by")
   rndtechnosoft_separation_clearance_items rndtechnosoft_separation_clearance_items[]
+  rndtechnosoft_candidate_documents        rndtechnosoft_candidate_documents[]
 
   @@unique([tenant_id, id], map: "uq_employee_separations_tenant_id")
   @@index([tenant_id, separation_status, last_working_date], map: "ix_employee_separations_status")

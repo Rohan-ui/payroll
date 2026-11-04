@@ -4,13 +4,14 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { AccessService } from '@/common/access/access.service';
+import { CandidateLetterDocumentsService } from '@/modules/onboarding/candidate-letter-documents.service';
 import { ADMIN_ROLE_CODE } from '@/common/access/access-catalog';
 import { isDemoMode } from '@/common/demo/demo-mode';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { dateOnly, finalizedThrough, isoDate } from '@/modules/payroll/payroll-lock';
 import {
   CancelSeparationDto, ClearanceItemDto, ClearanceTeam, ClearanceUpdateDto, ExitInterviewDto, ListSeparationsQueryDto,
-  ResignDto, SeparationStatus, StartSeparationDto, WithdrawDto,
+  ResignDto, SeparationStatus, StartSeparationDto, WithdrawDto, GenerateOffboardingDocumentDto,
 } from './dto/offboarding.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -56,6 +57,7 @@ const fullName = (e: { first_name: string; last_name: string | null; preferred_n
 const who = (m: { rndtechnosoft_users: { display_name: string | null; email: string } } | null) => (m ? m.rndtechnosoft_users.display_name || m.rndtechnosoft_users.email : null);
 const day = (d: Date | null) => (d ? isoDate(d) : null);
 
+
 /**
  * Offboarding: an employee's exit, from their resignation (or HR starting a
  * termination, retirement or contract end) through the notice period and the
@@ -68,7 +70,7 @@ const day = (d: Date | null) => (d ? isoDate(d) : null);
  */
 @Injectable()
 export class OffboardingService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly access: AccessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly access: AccessService,    private readonly candidateDocuments: CandidateLetterDocumentsService, ) {}
 
   // ── The employee's own exit ─────────────────────────────────
 
@@ -121,6 +123,93 @@ export class OffboardingService {
     await this.log(tenantId, actor, 'SEPARATION_WITHDRAWN', open.id, { old: { status: 'PENDING_APPROVAL' }, new: { status: 'WITHDRAWN' } });
     return this.mine(tenantId, actor);
   }
+
+  //**Employee Offboarding Exit Document Handling Function */
+async generateDocument(
+  tenantId: string,
+  separationId: string,
+  input: GenerateOffboardingDocumentDto,
+  actor: Actor,
+) {
+  // 1. The exit must be under way or done
+  const separation = await this.find(tenantId, separationId);
+  if (!['IN_PROGRESS', 'COMPLETED'].includes(separation.separation_status)) {
+    throw new BadRequestException(
+      'Documents can only be generated for an exit that is under way or complete.',
+    );
+  }
+  const employee = separation.rndtechnosoft_employees;
+
+
+  // 2. The existing letter service is candidate-centric, so we still need
+  //    the candidate row. This is the real constraint — see the gap below.
+  const candidateId = await this.resolveCandidateId(tenantId, employee.id);
+  if (!candidateId) {
+    throw new BadRequestException(
+      'This employee has no candidate record; exit documents can’t be generated until one is linked.',
+    );
+  }
+ // 2.5 Build the placeholder values from the separation + employee
+  const employment = employee.rndtechnosoft_employee_employments[0];
+  const customValues = {
+  ...(input.customValues ?? {}),            // caller can still override
+  employeeName: fullName(employee),
+  employeeCode: employee.employee_code,
+  department: employee.rndtechnosoft_employee_employments[0]?.rndtechnosoft_departments?.department_name ?? '',
+  designation: employee.rndtechnosoft_employee_employments[0]?.rndtechnosoft_designations?.designation_name ?? '',
+  separationType: separation.separation_type,
+  noticeDate: isoDate(separation.notice_date),
+  lastWorkingDate: isoDate(separation.last_working_date),
+};
+
+
+  // 3. Preview: template lookup + placeholder fill, nothing saved
+  const preview = await this.candidateDocuments.generateDocument(
+    tenantId,
+    candidateId,
+    {
+      templateId: input.templateId,
+      templateVersionId: input.templateVersionId,
+      customValues // employee/separation-specific placeholders
+    },
+  );
+
+   // 4. Save: document row + version row, inside the service's own transaction
+  const saved = await this.candidateDocuments.saveDocument(
+    tenantId,
+    candidateId,
+    {
+      templateId: preview.templateId,
+      templateVersionId: preview.templateVersionId,
+      documentTitle: input.title ?? preview.documentTitle,
+      documentType: input.documentType,
+      document: preview.document as unknown as Record<string, unknown>,
+      layout: preview.layout,
+      changelogNote: 'Generated from offboarding',
+    },
+    actor,
+  );
+
+  // 5. saveDocument does not accept employee_id / separation_id, so link
+  //    the row after the fact. This is the part that should move into the
+  //    service (see "The real fix" below).
+  await this.prisma.rndtechnosoft_candidate_documents.update({
+    where: { tenant_id_id: { tenant_id: tenantId, id: saved.id } },
+    data: { employee_id: employee.id },
+  });
+
+  await this.log(tenantId, actor, 'OFFBOARDING_DOCUMENT_GENERATED', separationId, {
+    document_id: saved.id,
+    new: {
+      document_type: saved.documentType,
+      template_id: preview.templateId,
+      template_version_id: preview.templateVersionId,
+      version_number: saved.versionNumber,
+    },
+  });
+
+  return this.documentDetail(tenantId, saved.id);
+}
 
   // ── HR ──────────────────────────────────────────────────────
 
@@ -416,6 +505,53 @@ export class OffboardingService {
     };
   }
 
+  private async documentDetail(tenantId: string, documentId: string) {
+  const row = await this.prisma.rndtechnosoft_candidate_documents.findFirst({
+    where: { tenant_id: tenantId, id: documentId },
+    select: {
+      id: true,
+      document_type: true,
+      document_title: true,
+      rendered_title: true,
+      document_status: true,
+      version_number: true,
+      template_id: true,
+      template_version_id: true,
+      employee_id: true,
+      candidate_id: true,
+      created_at: true,
+      updated_at: true,
+      last_sent_at: true,
+      email_status: true,
+    },
+  });
+  if (!row) throw new NotFoundException('Document not found.');
+  return {
+    id: row.id,
+    documentType: row.document_type,
+    title: row.rendered_title ?? row.document_title,
+    status: row.document_status,
+    versionNumber: row.version_number,
+    templateId: row.template_id,
+    templateVersionId: row.template_version_id,
+    employeeId: row.employee_id,
+    candidateId: row.candidate_id,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    lastSentAt: row.last_sent_at?.toISOString() ?? null,
+    emailStatus: row.email_status,
+  };
+}
+
+
+  private async resolveCandidateId(tenantId: string, employeeId: string): Promise<string | null> {
+    const candidate = await this.prisma.rndtechnosoft_candidates.findFirst({
+      where: { tenant_id: tenantId, employee_id: employeeId },
+      select: { id: true },
+    });
+    return candidate?.id ?? null;
+  }
+
   private person(e: EmployeeRow) {
     const employment = e.rndtechnosoft_employee_employments[0];
     return {
@@ -507,3 +643,4 @@ export class OffboardingService {
 function addDays(iso: string, days: number) {
   return isoDate(new Date(dateOnly(iso).getTime() + days * 24 * 3600 * 1000));
 }
+

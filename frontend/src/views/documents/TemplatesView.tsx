@@ -19,6 +19,7 @@ const KIND_LABELS: Record<string, string> = {
   JOINING_LETTER: 'Joining letter',
   EMPLOYMENT_AGREEMENT: 'Employment agreement',
   CERTIFICATE: 'Certificate',
+  OFFBOARDING_LETTER: 'Offboarding letter'
 };
 
 /** The kinds that can be created, with what each is for and the name a new one starts with. */
@@ -26,6 +27,7 @@ const KINDS: { kind: TemplateKind; label: string; plural: string; hint: string; 
   { kind: 'OFFER_LETTER', label: 'Offer letter', plural: 'Offer letters', hint: 'Used when drafting offers in Onboarding.', name: 'Standard offer letter' },
   { kind: 'QUOTATION', label: 'Quotation', plural: 'Quotations', hint: 'Used to print quotations as PDFs in CRM.', name: 'Standard quotation' },
   { kind: 'APPRAISAL_LETTER', label: 'Appraisal letter', plural: 'Appraisal letters', hint: 'Used for letters after appraisals are finalised.', name: 'Appraisal letter' },
+  {kind: 'OFFBOARDING_LETTER', label: 'Offboarding letter', plural: 'Offboarding letters', hint: 'Used For Offboarding Employees', name: 'Offboarding letter'}
 ];
 const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5';
 

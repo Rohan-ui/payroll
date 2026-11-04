@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { OFFBOARDING_DOCUMENT_TYPES } from '../offboarding/dto/offboarding.dto';
 
 /**
  * Document templates: text with {{placeholders}}. Each kind has a fixed set
@@ -19,6 +20,7 @@ export const TEMPLATE_KINDS = [
   'RELIEVING_LETTER',
   'CERTIFICATE',
   'CUSTOM_HR',
+  'OFFBOARDING_LETTER',
   'QUOTATION',
   'APPRAISAL_LETTER',
 ] as const;
@@ -38,6 +40,7 @@ export const AVAILABLE_TEMPLATE_KINDS: readonly string[] = [
   'RELIEVING_LETTER',
   'CERTIFICATE',
   'CUSTOM_HR',
+  'OFFBOARDING_LETTER',
   'QUOTATION',
   'APPRAISAL_LETTER',
 ];
@@ -49,6 +52,7 @@ export const TABLE_KINDS: Partial<Record<string, string>> = {
   EMPLOYMENT_CONTRACT: 'pay table',
   SALARY_REVISION: 'salary table',
   QUOTATION: 'items table',
+  OFFBOARDING_LETTER: 'pay table'
 };
 
 export const HR_COMMON_PLACEHOLDERS: { key: string; description: string; sample: string }[] = [
@@ -132,6 +136,7 @@ export const PLACEHOLDERS: Record<string, { key: string; description: string; sa
   RELIEVING_LETTER: HR_COMMON_PLACEHOLDERS,
   CERTIFICATE: HR_COMMON_PLACEHOLDERS,
   CUSTOM_HR: HR_COMMON_PLACEHOLDERS,
+  OFFBOARDING_LETTER: HR_COMMON_PLACEHOLDERS,
   QUOTATION: [
     { key: 'quotation_number', description: 'The quotation number', sample: 'QT-2026-0042' },
     { key: 'quotation_date', description: 'The date the quotation was made', sample: '14 October 2026' },

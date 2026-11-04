@@ -20,7 +20,7 @@ const qs = (params: Record<string, string | undefined>) => {
   return text ? `?${text}` : '';
 };
 
-export type TemplateKind = 'OFFER_LETTER' | 'QUOTATION' | 'APPRAISAL_LETTER';
+export type TemplateKind = 'OFFER_LETTER' | 'QUOTATION' | 'APPRAISAL_LETTER' | 'OFFBOARDING_LETTER';
 
 export interface TemplateSummary {
   id: string;
