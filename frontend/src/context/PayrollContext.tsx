@@ -18,6 +18,7 @@ const VALID_CRM_TABS: CrmTab[] = [
   'reports',
   'masters',
   'audit-trail',
+  'whatsapp',
 ];
 
 const VALID_VIEWS: AppView[] = [

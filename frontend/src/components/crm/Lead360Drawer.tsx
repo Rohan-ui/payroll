@@ -33,6 +33,8 @@ import { LeadHistory } from './LeadHistory';
 import { OutreachEmailComposer } from './OutreachEmailComposer';
 import { ConvertDestination } from './ConvertDestination';
 import { useAuth } from '../../context/AuthContext';
+import { whatsAppApi } from '../../api/whatsapp.api';
+import { WhatsAppSendModal } from '../../views/crm/whatsapp/WhatsAppSendModal';
 import { LeadSequencesPanel } from '../../views/emails/drip/LeadSequencesPanel';
 interface Lead360DrawerProps {
   leadId: string | null;
@@ -91,6 +93,8 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
   const [drawerBranchKey, setDrawerBranchKey] = useState<string>('');
   const [applyingDrawerBranch, setApplyingDrawerBranch] = useState(false);
   const [drawerPhoneDisposition, setDrawerPhoneDisposition] = useState<'ANSWERED' | 'MISSED' | 'NONE'>('NONE');
+  const [showWhatsAppTemplateModal, setShowWhatsAppTemplateModal] = useState(false);
+  const [availableCrmTemplates, setAvailableCrmTemplates] = useState<any[]>([]);
 
   // Cadence conversion to Opportunity state
   const [showCadenceConvertModal, setShowCadenceConvertModal] = useState(false);
@@ -912,6 +916,20 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
                               >
                                 <MessageSquare className="w-2.5 h-2.5" /> Chat
                               </a>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const res = await whatsAppApi.listCrmTemplates();
+                                    if (res.success) setAvailableCrmTemplates(res.data);
+                                  } catch {}
+                                  setShowWhatsAppTemplateModal(true);
+                                }}
+                                className="ml-1 px-2 py-0.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-[10px] font-bold inline-flex items-center gap-1"
+                                title="Send WhatsApp Template via external API"
+                              >
+                                <Send className="w-2.5 h-2.5" /> Template API
+                              </button>
                             </div>
                           );
                         })()}
@@ -2571,6 +2589,25 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
           </div>
         </div>
       )}
+
+      {/* WHATSAPP SEND TEMPLATE MODAL */}
+      <WhatsAppSendModal
+        isOpen={showWhatsAppTemplateModal}
+        onClose={() => setShowWhatsAppTemplateModal(false)}
+        crmTemplates={availableCrmTemplates}
+        leadContext={lead ? {
+          id: lead.id,
+          name: [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.company_name,
+          company: lead.company_name,
+          phone: lead.whatsapp_number || lead.phone,
+          email: lead.email,
+          service: lead.primary_service,
+        } : null}
+        onSent={() => {
+          fetchLead360();
+          onRefreshParent?.();
+        }}
+      />
 
     </div>
   );

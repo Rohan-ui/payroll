@@ -34,7 +34,8 @@ export type CrmTab =
   | 'proposals'
   | 'reports'
   | 'masters'
-  | 'audit-trail';
+  | 'audit-trail'
+  | 'whatsapp';
 
 
 /* ── Bank ──────────────────────────────────────────────────── */

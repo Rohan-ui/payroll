@@ -20,6 +20,7 @@ import { LeadManagementView } from '../../components/crm/LeadManagementView';
 import CreateLeadModal from '../../components/crm/CreateLeadModal';
 import SLeadCadenceCenter from '../../components/crm/SLeadCadenceCenter';
 import CrmAuditTrailView from '../../components/crm/CrmAuditTrailView';
+import WhatsAppWorkspaceView from './whatsapp/WhatsAppWorkspaceView';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
@@ -55,11 +56,15 @@ const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
   'audit-trail': {
     title: 'Audit Trail & Activity Center',
     desc: 'Tamper-proof log of every employee activity, field update diff, connection, and session for accountability.'
+  },
+  whatsapp: {
+    title: 'WhatsApp Template Mapping & Dynamic Messaging',
+    desc: 'Connect internal CRM templates with WhatsApp-approved templates, map dynamic variables, and automate message delivery.'
   }
 };
 
-type CrmTab = 'cold-funnel' | 'pipeline' | 'leads' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters';
-const CRM_TABS: CrmTab[] = ['cold-funnel', 'pipeline', 'leads', 'activities', 'proposals', 'reports', 'audit-trail', 'masters'];
+type CrmTab = 'cold-funnel' | 'pipeline' | 'leads' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters' | 'whatsapp';
+const CRM_TABS: CrmTab[] = ['cold-funnel', 'pipeline', 'leads', 'activities', 'proposals', 'reports', 'audit-trail', 'masters', 'whatsapp'];
 
 function CRMEnterpriseContent() {
   const { crmTab, setCrmTab, navigateTo } = usePayroll();
@@ -848,6 +853,11 @@ function CRMEnterpriseContent() {
       {/* SUB-MODULE 7: COMPREHENSIVE CRM AUDIT TRAIL */}
       {activeTab === 'audit-trail' && (
         <CrmAuditTrailView onSelectLead360={(leadId: string) => setSelectedLead360Id(leadId)} />
+      )}
+
+      {/* SUB-MODULE 8: WHATSAPP TEMPLATE MAPPING & MESSAGING */}
+      {activeTab === 'whatsapp' && (
+        <WhatsAppWorkspaceView />
       )}
 
       {/* GLOBAL 360° LEAD DOSSIER DRAWER */}

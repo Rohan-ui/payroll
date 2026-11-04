@@ -171,8 +171,20 @@ export class TestSmtpSettingsDto {
 }
 
 export class SaveWhatsAppSettingsDto {
-  @IsIn(['META_CLOUD_API', 'GUPSHUP', 'TWILIO'])
-  provider!: 'META_CLOUD_API' | 'GUPSHUP' | 'TWILIO';
+  @IsIn(['META_CLOUD_API', 'GUPSHUP', 'TWILIO', 'OTOMAT'])
+  provider!: 'META_CLOUD_API' | 'GUPSHUP' | 'TWILIO' | 'OTOMAT';
+
+  @IsOptional()
+  @trim()
+  @IsString()
+  @MaxLength(512)
+  apiBaseUrl?: string;
+
+  @IsOptional()
+  @trim()
+  @IsString()
+  @MaxLength(256)
+  vendorUid?: string;
 
   @trim()
   @ValidateIf(isFilled)
@@ -180,8 +192,9 @@ export class SaveWhatsAppSettingsDto {
   wabaId?: string;
 
   @trim()
+  @ValidateIf((o) => o.provider !== 'OTOMAT' || Boolean(o.phoneNumberId && String(o.phoneNumberId).trim() !== ''))
   @Matches(/^[0-9]{5,32}$/, { message: 'Phone Number ID must contain digits only.' })
-  phoneNumberId!: string;
+  phoneNumberId?: string;
 
   @trim()
   @ValidateIf(isFilled)
@@ -205,8 +218,24 @@ export class SaveWhatsAppSettingsDto {
   isActive!: boolean;
 }
 
-/** Same rule as SMTP: a saved token is only ever sent with the saved phone number ID. */
+/** Same rule as SMTP: a saved token is only ever sent with the saved phone number ID or vendor UID. */
 export class TestWhatsAppSettingsDto {
+  @IsOptional()
+  @IsIn(['META_CLOUD_API', 'GUPSHUP', 'TWILIO', 'OTOMAT'])
+  provider?: 'META_CLOUD_API' | 'GUPSHUP' | 'TWILIO' | 'OTOMAT';
+
+  @IsOptional()
+  @trim()
+  @IsString()
+  @MaxLength(512)
+  apiBaseUrl?: string;
+
+  @IsOptional()
+  @trim()
+  @IsString()
+  @MaxLength(256)
+  vendorUid?: string;
+
   @trim()
   @ValidateIf(isFilled)
   @Matches(/^[0-9]{5,32}$/, { message: 'Phone Number ID must contain digits only.' })

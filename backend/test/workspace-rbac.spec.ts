@@ -285,7 +285,7 @@ describe('Workspace role-based access control', () => {
     });
 
     it('sees only the CRM sidebar items its permissions reveal', async () => {
-      expect(await navigationOf(sales)).toEqual(['crm', 'crm.cold-funnel', 'crm.pipeline', 'crm.leads', 'crm.proposals', 'crm.masters']);
+      expect(await navigationOf(sales)).toEqual(['crm', 'crm.cold-funnel', 'crm.pipeline', 'crm.leads', 'crm.proposals', 'crm.whatsapp', 'crm.masters']);
     });
 
     it('can work outreach steps but not enroll new leads without outreach.create', async () => {

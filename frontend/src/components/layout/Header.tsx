@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu, X, Bell, ChevronDown, Sparkles, Kanban, ListChecks, Mail, Clock, FileText, BarChart2, Settings2, Target, ShieldCheck, Sun, Moon } from 'lucide-react';
+import { Menu, X, Bell, ChevronDown, Sparkles, Kanban, ListChecks, Mail, Clock, FileText, BarChart2, Settings2, Target, ShieldCheck, Sun, Moon, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePayroll } from '../../context/PayrollContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -14,6 +14,7 @@ const CRM_SUB_ITEMS = [
   { id: 'emails',      label: 'Email & Marketing',    view: 'emails' as AppView,                               icon: Mail,     badge: 'New' },
   { id: 'activities',  label: 'Follow-ups & Meetings', view: 'crm' as AppView,    tab: 'activities' as CrmTab,  icon: Clock },
   { id: 'proposals',   label: 'Quotations',           view: 'crm' as AppView,    tab: 'proposals' as CrmTab,   icon: FileText },
+  { id: 'whatsapp',    label: 'WhatsApp Templates',   view: 'crm' as AppView,    tab: 'whatsapp' as CrmTab,    icon: MessageSquare },
   { id: 'reports',     label: 'Reports & Analytics',  view: 'crm' as AppView,    tab: 'reports' as CrmTab,     icon: BarChart2 },
 
   { id: 'audit-trail', label: 'Audit Trail',          view: 'crm' as AppView,    tab: 'audit-trail' as CrmTab, icon: ShieldCheck },

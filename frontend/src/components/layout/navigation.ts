@@ -8,6 +8,7 @@ import {
   Mail,
   Clock,
   FileText,
+  MessageSquare,
   BarChart2,
   Settings2,
   ShieldCheck,
@@ -51,6 +52,7 @@ export const NAV_PRESENTATION: Record<string, NavPresentation> = {
   'crm.emails': { icon: Mail, view: 'emails', badge: 'New', hasPlus: true },
   'crm.activities': { icon: Clock, view: 'crm', tab: 'activities', hasPlus: true },
   'crm.proposals': { icon: FileText, view: 'crm', tab: 'proposals', hasPlus: true },
+  'crm.whatsapp': { icon: MessageSquare, view: 'crm', tab: 'whatsapp', hasPlus: true },
   'crm.reports': { icon: BarChart2, view: 'crm', tab: 'reports' },
   'crm.audit-trail': { icon: ShieldCheck, view: 'crm', tab: 'audit-trail' },
   'crm.masters': { icon: Settings2, view: 'crm', tab: 'masters' },
@@ -116,7 +118,26 @@ export interface SidebarItem {
  * out, and so is a group left with nothing to open.
  */
 export function sidebarTree(entries: readonly NavigationEntry[]): SidebarItem[] {
-  const shown = entries.filter((entry) => entry.moduleEnabled && NAV_PRESENTATION[entry.id]);
+  const crmItem = entries.find((e) => e.id === 'crm' || e.parent === 'crm');
+  const augmented: NavigationEntry[] = [...entries];
+  if (crmItem && !augmented.some((e) => e.id === 'crm.whatsapp')) {
+    const idx = augmented.findIndex((e) => e.id === 'crm.proposals');
+    const whatsappEntry: NavigationEntry = {
+      id: 'crm.whatsapp' as any,
+      label: 'WhatsApp Templates',
+      parent: 'crm' as any,
+      module: 'CRM' as any,
+      moduleName: 'CRM',
+      moduleEnabled: crmItem.moduleEnabled,
+    };
+    if (idx !== -1) {
+      augmented.splice(idx + 1, 0, whatsappEntry);
+    } else {
+      augmented.push(whatsappEntry);
+    }
+  }
+
+  const shown = augmented.filter((entry) => entry.moduleEnabled && NAV_PRESENTATION[entry.id]);
   const toItem = (entry: NavigationEntry): SidebarItem => ({
     entry,
     presentation: NAV_PRESENTATION[entry.id],

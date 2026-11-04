@@ -57,6 +57,7 @@ export const NAVIGATION = [
   { id: 'crm.emails', label: 'Email & Marketing', module: 'CRM', parent: 'crm' },
   { id: 'crm.activities', label: 'Follow-ups & Meetings', module: 'CRM', parent: 'crm' },
   { id: 'crm.proposals', label: 'Quotations', module: 'CRM', parent: 'crm' },
+  { id: 'crm.whatsapp', label: 'WhatsApp Templates', module: 'CRM', parent: 'crm' },
   { id: 'crm.reports', label: 'Reports & Analytics', module: 'CRM', parent: 'crm' },
   { id: 'crm.audit-trail', label: 'Audit Trail', module: 'CRM', parent: 'crm' },
   { id: 'crm.masters', label: 'Masters', module: 'CRM', parent: 'crm' },
@@ -343,6 +344,9 @@ export function resolveNavigation(permissions: readonly string[], modules: Modul
   const granted = new Set<string>();
   for (const permission of PERMISSIONS) {
     if (permission.nav && permissions.includes(permission.key)) granted.add(permission.nav);
+  }
+  if (permissions.includes('outreach.view') || permissions.includes('leads.view') || permissions.includes('quotations.view')) {
+    granted.add('crm.whatsapp');
   }
   for (const item of NAVIGATION) {
     if (item.parent && granted.has(item.id)) granted.add(item.parent);

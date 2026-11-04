@@ -385,17 +385,22 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
       : this.keepEncrypted(current.accessTokenEncrypted, current.accessToken);
 
     if (!accessTokenEncrypted) {
-      throw new BadRequestException('Enter the permanent access token from Meta Business Manager.');
+      throw new BadRequestException('Enter the API access token or Otomat token.');
     }
 
     const webhookVerifyTokenEncrypted = input.webhookVerifyToken
       ? this.encryptSecret(input.webhookVerifyToken)
       : this.keepEncrypted(current.webhookVerifyTokenEncrypted, this.usableVerifyToken(current.webhookVerifyToken));
 
+    const apiBaseUrl = input.apiBaseUrl?.trim() || text(current.apiBaseUrl) || 'https://otomat.in/api';
+    const vendorUid = input.vendorUid?.trim() || text(current.vendorUid) || '';
+
     const whatsapp = {
       provider: input.provider,
+      apiBaseUrl,
+      vendorUid,
       wabaId: input.wabaId || null,
-      phoneNumberId: input.phoneNumberId,
+      phoneNumberId: input.phoneNumberId || null,
       senderPhoneNumber: input.senderPhoneNumber || null,
       accessTokenEncrypted,
       webhookVerifyTokenEncrypted,
@@ -403,6 +408,43 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
     };
 
     await this.mergeSettingsSection(this.prisma, tenantId, 'whatsapp', whatsapp);
+
+    // If Otomat provider, synchronize automatically to CRM WhatsApp config so both modules stay in sync
+    if (input.provider === 'OTOMAT' && vendorUid) {
+      try {
+        const existingConfig = await this.prisma.rndtechnosoft_crm_whatsapp_configs.findFirst({
+          where: { tenant_id: tenantId, is_default: true },
+        });
+        if (existingConfig) {
+          await this.prisma.rndtechnosoft_crm_whatsapp_configs.update({
+            where: { id: existingConfig.id },
+            data: {
+              api_base_url: apiBaseUrl,
+              vendor_uid: vendorUid,
+              bearer_token_encrypted: accessTokenEncrypted,
+              from_phone_number_id: input.phoneNumberId || null,
+              is_active: input.isActive,
+            },
+          });
+        } else {
+          await this.prisma.rndtechnosoft_crm_whatsapp_configs.create({
+            data: {
+              id: randomUUID(),
+              tenant_id: tenantId,
+              account_name: 'Otomat WhatsApp Gateway',
+              api_base_url: apiBaseUrl,
+              vendor_uid: vendorUid,
+              bearer_token_encrypted: accessTokenEncrypted,
+              from_phone_number_id: input.phoneNumberId || null,
+              is_default: true,
+              is_active: input.isActive,
+            },
+          });
+        }
+      } catch {
+        // Non-fatal sync to CRM table
+      }
+    }
 
     await this.auditService.log({
       ...this.auditActor(tenantId, actor),
@@ -421,24 +463,69 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
   }
 
   async testWhatsApp(tenantId: string, input: TestWhatsAppSettingsDto) {
+    const saved = asRecord((await this.readSettings(tenantId)).whatsapp);
+    const provider = input.provider || text(saved.provider) || 'META_CLOUD_API';
+    const accessToken = input.accessToken || this.readSecret(saved.accessTokenEncrypted, saved.accessToken, 'WhatsApp access token');
+
+    if (provider === 'OTOMAT') {
+      const apiBaseUrl = (input.apiBaseUrl || text(saved.apiBaseUrl) || 'https://otomat.in/api').replace(/\/+$/, '');
+      const vendorUid = input.vendorUid || text(saved.vendorUid) || '';
+
+      if (!vendorUid) {
+        throw new BadRequestException('Enter your Vendor ID to test the Otomat connection.');
+      }
+      if (!accessToken) {
+        throw new BadRequestException('Enter your Token / Bearer Token to test the Otomat connection.');
+      }
+
+      const testUrl = `${apiBaseUrl}/${encodeURIComponent(vendorUid)}/contact/template-list?token=${encodeURIComponent(accessToken)}`;
+      try {
+        const response = await fetch(testUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (response.ok) {
+          return {
+            success: true,
+            data: {
+              connected: true,
+              message: `Connected to Otomat API (${apiBaseUrl}/${vendorUid}).`,
+            },
+          };
+        }
+
+        const body = asRecord(await response.json().catch(() => ({})));
+        const errorMsg = body?.message || body?.error || `HTTP ${response.status}: ${response.statusText}`;
+        return {
+          success: false,
+          error: `Otomat rejected authentication: ${errorMsg}`,
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: `Could not reach Otomat server: ${err.message}`,
+        };
+      }
+    }
+
     let phoneNumberId: string;
-    let accessToken: string;
 
     if (input.accessToken) {
       if (!input.phoneNumberId) {
         throw new BadRequestException('Enter the Phone Number ID to test this access token.');
       }
       phoneNumberId = input.phoneNumberId;
-      accessToken = input.accessToken;
     } else {
-      const saved = asRecord((await this.readSettings(tenantId)).whatsapp);
       const savedPhoneNumberId = text(saved.phoneNumberId);
-      const savedToken = this.readSecret(saved.accessTokenEncrypted, saved.accessToken, 'WhatsApp access token');
-      if (!savedPhoneNumberId || !savedToken) {
+      if (!savedPhoneNumberId || !accessToken) {
         throw new BadRequestException('Save your WhatsApp settings first, or enter the access token to test new values.');
       }
       phoneNumberId = savedPhoneNumberId;
-      accessToken = savedToken;
     }
 
     try {
@@ -652,11 +739,16 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
 
   private toPublicWhatsApp(raw: unknown) {
     const whatsapp = asRecord(raw);
+    const provider = text(whatsapp.provider) ?? 'META_CLOUD_API';
     const phoneNumberId = text(whatsapp.phoneNumberId);
-    if (!phoneNumberId) return null;
+    const vendorUid = text(whatsapp.vendorUid);
+    const apiBaseUrl = text(whatsapp.apiBaseUrl) ?? 'https://otomat.in/api';
+    if (!phoneNumberId && !vendorUid) return null;
 
     return {
-      provider: text(whatsapp.provider) ?? 'META_CLOUD_API',
+      provider,
+      apiBaseUrl,
+      vendorUid,
       wabaId: text(whatsapp.wabaId),
       phoneNumberId,
       senderPhoneNumber: text(whatsapp.senderPhoneNumber),

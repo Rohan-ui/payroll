@@ -80,6 +80,8 @@ interface SmtpForm {
 
 interface WhatsAppForm {
   provider: string;
+  apiBaseUrl?: string;
+  vendorUid?: string;
   wabaId: string;
   phoneNumberId: string;
   senderPhoneNumber: string;
@@ -209,7 +211,9 @@ const EMPTY_SMTP: SmtpForm = {
 };
 
 const EMPTY_WHATSAPP: WhatsAppForm = {
-  provider: 'META_CLOUD_API',
+  provider: 'OTOMAT',
+  apiBaseUrl: 'https://otomat.in/api',
+  vendorUid: '',
   wabaId: '',
   phoneNumberId: '',
   senderPhoneNumber: '',
@@ -380,9 +384,11 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
       data.whatsapp
         ? {
             ...EMPTY_WHATSAPP,
-            provider: data.whatsapp.provider,
+            provider: data.whatsapp.provider || 'OTOMAT',
+            apiBaseUrl: (data.whatsapp as any).apiBaseUrl ?? 'https://otomat.in/api',
+            vendorUid: (data.whatsapp as any).vendorUid ?? '',
             wabaId: data.whatsapp.wabaId ?? '',
-            phoneNumberId: data.whatsapp.phoneNumberId,
+            phoneNumberId: data.whatsapp.phoneNumberId ?? '',
             senderPhoneNumber: data.whatsapp.senderPhoneNumber ?? '',
             hasAccessToken: data.whatsapp.hasAccessToken,
             hasWebhookVerifyToken: data.whatsapp.hasWebhookVerifyToken,
@@ -558,9 +564,15 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
     setTestingWhatsApp(true);
     setWhatsAppTestResult(null);
     try {
-      const draft = whatsAppSettings.accessToken
-        ? { phoneNumberId: whatsAppSettings.phoneNumberId, accessToken: whatsAppSettings.accessToken }
-        : {};
+      const draft: Record<string, any> = {
+        provider: whatsAppSettings.provider,
+        apiBaseUrl: whatsAppSettings.apiBaseUrl,
+        vendorUid: whatsAppSettings.vendorUid,
+        phoneNumberId: whatsAppSettings.phoneNumberId,
+      };
+      if (whatsAppSettings.accessToken) {
+        draft.accessToken = whatsAppSettings.accessToken;
+      }
       const response = await apiFetch('/api/v1/tenant/settings/whatsapp/test', { method: 'POST', body: JSON.stringify(draft) });
       const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; message?: string | string[] };
       const success = response.ok && body.success === true;
@@ -1480,19 +1492,23 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
                   </div>
                   <div>
                     <h3 id="org-whatsapp-heading" className="text-sm font-bold text-slate-900">WhatsApp Business API</h3>
-                    <p className="text-[11px] text-slate-500">Meta WhatsApp Cloud API credentials for this workspace</p>
+                    <p className="text-[11px] text-slate-500">WhatsApp Gateway credentials for this workspace (Otomat, Meta, Twilio, Gupshup)</p>
                   </div>
                 </div>
                 <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
-                  whatsAppSettings.phoneNumberId && whatsAppSettings.isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600'
+                  (whatsAppSettings.phoneNumberId || whatsAppSettings.vendorUid) && whatsAppSettings.isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600'
                 }`}>
-                  {!whatsAppSettings.phoneNumberId ? 'Not configured' : whatsAppSettings.isActive ? 'Active' : 'Inactive'}
+                  {!(whatsAppSettings.phoneNumberId || whatsAppSettings.vendorUid) ? 'Not configured' : whatsAppSettings.isActive ? 'Active' : 'Inactive'}
                 </span>
               </div>
 
               <div className="p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl text-xs text-emerald-900 flex items-start gap-2">
                 <Smartphone className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" aria-hidden="true" />
-                <p className="leading-relaxed">Find these values in your Meta for Developers app under WhatsApp → API Setup.</p>
+                <p className="leading-relaxed">
+                  {whatsAppSettings.provider === 'OTOMAT'
+                    ? 'Otomat WhatsApp Gateway: Messages are dispatched to https://otomat.in/api/{{VendorId}}/contact/send-message?token=... and synchronized with your CRM WhatsApp Templates.'
+                    : 'Find these values in your Meta for Developers app under WhatsApp → API Setup.'}
+                </p>
               </div>
 
               <form onSubmit={handleSaveWhatsApp}>
@@ -1506,6 +1522,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
                         onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, provider: e.target.value })}
                         className={inputClass}
                       >
+                        <option value="OTOMAT">Otomat (https://otomat.in/api)</option>
                         <option value="META_CLOUD_API">Meta WhatsApp Cloud API</option>
                         <option value="GUPSHUP">Gupshup</option>
                         <option value="TWILIO">Twilio</option>
@@ -1524,92 +1541,187 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label htmlFor="wa-phone-id" className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                        <span>Phone number ID</span>
-                        <span className="text-red-500" aria-hidden="true">*</span>
-                      </label>
-                      <input
-                        id="wa-phone-id"
-                        type="text"
-                        inputMode="numeric"
-                        value={whatsAppSettings.phoneNumberId}
-                        onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, phoneNumberId: e.target.value.replace(/\D/g, '') })}
-                        placeholder="Digits only"
-                        required
-                        className={`${inputClass} font-mono`}
-                      />
-                    </div>
+                  {whatsAppSettings.provider === 'OTOMAT' ? (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label htmlFor="wa-api-base-url" className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <span>API Base URL</span>
+                            <span className="text-red-500" aria-hidden="true">*</span>
+                          </label>
+                          <input
+                            id="wa-api-base-url"
+                            type="text"
+                            value={whatsAppSettings.apiBaseUrl || 'https://otomat.in/api'}
+                            onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, apiBaseUrl: e.target.value })}
+                            placeholder="https://otomat.in/api"
+                            required
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
 
-                    <div className="space-y-1">
-                      <label htmlFor="wa-waba" className="text-xs font-bold text-slate-700">Business account ID (WABA)</label>
-                      <input
-                        id="wa-waba"
-                        type="text"
-                        inputMode="numeric"
-                        value={whatsAppSettings.wabaId}
-                        onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, wabaId: e.target.value.replace(/\D/g, '') })}
-                        placeholder="Digits only"
-                        className={`${inputClass} font-mono`}
-                      />
-                    </div>
-                  </div>
+                        <div className="space-y-1">
+                          <label htmlFor="wa-vendor-uid" className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <span>Vendor ID (VendorId)</span>
+                            <span className="text-red-500" aria-hidden="true">*</span>
+                          </label>
+                          <input
+                            id="wa-vendor-uid"
+                            type="text"
+                            value={whatsAppSettings.vendorUid || ''}
+                            onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, vendorUid: e.target.value.trim() })}
+                            placeholder="e.g. 20182 or your Otomat vendor UID"
+                            required
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                      </div>
 
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <label htmlFor="wa-token" className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                        <span>Permanent access token</span>
-                        {!whatsAppSettings.hasAccessToken && <span className="text-red-500" aria-hidden="true">*</span>}
-                      </label>
-                      {whatsAppSettings.hasAccessToken && (
-                        <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5">
-                          <Check className="w-3 h-3" aria-hidden="true" /> Stored encrypted
-                        </span>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <input
-                        id="wa-token"
-                        type={showWhatsAppToken ? 'text' : 'password'}
-                        autoComplete="off"
-                        value={whatsAppSettings.accessToken}
-                        onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, accessToken: e.target.value })}
-                        placeholder={whatsAppSettings.hasAccessToken ? 'Leave blank to keep the stored token' : 'System user token from Meta Business Manager'}
-                        required={!whatsAppSettings.hasAccessToken}
-                        className={`${inputClass} font-mono pr-9`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowWhatsAppToken(!showWhatsAppToken)}
-                        aria-label={showWhatsAppToken ? 'Hide access token' : 'Show access token'}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
-                      >
-                        {showWhatsAppToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="wa-token" className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <span>API Token / Bearer Token (token=...)</span>
+                            {!whatsAppSettings.hasAccessToken && <span className="text-red-500" aria-hidden="true">*</span>}
+                          </label>
+                          {whatsAppSettings.hasAccessToken && (
+                            <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5">
+                              <Check className="w-3 h-3" aria-hidden="true" /> Stored encrypted
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="wa-token"
+                            type={showWhatsAppToken ? 'text' : 'password'}
+                            autoComplete="off"
+                            value={whatsAppSettings.accessToken}
+                            onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, accessToken: e.target.value })}
+                            placeholder={whatsAppSettings.hasAccessToken ? 'Leave blank to keep stored token' : 'Paste your Otomat bearer token'}
+                            required={!whatsAppSettings.hasAccessToken}
+                            className={`${inputClass} font-mono pr-9`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowWhatsAppToken(!showWhatsAppToken)}
+                            aria-label={showWhatsAppToken ? 'Hide access token' : 'Show access token'}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                          >
+                            {showWhatsAppToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
 
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <label htmlFor="wa-verify-token" className="text-xs font-bold text-slate-700">Webhook verify token</label>
-                      {whatsAppSettings.hasWebhookVerifyToken && (
-                        <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5">
-                          <Check className="w-3 h-3" aria-hidden="true" /> Stored encrypted
-                        </span>
-                      )}
-                    </div>
-                    <input
-                      id="wa-verify-token"
-                      type="password"
-                      autoComplete="off"
-                      value={whatsAppSettings.webhookVerifyToken}
-                      onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, webhookVerifyToken: e.target.value })}
-                      placeholder={whatsAppSettings.hasWebhookVerifyToken ? 'Leave blank to keep the stored token' : 'At least 8 characters; enter the same value in Meta'}
-                      minLength={8}
-                      className={`${inputClass} font-mono`}
-                    />
-                  </div>
+                      <div className="space-y-1">
+                        <label htmlFor="wa-phone-id-opt" className="text-xs font-bold text-slate-700">
+                          From Phone Number ID (Optional)
+                        </label>
+                        <input
+                          id="wa-phone-id-opt"
+                          type="text"
+                          value={whatsAppSettings.phoneNumberId}
+                          onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, phoneNumberId: e.target.value.replace(/\D/g, '') })}
+                          placeholder="Optional; uses Otomat default if empty"
+                          className={`${inputClass} font-mono`}
+                        />
+                      </div>
+
+                      <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-600 dark:text-slate-400">
+                        <div className="text-[10px] uppercase font-bold text-slate-400 mb-1">Generated API Endpoint:</div>
+                        <div className="text-emerald-600 dark:text-emerald-400 break-all">
+                          {(whatsAppSettings.apiBaseUrl || 'https://otomat.in/api').replace(/\/+$/, '')}/{whatsAppSettings.vendorUid || '{{VendorId}}'}/contact/send-message?token={whatsAppSettings.hasAccessToken || whatsAppSettings.accessToken ? '••••••••' : '{{token}}'}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label htmlFor="wa-phone-id" className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <span>Phone number ID</span>
+                            <span className="text-red-500" aria-hidden="true">*</span>
+                          </label>
+                          <input
+                            id="wa-phone-id"
+                            type="text"
+                            inputMode="numeric"
+                            value={whatsAppSettings.phoneNumberId}
+                            onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, phoneNumberId: e.target.value.replace(/\D/g, '') })}
+                            placeholder="Digits only"
+                            required
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label htmlFor="wa-waba" className="text-xs font-bold text-slate-700">Business account ID (WABA)</label>
+                          <input
+                            id="wa-waba"
+                            type="text"
+                            inputMode="numeric"
+                            value={whatsAppSettings.wabaId}
+                            onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, wabaId: e.target.value.replace(/\D/g, '') })}
+                            placeholder="Digits only"
+                            className={`${inputClass} font-mono`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="wa-token" className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <span>Permanent access token</span>
+                            {!whatsAppSettings.hasAccessToken && <span className="text-red-500" aria-hidden="true">*</span>}
+                          </label>
+                          {whatsAppSettings.hasAccessToken && (
+                            <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5">
+                              <Check className="w-3 h-3" aria-hidden="true" /> Stored encrypted
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="wa-token"
+                            type={showWhatsAppToken ? 'text' : 'password'}
+                            autoComplete="off"
+                            value={whatsAppSettings.accessToken}
+                            onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, accessToken: e.target.value })}
+                            placeholder={whatsAppSettings.hasAccessToken ? 'Leave blank to keep the stored token' : 'System user token from Meta Business Manager'}
+                            required={!whatsAppSettings.hasAccessToken}
+                            className={`${inputClass} font-mono pr-9`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowWhatsAppToken(!showWhatsAppToken)}
+                            aria-label={showWhatsAppToken ? 'Hide access token' : 'Show access token'}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                          >
+                            {showWhatsAppToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="wa-verify-token" className="text-xs font-bold text-slate-700">Webhook verify token</label>
+                          {whatsAppSettings.hasWebhookVerifyToken && (
+                            <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5">
+                              <Check className="w-3 h-3" aria-hidden="true" /> Stored encrypted
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          id="wa-verify-token"
+                          type="password"
+                          autoComplete="off"
+                          value={whatsAppSettings.webhookVerifyToken}
+                          onChange={(e) => setWhatsAppSettings({ ...whatsAppSettings, webhookVerifyToken: e.target.value })}
+                          placeholder={whatsAppSettings.hasWebhookVerifyToken ? 'Leave blank to keep the stored token' : 'At least 8 characters; enter the same value in Meta'}
+                          minLength={8}
+                          className={`${inputClass} font-mono`}
+                        />
+                      </div>
+                    </>
+                  )}
 
                   <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                     <input

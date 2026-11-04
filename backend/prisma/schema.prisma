@@ -1754,6 +1754,11 @@ model rndtechnosoft_tenants {
   rndtechnosoft_onboarding_workflow_stages     rndtechnosoft_onboarding_workflow_stages[]
   rndtechnosoft_onboarding_workflow_transitions rndtechnosoft_onboarding_workflow_transitions[]
 
+  rndtechnosoft_crm_message_templates        rndtechnosoft_crm_message_templates[]
+  rndtechnosoft_crm_whatsapp_configs         rndtechnosoft_crm_whatsapp_configs[]
+  rndtechnosoft_crm_whatsapp_mappings        rndtechnosoft_crm_whatsapp_mappings[]
+  rndtechnosoft_crm_whatsapp_logs            rndtechnosoft_crm_whatsapp_logs[]
+
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
 
@@ -2307,6 +2312,7 @@ model rndtechnosoft_crm_leads {
   rndtechnosoft_email_sequence_enrollments rndtechnosoft_email_sequence_enrollments[]
   rndtechnosoft_email_sequence_sends       rndtechnosoft_email_sequence_sends[]
   rndtechnosoft_email_sequence_rule_events rndtechnosoft_email_sequence_rule_events[]
+  rndtechnosoft_crm_whatsapp_logs          rndtechnosoft_crm_whatsapp_logs[]
 
   @@unique([tenant_id, lead_code], map: "uq_crm_leads_code")
   @@unique([tenant_id, id], map: "uq_crm_leads_tenant_id")
@@ -2450,6 +2456,7 @@ model rndtechnosoft_crm_clients {
   created_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at            DateTime              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_crm_clients_tenant")
+  rndtechnosoft_crm_whatsapp_logs rndtechnosoft_crm_whatsapp_logs[]
 
   @@unique([tenant_id, client_code], map: "uq_crm_clients_code")
   @@unique([tenant_id, id], map: "uq_crm_clients_tenant_id")
@@ -4808,5 +4815,116 @@ model rndtechnosoft_onboarding_workflow_transitions {
   @@unique([tenant_id, id], map: "uq_onboarding_workflow_transitions_tenant_id")
   @@unique([tenant_id, workflow_version_id, from_stage_id, to_stage_id], map: "uq_onboarding_workflow_transitions_pair")
   @@index([tenant_id, workflow_version_id], map: "ix_onboarding_workflow_transitions_ver")
+}
+
+// ==========================================
+// CRM WHATSAPP TEMPLATE MAPPING & MESSAGING
+// ==========================================
+
+model rndtechnosoft_crm_message_templates {
+  id                          String                                @id @db.Uuid
+  tenant_id                   String                                @db.Uuid
+  template_code               String                                @db.VarChar(80)
+  template_name               String                                @db.VarChar(160)
+  category                    String                                @default("GENERAL") @db.VarChar(80)
+  channel                     String                                @default("WHATSAPP") @db.VarChar(32)
+  message_body                String                                @db.Text
+  detected_variables          Json                                  @default("[]")
+  description                 String?                               @db.VarChar(500)
+  is_active                   Boolean                               @default(true)
+  created_by_tenant_member_id String?                               @db.Uuid
+  updated_by_tenant_member_id String?                               @db.Uuid
+  created_at                  DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                 rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_message_templates_tenant")
+  rndtechnosoft_crm_whatsapp_mappings  rndtechnosoft_crm_whatsapp_mappings[]
+  rndtechnosoft_crm_whatsapp_logs      rndtechnosoft_crm_whatsapp_logs[]
+
+  @@unique([tenant_id, id], map: "uq_crm_message_templates_tenant_id")
+  @@unique([tenant_id, template_code], map: "uq_crm_message_templates_code")
+  @@index([tenant_id, is_active], map: "ix_crm_message_templates_status")
+}
+
+model rndtechnosoft_crm_whatsapp_configs {
+  id                     String                                @id @db.Uuid
+  tenant_id              String                                @db.Uuid
+  account_name           String                                @db.VarChar(120)
+  api_base_url           String?                               @db.VarChar(255)
+  vendor_uid             String                                @db.VarChar(120)
+  bearer_token_encrypted String                                @db.VarChar(512)
+  from_phone_number_id   String?                               @db.VarChar(120)
+  is_default             Boolean                               @default(true)
+  is_active              Boolean                               @default(true)
+  created_at             DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at             DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_whatsapp_configs_tenant")
+  rndtechnosoft_crm_whatsapp_mappings rndtechnosoft_crm_whatsapp_mappings[]
+
+  @@unique([tenant_id, id], map: "uq_crm_whatsapp_configs_tenant_id")
+  @@index([tenant_id, is_default, is_active], map: "ix_crm_whatsapp_configs_active")
+}
+
+model rndtechnosoft_crm_whatsapp_mappings {
+  id                          String                                @id @db.Uuid
+  tenant_id                   String                                @db.Uuid
+  crm_template_id             String                                @db.Uuid
+  whatsapp_template_name      String                                @db.VarChar(160)
+  whatsapp_template_language  String                                @default("en") @db.VarChar(32)
+  whatsapp_config_id          String?                               @db.Uuid
+  body_mapping                Json                                  @default("{}")
+  header_mapping              Json?
+  media_type                  String?                               @default("NONE") @db.VarChar(32)
+  media_mapping               Json?
+  button_mapping              Json?
+  sample_preview_values       Json?
+  is_active                   Boolean                               @default(true)
+  created_by_tenant_member_id String?                               @db.Uuid
+  updated_by_tenant_member_id String?                               @db.Uuid
+  created_at                  DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_whatsapp_mappings_tenant")
+  rndtechnosoft_crm_message_templates  rndtechnosoft_crm_message_templates  @relation(fields: [tenant_id, crm_template_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_whatsapp_mappings_template")
+  rndtechnosoft_crm_whatsapp_configs   rndtechnosoft_crm_whatsapp_configs?   @relation(fields: [tenant_id, whatsapp_config_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_crm_whatsapp_mappings_config")
+  rndtechnosoft_crm_whatsapp_logs      rndtechnosoft_crm_whatsapp_logs[]
+
+  @@unique([tenant_id, id], map: "uq_crm_whatsapp_mappings_tenant_id")
+  @@unique([tenant_id, crm_template_id], map: "uq_crm_whatsapp_mappings_template_id")
+  @@index([tenant_id, whatsapp_template_name], map: "ix_crm_whatsapp_mappings_wa_tpl")
+}
+
+model rndtechnosoft_crm_whatsapp_logs {
+  id                          String                                @id @db.Uuid
+  tenant_id                   String                                @db.Uuid
+  crm_template_id             String?                               @db.Uuid
+  whatsapp_mapping_id         String?                               @db.Uuid
+  lead_id                     String?                               @db.Uuid
+  client_id                   String?                               @db.Uuid
+  recipient_phone             String                                @db.VarChar(32)
+  template_name               String                                @db.VarChar(160)
+  template_language           String                                @db.VarChar(32)
+  resolved_variables          Json                                  @default("{}")
+  payload_sent                Json                                  @default("{}")
+  provider_response           Json?
+  provider_message_id         String?                               @db.VarChar(255)
+  status                      String                                @default("PENDING") @db.VarChar(32)
+  error_message               String?                               @db.Text
+  sent_by_tenant_member_id    String?                               @db.Uuid
+  created_at                  DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                  DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants                rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_whatsapp_logs_tenant")
+  rndtechnosoft_crm_message_templates  rndtechnosoft_crm_message_templates? @relation(fields: [tenant_id, crm_template_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_crm_whatsapp_logs_template")
+  rndtechnosoft_crm_whatsapp_mappings  rndtechnosoft_crm_whatsapp_mappings? @relation(fields: [tenant_id, whatsapp_mapping_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_crm_whatsapp_logs_mapping")
+  rndtechnosoft_crm_leads              rndtechnosoft_crm_leads?              @relation(fields: [tenant_id, lead_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_crm_whatsapp_logs_lead")
+  rndtechnosoft_crm_clients            rndtechnosoft_crm_clients?            @relation(fields: [tenant_id, client_id], references: [tenant_id, id], onDelete: SetNull, onUpdate: NoAction, map: "fk_crm_whatsapp_logs_client")
+
+  @@unique([tenant_id, id], map: "uq_crm_whatsapp_logs_tenant_id")
+  @@index([tenant_id, created_at(sort: Desc)], map: "ix_crm_whatsapp_logs_time")
+  @@index([tenant_id, status], map: "ix_crm_whatsapp_logs_status")
+  @@index([tenant_id, provider_message_id], map: "ix_crm_whatsapp_logs_wamid")
+  @@index([tenant_id, lead_id], map: "ix_crm_whatsapp_logs_lead")
 }
 

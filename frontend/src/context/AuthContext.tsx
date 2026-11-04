@@ -246,9 +246,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [access],
   );
 
+  const effectiveNavigation = useMemo<NavigationEntry[]>(() => {
+    if (!access?.navigation) return NO_NAVIGATION;
+    const list = [...access.navigation];
+    const crmItem = list.find((e) => e.id === 'crm' || e.parent === 'crm');
+    if (crmItem && !list.some((e) => e.id === 'crm.whatsapp')) {
+      const idx = list.findIndex((e) => e.id === 'crm.proposals');
+      const whatsappEntry: NavigationEntry = {
+        id: 'crm.whatsapp' as any,
+        label: 'WhatsApp Templates',
+        parent: 'crm' as any,
+        module: 'CRM' as any,
+        moduleName: 'CRM',
+        moduleEnabled: crmItem.moduleEnabled,
+      };
+      if (idx !== -1) {
+        list.splice(idx + 1, 0, whatsappEntry);
+      } else {
+        list.push(whatsappEntry);
+      }
+    }
+    return list;
+  }, [access]);
+
   const navigationEntry = useCallback(
-    (navId: string) => access?.navigation?.find((entry) => entry.id === navId),
-    [access],
+    (navId: string) => effectiveNavigation.find((entry) => entry.id === navId),
+    [effectiveNavigation],
   );
 
   const canOpen = useCallback(
@@ -286,7 +309,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       can,
       accessLoaded: access !== null,
       isModuleEnabled,
-      navigation: access?.navigation ?? NO_NAVIGATION,
+      navigation: effectiveNavigation,
       navigationEntry,
       canOpen,
       refreshAccess,
@@ -309,6 +332,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       can,
       access,
       isModuleEnabled,
+      effectiveNavigation,
       navigationEntry,
       canOpen,
       refreshAccess,
