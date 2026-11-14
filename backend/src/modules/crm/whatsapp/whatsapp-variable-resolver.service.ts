@@ -21,24 +21,18 @@ export class WhatsAppVariableResolverService {
 
   /**
    * Extracts unique placeholder names enclosed in {{name}} or {name}.
+   * Preserves exact occurrence order. Supports both numeric positional
+   * (e.g. 1, 2, 3) and named variables (e.g. customer_name, order_id).
    */
   extractVariables(text: string): string[] {
     if (!text) return [];
     const set = new Set<string>();
-    // Matches {{var_name}} and {var_name}
-    const doubleMatches = text.match(/\{\{([a-zA-Z0-9_\-\.]+)\}\}/g);
-    if (doubleMatches) {
-      for (const m of doubleMatches) {
-        set.add(m.replace(/^\{\{|\}\}$/g, '').trim());
-      }
-    }
-    const singleMatches = text.match(/\{([a-zA-Z0-9_\-]+)\}/g);
-    if (singleMatches) {
-      for (const m of singleMatches) {
-        const v = m.replace(/^\{|\}$/g, '').trim();
-        if (!/^\d+$/.test(v)) { // Skip purely numeric {1} if any
-          set.add(v);
-        }
+    const regex = /\{\{([a-zA-Z0-9_\-\.]+)\}\}|\{([a-zA-Z0-9_\-\.]+)\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text)) !== null) {
+      const v = (match[1] || match[2] || '').trim();
+      if (v) {
+        set.add(v);
       }
     }
     return Array.from(set);
@@ -46,17 +40,33 @@ export class WhatsAppVariableResolverService {
 
   /**
    * Replaces placeholders in text using the resolved variables map.
+   * Supports case-insensitive and snake/camelCase lookup.
    */
   interpolate(text: string, variables: Record<string, any>): string {
     if (!text) return '';
-    return text.replace(/\{\{([a-zA-Z0-9_\-\.]+)\}\}/g, (match, key) => {
-      const val = variables[key.trim()];
-      return val !== undefined && val !== null ? String(val) : match;
+    const normVars: Record<string, any> = {};
+    for (const [k, v] of Object.entries(variables || {})) {
+      normVars[k] = v;
+      normVars[k.toLowerCase()] = v;
+      normVars[k.toLowerCase().replace(/[\-_]/g, '')] = v;
+    }
+
+    return text.replace(/\{\{([a-zA-Z0-9_\-\.]+)\}\}|\{([a-zA-Z0-9_\-\.]+)\}/g, (match, p1, p2) => {
+      const key = (p1 || p2 || '').trim();
+      if (variables[key] !== undefined && variables[key] !== null) {
+        return String(variables[key]);
+      }
+      const norm = key.toLowerCase().replace(/[\-_]/g, '');
+      if (normVars[norm] !== undefined && normVars[norm] !== null) {
+        return String(normVars[norm]);
+      }
+      return match;
     });
   }
 
   /**
    * Resolves a collection of variable keys against context (explicit variables, lead, client, system dates).
+   * Robust against case differences and camelCase/snake_case mismatches.
    */
   async resolveVariables(
     variableKeys: string[],
@@ -92,6 +102,7 @@ export class WhatsAppVariableResolverService {
 
     for (const rawKey of variableKeys) {
       const key = rawKey.trim();
+      const normKey = key.toLowerCase().replace(/[\-_]/g, '');
 
       // 1. Explicit variable passed in request (highest priority)
       if (explicit[key] !== undefined && explicit[key] !== null) {
@@ -101,7 +112,7 @@ export class WhatsAppVariableResolverService {
 
       // Check case-insensitive / snake_case variations in explicit
       const explicitNormalizedKey = Object.keys(explicit).find(
-        (k) => k.toLowerCase() === key.toLowerCase() || k.replace(/[\-_]/g, '') === key.replace(/[\-_]/g, ''),
+        (k) => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[\-_]/g, '') === normKey,
       );
       if (explicitNormalizedKey && explicit[explicitNormalizedKey] !== undefined && explicit[explicitNormalizedKey] !== null) {
         resolved[key] = String(explicit[explicitNormalizedKey]);
@@ -127,8 +138,8 @@ export class WhatsAppVariableResolverService {
       }
 
       // 4. System standard variables
-      if (systemVars[key.toLowerCase()]) {
-        resolved[key] = systemVars[key.toLowerCase()];
+      if (systemVars[normKey] || systemVars[key.toLowerCase()]) {
+        resolved[key] = systemVars[normKey] || systemVars[key.toLowerCase()];
         continue;
       }
 
@@ -146,35 +157,45 @@ export class WhatsAppVariableResolverService {
 
   private getLeadValue(lead: any, key: string): string | undefined {
     const norm = key.toLowerCase().replace(/[\-_]/g, '');
-    const fullName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.company_name;
+    const fullName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.company_name || '';
 
     switch (norm) {
+      case '1':
       case 'firstname': return lead.first_name || '';
       case 'lastname': return lead.last_name || '';
       case 'fullname':
       case 'name':
       case 'customername':
-      case 'clientname': return fullName;
+      case 'clientname':
+      case 'leadname': return fullName;
       case 'companyname':
       case 'company': return lead.company_name || '';
       case 'email': return lead.email || '';
       case 'phone':
       case 'phonenumber':
       case 'whatsapp':
-      case 'whatsappnumber': return lead.whatsapp_number || lead.phone || '';
+      case 'whatsappnumber':
+      case 'mobile': return lead.whatsapp_number || lead.phone || '';
       case 'designation': return lead.designation || '';
       case 'city': return lead.city || '';
       case 'state': return lead.state || '';
       case 'address': return lead.address || '';
       case 'primaryservice':
       case 'service': return lead.primary_service || '';
-      case 'leadcode': return lead.lead_code || '';
+      case 'leadcode':
+      case 'orderid':
+      case 'referenceid': return lead.lead_code || '';
       case 'budget':
       case 'budgetamount': return lead.budget_amount ? String(lead.budget_amount) : '';
       default:
         // Try custom_attributes
         if (lead.custom_attributes && typeof lead.custom_attributes === 'object') {
-          return (lead.custom_attributes as any)[key];
+          const custom = lead.custom_attributes as Record<string, any>;
+          if (custom[key] !== undefined) return String(custom[key]);
+          const foundKey = Object.keys(custom).find(
+            (k) => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[\-_]/g, '') === norm,
+          );
+          if (foundKey && custom[foundKey] !== undefined) return String(custom[foundKey]);
         }
         return undefined;
     }
@@ -192,7 +213,8 @@ export class WhatsAppVariableResolverService {
       case 'name': return client.contact_person || client.company_name || '';
       case 'email': return client.email || '';
       case 'phone':
-      case 'phonenumber': return client.phone || '';
+      case 'phonenumber':
+      case 'mobile': return client.phone || '';
       case 'clientcode': return client.client_code || '';
       case 'gstin': return client.gstin || '';
       case 'pan': return client.pan || '';
@@ -202,4 +224,3 @@ export class WhatsAppVariableResolverService {
     }
   }
 }
-

@@ -20,6 +20,7 @@ import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.
 import { OrganizationSettingsService } from './organization-settings.service';
 import { TenantRolesService } from './tenant-roles.service';
 import { EmploymentTypesService } from './employment-types.service';
+import { WhatsAppMessagingService } from '@/modules/crm/whatsapp/whatsapp-messaging.service';
 import {
   SaveSmtpSettingsDto,
   SaveWhatsAppSettingsDto,
@@ -46,6 +47,7 @@ export class TenantsController {
     private readonly settingsService: OrganizationSettingsService,
     private readonly rolesService: TenantRolesService,
     private readonly employmentTypesService: EmploymentTypesService,
+    private readonly whatsAppMessagingService: WhatsAppMessagingService,
   ) {}
 
   @Get('current')
@@ -246,8 +248,27 @@ export class TenantsController {
    * anything, which told users their message had gone when it had not.
    */
   @Post('whatsapp/send')
-  sendWhatsApp() {
-    throw new NotImplementedException('Sending WhatsApp messages from the CRM is not available yet. Nothing was sent.');
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('outreach.update')
+  async sendWhatsApp(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: { recipientPhone?: string; recipient?: string; message: string; leadId?: string },
+  ) {
+    const res = await this.whatsAppMessagingService.sendTextMessage(
+      tenantId,
+      {
+        recipient: body.recipientPhone || body.recipient || '',
+        message: body.message,
+        lead_id: body.leadId,
+      },
+      actor.tenantMemberId,
+    );
+    return {
+      success: res.success,
+      data: res,
+      message: res.success ? 'Message dispatched via WhatsApp' : 'Failed to dispatch WhatsApp message',
+    };
   }
 
   @Post('email/send')

@@ -1758,6 +1758,8 @@ model rndtechnosoft_tenants {
   rndtechnosoft_crm_whatsapp_configs         rndtechnosoft_crm_whatsapp_configs[]
   rndtechnosoft_crm_whatsapp_mappings        rndtechnosoft_crm_whatsapp_mappings[]
   rndtechnosoft_crm_whatsapp_logs            rndtechnosoft_crm_whatsapp_logs[]
+  rndtechnosoft_crm_whatsapp_provider_templates rndtechnosoft_crm_whatsapp_provider_templates[]
+  rndtechnosoft_crm_whatsapp_webhook_events   rndtechnosoft_crm_whatsapp_webhook_events[]
 
   @@index([created_at(sort: Desc)], map: "ix_tenants_created_at")
 }
@@ -4847,23 +4849,72 @@ model rndtechnosoft_crm_message_templates {
 }
 
 model rndtechnosoft_crm_whatsapp_configs {
-  id                     String                                @id @db.Uuid
-  tenant_id              String                                @db.Uuid
-  account_name           String                                @db.VarChar(120)
-  api_base_url           String?                               @db.VarChar(255)
-  vendor_uid             String                                @db.VarChar(120)
-  bearer_token_encrypted String                                @db.VarChar(512)
-  from_phone_number_id   String?                               @db.VarChar(120)
-  is_default             Boolean                               @default(true)
-  is_active              Boolean                               @default(true)
-  created_at             DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
-  updated_at             DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  id                             String                                @id @db.Uuid
+  tenant_id                      String                                @db.Uuid
+  account_name                   String                                @db.VarChar(120)
+  api_base_url                   String?                               @db.VarChar(255)
+  vendor_uid                     String                                @db.VarChar(120)
+  bearer_token_encrypted         String                                @db.VarChar(512)
+  from_phone_number_id           String?                               @db.VarChar(120)
+  sender_phone_number            String?                               @db.VarChar(32)
+  waba_id                        String?                               @db.VarChar(120)
+  provider                       String                                @default("OTOMAT") @db.VarChar(64)
+  webhook_verify_token_encrypted String?                               @db.VarChar(512)
+  app_secret_encrypted           String?                               @db.VarChar(512)
+  last_synced_at                 DateTime?                             @db.Timestamptz(6)
+  last_sync_error                String?                               @db.Text
+  is_default                     Boolean                               @default(true)
+  is_active                      Boolean                               @default(true)
+  created_at                     DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                     DateTime                              @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
   rndtechnosoft_tenants                rndtechnosoft_tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_whatsapp_configs_tenant")
   rndtechnosoft_crm_whatsapp_mappings rndtechnosoft_crm_whatsapp_mappings[]
 
   @@unique([tenant_id, id], map: "uq_crm_whatsapp_configs_tenant_id")
   @@index([tenant_id, is_default, is_active], map: "ix_crm_whatsapp_configs_active")
+  @@index([from_phone_number_id], map: "ix_crm_whatsapp_configs_phone_id")
+  @@index([vendor_uid], map: "ix_crm_whatsapp_configs_vendor_uid")
+}
+
+model rndtechnosoft_crm_whatsapp_provider_templates {
+  id                String   @id @db.Uuid
+  tenant_id         String   @db.Uuid
+  template_name     String   @db.VarChar(160)
+  template_language String   @default("en") @db.VarChar(32)
+  category          String   @default("UTILITY") @db.VarChar(64)
+  status            String   @default("APPROVED") @db.VarChar(32)
+  header_type       String   @default("NONE") @db.VarChar(32)
+  body_text         String   @db.Text
+  buttons_count     Int      @default(0)
+  raw_components    Json     @default("[]")
+  synced_at         DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  created_at        DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at        DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants rndtechnosoft_tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_wa_prov_tpl_tenant")
+
+  @@unique([tenant_id, id], map: "uq_crm_wa_prov_tpl_tenant_id")
+  @@unique([tenant_id, template_name, template_language], map: "uq_crm_wa_prov_tpl_name_lang")
+  @@index([tenant_id, status], map: "ix_crm_wa_prov_tpl_status")
+  @@index([tenant_id, template_name], map: "ix_crm_wa_prov_tpl_name")
+}
+
+model rndtechnosoft_crm_whatsapp_webhook_events {
+  id            String   @id @db.Uuid
+  tenant_id     String?  @db.Uuid
+  provider      String   @default("OTOMAT") @db.VarChar(64)
+  event_type    String   @db.VarChar(64)
+  event_payload Json
+  payload_hash  String   @db.VarChar(64)
+  processed     Boolean  @default(false)
+  error_message String?  @db.Text
+  created_at    DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_tenants rndtechnosoft_tenants? @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_crm_wa_wh_events_tenant")
+
+  @@index([payload_hash], map: "ix_crm_wa_wh_events_hash")
+  @@index([tenant_id, created_at(sort: Desc)], map: "ix_crm_wa_wh_events_tenant_time")
 }
 
 model rndtechnosoft_crm_whatsapp_mappings {

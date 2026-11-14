@@ -27,7 +27,12 @@ describe('WhatsApp Template Mapping & Dynamic Messaging System', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
-        count: jest.fn().mockResolvedValue(1),
+        count: jest.fn().mockImplementation(() => Promise.resolve(1)),
+      },
+      rndtechnosoft_crm_whatsapp_provider_templates: {
+        upsert: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn().mockImplementation(() => Promise.resolve(0)),
       },
       rndtechnosoft_crm_whatsapp_mappings: {
         findMany: jest.fn(),
@@ -62,7 +67,7 @@ describe('WhatsApp Template Mapping & Dynamic Messaging System', () => {
     resolver = new WhatsAppVariableResolverService(prismaMock);
     builder = new WhatsAppPayloadBuilderService();
     provider = new WhatsAppProviderService();
-    mappingService = new WhatsAppTemplateMappingService(prismaMock, resolver, builder);
+    mappingService = new WhatsAppTemplateMappingService(prismaMock, resolver, builder, provider);
     messagingService = new WhatsAppMessagingService(prismaMock, mappingService, resolver, builder, provider);
   });
 
@@ -473,6 +478,119 @@ describe('WhatsApp Template Mapping & Dynamic Messaging System', () => {
         data: expect.objectContaining({ status: 'DELIVERED' }),
       }),
     );
+  });
+
+  // -------------------------------------------------------------
+  // Test 13: Cross-tenant IDOR protection on CRM Templates
+  // -------------------------------------------------------------
+  it('13. prevents cross-tenant access to CRM message templates', async () => {
+    prismaMock.rndtechnosoft_crm_message_templates.findFirst.mockResolvedValue(null);
+
+    await expect(
+      mappingService.getCrmTemplate(TENANT_ID, 'foreign-template-id'),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      mappingService.updateCrmTemplate(TENANT_ID, 'foreign-template-id', { template_name: 'Hacked' }),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      mappingService.deleteCrmTemplate(TENANT_ID, 'foreign-template-id'),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  // -------------------------------------------------------------
+  // Test 14: Cross-tenant IDOR protection on Template Mappings
+  // -------------------------------------------------------------
+  it('14. prevents cross-tenant access or saving mappings across tenants', async () => {
+    prismaMock.rndtechnosoft_crm_whatsapp_mappings.findFirst.mockResolvedValue(null);
+    prismaMock.rndtechnosoft_crm_message_templates.findFirst.mockResolvedValue(null);
+
+    await expect(
+      mappingService.getMapping(TENANT_ID, 'foreign-mapping-id'),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      mappingService.updateMapping(TENANT_ID, 'foreign-mapping-id', { is_active: false }),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      mappingService.deleteMapping(TENANT_ID, 'foreign-mapping-id'),
+    ).rejects.toThrow(NotFoundException);
+
+    // Attempting to save mapping for a template that does not belong to this tenant
+    await expect(
+      mappingService.saveMapping(TENANT_ID, {
+        crm_template_id: 'foreign-template-id',
+        whatsapp_template_name: 'test',
+        body_mapping: {},
+      }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  // -------------------------------------------------------------
+  // Test 15: Cross-tenant IDOR protection on Lead/Client in Messaging
+  // -------------------------------------------------------------
+  it('15. rejects dispatches with cross-tenant lead_id references', async () => {
+    prismaMock.rndtechnosoft_crm_whatsapp_configs.findFirst.mockResolvedValue({
+      vendor_uid: 'vendor_123',
+      bearer_token_encrypted: 'secure_token',
+      api_base_url: 'https://otomat.in/api',
+    });
+
+    prismaMock.rndtechnosoft_crm_message_templates.findFirst.mockResolvedValue({
+      id: TEMPLATE_ID,
+      tenant_id: TENANT_ID,
+      template_name: 'Order',
+      template_code: 'order_1',
+      message_body: 'Hello {{customer_name}}',
+    });
+
+    prismaMock.rndtechnosoft_crm_whatsapp_mappings.findFirst.mockResolvedValue({
+      id: MAPPING_ID,
+      tenant_id: TENANT_ID,
+      crm_template_id: TEMPLATE_ID,
+      whatsapp_template_name: 'order_template',
+      is_active: true,
+      body_mapping: { field_1: 'customer_name' },
+    });
+
+    prismaMock.rndtechnosoft_crm_leads.findFirst.mockResolvedValue(null); // foreign lead not found in this tenant
+
+    await expect(
+      messagingService.sendMappedTemplateMessage(TENANT_ID, {
+        template_id: TEMPLATE_ID,
+        recipient: '919876543210',
+        lead_id: 'foreign-lead-id',
+      }),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      messagingService.sendTextMessage(TENANT_ID, {
+        recipient: '919876543210',
+        message: 'Hello',
+        lead_id: 'foreign-lead-id',
+      }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  // -------------------------------------------------------------
+  // Test 16: Cross-tenant IDOR protection on Message Logs
+  // -------------------------------------------------------------
+  it('16. prevents accessing or retrying another tenant message logs', async () => {
+    prismaMock.rndtechnosoft_crm_whatsapp_logs.findFirst.mockResolvedValue(null);
+
+    await expect(
+      messagingService.getLog(TENANT_ID, 'foreign-log-id'),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      messagingService.retryMessage(TENANT_ID, 'foreign-log-id'),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      messagingService.refreshMessageStatus(TENANT_ID, 'foreign-log-id'),
+    ).rejects.toThrow(NotFoundException);
   });
 });
 

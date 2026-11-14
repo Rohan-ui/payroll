@@ -11,6 +11,7 @@ import {
 } from './dto/whatsapp-template.dto';
 import { WhatsAppVariableResolverService } from './whatsapp-variable-resolver.service';
 import { WhatsAppPayloadBuilderService } from './whatsapp-payload-builder.service';
+import { ProviderTemplateItem, WhatsAppProviderService } from './whatsapp-provider.service';
 import {
   decryptPlatformSecret,
   encryptPlatformSecret,
@@ -23,6 +24,7 @@ export class WhatsAppTemplateMappingService {
     private readonly prisma: PrismaService,
     private readonly variableResolver: WhatsAppVariableResolverService,
     private readonly payloadBuilder: WhatsAppPayloadBuilderService,
+    private readonly providerService: WhatsAppProviderService,
   ) {}
 
   // ==========================================
@@ -30,7 +32,6 @@ export class WhatsAppTemplateMappingService {
   // ==========================================
 
   async listCrmTemplates(tenantId: string) {
-    // await this.seedDefaultTemplatesIfEmpty(tenantId);
     return this.prisma.rndtechnosoft_crm_message_templates.findMany({
       where: { tenant_id: tenantId },
       include: {
@@ -127,7 +128,7 @@ export class WhatsAppTemplateMappingService {
   }
 
   // ==========================================
-  // 2. WHATSAPP PROVIDER CONFIGURATION
+  // 2. WHATSAPP CANONICAL CONFIGURATION
   // ==========================================
 
   async getConfig(tenantId: string) {
@@ -136,7 +137,7 @@ export class WhatsAppTemplateMappingService {
     });
 
     if (!config) {
-      // Check if tenant organization settings has whatsapp configured
+      // Fallback check to Organization Settings if configured there
       try {
         const tenantSettings = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
           where: { tenant_id: tenantId },
@@ -146,11 +147,17 @@ export class WhatsAppTemplateMappingService {
           return {
             id: 'org-settings-whatsapp',
             is_configured: true,
-            account_name: 'Organization Otomat Gateway',
+            account_name: 'WhatsApp Business Account',
             api_base_url: wa.apiBaseUrl || 'https://otomat.in/api',
             vendor_uid: wa.vendorUid || wa.phoneNumberId || '',
             bearer_token_masked: (wa.accessTokenEncrypted || wa.accessToken) ? '••••••••' : '',
             from_phone_number_id: wa.phoneNumberId || '',
+            sender_phone_number: wa.senderPhoneNumber || '',
+            waba_id: wa.wabaId || '',
+            provider: wa.provider || 'OTOMAT',
+            webhook_verify_token_masked: wa.webhookVerifyTokenEncrypted ? '••••••••' : '',
+            last_synced_at: null,
+            last_sync_error: null,
             is_active: wa.isActive !== false,
           };
         }
@@ -160,28 +167,35 @@ export class WhatsAppTemplateMappingService {
 
       return {
         is_configured: false,
-        account_name: 'Default WhatsApp Account',
-        api_base_url: process.env.WHATSAPP_API_BASE_URL || 'https://otomat.in/api',
-        vendor_uid: process.env.WHATSAPP_VENDOR_UID || '',
-        bearer_token_masked: process.env.WHATSAPP_BEARER_TOKEN ? '••••••••' : '',
-        from_phone_number_id: process.env.WHATSAPP_DEFAULT_PHONE_NUMBER_ID || '',
-        is_active: true,
+        account_name: 'WhatsApp Business Account',
+        api_base_url: 'https://otomat.in/api',
+        vendor_uid: '',
+        bearer_token_masked: '',
+        from_phone_number_id: '',
+        sender_phone_number: '',
+        waba_id: '',
+        provider: 'OTOMAT',
+        webhook_verify_token_masked: '',
+        last_synced_at: null,
+        last_sync_error: null,
+        is_active: false,
       };
-    }
-
-    let tokenMasked = '';
-    if (config.bearer_token_encrypted) {
-      tokenMasked = '••••••••';
     }
 
     return {
       id: config.id,
-      is_configured: true,
+      is_configured: Boolean(config.vendor_uid && config.bearer_token_encrypted),
       account_name: config.account_name,
       api_base_url: config.api_base_url || 'https://otomat.in/api',
       vendor_uid: config.vendor_uid,
-      bearer_token_masked: tokenMasked,
+      bearer_token_masked: config.bearer_token_encrypted ? '••••••••' : '',
       from_phone_number_id: config.from_phone_number_id || '',
+      sender_phone_number: config.sender_phone_number || '',
+      waba_id: config.waba_id || '',
+      provider: config.provider || 'OTOMAT',
+      webhook_verify_token_masked: config.webhook_verify_token_encrypted ? '••••••••' : '',
+      last_synced_at: config.last_synced_at,
+      last_sync_error: config.last_sync_error,
       is_active: config.is_active,
       updated_at: config.updated_at,
     };
@@ -193,13 +207,13 @@ export class WhatsAppTemplateMappingService {
     });
 
     if (!config) {
-      // Fallback to Organization Settings if configured there
+      // Fallback check to Organization Settings if configured there
       try {
         const tenantSettings = await this.prisma.rndtechnosoft_tenant_settings.findUnique({
           where: { tenant_id: tenantId },
         });
         const wa = (tenantSettings?.settings as any)?.whatsapp;
-        if (wa && (wa.vendorUid || wa.phoneNumberId)) {
+        if (wa && (wa.vendorUid || wa.phoneNumberId) && wa.isActive !== false) {
           let token = '';
           if (wa.accessTokenEncrypted) {
             try {
@@ -210,23 +224,32 @@ export class WhatsAppTemplateMappingService {
               token = wa.accessTokenEncrypted;
             }
           }
+          let verifyToken = '';
+          if (wa.webhookVerifyTokenEncrypted) {
+            try {
+              verifyToken = wa.webhookVerifyTokenEncrypted.startsWith('v1.') && isPlatformEncryptionConfigured()
+                ? decryptPlatformSecret(wa.webhookVerifyTokenEncrypted)
+                : wa.webhookVerifyTokenEncrypted;
+            } catch {
+              verifyToken = wa.webhookVerifyTokenEncrypted;
+            }
+          }
           return {
             apiBaseUrl: (wa.apiBaseUrl || 'https://otomat.in/api').replace(/\/+$/, ''),
             vendorUid: (wa.vendorUid || wa.phoneNumberId || '').trim(),
-            bearerToken: (token || wa.accessToken || wa.vendorUid || '').trim(),
+            bearerToken: (token || wa.accessToken || '').trim(),
             fromPhoneNumberId: (wa.phoneNumberId || '').trim() || undefined,
+            senderPhoneNumber: (wa.senderPhoneNumber || '').trim() || undefined,
+            wabaId: (wa.wabaId || '').trim() || undefined,
+            provider: (wa.provider || 'OTOMAT').trim(),
+            webhookVerifyToken: verifyToken || undefined,
           };
         }
       } catch {
         // Fall through
       }
 
-      return {
-        apiBaseUrl: (process.env.WHATSAPP_API_BASE_URL || 'https://otomat.in/api').replace(/\/+$/, ''),
-        vendorUid: process.env.WHATSAPP_VENDOR_UID || '',
-        bearerToken: process.env.WHATSAPP_BEARER_TOKEN || '',
-        fromPhoneNumberId: process.env.WHATSAPP_DEFAULT_PHONE_NUMBER_ID || '',
-      };
+      throw new BadRequestException('WhatsApp provider is not configured for this tenant. Please configure credentials in Gateway Settings.');
     }
 
     let decryptedToken = '';
@@ -242,11 +265,28 @@ export class WhatsAppTemplateMappingService {
       }
     }
 
+    let decryptedVerifyToken = '';
+    if (config.webhook_verify_token_encrypted) {
+      try {
+        if (config.webhook_verify_token_encrypted.startsWith('v1.') && isPlatformEncryptionConfigured()) {
+          decryptedVerifyToken = decryptPlatformSecret(config.webhook_verify_token_encrypted);
+        } else {
+          decryptedVerifyToken = config.webhook_verify_token_encrypted;
+        }
+      } catch {
+        decryptedVerifyToken = config.webhook_verify_token_encrypted;
+      }
+    }
+
     return {
       apiBaseUrl: (config.api_base_url || 'https://otomat.in/api').replace(/\/+$/, ''),
       vendorUid: config.vendor_uid.trim(),
-      bearerToken: (decryptedToken || config.vendor_uid).trim(),
+      bearerToken: decryptedToken.trim(),
       fromPhoneNumberId: config.from_phone_number_id || undefined,
+      senderPhoneNumber: config.sender_phone_number || undefined,
+      wabaId: config.waba_id || undefined,
+      provider: config.provider || 'OTOMAT',
+      webhookVerifyToken: decryptedVerifyToken || undefined,
     };
   }
 
@@ -272,45 +312,212 @@ export class WhatsAppTemplateMappingService {
       }
     }
 
-    if (!encryptedToken && !process.env.WHATSAPP_BEARER_TOKEN) {
-      throw new BadRequestException('Bearer Token or Vendor ID is required to connect to WhatsApp external API.');
+    let encryptedVerifyToken = existing?.webhook_verify_token_encrypted || null;
+    if (dto.webhook_verify_token && dto.webhook_verify_token.trim() && !dto.webhook_verify_token.includes('•••')) {
+      if (isPlatformEncryptionConfigured()) {
+        encryptedVerifyToken = encryptPlatformSecret(dto.webhook_verify_token.trim());
+      } else {
+        encryptedVerifyToken = dto.webhook_verify_token.trim();
+      }
     }
 
+    let encryptedAppSecret = existing?.app_secret_encrypted || null;
+    if (dto.app_secret && dto.app_secret.trim() && !dto.app_secret.includes('•••')) {
+      if (isPlatformEncryptionConfigured()) {
+        encryptedAppSecret = encryptPlatformSecret(dto.app_secret.trim());
+      } else {
+        encryptedAppSecret = dto.app_secret.trim();
+      }
+    }
+
+    const configData = {
+      account_name: dto.account_name.trim(),
+      api_base_url: dto.api_base_url?.trim() || 'https://otomat.in/api',
+      vendor_uid: dto.vendor_uid.trim(),
+      bearer_token_encrypted: encryptedToken,
+      from_phone_number_id: dto.from_phone_number_id?.trim() || null,
+      sender_phone_number: dto.sender_phone_number?.trim() || null,
+      waba_id: dto.waba_id?.trim() || null,
+      provider: dto.provider?.trim() || 'OTOMAT',
+      webhook_verify_token_encrypted: encryptedVerifyToken,
+      app_secret_encrypted: encryptedAppSecret,
+      is_active: dto.is_default !== undefined ? dto.is_default : true,
+    };
+
+    let savedConfig: any;
     if (existing) {
-      return this.prisma.rndtechnosoft_crm_whatsapp_configs.update({
+      savedConfig = await this.prisma.rndtechnosoft_crm_whatsapp_configs.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: existing.id } },
+        data: configData,
+      });
+    } else {
+      savedConfig = await this.prisma.rndtechnosoft_crm_whatsapp_configs.create({
         data: {
-          account_name: dto.account_name.trim(),
-          api_base_url: dto.api_base_url?.trim() || null,
-          vendor_uid: dto.vendor_uid.trim(),
-          bearer_token_encrypted: encryptedToken,
-          from_phone_number_id: dto.from_phone_number_id?.trim() || null,
-          is_active: dto.is_default !== undefined ? dto.is_default : true,
+          ...configData,
+          id: randomUUID(),
+          tenant_id: tenantId,
+          is_default: true,
         },
       });
     }
 
-    return this.prisma.rndtechnosoft_crm_whatsapp_configs.create({
-      data: {
-        id: randomUUID(),
-        tenant_id: tenantId,
-        account_name: dto.account_name.trim(),
-        api_base_url: dto.api_base_url?.trim() || null,
-        vendor_uid: dto.vendor_uid.trim(),
-        bearer_token_encrypted: encryptedToken,
-        from_phone_number_id: dto.from_phone_number_id?.trim() || null,
-        is_default: true,
-        is_active: true,
-      },
-    });
+    // Unify: Automatically sync with tenant_settings.settings.whatsapp
+    try {
+      const waSettingsObj = {
+        provider: configData.provider,
+        apiBaseUrl: configData.api_base_url,
+        vendorUid: configData.vendor_uid,
+        phoneNumberId: configData.from_phone_number_id,
+        senderPhoneNumber: configData.sender_phone_number,
+        wabaId: configData.waba_id,
+        accessTokenEncrypted: encryptedToken,
+        webhookVerifyTokenEncrypted: encryptedVerifyToken,
+        isActive: configData.is_active,
+      };
+
+      await this.prisma.$executeRaw`
+        UPDATE rndtechnosoft_tenant_settings
+        SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{whatsapp}', ${JSON.stringify(waSettingsObj)}::jsonb),
+            updated_at = CURRENT_TIMESTAMP(6)
+        WHERE tenant_id = ${tenantId}::uuid
+      `;
+    } catch {
+      // Non-fatal synchronization
+    }
+
+    return savedConfig;
   }
 
   // ==========================================
-  // 3. WHATSAPP TEMPLATE MAPPINGS
+  // 3. PROVIDER TEMPLATES (PERSISTENCE & SYNC)
+  // ==========================================
+
+  /**
+   * Synchronizes approved templates from the external WhatsApp provider into PostgreSQL.
+   * Real templates, real statuses, real errors. Zero mock fallbacks.
+   */
+  async syncProviderTemplates(tenantId: string, searchTerm?: string) {
+    const creds = await this.getRawCredentials(tenantId);
+    let items: ProviderTemplateItem[];
+
+    try {
+      items = await this.providerService.getTemplateList(creds, { searchTerm });
+    } catch (err: any) {
+      // Record failure timestamp on config
+      await this.prisma.rndtechnosoft_crm_whatsapp_configs.updateMany({
+        where: { tenant_id: tenantId, is_default: true },
+        data: { last_sync_error: err.message },
+      });
+      throw err;
+    }
+
+    const now = new Date();
+
+    // Upsert each template into database
+    for (const item of items) {
+      await this.prisma.rndtechnosoft_crm_whatsapp_provider_templates.upsert({
+        where: {
+          tenant_id_template_name_template_language: {
+            tenant_id: tenantId,
+            template_name: item.name,
+            template_language: item.language,
+          },
+        },
+        update: {
+          category: item.category || 'UTILITY',
+          status: item.status || 'APPROVED',
+          header_type: item.header_type || 'NONE',
+          body_text: item.body_text || '',
+          buttons_count: item.buttons_count || 0,
+          raw_components: item.components || [],
+          synced_at: now,
+          updated_at: now,
+        },
+        create: {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          template_name: item.name,
+          template_language: item.language,
+          category: item.category || 'UTILITY',
+          status: item.status || 'APPROVED',
+          header_type: item.header_type || 'NONE',
+          body_text: item.body_text || '',
+          buttons_count: item.buttons_count || 0,
+          raw_components: item.components || [],
+          synced_at: now,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+    }
+
+    // Update config with last synced timestamp
+    await this.prisma.rndtechnosoft_crm_whatsapp_configs.updateMany({
+      where: { tenant_id: tenantId, is_default: true },
+      data: { last_synced_at: now, last_sync_error: null },
+    });
+
+    return {
+      success: true,
+      syncedCount: items.length,
+      lastSyncedAt: now.toISOString(),
+      templates: items,
+    };
+  }
+
+  /**
+   * Retrieves provider templates stored in PostgreSQL.
+   * If table is empty but credentials exist, attempts an automatic initial sync.
+   */
+  async listProviderTemplates(tenantId: string, search?: string) {
+    const where: any = { tenant_id: tenantId };
+    if (search && search.trim()) {
+      where.OR = [
+        { template_name: { contains: search.trim(), mode: 'insensitive' } },
+        { body_text: { contains: search.trim(), mode: 'insensitive' } },
+        { category: { contains: search.trim(), mode: 'insensitive' } },
+      ];
+    }
+
+    let rows = await this.prisma.rndtechnosoft_crm_whatsapp_provider_templates.findMany({
+      where,
+      orderBy: { template_name: 'asc' },
+    });
+
+    // If no templates cached in database, try initial sync if configured
+    if (rows.length === 0 && !search) {
+      try {
+        const syncRes = await this.syncProviderTemplates(tenantId);
+        if (syncRes.syncedCount > 0) {
+          rows = await this.prisma.rndtechnosoft_crm_whatsapp_provider_templates.findMany({
+            where: { tenant_id: tenantId },
+            orderBy: { template_name: 'asc' },
+          });
+        }
+      } catch {
+        // Return empty array if not yet configured
+      }
+    }
+
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.template_name,
+      language: r.template_language,
+      category: r.category,
+      status: r.status,
+      header_type: r.header_type,
+      body_text: r.body_text,
+      buttons_count: r.buttons_count,
+      components: r.raw_components,
+      synced_at: r.synced_at,
+    }));
+  }
+
+  // ==========================================
+  // 4. WHATSAPP TEMPLATE MAPPINGS
   // ==========================================
 
   async listMappings(tenantId: string) {
-    // await this.seedDefaultTemplatesIfEmpty(tenantId);
     return this.prisma.rndtechnosoft_crm_whatsapp_mappings.findMany({
       where: { tenant_id: tenantId },
       include: {
@@ -511,129 +718,4 @@ export class WhatsAppTemplateMappingService {
       providerPayload: payload,
     };
   }
-
-  /**
-   * Automatically seeds initial standard CRM message templates and an initial Order Dispatch mapping if none exist.
-   */
-  // async seedDefaultTemplatesIfEmpty(tenantId: string) {
-  //   const count = await this.prisma.rndtechnosoft_crm_message_templates.count({
-  //     where: { tenant_id: tenantId },
-  //   });
-  //   if (count > 0) return;
-
-  //   const initialTemplates = [
-  //     {
-  //       code: 'crm_order_dispatch',
-  //       name: 'Order Dispatch',
-  //       category: 'ORDERS',
-  //       channel: 'WHATSAPP',
-  //       body: 'Hello {{customer_name}},\n\nYour order {{order_id}} has been dispatched.\nVehicle: {{vehicle_number}}\nExpected delivery: {{delivery_date}}\n\nThank you for choosing us!',
-  //       description: 'Sent automatically when an order or consignment is dispatched to the client.',
-  //       waName: 'order_dispatch',
-  //       mapping: {
-  //         field_1: 'customer_name',
-  //         field_2: 'order_id',
-  //         field_3: 'vehicle_number',
-  //         field_4: 'delivery_date',
-  //       },
-  //       headerMapping: { header_field_1: 'customer_name' },
-  //       mediaType: 'IMAGE',
-  //       mediaMapping: { header_image: 'https://cdn.pixabay.com/photo/2015/01/07/15/51/woman-591576_1280.jpg' },
-  //       buttonMapping: { button_0: '{{email}}', button_1: '{{phone}}', copy_code: 'DISPATCH10' },
-  //     },
-  //     {
-  //       code: 'crm_lead_welcome',
-  //       name: 'Welcome Lead Inquiry',
-  //       category: 'SALES',
-  //       channel: 'WHATSAPP',
-  //       body: 'Hi {{first_name}},\n\nThank you for your interest in {{company_name}}! We received your inquiry for {{primary_service}}.\nReference ID: {{lead_code}}.\n\nOur team will contact you shortly.',
-  //       description: 'Automated greeting sent when a new lead enters the pipeline.',
-  //       waName: 'lead_welcome_v1',
-  //       mapping: {
-  //         field_1: 'first_name',
-  //         field_2: 'company_name',
-  //         field_3: 'primary_service',
-  //         field_4: 'lead_code',
-  //       },
-  //     },
-  //     {
-  //       code: 'crm_quote_ready',
-  //       name: 'Quotation Proposal Ready',
-  //       category: 'SALES',
-  //       channel: 'WHATSAPP',
-  //       body: 'Dear {{customer_name}},\n\nYour quotation {{quotation_number}} for {{primary_service}} is ready for review. Amount: {{total_amount}}.\n\nPlease check the attached document.',
-  //       description: 'Notifies client when a commercial quotation has been generated.',
-  //       waName: 'quotation_ready',
-  //       mapping: {
-  //         field_1: 'customer_name',
-  //         field_2: 'quotation_number',
-  //         field_3: 'primary_service',
-  //         field_4: 'total_amount',
-  //       },
-  //       mediaType: 'DOCUMENT',
-  //       mediaMapping: { header_document: 'https://images.pexels.com/photos/276267/pexels-photo-276267.jpeg', header_document_name: 'Quotation.pdf' },
-  //     },
-  //     {
-  //       code: 'crm_meeting_reminder',
-  //       name: 'Client Meeting Reminder',
-  //       category: 'ACTIVITIES',
-  //       channel: 'WHATSAPP',
-  //       body: 'Hello {{customer_name}},\n\nFriendly reminder regarding our upcoming meeting "{{meeting_title}}" with {{assignee_name}} on {{meeting_time}}.\nMeeting link: {{meeting_link}}',
-  //       description: 'Meeting reminder touchpoint.',
-  //       waName: 'meeting_confirmation',
-  //       mapping: {
-  //         field_1: 'customer_name',
-  //         field_2: 'meeting_title',
-  //         field_3: 'assignee_name',
-  //         field_4: 'meeting_time',
-  //         field_5: 'meeting_link',
-  //       },
-  //     },
-  //   ];
-
-  //   for (const item of initialTemplates) {
-  //     const templateId = randomUUID();
-  //     const detected = this.variableResolver.extractVariables(item.body);
-
-  //     await this.prisma.rndtechnosoft_crm_message_templates.create({
-  //       data: {
-  //         id: templateId,
-  //         tenant_id: tenantId,
-  //         template_code: item.code,
-  //         template_name: item.name,
-  //         category: item.category,
-  //         channel: item.channel,
-  //         message_body: item.body,
-  //         detected_variables: detected,
-  //         description: item.description,
-  //         is_active: true,
-  //       },
-  //     });
-
-  //     if (item.waName && item.mapping) {
-  //       await this.prisma.rndtechnosoft_crm_whatsapp_mappings.create({
-  //         data: {
-  //           id: randomUUID(),
-  //           tenant_id: tenantId,
-  //           crm_template_id: templateId,
-  //           whatsapp_template_name: item.waName,
-  //           whatsapp_template_language: 'en',
-  //           body_mapping: item.mapping,
-  //           header_mapping: (item as any).headerMapping || null,
-  //           media_type: (item as any).mediaType || 'NONE',
-  //           media_mapping: (item as any).mediaMapping || null,
-  //           button_mapping: (item as any).buttonMapping || null,
-  //           sample_preview_values: {
-  //             customer_name: 'Rohan',
-  //             order_id: 'ORD-10025',
-  //             vehicle_number: 'GJ-15-AB-1234',
-  //             delivery_date: '5 November 2026',
-  //           },
-  //           is_active: true,
-  //         },
-  //       });
-  //     }
-  //   }
-  // }
 }
-
