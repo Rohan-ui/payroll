@@ -47,6 +47,12 @@ export function formatInterviewTime(start: Date, timezone: string) {
   return `${when} (${timezone})`;
 }
 
+/** A round still to happen (scheduled, or moved to a new time). */
+const LIVE = ['SCHEDULED', 'RESCHEDULED'] as const;
+/** A round that took place, decided or not. */
+const HELD = ['COMPLETED', 'PASSED', 'FAILED'] as const;
+const isLive = (status: string) => (LIVE as readonly string[]).includes(status);
+
 @Injectable()
 export class InterviewsService {
   constructor(
@@ -125,10 +131,10 @@ export class InterviewsService {
             : `A candidate who is ${CANDIDATE_STATUS_LABELS[status].toLowerCase()} can't be scheduled for an interview.`,
         );
       }
-      const live = await tx.rndtechnosoft_interviews.findFirst({ where: { tenant_id: tenantId, candidate_id: id, interview_status: 'SCHEDULED' } });
+      const live = await tx.rndtechnosoft_interviews.findFirst({ where: { tenant_id: tenantId, candidate_id: id, interview_status: { in: [...LIVE] } } });
       if (live) throw new ConflictException(`Round ${live.round_number} is already scheduled. Reschedule or cancel it instead of adding another.`);
       const lastRound = await tx.rndtechnosoft_interviews.aggregate({
-        where: { tenant_id: tenantId, candidate_id: id, interview_status: 'COMPLETED' },
+        where: { tenant_id: tenantId, candidate_id: id, interview_status: { in: [...HELD] } },
         _max: { round_number: true },
       });
       const roundNumber = (lastRound._max.round_number ?? 0) + 1;
@@ -173,11 +179,11 @@ export class InterviewsService {
     const timing = this.timing(input.startsAt, input.durationMinutes, input.timezone);
     const updated = await this.prisma.$transaction(async (tx) => {
       const interview = await this.lockInterview(tx, tenantId, interviewId);
-      if (interview.interview_status !== 'SCHEDULED') throw new ConflictException('Only a scheduled interview can be rescheduled.');
+      if (!isLive(interview.interview_status)) throw new ConflictException('Only a scheduled interview can be rescheduled.');
       const place = this.place(interview.interview_type, input.location ?? interview.location ?? undefined, input.meetingLink ?? interview.meeting_link ?? undefined);
       const saved = await tx.rndtechnosoft_interviews.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: interview.id } },
-        data: { scheduled_start: timing.start, duration_minutes: input.durationMinutes, timezone: input.timezone, ...place, updated_at: new Date() },
+        data: { scheduled_start: timing.start, duration_minutes: input.durationMinutes, timezone: input.timezone, ...place, interview_status: 'RESCHEDULED', updated_at: new Date() },
       });
       await this.candidates.recordEvent(tx, tenantId, interview.candidate_id, {
         type: 'INTERVIEW_RESCHEDULED',
@@ -195,7 +201,7 @@ export class InterviewsService {
   async cancel(tenantId: string, interviewId: string, input: CancelInterviewDto, actor: AuthenticatedTenantUser) {
     const cancelled = await this.prisma.$transaction(async (tx) => {
       const interview = await this.lockInterview(tx, tenantId, interviewId);
-      if (interview.interview_status !== 'SCHEDULED') throw new ConflictException('Only a scheduled interview can be cancelled.');
+      if (!isLive(interview.interview_status)) throw new ConflictException('Only a scheduled interview can be cancelled.');
       const saved = await tx.rndtechnosoft_interviews.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: interview.id } },
         data: { interview_status: 'CANCELLED', cancel_reason: input.reason.trim(), updated_at: new Date() },
@@ -203,8 +209,10 @@ export class InterviewsService {
       // Back to where the candidate was before this round: completed rounds, or screening.
       const candidate = await tx.rndtechnosoft_candidates.findFirstOrThrow({ where: { tenant_id: tenantId, id: interview.candidate_id } });
       const from = candidate.candidate_status as CandidateStatus;
-      const completed = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: interview.candidate_id, interview_status: 'COMPLETED' } });
-      const to: CandidateStatus = from === 'INTERVIEW_SCHEDULED' ? (completed > 0 ? 'INTERVIEW_COMPLETED' : 'SCREENING') : from;
+      const completed = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: interview.candidate_id, interview_status: { in: [...HELD] } } });
+      // With no round held yet, back to eligible if that was decided, else under review.
+      const before: CandidateStatus = candidate.eligibility_decision === 'ELIGIBLE' ? 'ELIGIBLE' : 'SCREENING';
+      const to: CandidateStatus = from === 'INTERVIEW_SCHEDULED' ? (completed > 0 ? 'INTERVIEW_COMPLETED' : before) : from;
       await this.candidates.setStatus(tx, tenantId, interview.candidate_id, from, to, {
         type: 'INTERVIEW_CANCELLED',
         summary: `Round ${interview.round_number} interview cancelled`,
@@ -222,7 +230,7 @@ export class InterviewsService {
   async complete(tenantId: string, interviewId: string, actor: AuthenticatedTenantUser) {
     const interview = await this.prisma.$transaction(async (tx) => {
       const current = await this.lockInterview(tx, tenantId, interviewId);
-      if (current.interview_status !== 'SCHEDULED') throw new ConflictException('Only a scheduled interview can be marked completed.');
+      if (!isLive(current.interview_status)) throw new ConflictException('Only a scheduled interview can be marked completed.');
       await this.markCompleted(tx, tenantId, current, actor);
       return current;
     });
@@ -239,7 +247,7 @@ export class InterviewsService {
       if (!panelist) throw new ForbiddenException('Only the interviewers on this interview can record feedback on it.');
       if (current.interview_status === 'CANCELLED') throw new ConflictException('This interview was cancelled.');
       if (current.decision) throw new ConflictException('A decision has already been made on this interview, so its feedback is final.');
-      if (current.interview_status === 'SCHEDULED') await this.markCompleted(tx, tenantId, current, actor);
+      if (isLive(current.interview_status)) await this.markCompleted(tx, tenantId, current, actor);
 
       await tx.rndtechnosoft_interview_panelists.update({
         where: { id: panelist.id },
@@ -265,8 +273,8 @@ export class InterviewsService {
   async decide(tenantId: string, interviewId: string, input: InterviewDecisionDto, actor: AuthenticatedTenantUser) {
     const interview = await this.prisma.$transaction(async (tx) => {
       const current = await this.lockInterview(tx, tenantId, interviewId);
-      if (current.interview_status !== 'COMPLETED') throw new ConflictException('Decide once the interview has been held (mark it completed or record feedback first).');
       if (current.decision) throw new ConflictException('A decision has already been recorded for this interview.');
+      if (current.interview_status !== 'COMPLETED') throw new ConflictException('Decide once the interview has been held (mark it completed or record feedback first).');
       const candidate = await this.candidates.lockCandidate(tx, tenantId, current.candidate_id);
       if (candidate.archived_at) throw new ConflictException('Restore the candidate before deciding.');
       const from = candidate.candidate_status as CandidateStatus;
@@ -276,7 +284,14 @@ export class InterviewsService {
 
       await tx.rndtechnosoft_interviews.update({
         where: { tenant_id_id: { tenant_id: tenantId, id: current.id } },
-        data: { decision: input.decision, decision_notes: input.notes?.trim() || null, decided_by_tenant_member_id: actor.tenantMemberId, decided_at: new Date(), updated_at: new Date() },
+        data: {
+          decision: input.decision,
+          interview_status: input.decision === 'REJECT' ? 'FAILED' : 'PASSED',
+          decision_notes: input.notes?.trim() || null,
+          decided_by_tenant_member_id: actor.tenantMemberId,
+          decided_at: new Date(),
+          updated_at: new Date(),
+        },
       });
       const to: CandidateStatus = input.decision === 'SELECT' ? 'SELECTED' : input.decision === 'REJECT' ? 'REJECTED' : from;
       await this.candidates.setStatus(tx, tenantId, current.candidate_id, from, to, {
@@ -305,7 +320,7 @@ export class InterviewsService {
     interview.interview_status = 'COMPLETED';
     const candidate = await this.candidates.lockCandidate(tx, tenantId, interview.candidate_id);
     const from = candidate.candidate_status as CandidateStatus;
-    const pending = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: interview.candidate_id, interview_status: 'SCHEDULED' } });
+    const pending = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: interview.candidate_id, interview_status: { in: [...LIVE] } } });
     const to: CandidateStatus = from === 'INTERVIEW_SCHEDULED' && pending === 0 ? 'INTERVIEW_COMPLETED' : from;
     await this.candidates.setStatus(tx, tenantId, interview.candidate_id, from, to, {
       type: 'INTERVIEW_COMPLETED',

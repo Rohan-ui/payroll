@@ -10,6 +10,8 @@ import {
   MAX_DOCUMENT_BYTES,
   onboardingApi,
   type CandidateDocuments as Documents,
+  type CandidateStatus,
+  ONBOARDING_STATUS_LABELS,
   type DocumentFile,
   type DocumentRequest,
   type DocumentState,
@@ -107,6 +109,21 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
   }, [candidateId]);
   useEffect(load, [load]);
 
+  const [applying, setApplying] = useState(false);
+  const applyChecklist = async (stage: 'APPLICATION' | 'JOINING') => {
+    setApplying(true);
+    try {
+      const before = documents?.requests.length ?? 0;
+      const next = await onboardingApi.applyChecklist(candidateId, stage);
+      const added = next.requests.length - before;
+      changed(next, added > 0 ? `${added} document${added === 1 ? '' : 's'} added from the checklist` : 'Everything in the checklist was already asked for');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'The checklist could not be applied.');
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const changed = (next: Documents, message: string, emails?: EmailOutcome[]) => {
     setDocuments(next);
     setOpen(null);
@@ -201,12 +218,9 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
     <>
       {section(
         <>
-          {hasRequests && (
-            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-              {counts.verified} of {counts.required} required verified
-              {counts.toReview > 0 ? ` · ${counts.toReview} to verify` : ''}
-            </p>
-          )}
+          {hasRequests && (documents.completion ? <Completion completion={documents.completion} toReview={counts.toReview} /> : (
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{counts.verified} of {counts.required} required verified{counts.toReview > 0 ? ` · ${counts.toReview} to verify` : ''}</p>
+          ))}
           {documents.canSendLink && hasRequests && (
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
               {link.sentAt
@@ -844,6 +858,12 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
             </button>
           )}
           {canManage && (
+            <button type="button" disabled={applying} onClick={() => applyChecklist(JOINING_STATUSES.includes(documents.candidateStatus) ? 'JOINING' : 'APPLICATION')} className={actionClass}
+              title="Ask for every document in the checklist that applies to this candidate's employment type">
+              {applying ? 'Applying…' : JOINING_STATUSES.includes(documents.candidateStatus) ? 'Apply joining checklist' : 'Apply application checklist'}
+            </button>
+          )}
+          {canManage && (
             <button type="button" onClick={() => setOpen({ kind: 'request' })} className={primaryClass}>
               Ask for documents
             </button>
@@ -1243,6 +1263,28 @@ const RejectDocumentRequestDialog: React.FC<{
         className={fieldClass}
       />
     </Dialog>
+  );
+};
+
+/** Statuses from which documents for joining are collected (after the offer is accepted). */
+const JOINING_STATUSES: CandidateStatus[] = ['OFFER_ACCEPTED', 'DOCUMENT_COLLECTION', 'VERIFICATION', 'READY_TO_JOIN'];
+
+/** Onboarding status and how many required documents are verified, as a bar with plain words. */
+const Completion: React.FC<{ completion: NonNullable<Documents['completion']>; toReview: number }> = ({ completion, toReview }) => {
+  const tone = completion.status === 'DOCUMENTS_COMPLETED' || completion.status === 'COMPLETED' ? 'success' : completion.status === 'DOCUMENTS_PENDING' ? 'warning' : 'info';
+  return (
+    <div className="mt-2 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+        <Badge variant={tone} size="sm">{ONBOARDING_STATUS_LABELS[completion.status]}</Badge>
+        <span>{completion.verified} of {completion.required} required verified</span>
+        {completion.missing > 0 && <span>· {completion.missing} missing</span>}
+        {completion.rejected > 0 && <span>· {completion.rejected} to re-upload</span>}
+        {toReview > 0 && <span>· {toReview} file{toReview === 1 ? '' : 's'} to verify</span>}
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-white/10" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completion.percent} aria-label="Required documents verified">
+        <div className="h-full rounded-full bg-teal-500 transition-[width] motion-reduce:transition-none" style={{ width: `${completion.percent}%` }} />
+      </div>
+    </div>
   );
 };
 

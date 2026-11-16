@@ -20,7 +20,8 @@ describe('candidate workflow', () => {
     );
     expect(refuseManualMove('SCREENING', 'INTERVIEW_SCHEDULED')).toMatch(/Schedule an interview/);
     expect(refuseManualMove('SELECTED', 'JOINED')).toMatch(/converted to an employee/);
-    expect(refuseManualMove('SCREENING', 'SCREENING')).toBe('The candidate is already screening.');
+    expect(refuseManualMove('SCREENING', 'SCREENING')).toBe('The candidate is already under review.');
+    expect(refuseManualMove('FORM_SUBMITTED', 'ELIGIBLE')).toMatch(/eligibility decision/);
   });
 
   it('treats closed statuses as final except by override', () => {

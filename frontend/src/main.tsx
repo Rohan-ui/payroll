@@ -4,6 +4,7 @@ import App from './App';
 import { PublicOfferView } from './views/public/PublicOfferView';
 import { PublicDocumentsView } from './views/public/PublicDocumentsView';
 import { PublicUnsubscribeView } from './views/public/PublicUnsubscribeView';
+import { PublicCandidateFormView } from './views/public/PublicCandidateFormView';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -12,14 +13,15 @@ if (!rootElement) {
   throw new Error('Failed to find root element');
 }
 
-// A candidate's offer and document links, and the unsubscribe link in sequence emails, open on their own, outside sign-in: their token is the only key.
+// A candidate's form, offer and document links, and the unsubscribe link in sequence emails, open on their own, outside sign-in: their token is the only key.
 const linkToken = (path: string) => (window.location.pathname === path ? new URLSearchParams(window.location.search).get('token') : null);
 const offerToken = linkToken('/offer');
 const documentsToken = linkToken('/documents');
 const unsubscribeToken = linkToken('/unsubscribe');
+const candidateFormToken = linkToken('/candidate-form');
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    {offerToken !== null ? <PublicOfferView token={offerToken} /> : documentsToken !== null ? <PublicDocumentsView token={documentsToken} /> : unsubscribeToken !== null ? <PublicUnsubscribeView token={unsubscribeToken} /> : <App />}
+    {offerToken !== null ? <PublicOfferView token={offerToken} /> : documentsToken !== null ? <PublicDocumentsView token={documentsToken} /> : unsubscribeToken !== null ? <PublicUnsubscribeView token={unsubscribeToken} /> : candidateFormToken !== null ? <PublicCandidateFormView token={candidateFormToken} /> : <App />}
   </React.StrictMode>,
 );

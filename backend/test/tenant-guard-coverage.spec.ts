@@ -25,6 +25,7 @@ import { UsersController } from '@/modules/tenants/users.controller';
 import { PermissionsController } from '@/modules/tenants/permissions.controller';
 import { OnboardingController } from '@/modules/onboarding/onboarding.controller';
 import { PublicOffersController } from '@/modules/onboarding/public-offers.controller';
+import { PublicCandidateFormController } from '@/modules/onboarding/public-candidate-form.controller';
 import { PublicCandidateDocumentsController } from '@/modules/onboarding/public-candidate-documents.controller';
 import { MailAccountsController } from '@/modules/mail/mail-accounts.controller';
 import { EmailSequencesController } from '@/modules/email-sequences/email-sequences.controller';
@@ -34,6 +35,8 @@ import { PayrollAdjustmentsController } from '@/modules/payroll/payroll-adjustme
 import { PerformanceLibraryController } from '@/modules/performance/performance-library.controller';
 import { PerformanceTemplatesController } from '@/modules/performance/performance-templates.controller';
 import { PerformanceWorkflowsController } from '@/modules/performance/performance-workflows.controller';
+import { EmployeeProfileController } from '@/modules/employees/employee-profile.controller';
+import { EmployeeDocumentsController } from '@/modules/employees/employee-documents.controller';
 import { EmployeeRelationsController } from '@/modules/employees/employee-relations.controller';
 import { PerformanceCyclesController } from '@/modules/performance/performance-cycles.controller';
 import { PerformanceMyController } from '@/modules/performance/performance-my.controller';
@@ -71,6 +74,7 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['OnboardingController', OnboardingController],
   ['PublicOffersController', PublicOffersController],
   ['PublicCandidateDocumentsController', PublicCandidateDocumentsController],
+  ['PublicCandidateFormController', PublicCandidateFormController],
   ['MailAccountsController', MailAccountsController],
   ['EmailSequencesController', EmailSequencesController],
   ['PublicUnsubscribeController', PublicUnsubscribeController],
@@ -80,6 +84,8 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['PerformanceTemplatesController', PerformanceTemplatesController],
   ['PerformanceWorkflowsController', PerformanceWorkflowsController],
   ['EmployeeRelationsController', EmployeeRelationsController],
+  ['EmployeeProfileController', EmployeeProfileController],
+  ['EmployeeDocumentsController', EmployeeDocumentsController],
   ['PerformanceCyclesController', PerformanceCyclesController],
   ['PerformanceMyController', PerformanceMyController],
   ['DocumentsController', DocumentsController],
@@ -111,7 +117,14 @@ const EXPECTED_PUBLIC_ROUTES = [
   // A candidate's document upload link: the same kind of emailed token, expiring after 30 days and replaced by
   // any newer link. It lists and takes uploads for that one candidate's requested documents, never returns a file.
   'PublicCandidateDocumentsController.view',
-  'PublicCandidateDocumentsController.upload',
+  'PublicCandidateDocumentsController.uploadSingleOrBatch',
+  'PublicCandidateDocumentsController.uploadBatch',
+  // A candidate's information form link: the same kind of emailed 256-bit token (stored only as a hash), expiring
+  // after 14 days and cleared by its single submission. It shows and saves only that one candidate's own details.
+  'PublicCandidateFormController.view',
+  'PublicCandidateFormController.submit',
+  // Uploads for the documents that form asks for, refused before the body is read for unknown links, checked by content.
+  'PublicCandidateFormController.upload',
 ].sort();
 
 function routesOf(name: string, controller: ControllerClass) {
@@ -269,6 +282,7 @@ describe('Tenant route guard coverage', () => {
       // Public token routes carry no permission; the service refuses them while HRMS is off.
       ['PublicOffersController', []],
       ['PublicCandidateDocumentsController', []],
+      ['PublicCandidateFormController', []],
       // Mail accounts belong to the workspace, not to a business module.
       ['MailAccountsController', [null]],
       ['EmailSequencesController', ['CRM']],
@@ -279,6 +293,8 @@ describe('Tenant route guard coverage', () => {
       ['PerformanceTemplatesController', ['HRMS']],
       ['PerformanceWorkflowsController', ['HRMS']],
       ['EmployeeRelationsController', ['HRMS']],
+      ['EmployeeProfileController', ['HRMS']],
+      ['EmployeeDocumentsController', ['HRMS']],
       ['PerformanceCyclesController', ['HRMS']],
       ['PerformanceMyController', ['HRMS']],
       // Document templates and letterheads belong to the organization, shared by HRMS and CRM.

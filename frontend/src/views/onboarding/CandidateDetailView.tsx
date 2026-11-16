@@ -1,3 +1,4 @@
+import { CandidateFormPanel } from './CandidateFormPanel';
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import { ArrowLeft, UserCheck, Fingerprint, ExternalLink, Sparkles } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
@@ -34,7 +35,7 @@ import {
 } from './onboarding-format';
 import { CancelInterviewDialog, DecisionDialog, describeEmails, FeedbackDialog, ScheduleInterviewDialog } from './InterviewDialogs';
 import { OFFER_VARIANT } from './OfferDetailView';
-import { OFFER_STATUS_LABELS } from '../../api/onboarding.api';
+import { OFFER_STATUS_LABELS, INTERVIEW_STATUS_META, isLiveInterview } from '../../api/onboarding.api';
 import { CandidateDocuments } from './CandidateDocuments';
 import { CandidateLetterDocuments } from './CandidateLetterDocuments';
 import { ConvertToEmployeeModal } from './ConvertToEmployeeModal';
@@ -56,7 +57,7 @@ type Open =
   | { kind: 'archive' }
   | null;
 
-const SCHEDULABLE: CandidateStatus[] = ['SCREENING', 'INTERVIEW_SCHEDULED', 'INTERVIEW_COMPLETED'];
+const SCHEDULABLE: CandidateStatus[] = ['SCREENING', 'ELIGIBLE', 'INTERVIEW_SCHEDULED', 'INTERVIEW_COMPLETED'];
 const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500';
 
 /** A candidate's details, stage, interviews and full timeline, with the actions the viewer may take. */
@@ -108,7 +109,7 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
   }
 
   const archived = Boolean(candidate.archivedAt);
-  const hasLiveInterview = candidate.interviews.some((i) => i.status === 'SCHEDULED');
+  const hasLiveInterview = candidate.interviews.some((i) => isLiveInterview(i.status));
   const canSchedule = can('onboarding.interviews.schedule') && !archived && SCHEDULABLE.includes(candidate.status) && !hasLiveInterview;
   const now = Date.now();
 
@@ -294,6 +295,7 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
             </dl>
           </section>
 
+          <CandidateFormPanel candidate={candidate} onChanged={(next, notice) => { setCandidate(next); setEmailNotice(notice); }} />
 
           {can('onboarding.documents.view') && <CandidateLetterDocuments candidateId={candidate.id} candidateName={candidate.fullName} />}
 
@@ -312,7 +314,7 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
                   const canFeedback = interview.isMine && can('onboarding.interviews.feedback') && interview.status !== 'CANCELLED' && !interview.decision && started;
                   const canDecide =
                     can('onboarding.candidates.decide') && interview.status === 'COMPLETED' && !interview.decision && candidate.status === 'INTERVIEW_COMPLETED';
-                  const canManage = can('onboarding.interviews.schedule') && interview.status === 'SCHEDULED';
+                  const canManage = can('onboarding.interviews.schedule') && isLiveInterview(interview.status);
                   return (
                     <li key={interview.id} className="p-3 rounded-xl border border-slate-200 dark:border-[#2B293E]">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -328,8 +330,8 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
                             <a href={interview.meetingLink} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-700 dark:text-teal-300 hover:underline break-all">{interview.meetingLink}</a>
                           )}
                         </div>
-                        <Badge variant={interview.status === 'CANCELLED' ? 'neutral' : interview.status === 'COMPLETED' ? 'success' : 'purple'} size="sm">
-                          {interview.status === 'SCHEDULED' ? 'Scheduled' : interview.status === 'COMPLETED' ? 'Held' : 'Cancelled'}
+                        <Badge variant={INTERVIEW_STATUS_META[interview.status].variant} size="sm">
+                          {INTERVIEW_STATUS_META[interview.status].label}
                         </Badge>
                       </div>
                       {interview.cancelReason && <p className="mt-1 text-xs text-slate-600">Cancelled: {interview.cancelReason}</p>}

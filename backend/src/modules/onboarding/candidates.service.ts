@@ -97,7 +97,7 @@ export class CandidatesService {
             },
           },
           rndtechnosoft_interviews: {
-            where: { interview_status: 'SCHEDULED' },
+            where: { interview_status: { in: ['SCHEDULED', 'RESCHEDULED'] } },
             orderBy: { scheduled_start: 'asc' },
             take: 1,
             select: { id: true, scheduled_start: true, round_number: true, timezone: true },
@@ -431,7 +431,8 @@ export class CandidatesService {
       publishedVersion?.rndtechnosoft_onboarding_workflow_stages.find((s) => s.is_initial) ||
       publishedVersion?.rndtechnosoft_onboarding_workflow_stages[0];
 
-    const initialStatus = initialStage?.stage_key || 'NEW';
+    // Every candidate starts as NEW; the workflow's first stage is where they sit in the diagram.
+    const initialStatus: CandidateStatus = 'NEW';
 
     const candidate = await this.withCandidateCode((code) =>
       this.prisma.$transaction(async (tx) => {
@@ -578,10 +579,20 @@ export class CandidatesService {
             }
           }
 
+          // The diagram places the candidate in a stage; it never sets a status that only an
+          // action may set (selected, offer sent, joined…). A stage named after a status the
+          // process allows by hand moves the status too; any other stage leaves it as it is.
+          let nextStatus = fromStatus;
+          if (isCandidateStatus(targetStage.stage_key) && targetStage.stage_key !== fromStatus) {
+            const refusal = refuseManualMove(fromStatus as CandidateStatus, targetStage.stage_key);
+            if (refusal) throw new ConflictException(refusal);
+            nextStatus = targetStage.stage_key;
+          }
+          toStatus = nextStatus;
           await tx.rndtechnosoft_candidates.update({
             where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
             data: {
-              candidate_status: targetStage.stage_key,
+              candidate_status: nextStatus,
               current_stage_id: targetStage.id,
               workflow_version_id: versionId,
               updated_at: new Date(),
@@ -692,10 +703,12 @@ export class CandidatesService {
           toStatus = targetStage.stage_key;
           targetStageName = targetStage.name;
 
+          // An override may set any real status; a stage that is not a status only moves the stage.
+          toStatus = isCandidateStatus(targetStage.stage_key) ? targetStage.stage_key : fromStatus;
           await tx.rndtechnosoft_candidates.update({
             where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
             data: {
-              candidate_status: targetStage.stage_key,
+              candidate_status: toStatus,
               current_stage_id: targetStage.id,
               workflow_version_id: versionId,
               updated_at: new Date(),
@@ -758,7 +771,7 @@ export class CandidatesService {
       const current = await this.lockCandidate(tx, tenantId, candidateId);
       if (archived === Boolean(current.archived_at)) return;
       if (archived) {
-        const live = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: candidateId, interview_status: 'SCHEDULED' } });
+        const live = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: candidateId, interview_status: { in: ['SCHEDULED', 'RESCHEDULED'] } } });
         if (live > 0) throw new ConflictException('Cancel the scheduled interview before archiving the candidate.');
       } else {
         await this.assertEmailFree(tenantId, current.email, candidateId);

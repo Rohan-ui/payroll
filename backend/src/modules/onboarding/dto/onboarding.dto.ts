@@ -304,7 +304,7 @@ export class ListInterviewsQueryDto {
   to!: string;
 
   @IsOptional()
-  @IsIn(['SCHEDULED', 'COMPLETED', 'CANCELLED'])
+  @IsIn(['SCHEDULED', 'RESCHEDULED', 'COMPLETED', 'PASSED', 'FAILED', 'CANCELLED'])
   status?: string;
 
   /** Only interviews the signed-in member is on. */
@@ -567,6 +567,18 @@ export class RejectDocumentDto {
 }
 
 export class CreateDocumentTypeDto {
+  /** When it is asked for: with the candidate form, or at joining. */
+  @IsOptional()
+  @IsIn(['APPLICATION', 'JOINING'])
+  collectAt?: 'APPLICATION' | 'JOINING';
+
+  /** The employment types it applies to; empty means everyone. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  employmentTypeIds?: string[];
+
   @IsString()
   @MinLength(2)
   @MaxLength(50)
@@ -645,6 +657,18 @@ export class CreateDocumentTypeDto {
 }
 
 export class UpdateDocumentTypeDto {
+  /** When it is asked for: with the candidate form, or at joining. */
+  @IsOptional()
+  @IsIn(['APPLICATION', 'JOINING'])
+  collectAt?: 'APPLICATION' | 'JOINING';
+
+  /** The employment types it applies to; empty means everyone. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  employmentTypeIds?: string[];
+
   @IsOptional()
   @IsString()
   @MinLength(2)

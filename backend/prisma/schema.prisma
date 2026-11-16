@@ -681,6 +681,7 @@ model rndtechnosoft_employment_types {
 
   @@unique([tenant_id, employment_type_code], map: "uq_employment_types_1")
   @@unique([tenant_id, id], map: "uq_employment_types_tenant_id")
+  rndtechnosoft_document_type_employment_types rndtechnosoft_document_type_employment_types[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1610,6 +1611,7 @@ model rndtechnosoft_tenant_members {
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
   @@index([tenant_id, membership_status], map: "ix_tenant_members_1")
+  candidates_eligibility_decided         rndtechnosoft_candidates[] @relation("candidate_eligibility_decided_by")
 }
 
 /// One Gmail IMAP connection per application user and workspace. OAuth state is
@@ -2637,6 +2639,33 @@ model rndtechnosoft_candidates {
   workflow_id                 String?   @db.Uuid
   workflow_version_id         String?   @db.Uuid
   current_stage_id            String?   @db.Uuid
+  form_token_hash                         String?   @unique(map: "uq_candidates_form_token") @db.Char(64)
+  form_link_number                        Int       @default(0)
+  form_link_sent_at                       DateTime? @db.Timestamptz(6)
+  form_link_expires_at                    DateTime? @db.Timestamptz(6)
+  form_request_message                    String?   @db.VarChar(1000)
+  form_submitted_at                       DateTime? @db.Timestamptz(6)
+  date_of_birth                           DateTime? @db.Date
+  gender_code                             String?   @db.VarChar(16)
+  alternate_phone                         String?   @db.VarChar(32)
+  notice_period_days                      Int?
+  last_working_date                       DateTime? @db.Date
+  skills                                  String?   @db.VarChar(2000)
+  additional_information                  String?   @db.VarChar(2000)
+  emergency_contact_name                  String?   @db.VarChar(160)
+  emergency_contact_relationship          String?   @db.VarChar(64)
+  emergency_contact_phone                 String?   @db.VarChar(32)
+  /// ELIGIBLE or NOT_ELIGIBLE (CHECK); a NOT_ELIGIBLE decision always has a reason.
+  eligibility_decision                    String?   @db.VarChar(16)
+  eligibility_decided_at                  DateTime? @db.Timestamptz(6)
+  eligibility_decided_by_tenant_member_id String?   @db.Uuid
+  eligibility_remarks                     String?   @db.VarChar(2000)
+  eligibility_reason                      String?   @db.VarChar(500)
+  eligibility_decided_by                  rndtechnosoft_tenant_members? @relation("candidate_eligibility_decided_by", fields: [tenant_id, eligibility_decided_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidates_eligibility_by")
+  rndtechnosoft_candidate_addresses       rndtechnosoft_candidate_addresses[]
+  rndtechnosoft_candidate_education       rndtechnosoft_candidate_education[]
+  rndtechnosoft_candidate_experience      rndtechnosoft_candidate_experience[]
+  rndtechnosoft_candidate_references      rndtechnosoft_candidate_references[]
   created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
@@ -2940,6 +2969,8 @@ model rndtechnosoft_document_types {
   requires_verification       Boolean   @default(true)
   can_reupload_rejected       Boolean   @default(true)
   slots                       Json?
+  /// APPLICATION (asked for with the candidate form) or JOINING (after the offer is accepted).
+  collect_at                  String    @default("JOINING") @db.VarChar(16)
   is_active                   Boolean   @default(true)
   created_by_tenant_member_id String?   @db.Uuid
   created_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
@@ -2949,6 +2980,7 @@ model rndtechnosoft_document_types {
   created_by                                rndtechnosoft_tenant_members?              @relation("document_types_created_by", fields: [tenant_id, created_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_document_types_created_by")
   rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests[]
 
+  rndtechnosoft_document_type_employment_types rndtechnosoft_document_type_employment_types[]
   @@unique([tenant_id, id], map: "uq_document_types_tenant_id")
   @@unique([tenant_id, code], map: "uq_document_types_tenant_code")
   @@index([tenant_id, is_active], map: "ix_document_types_tenant_active")
@@ -5013,3 +5045,92 @@ model rndtechnosoft_crm_whatsapp_logs {
   @@index([tenant_id, lead_id], map: "ix_crm_whatsapp_logs_lead")
 }
 
+
+model rndtechnosoft_candidate_addresses {
+  id             String   @id @db.Uuid
+  tenant_id      String   @db.Uuid
+  candidate_id   String   @db.Uuid
+  /// CURRENT or PERMANENT (CHECK); one of each per candidate.
+  address_type   String   @db.VarChar(16)
+  address_line_1 String   @db.VarChar(200)
+  address_line_2 String?  @db.VarChar(200)
+  city           String   @db.VarChar(120)
+  state_region   String?  @db.VarChar(120)
+  postal_code    String?  @db.VarChar(24)
+  country_code   String   @db.Char(2)
+  created_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates rndtechnosoft_candidates @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_addresses_candidate")
+
+  @@unique([tenant_id, candidate_id, address_type], map: "uq_candidate_addresses_type")
+  @@unique([tenant_id, id], map: "uq_candidate_addresses_tenant_id")
+}
+
+model rndtechnosoft_candidate_education {
+  id            String   @id @db.Uuid
+  tenant_id     String   @db.Uuid
+  candidate_id  String   @db.Uuid
+  qualification String   @db.VarChar(160)
+  institution   String   @db.VarChar(200)
+  university    String?  @db.VarChar(200)
+  passing_year  Int?
+  score         String?  @db.VarChar(32)
+  sort_order    Int      @default(0)
+  created_at    DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates rndtechnosoft_candidates @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_education_candidate")
+
+  @@unique([tenant_id, id], map: "uq_candidate_education_tenant_id")
+  @@index([tenant_id, candidate_id], map: "ix_candidate_education_candidate")
+}
+
+model rndtechnosoft_candidate_experience {
+  id               String    @id @db.Uuid
+  tenant_id        String    @db.Uuid
+  candidate_id     String    @db.Uuid
+  company_name     String    @db.VarChar(200)
+  designation      String    @db.VarChar(160)
+  start_date       DateTime? @db.Date
+  end_date         DateTime? @db.Date
+  is_current       Boolean   @default(false)
+  last_salary      Decimal?  @db.Decimal(14, 2)
+  responsibilities String?   @db.VarChar(2000)
+  sort_order       Int       @default(0)
+  created_at       DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates rndtechnosoft_candidates @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_experience_candidate")
+
+  @@unique([tenant_id, id], map: "uq_candidate_experience_tenant_id")
+  @@index([tenant_id, candidate_id], map: "ix_candidate_experience_candidate")
+}
+
+model rndtechnosoft_candidate_references {
+  id             String   @id @db.Uuid
+  tenant_id      String   @db.Uuid
+  candidate_id   String   @db.Uuid
+  reference_name String   @db.VarChar(160)
+  relationship   String?  @db.VarChar(120)
+  company_name   String?  @db.VarChar(200)
+  phone          String?  @db.VarChar(32)
+  email          String?  @db.VarChar(320)
+  created_at     DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_candidates rndtechnosoft_candidates @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_references_candidate")
+
+  @@unique([tenant_id, id], map: "uq_candidate_references_tenant_id")
+  @@index([tenant_id, candidate_id], map: "ix_candidate_references_candidate")
+}
+
+/// The employment types a document type applies to; none listed means it applies to everyone.
+model rndtechnosoft_document_type_employment_types {
+  id                 String   @id @db.Uuid
+  tenant_id          String   @db.Uuid
+  document_type_id   String   @db.Uuid
+  employment_type_id String   @db.Uuid
+  created_at         DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_document_types   rndtechnosoft_document_types   @relation(fields: [tenant_id, document_type_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_doc_type_emp_types_type")
+  rndtechnosoft_employment_types rndtechnosoft_employment_types @relation(fields: [tenant_id, employment_type_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_doc_type_emp_types_employment")
+
+  @@unique([tenant_id, document_type_id, employment_type_id], map: "uq_doc_type_emp_types")
+}

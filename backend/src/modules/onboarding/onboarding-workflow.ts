@@ -14,7 +14,11 @@
 
 export const CANDIDATE_STATUSES = [
   'NEW',
+  'FORM_SENT',
+  'FORM_SUBMITTED',
   'SCREENING',
+  'ELIGIBLE',
+  'NOT_ELIGIBLE',
   'INTERVIEW_SCHEDULED',
   'INTERVIEW_COMPLETED',
   'SELECTED',
@@ -33,28 +37,36 @@ export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
 
 export const CANDIDATE_STATUS_LABELS: Record<CandidateStatus, string> = {
   NEW: 'New',
-  SCREENING: 'Screening',
+  FORM_SENT: 'Form sent',
+  FORM_SUBMITTED: 'Form submitted',
+  SCREENING: 'Under review',
+  ELIGIBLE: 'Eligible',
+  NOT_ELIGIBLE: 'Not eligible',
   INTERVIEW_SCHEDULED: 'Interview scheduled',
   INTERVIEW_COMPLETED: 'Interview completed',
   SELECTED: 'Selected',
   REJECTED: 'Rejected',
-  OFFER_SENT: 'Offer sent',
+  OFFER_SENT: 'Offer released',
   OFFER_ACCEPTED: 'Offer accepted',
   OFFER_DECLINED: 'Offer declined',
   DOCUMENT_COLLECTION: 'Document collection',
   VERIFICATION: 'Verification',
   READY_TO_JOIN: 'Ready to join',
-  JOINED: 'Joined',
+  JOINED: 'Converted to employee',
   WITHDRAWN: 'Withdrawn',
 };
 
 /** Statuses a candidate leaves only by override: the process has ended for them. */
-export const CLOSED_STATUSES: readonly CandidateStatus[] = ['REJECTED', 'OFFER_DECLINED', 'JOINED', 'WITHDRAWN'];
+export const CLOSED_STATUSES: readonly CandidateStatus[] = ['REJECTED', 'NOT_ELIGIBLE', 'OFFER_DECLINED', 'JOINED', 'WITHDRAWN'];
 
 /** Moves someone may make by hand. Everything else happens through its own action. */
 const MANUAL_MOVES: Record<CandidateStatus, readonly CandidateStatus[]> = {
   NEW: ['SCREENING', 'REJECTED', 'WITHDRAWN'],
+  FORM_SENT: ['REJECTED', 'WITHDRAWN'],
+  FORM_SUBMITTED: ['SCREENING', 'WITHDRAWN'],
   SCREENING: ['REJECTED', 'WITHDRAWN'],
+  ELIGIBLE: ['WITHDRAWN'],
+  NOT_ELIGIBLE: [],
   INTERVIEW_SCHEDULED: ['WITHDRAWN'],
   INTERVIEW_COMPLETED: ['WITHDRAWN'],
   SELECTED: ['OFFER_SENT', 'DOCUMENT_COLLECTION', 'READY_TO_JOIN', 'REJECTED', 'WITHDRAWN'],
@@ -71,6 +83,10 @@ const MANUAL_MOVES: Record<CandidateStatus, readonly CandidateStatus[]> = {
 
 /** How a status is reached when it is not a hand move, for explaining a refusal. */
 const REACHED_BY: Partial<Record<CandidateStatus, string>> = {
+  FORM_SENT: 'Send the candidate their information form.',
+  FORM_SUBMITTED: 'This happens when the candidate submits their form.',
+  ELIGIBLE: 'Record an eligibility decision.',
+  NOT_ELIGIBLE: 'Record an eligibility decision.',
   INTERVIEW_SCHEDULED: 'Schedule an interview for the candidate.',
   INTERVIEW_COMPLETED: 'Mark the interview completed, or record feedback on it.',
   SELECTED: 'Record a "select" decision on a completed interview.',
@@ -108,4 +124,10 @@ export function refuseOverride(from: CandidateStatus, to: CandidateStatus): stri
 }
 
 /** Statuses from which an interview may be scheduled. */
-export const SCHEDULABLE_FROM: readonly CandidateStatus[] = ['SCREENING', 'INTERVIEW_SCHEDULED', 'INTERVIEW_COMPLETED'];
+export const SCHEDULABLE_FROM: readonly CandidateStatus[] = ['SCREENING', 'ELIGIBLE', 'INTERVIEW_SCHEDULED', 'INTERVIEW_COMPLETED'];
+
+/** Statuses from which the candidate information form may be sent (again, to ask for more). */
+export const FORM_SENDABLE_FROM: readonly CandidateStatus[] = ['NEW', 'FORM_SENT', 'FORM_SUBMITTED', 'SCREENING'];
+
+/** Statuses in which an eligibility decision may be recorded. */
+export const ELIGIBILITY_FROM: readonly CandidateStatus[] = ['NEW', 'FORM_SUBMITTED', 'SCREENING'];

@@ -5,7 +5,11 @@ import { apiClient, apiFetch } from './client';
 
 export type CandidateStatus =
   | 'NEW'
+  | 'FORM_SENT'
+  | 'FORM_SUBMITTED'
   | 'SCREENING'
+  | 'ELIGIBLE'
+  | 'NOT_ELIGIBLE'
   | 'INTERVIEW_SCHEDULED'
   | 'INTERVIEW_COMPLETED'
   | 'SELECTED'
@@ -20,24 +24,28 @@ export type CandidateStatus =
   | 'WITHDRAWN';
 
 export const CANDIDATE_STATUSES: CandidateStatus[] = [
-  'NEW', 'SCREENING', 'INTERVIEW_SCHEDULED', 'INTERVIEW_COMPLETED', 'SELECTED', 'REJECTED', 'OFFER_SENT',
+  'NEW', 'FORM_SENT', 'FORM_SUBMITTED', 'SCREENING', 'ELIGIBLE', 'NOT_ELIGIBLE', 'INTERVIEW_SCHEDULED', 'INTERVIEW_COMPLETED', 'SELECTED', 'REJECTED', 'OFFER_SENT',
   'OFFER_ACCEPTED', 'OFFER_DECLINED', 'DOCUMENT_COLLECTION', 'VERIFICATION', 'READY_TO_JOIN', 'JOINED', 'WITHDRAWN',
 ];
 
 export const STATUS_LABELS: Record<CandidateStatus, string> = {
   NEW: 'New',
-  SCREENING: 'Screening',
+  FORM_SENT: 'Form sent',
+  FORM_SUBMITTED: 'Form submitted',
+  SCREENING: 'Under review',
+  ELIGIBLE: 'Eligible',
+  NOT_ELIGIBLE: 'Not eligible',
   INTERVIEW_SCHEDULED: 'Interview scheduled',
   INTERVIEW_COMPLETED: 'Interview completed',
   SELECTED: 'Selected',
   REJECTED: 'Rejected',
-  OFFER_SENT: 'Offer sent',
+  OFFER_SENT: 'Offer released',
   OFFER_ACCEPTED: 'Offer accepted',
   OFFER_DECLINED: 'Offer declined',
   DOCUMENT_COLLECTION: 'Document collection',
   VERIFICATION: 'Verification',
   READY_TO_JOIN: 'Ready to join',
-  JOINED: 'Joined',
+  JOINED: 'Converted to employee',
   WITHDRAWN: 'Withdrawn',
 };
 
@@ -63,6 +71,20 @@ export interface CandidateSummary {
   nextInterview?: { id: string; scheduled_start: string; round_number: number; timezone: string } | null;
 }
 
+export type InterviewStatus = 'SCHEDULED' | 'RESCHEDULED' | 'COMPLETED' | 'PASSED' | 'FAILED' | 'CANCELLED';
+
+export const INTERVIEW_STATUS_META: Record<InterviewStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' | 'purple' }> = {
+  SCHEDULED: { label: 'Scheduled', variant: 'purple' },
+  RESCHEDULED: { label: 'Rescheduled', variant: 'warning' },
+  COMPLETED: { label: 'Held, awaiting decision', variant: 'info' },
+  PASSED: { label: 'Passed', variant: 'success' },
+  FAILED: { label: 'Failed', variant: 'danger' },
+  CANCELLED: { label: 'Cancelled', variant: 'neutral' },
+};
+
+/** A round still to happen. */
+export const isLiveInterview = (status: InterviewStatus) => status === 'SCHEDULED' || status === 'RESCHEDULED';
+
 export interface InterviewPanelist {
   memberId: string;
   name: string | null;
@@ -83,7 +105,7 @@ export interface CandidateInterview {
   location: string | null;
   meetingLink: string | null;
   instructions: string | null;
-  status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
+  status: InterviewStatus;
   cancelReason: string | null;
   decision: 'ADVANCE' | 'SELECT' | 'REJECT' | null;
   decisionNotes: string | null;
@@ -123,6 +145,27 @@ export interface LinkedEmployeeSummary {
     lastSyncedAt: string | null;
     lastSyncResult: string | null;
   } | null;
+}
+
+/** An address as the candidate entered it. */
+export interface FormAddress { addressLine1: string; addressLine2?: string | null; city: string; stateRegion?: string | null; postalCode?: string | null; countryCode: string }
+export interface FormEducation { qualification: string; institution: string; university?: string | null; passingYear?: number | null; score?: string | null }
+export interface FormExperience { companyName: string; designation: string; startDate?: string | null; endDate?: string | null; isCurrent?: boolean; lastSalary?: string | null; responsibilities?: string | null }
+export interface FormReference { name: string; relationship?: string | null; companyName?: string | null; phone?: string | null; email?: string | null }
+
+/** What the candidate submitted, and the eligibility decision, for HR's review. */
+export interface CandidateFormReview {
+  form: { linkNumber: number; sentAt: string | null; expiresAt: string | null; isOpen: boolean; submittedAt: string | null; requestMessage: string | null };
+  personal: {
+    fullName: string; email: string; phone: string | null; alternatePhone: string | null; dateOfBirth: string | null; genderCode: string | null;
+    totalExperienceYears: string | null; expectedSalary: string | null; noticePeriodDays: number | null; lastWorkingDate: string | null; skills: string | null;
+    emergencyContactName: string | null; emergencyContactRelationship: string | null; emergencyContactPhone: string | null; additionalInformation: string | null;
+  };
+  addresses: { CURRENT: FormAddress | null; PERMANENT: FormAddress | null };
+  education: FormEducation[];
+  experience: FormExperience[];
+  references: FormReference[];
+  eligibility: { decision: 'ELIGIBLE' | 'NOT_ELIGIBLE'; decidedAt: string; decidedBy: string | null; remarks: string | null; reason: string | null } | null;
 }
 
 export interface CandidateDetail extends CandidateSummary {
@@ -240,7 +283,7 @@ export const OFFER_STATUS_LABELS: Record<OfferStatus, string> = {
   ACCEPTED: 'Accepted',
   DECLINED: 'Declined',
   EXPIRED: 'Expired',
-  WITHDRAWN: 'Withdrawn',
+  WITHDRAWN: 'Cancelled',
 };
 
 export interface OfferInput {
@@ -409,7 +452,7 @@ export interface InterviewListItem {
   timezone: string;
   location: string | null;
   meetingLink: string | null;
-  status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
+  status: InterviewStatus;
   decision: 'ADVANCE' | 'SELECT' | 'REJECT' | null;
   panel: { memberId: string; name: string; feedbackSubmitted: boolean }[];
   isMine: boolean;
@@ -551,9 +594,23 @@ export interface DocumentTypeItem {
   canReuploadRejected: boolean;
   slots: string[] | null;
   isActive: boolean;
+  /** Asked for with the candidate form (APPLICATION) or once the offer is accepted (JOINING). */
+  collectAt: 'APPLICATION' | 'JOINING';
+  /** Empty: applies to every employment type. */
+  employmentTypeIds: string[];
   createdAt: string;
   updatedAt: string;
 }
+
+export type OnboardingStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_COMPLETED' | 'COMPLETED';
+
+export const ONBOARDING_STATUS_LABELS: Record<OnboardingStatus, string> = {
+  NOT_STARTED: 'Not started',
+  IN_PROGRESS: 'In progress',
+  DOCUMENTS_PENDING: 'Documents pending',
+  DOCUMENTS_COMPLETED: 'Documents completed',
+  COMPLETED: 'Completed',
+};
 
 export interface CandidateDocuments {
   candidateStatus: CandidateStatus;
@@ -561,6 +618,7 @@ export interface CandidateDocuments {
   canSendLink: boolean;
   link: { sentAt: string | null; expiresAt: string | null };
   counts: { required: number; verified: number; toReview: number };
+  completion?: { percent: number; required: number; verified: number; missing: number; rejected: number; awaitingReview: number; status: OnboardingStatus };
   types: {
     type: string;
     label: string;
@@ -772,6 +830,13 @@ export const onboardingApi = {
     apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/${requestId}/reject`, { reason }).then((r) => r.data),
   removeDocumentFile: (candidateId: string, requestId: string, fileId: string) =>
     apiClient.delete<Envelope<CandidateDocuments>>(`${BASE}/candidates/${candidateId}/documents/${requestId}/files/${fileId}`).then((r) => r.data),
+  sendForm: (candidateId: string, message?: string, channels: ('EMAIL' | 'WHATSAPP')[] = ['EMAIL']) =>
+    apiClient.post<Envelope<CandidateDetail> & { notifications?: EmailOutcome[] }>(`${BASE}/candidates/${candidateId}/form/send`, { ...(message ? { message } : {}), channels }).then((r) => ({ candidate: r.data, notifications: r.notifications ?? [] })),
+  candidateForm: (candidateId: string) => apiClient.get<Envelope<CandidateFormReview>>(`${BASE}/candidates/${candidateId}/form`).then((r) => r.data),
+  decideEligibility: (candidateId: string, input: { decision: 'ELIGIBLE' | 'NOT_ELIGIBLE'; remarks?: string; reason?: string; notifyCandidate?: boolean; notifyWhatsApp?: boolean }) =>
+    apiClient.post<Envelope<CandidateDetail> & { notifications?: EmailOutcome[] }>(`${BASE}/candidates/${candidateId}/eligibility`, input).then((r) => ({ candidate: r.data, notifications: r.notifications ?? [] })),
+  applyChecklist: (candidateId: string, stage: 'APPLICATION' | 'JOINING') =>
+    apiClient.post<Envelope<CandidateDocuments>>(`${BASE}/candidates/${candidateId}/documents/checklist`, { stage }).then((r) => r.data),
   sendDocumentLink: (candidateId: string) => apiClient.post<Envelope<DocumentActionResult>>(`${BASE}/candidates/${candidateId}/documents/link`).then((r) => r.data),
 
   // ── Document Types Master ───────────────────────────────────
