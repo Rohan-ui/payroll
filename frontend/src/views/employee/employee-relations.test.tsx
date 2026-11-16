@@ -36,9 +36,17 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET';
     const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
-    const path = url.replace(/^.*\/api\/v1/, '').split('?')[0];
+    const [path, search = ''] = url.replace(/^.*\/api\/v1/, '').split('?');
     calls.push({ path, method, body });
-    if (path === '/employees' && method === 'GET') return json({ items: [{ id: 'm1', employee_code: 'M1', first_name: 'Mira', last_name: 'Rao', employee_status: 'ACTIVE' }, { id: 'x', employee_code: 'X', first_name: 'Gone', last_name: null, employee_status: 'TERMINATED' }], total: 2, page: 1, limit: 20, totalPages: 1, hasMore: false });
+    if (path === '/employees' && method === 'GET') {
+      // The real list's shape; it filters by status itself, as the server does.
+      const status = new URLSearchParams(search).get('status');
+      const items = [
+        { id: 'm1', employeeCode: 'M1', firstName: 'Mira', lastName: 'Rao', employeeStatus: 'ACTIVE' },
+        { id: 'x', employeeCode: 'X', firstName: 'Gone', lastName: null, employeeStatus: 'TERMINATED' },
+      ].filter((e) => !status || e.employeeStatus === status);
+      return json({ items, total: items.length, page: 1, limit: 20, totalPages: 1, hasMore: false });
+    }
     if (path === '/employees/e1/reporting' && method === 'GET') return ok(reporting);
     if (path === '/employees/e1/reporting' && method === 'POST') { reporting = { current: line({ effectiveFrom: body.effectiveFrom }), upcoming: null, history: [line({ effectiveFrom: body.effectiveFrom })] }; return json({ success: true, data: reporting }, 201); }
     if (path === '/employees/e1/reporting/l1/cancel') return ok({ current: null, upcoming: null, history: [line({ status: 'CANCELLED', cancellationReason: body.reason })] });

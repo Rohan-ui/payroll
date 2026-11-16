@@ -67,8 +67,8 @@ describe('sidebar tree', () => {
 
 describe('current navigation item', () => {
   it('maps every employee screen to People and each CRM tab to its own item', () => {
-    const employeeViews: AppView[] = ['people', 'add-employee', 'edit-employee', 'employee-detail'];
-    expect(employeeViews.map((view) => currentNavigationId(view, 'pipeline'))).toEqual(['people', 'people', 'people', 'people']);
+    const employeeViews: AppView[] = ['people', 'add-employee', 'employee-detail'];
+    expect(employeeViews.map((view) => currentNavigationId(view, 'pipeline'))).toEqual(['people', 'people', 'people']);
     expect(currentNavigationId('crm', 'masters')).toBe('crm.masters');
     expect(currentNavigationId('emails', 'pipeline')).toBe('crm.emails');
   });

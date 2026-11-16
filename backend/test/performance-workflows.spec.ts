@@ -229,8 +229,7 @@ describe('Review workflows', () => {
 
     it('shows today’s manager on the employee record', async () => {
       const record = (await asA('get', `/employees/${ids.PRIYA}`)).body;
-      const lines = (record.data ?? record).rndtechnosoft_employee_reporting_lines_rndtechnosoft_employee_reporting_lines_tenant_id_employee_idTorndtechnosoft_employees;
-      expect(lines.map((l: { manager_employee_id: string }) => l.manager_employee_id)).toEqual([ids.MIRA]);
+      expect(record.data.manager?.id).toBe(ids.MIRA);
     });
   });
 

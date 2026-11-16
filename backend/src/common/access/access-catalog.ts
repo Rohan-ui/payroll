@@ -177,6 +177,9 @@ export const PERMISSIONS = [
   { key: 'people.update', name: 'Edit employees', section: 'hrms', group: 'People', nav: 'people' },
   { key: 'people.bank.update', name: 'Add or change employee bank details', section: 'hrms', group: 'People', nav: 'people' },
   { key: 'people.login.manage', name: 'Link employees to their sign-in accounts', section: 'hrms', group: 'People', nav: 'people' },
+  { key: 'people.documents.manage', name: 'Upload, replace and remove employee documents', section: 'hrms', group: 'People', nav: 'people' },
+  { key: 'people.documents.verify', name: 'Verify or reject employee documents', section: 'hrms', group: 'People', nav: 'people' },
+  { key: 'people.export', name: 'Export the employee directory to Excel', section: 'hrms', group: 'People', nav: 'people' },
 
   { key: 'attendance.view', name: 'View attendance', section: 'hrms', group: 'Attendance', nav: 'attendance' },
   { key: 'attendance.create', name: 'Record clock-in and clock-out punches', section: 'hrms', group: 'Attendance', nav: 'attendance' },

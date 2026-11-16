@@ -272,22 +272,46 @@ model rndtechnosoft_employee_dependents {
   @@index([tenant_id, employee_id], map: "ix_employee_dependents_1")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model rndtechnosoft_employee_documents {
   id                           String                        @id @db.Uuid
   tenant_id                    String                        @db.Uuid
   employee_id                  String                        @db.Uuid
+  /// The category: IDENTITY, ADDRESS_PROOF, EDUCATION, EXPERIENCE, PREVIOUS_EMPLOYMENT, OFFER_LETTER, APPOINTMENT_LETTER, EMPLOYMENT_AGREEMENT, JOINING, BANK, TAX or OTHER (CHECK).
   document_type                String                        @db.VarChar(64)
   document_number              String?                       @db.VarChar(160)
+  /// The title shown to people.
   document_name                String                        @db.VarChar(200)
+  description                  String?                       @db.VarChar(1000)
   storage_key                  String                        @db.VarChar(500)
+  original_filename            String                        @db.VarChar(255)
+  content_type                 String                        @db.VarChar(64)
+  file_size_bytes              Int
+  file_sha256                  String                        @db.Char(64)
   issued_on                    DateTime?                     @db.Date
   expires_on                   DateTime?                     @db.Date
+  /// PENDING_VERIFICATION, VERIFIED or REJECTED (CHECK); "expired" is read from expires_on.
+  document_status              String                        @default("PENDING_VERIFICATION") @db.VarChar(24)
+  rejection_reason             String?                       @db.VarChar(500)
+  reviewed_at                  DateTime?                     @db.Timestamptz(6)
+  reviewed_by_tenant_member_id String?                       @db.Uuid
   verified_at                  DateTime?                     @db.Timestamptz(6)
   verified_by_tenant_member_id String?                       @db.Uuid
+  uploaded_by_tenant_member_id String?                       @db.Uuid
+  /// The newer document that took this one's place; a replaced document is kept, never edited.
+  replaced_by_document_id      String?                       @db.Uuid
+  removed_at                   DateTime?                     @db.Timestamptz(6)
+  removed_by_tenant_member_id  String?                       @db.Uuid
+  removal_reason               String?                       @db.VarChar(500)
   created_at                   DateTime                      @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                   DateTime                      @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   rndtechnosoft_employees      rndtechnosoft_employees       @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_documents_1")
-  rndtechnosoft_tenant_members rndtechnosoft_tenant_members? @relation(fields: [tenant_id, verified_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_documents_2")
+  rndtechnosoft_tenant_members rndtechnosoft_tenant_members? @relation("employee_document_verified_by", fields: [tenant_id, verified_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_documents_2")
+  reviewed_by                  rndtechnosoft_tenant_members? @relation("employee_document_reviewed_by", fields: [tenant_id, reviewed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_documents_reviewed_by")
+  uploaded_by                  rndtechnosoft_tenant_members? @relation("employee_document_uploaded_by", fields: [tenant_id, uploaded_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_documents_uploaded_by")
+  removed_by                   rndtechnosoft_tenant_members? @relation("employee_document_removed_by", fields: [tenant_id, removed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_documents_removed_by")
+  replaced_by                  rndtechnosoft_employee_documents? @relation("employee_document_replacement", fields: [tenant_id, replaced_by_document_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_documents_replaced_by")
+  replaces                     rndtechnosoft_employee_documents[] @relation("employee_document_replacement")
 
   @@unique([tenant_id, id], map: "uq_employee_documents_tenant_id")
   @@index([tenant_id, employee_id], map: "ix_employee_documents_1")
@@ -580,6 +604,13 @@ model rndtechnosoft_employees {
   employee_status                                                                                                                      String                                            @default("ACTIVE") @db.VarChar(32)
   hire_date                                                                                                                            DateTime?                                         @db.Date
   exit_date                                                                                                                            DateTime?                                         @db.Date
+  /// SINGLE, MARRIED, DIVORCED, WIDOWED or SEPARATED (CHECK constraint).
+  marital_status           String?   @db.VarChar(16)
+  /// A+, A-, B+, B-, AB+, AB-, O+ or O- (CHECK constraint).
+  blood_group              String?   @db.VarChar(3)
+  nationality_country_code String?   @db.Char(2)
+  personal_mobile          String?   @db.VarChar(32)
+  alternate_mobile         String?   @db.VarChar(32)
   archived_at                                                                                                                          DateTime?                                         @db.Timestamptz(6)
   created_at                                                                                                                           DateTime                                          @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                                                                                                                           DateTime                                          @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
@@ -1481,7 +1512,10 @@ model rndtechnosoft_tenant_members {
   rndtechnosoft_attendance_adjustments_rndtechnosoft_attendance_adjustments_tenant_id_requested_by_tenant_member_idTorndtechnosoft_tenant_members rndtechnosoft_attendance_adjustments[]      @relation("rndtechnosoft_attendance_adjustments_tenant_id_requested_by_tenant_member_idTorndtechnosoft_tenant_members")
   rndtechnosoft_attendance_adjustments_rndtechnosoft_attendance_adjustments_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members  rndtechnosoft_attendance_adjustments[]      @relation("rndtechnosoft_attendance_adjustments_tenant_id_approved_by_tenant_member_idTorndtechnosoft_tenant_members")
   rndtechnosoft_audit_logs                                                                                                                        rndtechnosoft_audit_logs[]
-  rndtechnosoft_employee_documents                                                                                                                rndtechnosoft_employee_documents[]
+  rndtechnosoft_employee_documents      rndtechnosoft_employee_documents[] @relation("employee_document_verified_by")
+  employee_documents_reviewed           rndtechnosoft_employee_documents[] @relation("employee_document_reviewed_by")
+  employee_documents_uploaded           rndtechnosoft_employee_documents[] @relation("employee_document_uploaded_by")
+  employee_documents_removed            rndtechnosoft_employee_documents[] @relation("employee_document_removed_by")
   rndtechnosoft_leave_approvals                                                                                                                   rndtechnosoft_leave_approvals[]
   rndtechnosoft_payroll_inputs                                                                                                                    rndtechnosoft_payroll_inputs[]              @relation("payroll_input_approved_by")
   rndtechnosoft_payroll_runs_rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members                       rndtechnosoft_payroll_runs[]                @relation("rndtechnosoft_payroll_runs_tenant_id_created_by_tenant_member_idTorndtechnosoft_tenant_members")

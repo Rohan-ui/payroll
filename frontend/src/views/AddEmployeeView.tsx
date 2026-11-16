@@ -20,7 +20,6 @@ import {
 import { usePayroll } from '../context/PayrollContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
 import { employeesApi } from '../api/employees.api';
 
 interface IfscInfo {
@@ -36,24 +35,15 @@ interface IfscInfo {
 
 export const AddEmployeeView: React.FC = () => {
   const {
-    currentView,
-    selectedEmployeeId,
     setCurrentView,
     addEmployee,
-    updateEmployee,
     refreshData,
     employees,
   } = usePayroll();
 
-  const isEdit = currentView === 'edit-employee';
-  const employeeToEdit = isEdit
-    ? employees.find((e) => e.id === selectedEmployeeId) ?? employees[0]
-    : null;
-
   // Basic Information
   const [employeeCode, setEmployeeCode] = useState('');
   const [fullName, setFullName] = useState('');
-  const [employeeStatus, setEmployeeStatus] = useState<string>('ACTIVE');
   const [workEmail, setWorkEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [joiningDate, setJoiningDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -107,47 +97,13 @@ export const AddEmployeeView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Auto-generate next employee code in create mode or populate employee in edit mode
+  // Suggest the next employee code.
   useEffect(() => {
-    if (isEdit && employeeToEdit) {
-      setEmployeeCode(employeeToEdit.code);
-      setFullName(employeeToEdit.name);
-      setEmployeeStatus(employeeToEdit.status);
-      setWorkEmail(employeeToEdit.workEmail);
-      setMobileNumber(employeeToEdit.mobileNumber || '');
-      setJoiningDate(employeeToEdit.joiningDate || new Date().toISOString().split('T')[0]);
-
-      if (employeeToEdit.department) {
-        setSelectedDept(employeeToEdit.department);
-      }
-      if (employeeToEdit.designation) {
-        setSelectedDesig(employeeToEdit.designation);
-      }
-
-      if (employeeToEdit.bank) {
-        setIfsc(employeeToEdit.bank.ifsc || '');
-        setBankName(employeeToEdit.bank.bankName || '');
-        const rawAcc = employeeToEdit.bank.accountNumber || '';
-        setAccountNumber(rawAcc);
-        setConfirmAccountNumber(rawAcc);
-        if (employeeToEdit.bank.isValidIfsc) {
-          setIfscInfo({
-            valid: true,
-            bank: employeeToEdit.bank.bankName,
-            branch: employeeToEdit.bank.branchName,
-            ifsc: employeeToEdit.bank.ifsc,
-          });
-        }
-      }
-
-    } else if (!isEdit) {
-      if (!employeeCode) {
-        const nextNum = employees.length + 1;
-        const suggested = `RND${String(nextNum).padStart(3, '0')}`;
-        setEmployeeCode(suggested);
-      }
+    if (!employeeCode) {
+      const nextNum = employees.length + 1;
+      setEmployeeCode(`RND${String(nextNum).padStart(3, '0')}`);
     }
-  }, [isEdit, employeeToEdit, employees.length]);
+  }, [employees.length]);
 
   // Load existing departments and designations from backend
   useEffect(() => {
@@ -287,69 +243,31 @@ export const AddEmployeeView: React.FC = () => {
     setErrorMessage(null);
 
     try {
-      if (isEdit && employeeToEdit) {
-        if (accountNumber && confirmAccountNumber && accountNumber !== confirmAccountNumber) {
-          setErrorMessage('New bank account number and confirm account number do not match.');
-          setIsSubmitting(false);
-          return;
-        }
+      await addEmployee({
+        code: employeeCode.trim().toUpperCase(),
+        name: fullName.trim(),
+        department: finalDepartment,
+        designation: finalDesignation || '',
+        workEmail: workEmail.trim().toLowerCase(),
+        mobileNumber: mobileNumber.trim(),
+        joiningDate: joiningDate || new Date().toISOString().split('T')[0],
+        bank: {
+          bankName: bankName.trim() || ifscInfo?.bank || '',
+          branchName: branchName.trim() || ifscInfo?.branch || '',
+          ifsc: ifsc.trim().toUpperCase(),
+          accountNumber: accountNumber.trim(),
+          accountNumberMasked: accountNumber.trim(),
+          accountHolder: fullName.trim(),
+          isValidIfsc: !!ifscInfo?.valid,
+        },
+      });
 
-        await updateEmployee(employeeToEdit.id, {
-          code: employeeCode.trim().toUpperCase(),
-          name: fullName.trim(),
-          status: employeeStatus as any,
-          department: finalDepartment,
-          designation: finalDesignation || '',
-          workEmail: workEmail.trim().toLowerCase(),
-          mobileNumber: mobileNumber.trim(),
-          joiningDate: joiningDate || employeeToEdit.joiningDate,
-          bankAccountNumber: accountNumber.trim() || undefined,
-          bank: {
-            bankName: bankName.trim() || ifscInfo?.bank || employeeToEdit.bank?.bankName || '',
-            branchName: branchName.trim() || ifscInfo?.branch || employeeToEdit.bank?.branchName,
-            ifsc: ifsc.trim().toUpperCase() || employeeToEdit.bank?.ifsc || '',
-            accountNumber: accountNumber.trim() || undefined,
-            accountNumberMasked: accountNumber.trim()
-              ? `••••${accountNumber.trim().slice(-4)}`
-              : employeeToEdit.bank?.accountNumberMasked ?? 'Not recorded',
-            accountHolder: fullName.trim(),
-            isValidIfsc: !!ifscInfo?.valid || !!employeeToEdit.bank?.isValidIfsc,
-          },
-        });
+      setSuccessMessage(`Employee ${fullName} (${employeeCode}) was successfully added!`);
+      await refreshData();
 
-        setSuccessMessage(`Employee ${fullName} (${employeeCode}) profile was successfully updated!`);
-        await refreshData();
-
-        setTimeout(() => {
-          setCurrentView('employee-detail');
-        }, 1200);
-      } else {
-        await addEmployee({
-          code: employeeCode.trim().toUpperCase(),
-          name: fullName.trim(),
-          department: finalDepartment,
-          designation: finalDesignation || '',
-          workEmail: workEmail.trim().toLowerCase(),
-          mobileNumber: mobileNumber.trim(),
-          joiningDate: joiningDate || new Date().toISOString().split('T')[0],
-          bank: {
-            bankName: bankName.trim() || ifscInfo?.bank || '',
-            branchName: branchName.trim() || ifscInfo?.branch || '',
-            ifsc: ifsc.trim().toUpperCase(),
-            accountNumber: accountNumber.trim(),
-            accountNumberMasked: accountNumber.trim(),
-            accountHolder: fullName.trim(),
-            isValidIfsc: !!ifscInfo?.valid,
-          },
-        });
-
-        setSuccessMessage(`Employee ${fullName} (${employeeCode}) was successfully added!`);
-        await refreshData();
-
-        setTimeout(() => {
-          setCurrentView('people');
-        }, 1200);
-      }
+      setTimeout(() => {
+        setCurrentView('people');
+      }, 1200);
     } catch (err: any) {
       console.error('Failed to save employee:', err);
       setErrorMessage(err?.message || 'Failed to save employee. Please verify details.');
@@ -367,28 +285,21 @@ export const AddEmployeeView: React.FC = () => {
       <div>
         <button
           type="button"
-          onClick={() => setCurrentView(isEdit ? 'employee-detail' : 'people')}
+          onClick={() => setCurrentView('people')}
           className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0E5A47] transition-colors mb-2 cursor-pointer"
         >
-          <ArrowLeft className="w-3.5 h-3.5" /> {isEdit ? 'Back to Employee Profile' : 'Back to People Directory'}
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to People Directory
         </button>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-800">
-                {isEdit ? `Edit Employee Profile` : 'Add New Employee'}
+                Add New Employee
               </h1>
-              {isEdit && employeeToEdit && (
-                <Badge variant="neutral" size="sm">
-                  {employeeToEdit.code}
-                </Badge>
-              )}
             </div>
             <p className="text-sm text-slate-500 mt-1">
-              {isEdit
-                ? `Edit official employee profile for ${employeeToEdit?.name || 'staff'}, designation, bank deposit & statutory settings`
-                : 'Create an official employee profile with dynamic department & Razorpay IFSC validation'}
+              Create an official employee profile with dynamic department & Razorpay IFSC validation
             </p>
           </div>
         </div>
@@ -427,14 +338,13 @@ export const AddEmployeeView: React.FC = () => {
                 <input
                   type="text"
                   required
-                  disabled={isEdit}
                   value={employeeCode}
                   onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())}
                   placeholder="e.g. RND009"
-                  className={`${inputClass} font-mono font-medium ${isEdit ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                  className={`${inputClass} font-mono font-medium`}
                 />
                 <p className="text-[11px] text-slate-400 mt-1">
-                  {isEdit ? 'Permanent employee identifier (read-only)' : 'Unique staff code for punches and payslips'}
+                  Unique staff code for punches and payslips
                 </p>
               </div>
 
@@ -493,7 +403,7 @@ export const AddEmployeeView: React.FC = () => {
             </div>
 
             {/* Department, Designation, Joining Date & Status */}
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isEdit ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4 pt-1 border-t border-slate-100`}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-1 border-t border-slate-100">
               {/* Dynamic Department */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -615,26 +525,6 @@ export const AddEmployeeView: React.FC = () => {
                 </p>
               </div>
 
-              {/* Status (Edit Mode) */}
-              {isEdit && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Employment Status *
-                  </label>
-                  <select
-                    value={employeeStatus}
-                    onChange={(e) => setEmployeeStatus(e.target.value)}
-                    className={inputClass}
-                  >
-                    <option value="ACTIVE">Active</option>
-                    <option value="ON_NOTICE">On Notice</option>
-                    <option value="RESIGNED">Resigned</option>
-                  </select>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Current HR lifecycle status
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         </Card>
@@ -728,15 +618,15 @@ export const AddEmployeeView: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Account Number {isEdit ? '' : '*'}
+                    Account Number *
                   </label>
                   <div className="relative">
                     <input
                       type={showAccountNumber ? 'text' : 'password'}
-                      required={!isEdit}
+                      required
                       value={accountNumber}
                       onChange={(e) => setAccountNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                      placeholder={isEdit ? (employeeToEdit?.bank?.accountNumberMasked || '••••••••') : 'e.g. 50100123456789'}
+                      placeholder="e.g. 50100123456789"
                       className={`${inputClass} font-mono pr-10`}
                     />
                     <button
@@ -753,24 +643,19 @@ export const AddEmployeeView: React.FC = () => {
                       )}
                     </button>
                   </div>
-                  {isEdit && (
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      Leave blank to keep current saved account
-                    </p>
-                  )}
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Confirm Account Number {isEdit ? '' : '*'}
+                    Confirm Account Number *
                   </label>
                   <div className="relative">
                     <input
                       type={showConfirmAccountNumber ? 'text' : 'password'}
-                      required={!isEdit && !!accountNumber}
+                      required={!!accountNumber}
                       value={confirmAccountNumber}
                       onChange={(e) => setConfirmAccountNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                      placeholder={isEdit && !accountNumber ? 'Unchanged' : 'Re-type account number'}
+                      placeholder="Re-type account number"
                       className={`${inputClass} font-mono pr-10`}
                     />
                     <button
@@ -814,7 +699,7 @@ export const AddEmployeeView: React.FC = () => {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setCurrentView(isEdit ? 'employee-detail' : 'people')}
+            onClick={() => setCurrentView('people')}
           >
             Cancel
           </Button>
@@ -825,8 +710,8 @@ export const AddEmployeeView: React.FC = () => {
             loading={isSubmitting}
             className="px-8 shadow-md"
           >
-            {isEdit ? <CheckCircle2 className="w-4 h-4 mr-1.5" /> : <UserPlus className="w-4 h-4 mr-1.5" />}
-            {isEdit ? 'Save Changes' : 'Create & Save Employee'}
+            <UserPlus className="w-4 h-4 mr-1.5" />
+            Create & Save Employee
           </Button>
         </div>
       </form>

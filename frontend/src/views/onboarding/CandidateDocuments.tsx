@@ -20,6 +20,7 @@ import {
 import { fieldClass, formatDate, formatDateTime, labelClass } from './onboarding-format';
 import { describeEmails } from './InterviewDialogs';
 import { PdfViewer } from '../../components/ui/PdfViewer';
+import { saveFile } from '../../utils/download';
 
 interface Props {
   candidateId: string;
@@ -81,6 +82,19 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  // Fetched with the session: a plain link sends no sign-in, so the server would refuse it.
+  const download = async (file: DocumentFile) => {
+    setDownloading(file.id);
+    try {
+      saveFile(await fetchFile(onboardingApi.documentFileUrl(candidateId, file.id) + '?download=1'), file.filename, file.contentType);
+    } catch (e) {
+      toast.error(`${file.filename} could not be downloaded: ${e instanceof Error ? e.message : 'try again.'}`);
+    } finally {
+      setDownloading(null);
+    }
+  };
   const [rowError, setRowError] = useState<{ id: string; text: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
 
@@ -539,14 +553,15 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                                       >
                                         View
                                       </button>
-                                      <a
-                                        href={onboardingApi.documentFileUrl(candidateId, file.id) + '?download=1'}
-                                        download={file.filename}
+                                      <button
+                                        type="button"
+                                        onClick={() => download(file)}
+                                        disabled={downloading === file.id}
                                         className={actionClass}
                                         aria-label={`Download ${slot.slotName}`}
                                       >
-                                        Download
-                                      </a>
+                                        {downloading === file.id ? 'Downloading…' : 'Download'}
+                                      </button>
                                     </>
                                   )}
 
@@ -660,13 +675,15 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                                     >
                                       View
                                     </button>
-                                    <a
-                                      href={onboardingApi.documentFileUrl(candidateId, file.id) + '?download=1'}
-                                      download={file.filename}
+                                    <button
+                                      type="button"
+                                      onClick={() => download(file)}
+                                      disabled={downloading === file.id}
                                       className={actionClass}
+                                      aria-label={`Download ${file.filename}`}
                                     >
-                                      Download
-                                    </a>
+                                      {downloading === file.id ? 'Downloading…' : 'Download'}
+                                    </button>
 
                                     {canVerify && file.reviewStatus === 'PENDING_REVIEW' && (
                                       <button

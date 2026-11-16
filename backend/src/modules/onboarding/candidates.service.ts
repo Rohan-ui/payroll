@@ -1,3 +1,4 @@
+import { sealAccountNumber } from '@/common/security/bank-account.util';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomInt, randomUUID } from 'crypto';
@@ -1078,7 +1079,6 @@ export class CandidatesService {
 
       // 7. Bank Account (if provided)
       if (dto.accountNumber && dto.ifsc) {
-        const last4 = dto.accountNumber.slice(-4);
         await tx.rndtechnosoft_employee_bank_accounts.create({
           data: {
             id: randomUUID(),
@@ -1087,8 +1087,7 @@ export class CandidatesService {
             account_holder_name: dto.accountHolderName?.trim() || `${dto.firstName} ${dto.lastName || ''}`.trim(),
             bank_name: dto.bankName?.trim() || 'Primary Bank',
             branch_name: dto.branchName?.trim() || null,
-            account_number_encrypted: `ENC[${dto.accountNumber.trim()}]`,
-            account_number_last4: last4,
+            ...sealAccountNumber(dto.accountNumber.trim()),
             bank_code_type: 'IFSC',
             bank_code: dto.ifsc.trim().toUpperCase(),
             account_type: 'SAVINGS',

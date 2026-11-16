@@ -354,7 +354,7 @@ describe('Tenant API isolation', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .put(`${API_PREFIX}/employees/${employeeOfB.id}`)
+        .put(`${API_PREFIX}/employees/${employeeOfB.id}/personal`)
         .set('Authorization', `Bearer ${adminA.token}`)
         .send({ firstName: 'CrossTenantWrite' });
 

@@ -1,6 +1,84 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { sealAccountNumber } from '@/common/security/bank-account.util';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import * as ExcelJS from 'exceljs';
 import { PrismaService } from '@/prisma/prisma.service';
+import { AuditService } from '@/modules/audit/audit.service';
+import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { randomUUID } from 'crypto';
+import type { EmployeeSortField, ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+
+export type EmployeeListQuery = Partial<ListEmployeesQueryDto>;
+
+/** Rows in one export; beyond this the filters must narrow it. */
+const MAX_EXPORT_ROWS = 10_000;
+
+/** "Recently joined" on the People page: joined within this many days up to today. */
+const RECENT_JOINER_DAYS = 30;
+
+/**
+ * Each employee with their current employment (the row in effect today, or for
+ * someone not yet started the row they start with) and current primary manager.
+ */
+const DIRECTORY_FROM = Prisma.sql`
+  FROM rndtechnosoft_employees e
+  LEFT JOIN LATERAL (
+    SELECT ee.joining_date, ee.probation_end_date, ee.department_id, ee.designation_id, ee.branch_id, ee.employment_type_id
+    FROM rndtechnosoft_employee_employments ee
+    WHERE ee.tenant_id = e.tenant_id AND ee.employee_id = e.id AND (ee.effective_to IS NULL OR ee.effective_to >= CURRENT_DATE)
+    ORDER BY (ee.effective_from <= CURRENT_DATE) DESC, ee.effective_from DESC
+    LIMIT 1
+  ) cur ON TRUE
+  LEFT JOIN rndtechnosoft_departments d ON d.tenant_id = e.tenant_id AND d.id = cur.department_id
+  LEFT JOIN rndtechnosoft_designations g ON g.tenant_id = e.tenant_id AND g.id = cur.designation_id
+  LEFT JOIN rndtechnosoft_branches b ON b.tenant_id = e.tenant_id AND b.id = cur.branch_id
+  LEFT JOIN rndtechnosoft_employment_types t ON t.tenant_id = e.tenant_id AND t.id = cur.employment_type_id
+  LEFT JOIN LATERAL (
+    SELECT rl.manager_employee_id
+    FROM rndtechnosoft_employee_reporting_lines rl
+    WHERE rl.tenant_id = e.tenant_id AND rl.employee_id = e.id
+      AND rl.relationship_type = 'PRIMARY' AND rl.line_status = 'ACTIVE'
+      AND rl.effective_from <= CURRENT_DATE AND (rl.effective_to IS NULL OR rl.effective_to >= CURRENT_DATE)
+    ORDER BY rl.effective_from DESC
+    LIMIT 1
+  ) mgr ON TRUE
+  LEFT JOIN rndtechnosoft_employees m ON m.tenant_id = e.tenant_id AND m.id = mgr.manager_employee_id`;
+
+/** Fixed column expressions per sort key; the request only ever picks a key, never SQL. */
+const SORT_COLUMNS: Record<EmployeeSortField, string[]> = {
+  name: ['lower(e.first_name)', "lower(coalesce(e.last_name, ''))"],
+  code: ['e.employee_code'],
+  joiningDate: ['cur.joining_date'],
+  department: ['lower(d.department_name)'],
+  designation: ['lower(g.designation_name)'],
+  status: ['e.employee_status'],
+};
+
+interface DirectoryRow {
+  id: string;
+  employee_code: string;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string | null;
+  work_email: string | null;
+  work_mobile: string | null;
+  employee_status: string;
+  hire_date: Date | null;
+  joining_date: Date | null;
+  probation_end_date: Date | null;
+  department_id: string | null;
+  department_name: string | null;
+  designation_id: string | null;
+  designation_name: string | null;
+  branch_id: string | null;
+  branch_name: string | null;
+  employment_type_id: string | null;
+  employment_type_name: string | null;
+  manager_id: string | null;
+  manager_code: string | null;
+  manager_first_name: string | null;
+  manager_last_name: string | null;
+}
 
 export interface CreateEmployeeInput {
   employeeCode: string;
@@ -28,193 +106,210 @@ export interface CreateEmployeeInput {
   };
 }
 
-export interface AddBankAccountInput {
-  accountHolderName: string;
-  bankName: string;
-  branchName?: string;
-  accountNumber: string;
-  bankCode?: string;
-  bankCodeType?: string;
-  accountType?: string;
-  effectiveFrom: string;
-}
-
-export interface UpdateEmployeeInput {
-  firstName?: string;
-  lastName?: string;
-  workEmail?: string;
-  workMobile?: string;
-  employeeStatus?: string;
-  joiningDate?: string;
-  departmentId?: string;
-  departmentName?: string;
-  designationId?: string;
-  designationName?: string;
-  bankDetails?: {
-    bankName: string;
-    branchName?: string;
-    accountNumber?: string;
-    ifsc: string;
-    accountHolderName?: string;
-  };
-}
-
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
 
-  async listEmployees(tenantId: string, page = 1, limit = 20, search?: string, department?: string) {
-    const skip = (page - 1) * limit;
-    const normalizedSearch = search?.trim();
-    const normalizedDepartment = department?.trim();
-
-    const where: Record<string, unknown> = {
-      tenant_id: tenantId,
-    };
-
-    if (normalizedSearch) {
-      where.OR = [
-        { employee_code: { contains: normalizedSearch, mode: 'insensitive' } },
-        { first_name: { contains: normalizedSearch, mode: 'insensitive' } },
-        { last_name: { contains: normalizedSearch, mode: 'insensitive' } },
-        { work_email: { contains: normalizedSearch, mode: 'insensitive' } },
-        {
-          rndtechnosoft_employee_employments: {
-            some: {
-              effective_to: null,
-              rndtechnosoft_departments: { department_name: { contains: normalizedSearch, mode: 'insensitive' } },
-            },
-          },
-        },
-        {
-          rndtechnosoft_employee_employments: {
-            some: {
-              effective_to: null,
-              rndtechnosoft_designations: { designation_name: { contains: normalizedSearch, mode: 'insensitive' } },
-            },
-          },
-        },
-      ];
-    }
-
-    if (normalizedDepartment) {
-      where.rndtechnosoft_employee_employments = {
-        some: {
-          effective_to: null,
-          rndtechnosoft_departments: { department_name: { equals: normalizedDepartment, mode: 'insensitive' } },
-        },
-      };
-    }
-
-    const [total, items] = await Promise.all([
-      this.prisma.rndtechnosoft_employees.count({ where }),
-      this.prisma.rndtechnosoft_employees.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { employee_code: 'asc' },
-        include: {
-          rndtechnosoft_employee_employments: {
-            where: { effective_to: null },
-            orderBy: { effective_from: 'desc' },
-            take: 1,
-            select: {
-              joining_date: true,
-              rndtechnosoft_branches: { select: { branch_name: true } },
-              rndtechnosoft_departments: { select: { department_name: true } },
-              rndtechnosoft_designations: { select: { designation_name: true } },
-            },
-          },
-        },
-      }),
-    ]);
+  /**
+   * The People directory: every filter, the sort and the page are applied in
+   * the database against each employee's current employment (the open row)
+   * and current primary manager, so nothing is filtered in the browser.
+   */
+  async listEmployees(tenantId: string, query: EmployeeListQuery) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [total, rows] = await Promise.all([this.directoryCount(tenantId, query), this.directoryRows(tenantId, query, limit, (page - 1) * limit)]);
 
     return {
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-      hasMore: skip + items.length < total,
-      items: items.map((emp) => ({
-        id: emp.id,
-        employeeCode: emp.employee_code,
-        firstName: emp.first_name,
-        lastName: emp.last_name,
-        workEmail: emp.work_email,
-        workMobile: emp.work_mobile,
-        employeeStatus: emp.employee_status,
-        hireDate: emp.hire_date,
-        currentEmployment: emp.rndtechnosoft_employee_employments[0]
+      hasMore: (page - 1) * limit + rows.length < total,
+      items: rows.map((row) => ({
+        id: row.id,
+        employeeCode: row.employee_code,
+        firstName: row.first_name,
+        middleName: row.middle_name,
+        lastName: row.last_name,
+        workEmail: row.work_email,
+        workMobile: row.work_mobile,
+        employeeStatus: row.employee_status,
+        hireDate: row.hire_date,
+        currentEmployment: row.joining_date
           ? {
-              branch: emp.rndtechnosoft_employee_employments[0].rndtechnosoft_branches?.branch_name,
-              department: emp.rndtechnosoft_employee_employments[0].rndtechnosoft_departments?.department_name,
-              designation: emp.rndtechnosoft_employee_employments[0].rndtechnosoft_designations?.designation_name,
-              joiningDate: emp.rndtechnosoft_employee_employments[0].joining_date,
+              branch: row.branch_name,
+              branchId: row.branch_id,
+              department: row.department_name,
+              departmentId: row.department_id,
+              designation: row.designation_name,
+              designationId: row.designation_id,
+              employmentType: row.employment_type_name,
+              employmentTypeId: row.employment_type_id,
+              joiningDate: row.joining_date,
+              probationEndDate: row.probation_end_date,
             }
+          : null,
+        manager: row.manager_id
+          ? { id: row.manager_id, employeeCode: row.manager_code, name: [row.manager_first_name, row.manager_last_name].filter(Boolean).join(' ') }
           : null,
       })),
     };
   }
 
-  async getEmployeeById(tenantId: string, id: string) {
-    const employee = await this.prisma.rndtechnosoft_employees.findFirst({
-      where: {
-        id,
-        tenant_id: tenantId,
-      },
-      include: {
-        rndtechnosoft_employee_employments: {
-          orderBy: { effective_from: 'desc' },
-          include: {
-            rndtechnosoft_branches: true,
-            rndtechnosoft_departments: true,
-            rndtechnosoft_designations: true,
-          },
-        },
-        rndtechnosoft_employee_bank_accounts: {
-          where: { effective_to: null },
-          select: {
-            id: true,
-            account_holder_name: true,
-            bank_name: true,
-            branch_name: true,
-            account_number_last4: true, // Only mask/last4 exposed
-            bank_code: true,
-            bank_code_type: true,
-            account_type: true,
-            effective_from: true,
-            bank_account_status: true,
-          },
-        },
-        rndtechnosoft_employee_reporting_lines_rndtechnosoft_employee_reporting_lines_tenant_id_employee_idTorndtechnosoft_employees: {
-          where: {
-            relationship_type: 'PRIMARY',
-            line_status: 'ACTIVE',
-            effective_from: { lte: new Date() },
-            OR: [{ effective_to: null }, { effective_to: { gte: new Date(new Date().toISOString().slice(0, 10)) } }],
-          },
-          include: {
-            rndtechnosoft_employees_rndtechnosoft_employee_reporting_lines_tenant_id_manager_employee_idTorndtechnosoft_employees: {
-              select: {
-                id: true,
-                employee_code: true,
-                first_name: true,
-                last_name: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!employee) {
-      throw new NotFoundException('Employee not found in tenant');
+  /**
+   * The directory as a spreadsheet, with exactly the filters and order on
+   * screen. Work contact details and job only: no personal, pay or bank data.
+   */
+  async exportDirectory(tenantId: string, query: EmployeeListQuery, actor: AuthenticatedTenantUser) {
+    const total = await this.directoryCount(tenantId, query);
+    if (total > MAX_EXPORT_ROWS) {
+      throw new BadRequestException(`That is ${total} employees; an export holds at most ${MAX_EXPORT_ROWS}. Narrow the filters and export in parts.`);
     }
+    const rows = await this.directoryRows(tenantId, query, MAX_EXPORT_ROWS, 0);
 
-    return employee;
+    const workbook = new ExcelJS.Workbook();
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet('Employees', { views: [{ state: 'frozen', ySplit: 1 }] });
+    sheet.columns = [
+      { header: 'Employee ID', key: 'code', width: 16 },
+      { header: 'First name', key: 'first', width: 18 },
+      { header: 'Middle name', key: 'middle', width: 16 },
+      { header: 'Last name', key: 'last', width: 18 },
+      { header: 'Work email', key: 'email', width: 30 },
+      { header: 'Work phone', key: 'phone', width: 18 },
+      { header: 'Department', key: 'department', width: 22 },
+      { header: 'Designation', key: 'designation', width: 24 },
+      { header: 'Reporting manager', key: 'manager', width: 26 },
+      { header: 'Employment type', key: 'type', width: 18 },
+      { header: 'Joining date', key: 'joined', width: 14, style: { numFmt: 'dd-mmm-yyyy' } },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'Work location', key: 'location', width: 20 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const row of rows) {
+      sheet.addRow({
+        code: row.employee_code,
+        first: row.first_name,
+        middle: row.middle_name,
+        last: row.last_name,
+        email: row.work_email,
+        phone: row.work_mobile,
+        department: row.department_name,
+        designation: row.designation_name,
+        manager: row.manager_id ? `${[row.manager_first_name, row.manager_last_name].filter(Boolean).join(' ')} (${row.manager_code})` : null,
+        type: row.employment_type_name,
+        joined: row.joining_date,
+        status: row.employee_status,
+        location: row.branch_name,
+      });
+    }
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    // A bulk read of personal data is recorded: who exported, how many, with which filters.
+    const { page: _page, limit: _limit, ...filters } = query;
+    await this.audit.log({
+      tenantId, actorUserId: actor.userId, actorTenantMemberId: actor.tenantMemberId,
+      actionCode: 'EMPLOYEE_DIRECTORY_EXPORTED', entityType: 'EMPLOYEE_DIRECTORY', metadata: { rows: rows.length, filters },
+    });
+    return buffer;
   }
 
-  async createEmployee(tenantId: string, input: CreateEmployeeInput) {
+  /** Headline counts for the People page, from the same current-employment rows the directory uses. */
+  async directorySummary(tenantId: string) {
+    const [row] = await this.prisma.$queryRaw<{ total: number; active: number; on_notice: number; inactive: number; on_probation: number; recently_joined: number }[]>`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE e.employee_status IN ('ACTIVE', 'ON_NOTICE'))::int AS active,
+             COUNT(*) FILTER (WHERE e.employee_status = 'ON_NOTICE')::int AS on_notice,
+             COUNT(*) FILTER (WHERE e.employee_status NOT IN ('ACTIVE', 'ON_NOTICE'))::int AS inactive,
+             COUNT(*) FILTER (WHERE e.employee_status IN ('ACTIVE', 'ON_NOTICE') AND cur.probation_end_date >= CURRENT_DATE)::int AS on_probation,
+             COUNT(*) FILTER (WHERE cur.joining_date > CURRENT_DATE - ${RECENT_JOINER_DAYS}::int AND cur.joining_date <= CURRENT_DATE)::int AS recently_joined
+      ${DIRECTORY_FROM}
+      WHERE e.tenant_id = ${tenantId}::uuid`;
+    return {
+      total: row.total,
+      active: row.active,
+      onNotice: row.on_notice,
+      inactive: row.inactive,
+      onProbation: row.on_probation,
+      recentlyJoined: row.recently_joined,
+      recentJoinerDays: RECENT_JOINER_DAYS,
+    };
+  }
+
+  /** The choices the directory's filters offer: this workspace's own records only. */
+  async directoryFilters(tenantId: string) {
+    const [departments, designations, employmentTypes, branches, statuses] = await Promise.all([
+      this.getDepartments(tenantId),
+      this.getDesignations(tenantId),
+      this.getEmploymentTypes(tenantId),
+      this.prisma.rndtechnosoft_branches.findMany({
+        where: { tenant_id: tenantId, branch_status: 'ACTIVE' },
+        select: { id: true, branch_code: true, branch_name: true },
+        orderBy: { branch_name: 'asc' },
+      }),
+      this.prisma.rndtechnosoft_employees.groupBy({
+        by: ['employee_status'],
+        where: { tenant_id: tenantId },
+        orderBy: { employee_status: 'asc' },
+      }),
+    ]);
+    return { departments, designations, employmentTypes, branches, statuses: statuses.map((s) => s.employee_status) };
+  }
+
+  private async directoryCount(tenantId: string, query: EmployeeListQuery) {
+    const rows = await this.prisma.$queryRaw<{ total: number }[]>`SELECT COUNT(*)::int AS total ${DIRECTORY_FROM} ${this.directoryWhere(tenantId, query)}`;
+    return rows[0]?.total ?? 0;
+  }
+
+  private async directoryRows(tenantId: string, query: EmployeeListQuery, limit: number, offset: number) {
+    const direction = Prisma.raw(query.sortOrder === 'desc' ? 'DESC' : 'ASC');
+    const sortColumns = SORT_COLUMNS[query.sortBy ?? 'code'].map((column) => Prisma.sql`${Prisma.raw(column)} ${direction} NULLS LAST`);
+    return this.prisma.$queryRaw<DirectoryRow[]>`
+      SELECT e.id, e.employee_code, e.first_name, e.middle_name, e.last_name, e.work_email, e.work_mobile,
+             e.employee_status, e.hire_date,
+             cur.joining_date, cur.probation_end_date,
+             d.id AS department_id, d.department_name, g.id AS designation_id, g.designation_name,
+             b.id AS branch_id, b.branch_name, t.id AS employment_type_id, t.employment_type_name,
+             m.id AS manager_id, m.employee_code AS manager_code, m.first_name AS manager_first_name, m.last_name AS manager_last_name
+      ${DIRECTORY_FROM} ${this.directoryWhere(tenantId, query)}
+      ORDER BY ${Prisma.join(sortColumns)}, e.employee_code ASC, e.id ASC
+      LIMIT ${limit} OFFSET ${offset}`;
+  }
+
+  private directoryWhere(tenantId: string, query: EmployeeListQuery): Prisma.Sql {
+    const conditions: Prisma.Sql[] = [Prisma.sql`e.tenant_id = ${tenantId}::uuid`];
+
+    const search = query.search?.trim();
+    if (search) {
+      const pattern = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const digits = search.replace(/\D/g, '');
+      conditions.push(Prisma.sql`(
+        concat_ws(' ', e.first_name, e.middle_name, e.last_name) ILIKE ${pattern}
+        OR concat_ws(' ', e.first_name, e.last_name) ILIKE ${pattern}
+        OR e.employee_code ILIKE ${pattern}
+        OR e.work_email ILIKE ${pattern}
+        OR e.personal_email ILIKE ${pattern}
+        OR e.work_mobile ILIKE ${pattern}
+        ${digits.length >= 3 ? Prisma.sql`OR regexp_replace(coalesce(e.work_mobile, ''), '\\D', '', 'g') LIKE ${`%${digits}%`}` : Prisma.empty}
+      )`);
+    }
+    if (query.departmentId) conditions.push(Prisma.sql`cur.department_id = ${query.departmentId}::uuid`);
+    if (query.designationId) conditions.push(Prisma.sql`cur.designation_id = ${query.designationId}::uuid`);
+    if (query.employmentTypeId) conditions.push(Prisma.sql`cur.employment_type_id = ${query.employmentTypeId}::uuid`);
+    if (query.branchId) conditions.push(Prisma.sql`cur.branch_id = ${query.branchId}::uuid`);
+    if (query.managerId) conditions.push(Prisma.sql`mgr.manager_employee_id = ${query.managerId}::uuid`);
+    if (query.status) conditions.push(Prisma.sql`e.employee_status = ${query.status}`);
+    if (query.joinedFrom && query.joinedTo && query.joinedFrom > query.joinedTo) {
+      throw new BadRequestException('"Joined from" must be on or before "Joined to".');
+    }
+    if (query.joinedFrom) conditions.push(Prisma.sql`cur.joining_date >= ${query.joinedFrom}::date`);
+    if (query.joinedTo) conditions.push(Prisma.sql`cur.joining_date <= ${query.joinedTo}::date`);
+
+    return Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`;
+  }
+
+  async createEmployee(tenantId: string, input: CreateEmployeeInput, actor: AuthenticatedTenantUser) {
     const existing = await this.prisma.rndtechnosoft_employees.findFirst({
       where: {
         tenant_id: tenantId,
@@ -231,7 +326,7 @@ export class EmployeesService {
     const joiningDate = new Date(input.joiningDate);
     const hireDate = input.hireDate ? new Date(input.hireDate) : joiningDate;
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const employee = await tx.rndtechnosoft_employees.create({
         data: {
           id: employeeId,
@@ -316,7 +411,6 @@ export class EmployeesService {
 
       // Automatically create bank account if details provided
       if (input.bankDetails && input.bankDetails.accountNumber && input.bankDetails.ifsc) {
-        const last4 = input.bankDetails.accountNumber.slice(-4);
         await tx.rndtechnosoft_employee_bank_accounts.create({
           data: {
             id: randomUUID(),
@@ -327,8 +421,7 @@ export class EmployeesService {
               `${input.firstName} ${input.lastName || ''}`.trim(),
             bank_name: input.bankDetails.bankName,
             branch_name: input.bankDetails.branchName || null,
-            account_number_encrypted: `ENC[${input.bankDetails.accountNumber}]`,
-            account_number_last4: last4,
+            ...sealAccountNumber(input.bankDetails.accountNumber),
             bank_code_type: 'IFSC',
             bank_code: input.bankDetails.ifsc.toUpperCase(),
             account_type: 'SAVINGS',
@@ -340,200 +433,8 @@ export class EmployeesService {
 
       return employee;
     });
-  }
-
-  async addBankAccount(tenantId: string, employeeId: string, input: AddBankAccountInput) {
-    await this.getEmployeeById(tenantId, employeeId);
-
-    const last4 = input.accountNumber.slice(-4);
-    // In production encrypt using KMS / vault. For schema persistence, store string representation
-    const encrypted = `ENC[${input.accountNumber}]`;
-
-    return this.prisma.$transaction(async (tx) => {
-      // Close previous bank accounts
-      await tx.rndtechnosoft_employee_bank_accounts.updateMany({
-        where: {
-          tenant_id: tenantId,
-          employee_id: employeeId,
-          effective_to: null,
-        },
-        data: {
-          effective_to: new Date(input.effectiveFrom),
-        },
-      });
-
-      return tx.rndtechnosoft_employee_bank_accounts.create({
-        data: {
-          id: randomUUID(),
-          tenant_id: tenantId,
-          employee_id: employeeId,
-          account_holder_name: input.accountHolderName,
-          bank_name: input.bankName,
-          branch_name: input.branchName || null,
-          account_number_encrypted: encrypted,
-          account_number_last4: last4,
-          bank_code_type: input.bankCodeType || 'IFSC',
-          bank_code: input.bankCode || null,
-          account_type: input.accountType || 'SAVINGS',
-          effective_from: new Date(input.effectiveFrom),
-          bank_account_status: 'ACTIVE',
-        },
-      });
-    });
-  }
-
-  async updateEmployee(tenantId: string, id: string, input: UpdateEmployeeInput) {
-    const employee = await this.prisma.rndtechnosoft_employees.findFirst({
-      where: { id, tenant_id: tenantId },
-    });
-
-    if (!employee) {
-      throw new NotFoundException('Employee not found in tenant');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Update basic employee data
-      await tx.rndtechnosoft_employees.update({
-        where: { id },
-        data: {
-          first_name: input.firstName !== undefined ? input.firstName : undefined,
-          last_name: input.lastName !== undefined ? input.lastName : undefined,
-          work_email: input.workEmail !== undefined ? input.workEmail : undefined,
-          work_mobile: input.workMobile !== undefined ? input.workMobile : undefined,
-          employee_status: input.employeeStatus !== undefined ? input.employeeStatus : undefined,
-          updated_at: new Date(),
-        },
-      });
-
-      // 2. Dynamic Department resolution or auto-creation
-      let departmentId = input.departmentId;
-      if (!departmentId && input.departmentName?.trim()) {
-        const deptName = input.departmentName.trim();
-        let dept = await tx.rndtechnosoft_departments.findFirst({
-          where: {
-            tenant_id: tenantId,
-            department_name: { equals: deptName, mode: 'insensitive' },
-          },
-        });
-        if (!dept) {
-          const deptCode = deptName.toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 32) || `DEPT_${Date.now()}`;
-          dept = await tx.rndtechnosoft_departments.create({
-            data: {
-              id: randomUUID(),
-              tenant_id: tenantId,
-              department_name: deptName,
-              department_code: deptCode,
-              department_status: 'ACTIVE',
-            },
-          });
-        }
-        departmentId = dept.id;
-      }
-
-      // 3. Dynamic Designation resolution or auto-creation
-      let designationId = input.designationId;
-      if (!designationId && input.designationName?.trim()) {
-        const desigName = input.designationName.trim();
-        let desig = await tx.rndtechnosoft_designations.findFirst({
-          where: {
-            tenant_id: tenantId,
-            designation_name: { equals: desigName, mode: 'insensitive' },
-          },
-        });
-        if (!desig) {
-          const desigCode = desigName.toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 32) || `DESIG_${Date.now()}`;
-          desig = await tx.rndtechnosoft_designations.create({
-            data: {
-              id: randomUUID(),
-              tenant_id: tenantId,
-              designation_name: desigName,
-              designation_code: desigCode,
-              designation_status: 'ACTIVE',
-            },
-          });
-        }
-        designationId = desig.id;
-      }
-
-      // Update employment record
-      if (departmentId !== undefined || designationId !== undefined || input.joiningDate !== undefined) {
-        const activeEmployment = await tx.rndtechnosoft_employee_employments.findFirst({
-          where: { tenant_id: tenantId, employee_id: id, effective_to: null },
-        });
-
-        if (activeEmployment) {
-          await tx.rndtechnosoft_employee_employments.update({
-            where: { id: activeEmployment.id },
-            data: {
-              department_id: departmentId !== undefined ? departmentId : activeEmployment.department_id,
-              designation_id: designationId !== undefined ? designationId : activeEmployment.designation_id,
-              joining_date: input.joiningDate ? new Date(input.joiningDate) : activeEmployment.joining_date,
-              updated_at: new Date(),
-            },
-          });
-        } else {
-          await tx.rndtechnosoft_employee_employments.create({
-            data: {
-              id: randomUUID(),
-              tenant_id: tenantId,
-              employee_id: id,
-              department_id: departmentId || null,
-              designation_id: designationId || null,
-              joining_date: input.joiningDate ? new Date(input.joiningDate) : new Date(),
-              effective_from: new Date(),
-              employment_status: 'CONFIRMED',
-            },
-          });
-        }
-      }
-
-      // 4. Update bank details if provided
-      if (input.bankDetails && input.bankDetails.bankName && input.bankDetails.ifsc) {
-        const activeBank = await tx.rndtechnosoft_employee_bank_accounts.findFirst({
-          where: { tenant_id: tenantId, employee_id: id, effective_to: null },
-        });
-
-        const rawAcc = input.bankDetails.accountNumber;
-        const last4 = rawAcc ? rawAcc.slice(-4) : (activeBank?.account_number_last4 || '0000');
-        const encrypted = rawAcc ? `ENC[${rawAcc}]` : (activeBank?.account_number_encrypted || 'ENC[0000]');
-
-        if (activeBank) {
-          await tx.rndtechnosoft_employee_bank_accounts.update({
-            where: { id: activeBank.id },
-            data: {
-              bank_name: input.bankDetails.bankName,
-              branch_name: input.bankDetails.branchName || activeBank.branch_name,
-              bank_code: input.bankDetails.ifsc.toUpperCase(),
-              account_number_encrypted: encrypted,
-              account_number_last4: last4,
-              updated_at: new Date(),
-            },
-          });
-        } else if (rawAcc) {
-          await tx.rndtechnosoft_employee_bank_accounts.create({
-            data: {
-              id: randomUUID(),
-              tenant_id: tenantId,
-              employee_id: id,
-              account_holder_name:
-                input.bankDetails.accountHolderName ||
-                `${input.firstName || employee.first_name} ${input.lastName || employee.last_name || ''}`.trim(),
-              bank_name: input.bankDetails.bankName,
-              branch_name: input.bankDetails.branchName || null,
-              account_number_encrypted: encrypted,
-              account_number_last4: last4,
-              bank_code_type: 'IFSC',
-              bank_code: input.bankDetails.ifsc.toUpperCase(),
-              account_type: 'SAVINGS',
-              effective_from: new Date(),
-              bank_account_status: 'ACTIVE',
-            },
-          });
-        }
-      }
-
-      return this.getEmployeeById(tenantId, id);
-    });
+    await this.audit.log({ tenantId, actorUserId: actor.userId, actorTenantMemberId: actor.tenantMemberId, actionCode: 'EMPLOYEE_CREATED', entityType: 'EMPLOYEE', entityId: created.id, metadata: { employee_code: created.employee_code } });
+    return created;
   }
 
   async getDepartments(tenantId: string) {

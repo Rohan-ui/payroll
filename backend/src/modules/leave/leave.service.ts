@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '@/prisma/prisma.service';
 import { DecimalMath } from '@/common/utils/decimal-math.util';
 import { randomUUID } from 'crypto';
+import { EmployeeLeaveQueryDto } from './dto/employee-leave-query.dto';
 
 export interface CreateLeaveTypeInput {
   code: string;
@@ -139,6 +140,42 @@ export class LeaveService {
 
       return updated;
     });
+  }
+
+  /** One employee's leave requests, newest first, a page at a time. */
+  async listEmployeeRequests(tenantId: string, employeeId: string, query: EmployeeLeaveQueryDto) {
+    const employee = await this.prisma.rndtechnosoft_employees.findFirst({ where: { tenant_id: tenantId, id: employeeId }, select: { id: true } });
+    if (!employee) throw new NotFoundException('Employee not found.');
+    const where = { tenant_id: tenantId, employee_id: employeeId, ...(query.status ? { request_status: query.status } : {}) };
+    const [total, rows, pending] = await Promise.all([
+      this.prisma.rndtechnosoft_leave_requests.count({ where }),
+      this.prisma.rndtechnosoft_leave_requests.findMany({
+        where,
+        orderBy: [{ start_date: 'desc' }, { created_at: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        include: { rndtechnosoft_leave_types: { select: { leave_type_name: true, is_paid: true } } },
+      }),
+      this.prisma.rndtechnosoft_leave_requests.count({ where: { tenant_id: tenantId, employee_id: employeeId, request_status: 'PENDING' } }),
+    ]);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        requestNumber: r.request_number,
+        leaveType: r.rndtechnosoft_leave_types.leave_type_name,
+        isPaid: r.rndtechnosoft_leave_types.is_paid,
+        startDate: r.start_date.toISOString().slice(0, 10),
+        endDate: r.end_date.toISOString().slice(0, 10),
+        // Decimal days as text, never a float.
+        days: r.requested_days.toString(),
+        status: r.request_status,
+        reason: r.reason,
+        submittedAt: r.submitted_at?.toISOString() ?? null,
+        decidedAt: r.final_decision_at?.toISOString() ?? null,
+      })),
+      pendingCount: pending,
+      pagination: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) },
+    };
   }
 
   async getLeaveBalances(tenantId: string, employeeId: string) {

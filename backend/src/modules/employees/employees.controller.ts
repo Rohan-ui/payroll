@@ -1,29 +1,31 @@
 import {
   Controller,
   Get,
+  Header,
   Post,
-  Put,
   Body,
   Param,
+  ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
-import {
-  EmployeesService,
-  CreateEmployeeInput,
-  AddBankAccountInput,
-  UpdateEmployeeInput,
-} from './employees.service';
+import { EmployeesService, CreateEmployeeInput } from './employees.service';
+import { EmployeeProfileService } from './employee-profile.service';
+import { ReplaceBankAccountDto } from './dto/employee-profile.dto';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { AccessService } from '@/common/access/access.service';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { fileResponse } from '@/modules/onboarding/file-response';
+
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 @Controller('employees')
 export class EmployeesController {
   constructor(
     private readonly employeesService: EmployeesService,
+    private readonly profiles: EmployeeProfileService,
     private readonly accessService: AccessService,
   ) {}
 
@@ -44,7 +46,28 @@ export class EmployeesController {
     @CurrentTenant() tenantId: string,
     @Query() query: ListEmployeesQueryDto,
   ) {
-    return this.employeesService.listEmployees(tenantId, query.page, query.limit, query.search, query.department);
+    return this.employeesService.listEmployees(tenantId, query);
+  }
+
+  /** The filtered directory as an Excel file. A bulk copy of personal data, so it has its own permission. */
+  @Get('export')
+  @RequirePermissions('people.export')
+  @Header('Cache-Control', 'private, no-store')
+  async export(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Query() query: ListEmployeesQueryDto) {
+    const bytes = await this.employeesService.exportDirectory(tenantId, query, actor);
+    return fileResponse(bytes, XLSX, `employees-${new Date().toISOString().slice(0, 10)}.xlsx`, '1');
+  }
+
+  @Get('meta/summary')
+  @RequirePermissions('people.view')
+  async summary(@CurrentTenant() tenantId: string) {
+    return this.employeesService.directorySummary(tenantId);
+  }
+
+  @Get('meta/filters')
+  @RequirePermissions('people.view')
+  async filters(@CurrentTenant() tenantId: string) {
+    return this.employeesService.directoryFilters(tenantId);
   }
 
   @Get('meta/departments')
@@ -71,10 +94,12 @@ export class EmployeesController {
     return this.employeesService.verifyIfsc(code);
   }
 
+  /** The whole profile; bank details only for people who may see pay. */
   @Get(':id')
   @RequirePermissions('people.view')
-  async getOne(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.employeesService.getEmployeeById(tenantId, id);
+  async getOne(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id', ParseUUIDPipe) id: string) {
+    const held = await this.accessService.getMemberPermissions(tenantId, actor.tenantMemberId);
+    return { success: true, data: await this.profiles.profile(tenantId, id, held) };
   }
 
   @Post()
@@ -85,28 +110,18 @@ export class EmployeesController {
     @Body() body: CreateEmployeeInput,
   ) {
     await this.assertMayChangeBankDetails(actor, body?.bankDetails);
-    return this.employeesService.createEmployee(tenantId, body);
+    return this.employeesService.createEmployee(tenantId, body, actor);
   }
 
-  @Put(':id')
-  @RequirePermissions('people.update')
-  async update(
-    @CurrentTenant() tenantId: string,
-    @CurrentUser() actor: AuthenticatedTenantUser,
-    @Param('id') id: string,
-    @Body() body: UpdateEmployeeInput,
-  ) {
-    await this.assertMayChangeBankDetails(actor, body?.bankDetails);
-    return this.employeesService.updateEmployee(tenantId, id, body);
-  }
-
+  /** A new account from a date; the current one ends the day before. */
   @Post(':id/bank-account')
   @RequirePermissions('people.bank.update')
-  async addBankAccount(
+  async replaceBankAccount(
     @CurrentTenant() tenantId: string,
-    @Param('id') employeeId: string,
-    @Body() body: AddBankAccountInput,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('id', ParseUUIDPipe) employeeId: string,
+    @Body() body: ReplaceBankAccountDto,
   ) {
-    return this.employeesService.addBankAccount(tenantId, employeeId, body);
+    return { success: true, data: await this.profiles.replaceBankAccount(tenantId, employeeId, body, actor), message: 'Bank account changed' };
   }
 }

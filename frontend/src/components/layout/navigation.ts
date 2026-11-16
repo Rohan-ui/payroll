@@ -85,7 +85,6 @@ export const VIEW_NAVIGATION: Record<string, string> = {
   users: 'organization',
   people: 'people',
   'add-employee': 'people',
-  'edit-employee': 'people',
   'employee-detail': 'people',
   payroll: 'payroll',
   attendance: 'attendance',
