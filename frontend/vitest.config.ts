@@ -9,5 +9,6 @@ export default defineConfig({
     // DOMPurify needs a real DOM to parse and clean markup.
     environment: 'jsdom',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    setupFiles: ['src/test-support/setup.ts'],
   },
 });

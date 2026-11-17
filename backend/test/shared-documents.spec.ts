@@ -25,6 +25,8 @@ const SUFFIX = randomUUID().replace(/-/g, '').slice(0, 8);
 
 type Method = 'get' | 'post' | 'put' | 'delete';
 
+import { AVAILABLE_TEMPLATE_KINDS } from '@/modules/documents/document-templates';
+
 describe('Documents & letterheads', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -133,7 +135,8 @@ describe('Documents & letterheads', () => {
 
   it('offers quotation and appraisal letter templates, each with only its own placeholders', async () => {
     const kinds = (await asA('get', '/documents/templates/placeholders')).body.data as { kind: string; available: boolean; placeholders: { key: string }[] }[];
-    expect(kinds.filter((k) => k.available).map((k) => k.kind)).toEqual(['OFFER_LETTER', 'QUOTATION', 'APPRAISAL_LETTER']);
+    expect(kinds.filter((k) => k.available).map((k) => k.kind)).toEqual([...AVAILABLE_TEMPLATE_KINDS]);
+    expect(AVAILABLE_TEMPLATE_KINDS).toEqual(expect.arrayContaining(['OFFER_LETTER', 'QUOTATION', 'APPRAISAL_LETTER']));
     expect(kinds.find((k) => k.kind === 'QUOTATION')?.placeholders.map((p) => p.key)).toContain('total_amount');
 
     const quotation = await asA('post', '/documents/templates', { kind: 'QUOTATION', name: 'Standard quotation' });
@@ -166,7 +169,9 @@ describe('Documents & letterheads', () => {
     // Drafting an offer lists offer letter templates only.
     const offerTemplates = await call('get', '/onboarding/templates', onboarder.token);
     expect(offerTemplates.status).toBe(200);
-    expect(offerTemplates.body.data.every((t: { kind: string }) => t.kind === 'OFFER_LETTER')).toBe(true);
+    // Candidate letters only: never CRM quotations or performance appraisal letters.
+    const offeredKinds = offerTemplates.body.data.map((t: { kind: string }) => t.kind);
+    expect(offeredKinds.filter((k: string) => k === 'QUOTATION' || k === 'APPRAISAL_LETTER')).toEqual([]);
     expect((await call('get', `/documents/templates/${ids.quotationTemplate}`, b.token)).status).toBe(404);
     expect((await call('get', '/onboarding/letterheads', a.token)).status).toBe(404);
   });

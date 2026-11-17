@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { DecimalMath } from '@/common/utils/decimal-math.util';
 import { randomUUID } from 'crypto';
@@ -71,6 +71,10 @@ export class LeaveService {
     const startDate = new Date(input.startDate);
     const endDate = new Date(input.endDate);
 
+    if (employee.exit_date && endDate > employee.exit_date) {
+      throw new BadRequestException(`Leave can’t run past their exit date, ${employee.exit_date.toISOString().slice(0, 10)}.`);
+    }
+
     if (endDate < startDate) {
       throw new BadRequestException('End date cannot be earlier than start date');
     }
@@ -112,15 +116,16 @@ export class LeaveService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.rndtechnosoft_leave_requests.update({
-        // Composite [tenant_id, id] key: the database refuses a write against
-        // another tenant's record even if the id is guessed.
-        where: { tenant_id_id: { tenant_id: tenantId, id: requestId } },
+      // Only a request still pending is approved, so two approvals at once can't both deduct the leave.
+      const changed = await tx.rndtechnosoft_leave_requests.updateMany({
+        where: { tenant_id: tenantId, id: requestId, request_status: 'PENDING' },
         data: {
           request_status: 'APPROVED',
           final_decision_at: new Date(),
         },
       });
+      if (changed.count !== 1) throw new ConflictException('This leave request has already been decided. Reload to see it.');
+      const updated = await tx.rndtechnosoft_leave_requests.findUniqueOrThrow({ where: { tenant_id_id: { tenant_id: tenantId, id: requestId } } });
 
       // Write deduction ledger entry to leave_balance_transactions
       await tx.rndtechnosoft_leave_balance_transactions.create({
@@ -136,6 +141,12 @@ export class LeaveService {
           reference_id: request.id,
           description: `Leave request ${request.request_number} approved`,
         },
+      });
+
+      // The balance people see goes down with the leave taken, in the same step as the ledger entry.
+      await tx.rndtechnosoft_leave_balance_summaries.updateMany({
+        where: { tenant_id: tenantId, employee_id: request.employee_id, leave_type_id: request.leave_type_id },
+        data: { balance_days: { decrement: request.requested_days }, as_of_date: new Date() },
       });
 
       return updated;

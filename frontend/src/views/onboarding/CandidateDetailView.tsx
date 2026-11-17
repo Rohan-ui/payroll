@@ -1,5 +1,5 @@
 import { CandidateFormPanel } from './CandidateFormPanel';
-import React, { useCallback, useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, UserCheck, Fingerprint, ExternalLink, Sparkles } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Dialog } from '../../components/ui/Dialog';
@@ -61,6 +61,11 @@ const SCHEDULABLE: CandidateStatus[] = ['SCREENING', 'ELIGIBLE', 'INTERVIEW_SCHE
 const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500';
 
 /** A candidate's details, stage, interviews and full timeline, with the actions the viewer may take. */
+type CandidateTab = 'overview' | 'form' | 'interviews' | 'documents';
+
+/** Matches the server: conversion follows an accepted offer. */
+const CONVERTIBLE_FROM: CandidateStatus[] = ['OFFER_ACCEPTED', 'DOCUMENT_COLLECTION', 'VERIFICATION', 'READY_TO_JOIN'];
+
 export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack, onEdit, onOpenOffer, onCreateOffer }) => {
   const ids = useId();
   const { can } = useAuth();
@@ -71,6 +76,8 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>(null);
   const [showConvertModal, setShowConvertModal] = useState(false);
+  const [tab, setTab] = useState<CandidateTab>('overview');
+  const tabRefs = useRef<Partial<Record<CandidateTab, HTMLButtonElement | null>>>({});
   const [emailNotice, setEmailNotice] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
   const [note, setNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -112,6 +119,22 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
   const hasLiveInterview = candidate.interviews.some((i) => isLiveInterview(i.status));
   const canSchedule = can('onboarding.interviews.schedule') && !archived && SCHEDULABLE.includes(candidate.status) && !hasLiveInterview;
   const now = Date.now();
+
+  const tabs: { id: CandidateTab; label: string; count?: number }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'form', label: 'Candidate form' },
+    { id: 'interviews', label: 'Interviews', count: candidate.interviews.length },
+    ...(can('onboarding.documents.view') ? [{ id: 'documents' as const, label: 'Documents' }] : []),
+  ];
+  const onTabKey = (event: React.KeyboardEvent) => {
+    const index = tabs.findIndex((t) => t.id === tab);
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!step && event.key !== 'Home' && event.key !== 'End') return;
+    event.preventDefault();
+    const target = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + step + tabs.length) % tabs.length];
+    setTab(target.id);
+    tabRefs.current[target.id]?.focus();
+  };
 
   const details: [string, React.ReactNode][] = [
     ['Email', <a key="e" href={`mailto:${candidate.email}`} className="text-teal-700 dark:text-teal-300 hover:underline break-all">{candidate.email}</a>],
@@ -160,7 +183,7 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
               </button>
             )
           ) : (
-            can('onboarding.candidates.manage') && !archived && (
+            can('onboarding.candidates.manage') && !archived && CONVERTIBLE_FROM.includes(candidate.status) && (
               <button
                 type="button"
                 onClick={() => setShowConvertModal(true)}
@@ -281,6 +304,18 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2 space-y-5">
+          <div role="tablist" aria-label="Candidate sections" onKeyDown={onTabKey} className="flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-[#2B293E]">
+            {tabs.map((t) => (
+              <button key={t.id} ref={(el) => { tabRefs.current[t.id] = el; }} type="button" role="tab" id={`${ids}-tab-${t.id}`}
+                aria-selected={tab === t.id} aria-controls={`${ids}-panel`} tabIndex={tab === t.id ? 0 : -1} onClick={() => setTab(t.id)}
+                className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${tab === t.id ? 'border-teal-600 text-teal-800 dark:text-teal-300' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}>
+                {t.label}{t.count ? <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">{t.count}</span> : null}
+              </button>
+            ))}
+          </div>
+
+          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`} className="space-y-5">
+          {tab === 'overview' && (
           <section aria-labelledby={`${ids}-details`} className="p-4 rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724]">
             <h2 id={`${ids}-details`} className="text-sm font-bold text-slate-900 dark:text-slate-100">Details</h2>
             <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
@@ -294,13 +329,18 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
               {candidate.notes && <div className="sm:col-span-2"><dt className="text-xs text-slate-500">Notes</dt><dd className="whitespace-pre-wrap break-words">{candidate.notes}</dd></div>}
             </dl>
           </section>
+          )}
 
-          <CandidateFormPanel candidate={candidate} onChanged={(next, notice) => { setCandidate(next); setEmailNotice(notice); }} />
+          {tab === 'form' && <CandidateFormPanel candidate={candidate} onChanged={(next, notice) => { setCandidate(next); setEmailNotice(notice); }} />}
 
-          {can('onboarding.documents.view') && <CandidateLetterDocuments candidateId={candidate.id} candidateName={candidate.fullName} />}
+          {tab === 'documents' && (
+            <>
+              <CandidateDocuments candidateId={candidate.id} candidateName={candidate.fullName} onChanged={load} />
+              <CandidateLetterDocuments candidateId={candidate.id} candidateName={candidate.fullName} />
+            </>
+          )}
 
-          {can('onboarding.documents.view') && <CandidateDocuments candidateId={candidate.id} candidateName={candidate.fullName} onChanged={load} />}
-
+          {tab === 'interviews' && (
           <section aria-labelledby={`${ids}-interviews`} className="p-4 rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724]">
             <h2 id={`${ids}-interviews`} className="text-sm font-bold text-slate-900 dark:text-slate-100">Interviews</h2>
             {candidate.interviews.length === 0 ? (
@@ -371,6 +411,8 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
               </ol>
             )}
           </section>
+          )}
+          </div>
         </div>
 
         <section aria-labelledby={`${ids}-timeline`} className="p-4 rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724]">

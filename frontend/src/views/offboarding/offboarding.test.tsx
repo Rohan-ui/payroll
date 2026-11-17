@@ -22,6 +22,9 @@ const own = {
 const detail = (blockers: string[]) => ({
   ...own, status: 'IN_PROGRESS', reason: 'Higher studies', requestedBy: 'Sneha Patil', approvedBy: 'Priya Nair', completedBy: null, closedBy: null, closeReason: null,
   exitInterview: null, hasSignIn: true, today: '2026-12-14', blockers, warnings: [],
+  notice: { requiredDays: 30, servedDays: 14, requestedLastDay: '2026-12-14', contractualLastDay: '2026-12-30', lastDay: '2026-12-14', shortfallDays: 16, decision: null, decisionReason: null, decidedBy: null, decidedAt: null },
+  dateChanges: [], directReports: [{ id: 'r1', code: 'E-9', name: 'Ravi Kumar' }],
+  obligations: { outstanding: '5000.00', loans: [{ id: 'l1', number: 'L-1', type: 'LOAN', principal: '10000.00', installment: '5000.00', outstanding: '5000.00', installmentsLeft: 1, dueAfterLastDay: '5000.00', installmentsAfterLastDay: 1 }] },
   checklist: [{ id: 'i1', team: 'IT', title: 'Laptop and accessories returned', status: blockers.length ? 'PENDING' : 'CLEARED', note: null, clearedBy: null, clearedAt: null }],
 });
 
@@ -48,6 +51,7 @@ beforeEach(() => {
       return json({ success: true, data: [{ id: 's1', employee: person, type: 'RESIGNATION', status: 'IN_PROGRESS', isSelfService: true, noticeDate: '2026-10-15', lastWorkingDate: '2026-12-14', checklist: { done: 0, total: 6 } }], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
     }
     if (path === '/offboarding/separations/s1') return json({ success: true, data: detail(blockers) });
+    if (path === '/offboarding/separations/s1/notice-decision') return json({ success: true, data: { ...detail(blockers), notice: { ...detail(blockers).notice, decision: 'RECOVER', decidedBy: 'Priya Nair' } } });
     return json({ message: 'Not stubbed' }, 404);
   }));
   container = document.createElement('div');
@@ -112,6 +116,20 @@ describe('HR', () => {
     expect(document.body.textContent).toContain('Complete Sneha Patil’s exit?');
     expect(document.body.textContent).toContain('Their sign-in to this workspace ends now');
     expect(calls.some((c) => c.path.endsWith('/complete'))).toBe(false);
+  });
+
+  it('shows the notice shortfall, team and loans, and records a decision on the shortfall', async () => {
+    granted = new Set(HR);
+    await render(<OffboardingView />);
+    await click(button(/^Sneha Patil$/));
+    expect(container.textContent).toContain('Shortfall16 days');
+    expect(container.textContent).toContain('Last day by contract');
+    expect(container.textContent).toContain('Ravi Kumar · E-9');
+    expect(button(/Reassign/)).toBeUndefined(); // needs People access as well
+    expect(container.textContent).toMatch(/Loans and advances.*outstanding/);
+    await click(button(/^Recover$/));
+    expect(calls.find((c) => c.path.endsWith('/notice-decision'))).toMatchObject({ method: 'PUT', body: { decision: 'RECOVER' } });
+    expect(container.textContent).toContain('To be recovered');
   });
 
   it('shows only the exits list to someone who can view exits but not resign', async () => {

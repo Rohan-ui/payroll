@@ -117,26 +117,7 @@ export interface SidebarItem {
  * out, and so is a group left with nothing to open.
  */
 export function sidebarTree(entries: readonly NavigationEntry[]): SidebarItem[] {
-  const crmItem = entries.find((e) => e.id === 'crm' || e.parent === 'crm');
-  const augmented: NavigationEntry[] = [...entries];
-  if (crmItem && !augmented.some((e) => e.id === 'crm.whatsapp')) {
-    const idx = augmented.findIndex((e) => e.id === 'crm.proposals');
-    const whatsappEntry: NavigationEntry = {
-      id: 'crm.whatsapp' as any,
-      label: 'WhatsApp Templates',
-      parent: 'crm' as any,
-      module: 'CRM' as any,
-      moduleName: 'CRM',
-      moduleEnabled: crmItem.moduleEnabled,
-    };
-    if (idx !== -1) {
-      augmented.splice(idx + 1, 0, whatsappEntry);
-    } else {
-      augmented.push(whatsappEntry);
-    }
-  }
-
-  const shown = augmented.filter((entry) => entry.moduleEnabled && NAV_PRESENTATION[entry.id]);
+  const shown = entries.filter((entry) => entry.moduleEnabled && NAV_PRESENTATION[entry.id]);
   const toItem = (entry: NavigationEntry): SidebarItem => ({
     entry,
     presentation: NAV_PRESENTATION[entry.id],

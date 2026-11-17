@@ -678,10 +678,10 @@ model rndtechnosoft_employment_types {
   rndtechnosoft_candidates            rndtechnosoft_candidates[]
   rndtechnosoft_offers                rndtechnosoft_offers[]
   rndtechnosoft_payroll_policy_scopes rndtechnosoft_payroll_policy_scopes[]
+  rndtechnosoft_document_type_employment_types rndtechnosoft_document_type_employment_types[]
 
   @@unique([tenant_id, employment_type_code], map: "uq_employment_types_1")
   @@unique([tenant_id, id], map: "uq_employment_types_tenant_id")
-  rndtechnosoft_document_type_employment_types rndtechnosoft_document_type_employment_types[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1599,6 +1599,8 @@ model rndtechnosoft_tenant_members {
   separation_interviews_recorded              rndtechnosoft_employee_separations[]               @relation("separation_interview_by")
   separations_completed                       rndtechnosoft_employee_separations[]               @relation("separation_completed_by")
   separations_closed                          rndtechnosoft_employee_separations[]               @relation("separation_closed_by")
+  separations_notice_decided                  rndtechnosoft_employee_separations[]               @relation("separation_notice_decided_by")
+  separation_date_changes                     rndtechnosoft_separation_date_changes[]
   separation_items_cleared                    rndtechnosoft_separation_clearance_items[]         @relation("separation_item_cleared_by")
   candidate_doc_status_changes_made           rndtechnosoft_candidate_document_status_history[]  @relation("candidate_doc_status_changed_by")
   candidate_doc_emails_sent                   rndtechnosoft_candidate_document_emails[]          @relation("candidate_doc_email_sender")
@@ -1607,11 +1609,11 @@ model rndtechnosoft_tenant_members {
   cosec_mappings_updated                      rndtechnosoft_employee_cosec_mappings[]           @relation("cosec_mapping_updated_by")
   onboarding_workflows_created                rndtechnosoft_onboarding_workflows[]              @relation("onboarding_workflow_created_by")
   onboarding_workflow_versions_published      rndtechnosoft_onboarding_workflow_versions[]      @relation("onboarding_workflow_version_published_by")
+  candidates_eligibility_decided              rndtechnosoft_candidates[]                         @relation("candidate_eligibility_decided_by")
 
   @@unique([tenant_id, user_id], map: "uq_tenant_members_1")
   @@unique([tenant_id, id], map: "uq_tenant_members_tenant_id")
   @@index([tenant_id, membership_status], map: "ix_tenant_members_1")
-  candidates_eligibility_decided         rndtechnosoft_candidates[] @relation("candidate_eligibility_decided_by")
 }
 
 /// One Gmail IMAP connection per application user and workspace. OAuth state is
@@ -2981,6 +2983,7 @@ model rndtechnosoft_document_types {
   rndtechnosoft_candidate_document_requests rndtechnosoft_candidate_document_requests[]
 
   rndtechnosoft_document_type_employment_types rndtechnosoft_document_type_employment_types[]
+
   @@unique([tenant_id, id], map: "uq_document_types_tenant_id")
   @@unique([tenant_id, code], map: "uq_document_types_tenant_code")
   @@index([tenant_id, is_active], map: "ix_document_types_tenant_active")
@@ -3061,7 +3064,8 @@ model rndtechnosoft_candidate_document_files {
 model rndtechnosoft_candidate_documents {
   id                          String    @id @db.Uuid
   tenant_id                   String    @db.Uuid
-  candidate_id                String    @db.Uuid
+  /// NULL for an exit letter, which belongs to the employee and their exit instead.
+  candidate_id                String?   @db.Uuid
   employee_id                 String?   @db.Uuid
   template_id                 String?   @db.Uuid
   separation_id               String?  @db.Uuid
@@ -3089,7 +3093,7 @@ model rndtechnosoft_candidate_documents {
   updated_at                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
   rndtechnosoft_tenants                           rndtechnosoft_tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_tenant")
-  rndtechnosoft_candidates                        rndtechnosoft_candidates                          @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_candidate")
+  rndtechnosoft_candidates                        rndtechnosoft_candidates?                         @relation(fields: [tenant_id, candidate_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_candidate")
   rndtechnosoft_employee_separations              rndtechnosoft_employee_separations?                @relation(fields: [tenant_id,separation_id ], references : [tenant_id,id ],onDelete: NoAction, onUpdate:NoAction, map: "fk_candidate_documents_separation")
   rndtechnosoft_employees                         rndtechnosoft_employees?                          @relation(fields: [tenant_id, employee_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_employee")
   rndtechnosoft_document_templates                rndtechnosoft_document_templates?                 @relation(fields: [tenant_id, template_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_candidate_documents_template")
@@ -4739,6 +4743,11 @@ model rndtechnosoft_employee_separations {
   closed_by_tenant_member_id                  String?   @db.Uuid
   closed_at                                   DateTime? @db.Timestamptz(6)
   close_reason                                String?   @db.VarChar(500)
+  /// RECOVER or WAIVE a notice-period shortfall; NULL while undecided or when there is none.
+  notice_shortfall_decision                   String?   @db.VarChar(16)
+  notice_decision_reason                      String?   @db.VarChar(500)
+  notice_decided_by_tenant_member_id          String?   @db.Uuid
+  notice_decided_at                           DateTime? @db.Timestamptz(6)
   created_at                                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
   updated_at                                  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
 
@@ -4749,6 +4758,8 @@ model rndtechnosoft_employee_separations {
   interview_by                             rndtechnosoft_tenant_members?             @relation("separation_interview_by", fields: [tenant_id, exit_interview_recorded_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_interview_by")
   completed_by                             rndtechnosoft_tenant_members?             @relation("separation_completed_by", fields: [tenant_id, completed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_completed_by")
   closed_by                                rndtechnosoft_tenant_members?             @relation("separation_closed_by", fields: [tenant_id, closed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_closed_by")
+  notice_decided_by                        rndtechnosoft_tenant_members?              @relation("separation_notice_decided_by", fields: [tenant_id, notice_decided_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employee_separations_notice_decided_by")
+  rndtechnosoft_separation_date_changes    rndtechnosoft_separation_date_changes[]
   rndtechnosoft_separation_clearance_items rndtechnosoft_separation_clearance_items[]
   rndtechnosoft_candidate_documents        rndtechnosoft_candidate_documents[]
 
@@ -5045,7 +5056,6 @@ model rndtechnosoft_crm_whatsapp_logs {
   @@index([tenant_id, lead_id], map: "ix_crm_whatsapp_logs_lead")
 }
 
-
 model rndtechnosoft_candidate_addresses {
   id             String   @id @db.Uuid
   tenant_id      String   @db.Uuid
@@ -5133,4 +5143,91 @@ model rndtechnosoft_document_type_employment_types {
   rndtechnosoft_employment_types rndtechnosoft_employment_types @relation(fields: [tenant_id, employment_type_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_doc_type_emp_types_employment")
 
   @@unique([tenant_id, document_type_id, employment_type_id], map: "uq_doc_type_emp_types")
+}
+
+/// Every change to an exit's last working day.
+model rndtechnosoft_separation_date_changes {
+  id                          String   @id @db.Uuid
+  tenant_id                   String   @db.Uuid
+  separation_id               String   @db.Uuid
+  previous_last_working_date  DateTime @db.Date
+  new_last_working_date       DateTime @db.Date
+  change_reason               String?  @db.VarChar(500)
+  changed_by_tenant_member_id String   @db.Uuid
+  created_at                  DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_employee_separations rndtechnosoft_employee_separations @relation(fields: [tenant_id, separation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_date_changes_separation")
+  changed_by                         rndtechnosoft_tenant_members       @relation(fields: [tenant_id, changed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_date_changes_changed_by")
+
+  @@index([tenant_id, separation_id, created_at], map: "ix_separation_date_changes_separation")
+}
+
+/// A full and final settlement for an exit; see migration 20261117110000_final_settlements.
+model rndtechnosoft_final_settlements {
+  id                            String    @id @db.Uuid
+  tenant_id                     String    @db.Uuid
+  separation_id                 String    @db.Uuid
+  employee_id                   String    @db.Uuid
+  version_number                Int
+  settlement_status             String    @default("DRAFT") @db.VarChar(16)
+  currency_code                 String    @default("INR") @db.Char(3)
+  total_earnings                Decimal   @default(0) @db.Decimal(14, 2)
+  total_recoveries              Decimal   @default(0) @db.Decimal(14, 2)
+  net_amount                    Decimal   @default(0) @db.Decimal(14, 2)
+  policy_snapshot               Json
+  inputs_snapshot               Json
+  calculated_at                 DateTime  @db.Timestamptz(6)
+  prepared_by_tenant_member_id  String    @db.Uuid
+  submitted_by_tenant_member_id String?   @db.Uuid
+  submitted_at                  DateTime? @db.Timestamptz(6)
+  reviewed_by_tenant_member_id  String?   @db.Uuid
+  reviewed_at                   DateTime? @db.Timestamptz(6)
+  review_notes                  String?   @db.VarChar(1000)
+  approved_by_tenant_member_id  String?   @db.Uuid
+  approved_at                   DateTime? @db.Timestamptz(6)
+  rejected_by_tenant_member_id  String?   @db.Uuid
+  rejected_at                   DateTime? @db.Timestamptz(6)
+  rejection_reason              String?   @db.VarChar(1000)
+  paid_by_tenant_member_id      String?   @db.Uuid
+  paid_at                       DateTime? @db.Timestamptz(6)
+  payment_date                  DateTime? @db.Date
+  payment_mode                  String?   @db.VarChar(16)
+  payment_reference             String?   @db.VarChar(120)
+  payment_remarks               String?   @db.VarChar(1000)
+  closed_by_tenant_member_id    String?   @db.Uuid
+  closed_at                     DateTime? @db.Timestamptz(6)
+  close_reason                  String?   @db.VarChar(1000)
+  revised_from_settlement_id    String?   @db.Uuid
+  created_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_final_settlement_lines rndtechnosoft_final_settlement_lines[]
+
+  @@unique([tenant_id, id], map: "uq_final_settlements_tenant_id")
+  @@unique([tenant_id, separation_id, version_number], map: "uq_final_settlements_version")
+  @@index([tenant_id, settlement_status], map: "ix_final_settlements_status")
+}
+
+/// One earning or recovery on a final settlement.
+model rndtechnosoft_final_settlement_lines {
+  id                String   @id @db.Uuid
+  tenant_id         String   @db.Uuid
+  settlement_id     String   @db.Uuid
+  line_kind         String   @db.VarChar(16)
+  component_code    String   @db.VarChar(32)
+  line_label        String   @db.VarChar(200)
+  calculated_amount Decimal? @db.Decimal(14, 2)
+  amount            Decimal  @db.Decimal(14, 2)
+  counts_in_total   Boolean  @default(true)
+  is_manual         Boolean  @default(false)
+  adjustment_reason String?  @db.VarChar(500)
+  basis             Json     @default("{}")
+  display_order     Int
+  created_at        DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+  updated_at        DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_final_settlements rndtechnosoft_final_settlements @relation(fields: [tenant_id, settlement_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_final_settlement_lines_settlement")
+
+  @@unique([tenant_id, id], map: "uq_final_settlement_lines_tenant_id")
+  @@index([tenant_id, settlement_id, display_order], map: "ix_final_settlement_lines_settlement")
 }

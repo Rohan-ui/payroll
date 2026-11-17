@@ -801,10 +801,10 @@ export function defaultDocument(kind: TemplateKind): DocNode | null {
       type: 'doc',
       content: [
         heading(1, 'EXPERIENCE CERTIFICATE', { textAlign: 'center', spaceAfter: 18 }),
-        p('Date: {{today}}\nReference: {{candidate_id}}', { spaceAfter: 14 }),
+        p('Date: {{today}}\nReference: {{exit_reference}}', { spaceAfter: 14 }),
         p('TO WHOMSOEVER IT MAY CONCERN', { textAlign: 'center', spaceAfter: 14 }),
-        p('This is to certify that {{candidate_name}} was employed with {{company_name}} as {{designation}} in the {{department}} department.', { textAlign: 'justify' }),
-        p('During their tenure with us, {{candidate_name}} was found to be hardworking, dedicated, and professional in carrying out all responsibilities.', { textAlign: 'justify' }),
+        p('This is to certify that {{employee_name}} (employee code {{employee_code}}) was employed with {{company_name}} from {{joining_date}} to {{last_working_date}}, a period of {{employment_duration}}. At the time of leaving, they held the position of {{designation}} in the {{department}} department.', { textAlign: 'justify' }),
+        p('During their tenure with us, {{employee_name}} was found to be hardworking, dedicated, and professional in carrying out all responsibilities.', { textAlign: 'justify' }),
         p('We wish them all the best in their future endeavors.', { textAlign: 'justify' }),
         p('For {{company_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
       ],
@@ -815,12 +815,12 @@ export function defaultDocument(kind: TemplateKind): DocNode | null {
       type: 'doc',
       content: [
         heading(1, 'RELIEVING LETTER', { textAlign: 'center', spaceAfter: 18 }),
-        p('Date: {{today}}\nRef: {{candidate_id}}', { spaceAfter: 14 }),
-        p('Dear {{candidate_name}},', { spaceAfter: 10 }),
-        p('This letter confirms that you have been relieved from your duties as {{designation}} in the {{department}} department at {{company_name}}.', { textAlign: 'justify' }),
-        p('All company assets, accounts, and dues have been settled satisfactorily.', { textAlign: 'justify' }),
+        p('Date: {{today}}\nRef: {{exit_reference}}', { spaceAfter: 14 }),
+        p('Dear {{employee_name}},', { spaceAfter: 10 }),
+        p('With reference to your {{separation_type}} notified on {{notice_date}}, this letter confirms that you have been relieved from your duties as {{designation}} in the {{department}} department at {{company_name}} with effect from the close of business on {{last_working_date}}.', { textAlign: 'justify' }),
+        p('You worked with us from {{joining_date}} to {{last_working_date}} ({{employment_duration}}). Your exit formalities have been completed.', { textAlign: 'justify' }),
         p('We appreciate your contributions and wish you every success in your future pursuits.', { textAlign: 'justify' }),
-        p('Sincerely,\nFor {{company_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
+        p('Sincerely,\nFor {{company_name}}\n\n{{signatory_name}}\nAuthorized Signatory', { spaceBefore: 24 }),
       ],
     };
   }

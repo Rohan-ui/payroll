@@ -7,6 +7,7 @@ import { OffboardingService } from './offboarding.service';
 import {
   CancelSeparationDto, ClearanceItemDto, ClearanceUpdateDto, EmployeeSearchQueryDto, ExitInterviewDto, LastWorkingDateDto,
   ListSeparationsQueryDto, ResignDto, StartSeparationDto, WithdrawDto,
+  NoticeDecisionDto, ReassignReportsDto,
 } from './dto/offboarding.dto';
 
 type Actor = AuthenticatedTenantUser;
@@ -74,13 +75,13 @@ export class OffboardingController {
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('offboarding.manage')
   async approve(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: LastWorkingDateDto) {
-    return { success: true, data: await this.offboarding.approve(tenantId, id, body.lastWorkingDate, actor), message: 'Resignation accepted' };
+    return { success: true, data: await this.offboarding.approve(tenantId, id, body, actor), message: 'Resignation accepted' };
   }
 
   @Put('separations/:id/last-working-date')
   @RequirePermissions('offboarding.manage')
   async lastWorkingDate(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: LastWorkingDateDto) {
-    return { success: true, data: await this.offboarding.changeLastWorkingDate(tenantId, id, body.lastWorkingDate, actor), message: 'Last working day changed' };
+    return { success: true, data: await this.offboarding.changeLastWorkingDate(tenantId, id, body, actor), message: 'Last working day changed' };
   }
 
   @Put('separations/:id/exit-interview')
@@ -99,6 +100,21 @@ export class OffboardingController {
   @RequirePermissions('offboarding.clearance.update')
   async updateItem(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Param('itemId', ParseUUIDPipe) itemId: string, @Body() body: ClearanceUpdateDto) {
     return { success: true, data: await this.offboarding.updateChecklistItem(tenantId, id, itemId, body, actor), message: 'Checklist updated' };
+  }
+
+  @Put('separations/:id/notice-decision')
+  @RequirePermissions('offboarding.manage')
+  async noticeDecision(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: NoticeDecisionDto) {
+    return { success: true, data: await this.offboarding.decideNotice(tenantId, id, body, actor), message: 'Notice decision recorded' };
+  }
+
+  /** Changing someone's manager is a People change, so it needs that permission too. */
+  @Post('separations/:id/reassign-reports')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('offboarding.manage', 'people.update')
+  async reassignReports(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: ReassignReportsDto) {
+    const result = await this.offboarding.reassignReports(tenantId, id, body, actor);
+    return { success: true, data: result.exit, failed: result.failed, message: result.failed.length ? 'Some reports could not be moved' : 'Reports reassigned' };
   }
 
   @Post('separations/:id/cancel')

@@ -1,6 +1,6 @@
 import { trim } from '@/modules/tenants/dto/organization-settings.dto';
 import { Transform,Type,  } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength,  Matches, IsObject } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength,  Matches, IsObject } from 'class-validator';
 
 export const SEPARATION_TYPES = ['RESIGNATION', 'TERMINATION', 'RETIREMENT', 'CONTRACT_END'] as const;
 export const SEPARATION_STATUSES = ['PENDING_APPROVAL', 'IN_PROGRESS', 'COMPLETED', 'WITHDRAWN', 'CANCELLED'] as const;
@@ -11,16 +11,6 @@ export type SeparationType = (typeof SEPARATION_TYPES)[number];
 export type SeparationStatus = (typeof SEPARATION_STATUSES)[number];
 export type ClearanceTeam = (typeof CLEARANCE_TEAMS)[number];
 export type ClearanceStatus = (typeof CLEARANCE_STATUSES)[number];
-
-export const OFFBOARDING_DOCUMENT_TYPES = [
-  'RELIEVING_LETTER',
-  'EXPERIENCE_LETTER',
-  'FULL_AND_FINAL_STATEMENT',
-  'ASSET_RETURN_RECEIPT',
-  'EXIT_INTERVIEW_FORM',
-  'NDA_REMINDER',
-] as const;
-export type OffboardingDocumentType = (typeof OFFBOARDING_DOCUMENT_TYPES)[number];
 
 const DATE = { strict: true } as const;
 
@@ -35,36 +25,6 @@ export class ResignDto {
 export class WithdrawDto {
   @IsOptional() @IsString() @MaxLength(500)
   reason?: string;
-}
-
-export class GenerateOffboardingDocumentDto {
-  @IsIn(OFFBOARDING_DOCUMENT_TYPES, {
-    message: 'Choose a valid offboarding document type.',
-  })
-  documentType!: OffboardingDocumentType;
-
-  @IsUUID()
-  templateId!: string;
-
-  @IsOptional()
-  @IsUUID()
-  templateVersionId?: string;
-
-  @IsOptional()
-  @IsObject()
-  customValues? : Record<string, unknown>;
-
-
-  @IsOptional()
-  @IsUUID()
-  letterheadId?: string;
-
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MinLength(3, { message: 'Give the document a title.' })
-  @MaxLength(200)
-  title?: string;
 }
 
 export class StartSeparationDto {
@@ -87,6 +47,34 @@ export class StartSeparationDto {
 export class LastWorkingDateDto {
   @IsISO8601(DATE, { message: 'Give the last working day.' })
   lastWorkingDate!: string;
+
+  /** Why the day differs from what was asked for or agreed before; kept in the exit's date history. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class NoticeDecisionDto {
+  @IsIn(['RECOVER', 'WAIVE'], { message: 'Choose to recover or waive the notice shortfall.' })
+  decision!: 'RECOVER' | 'WAIVE';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class ReassignReportsDto {
+  @IsUUID('4', { message: 'Choose the new manager.' })
+  managerEmployeeId!: string;
+
+  /** Only these reports; all of them when left out. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  employeeIds?: string[];
 }
 
 export class ExitInterviewDto {

@@ -6,10 +6,12 @@ import { Dialog } from '../../components/ui/Dialog';
 import { toast } from '../../lib/toast';
 import { useAuth } from '../../context/AuthContext';
 import { offboardingApi, type ClearanceStatus, type ClearanceTeam, type ExitDetail } from '../../api/offboarding.api';
-import { cardClass, day, errorText, fieldClass, hintClass, labelClass } from '../payroll/payroll-format';
+import { cardClass, day, errorText, fieldClass, hintClass, labelClass, money } from '../payroll/payroll-format';
 import { EXIT_STATUS, EXIT_TYPE, ITEM_STATUS, TEAM } from './offboarding-format';
+import { SettlementPanel } from './SettlementPanel';
+import { ExitDocumentsPanel } from './ExitDocumentsPanel';
 
-type Action = 'approve' | 'last-day' | 'cancel' | 'complete' | 'interview' | 'add-item' | { waive: string };
+type Action = 'approve' | 'last-day' | 'cancel' | 'complete' | 'interview' | 'add-item' | 'waive-notice' | 'reassign' | { waive: string };
 
 /** One exit, as HR works it: accept it, agree the last day, clear the checklist, note the exit interview, then complete it. */
 export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChanged: () => void }> = ({ id, onBack, onChanged }) => {
@@ -17,6 +19,7 @@ export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChange
   const canManage = can('offboarding.manage');
   const canClear = can('offboarding.clearance.update');
   const canComplete = can('offboarding.complete');
+  const canReassign = canManage && can('people.update');
   const [exit, setExit] = useState<ExitDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<Action | null>(null);
@@ -133,6 +136,51 @@ export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChange
         )}
       </section>
 
+      <NoticeSection exit={exit} canDecide={open && canManage} onRecover={async () => changed(await offboardingApi.decideNotice(id, 'RECOVER'), 'Notice shortfall will be recovered')} onWaive={() => setAction('waive-notice')} />
+
+      {open && exit.directReports.length > 0 && (
+        <section className={`${cardClass} p-5`} aria-labelledby="reports-heading">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 id="reports-heading" className="text-sm font-bold text-slate-900 dark:text-slate-100">Direct reports <span className="font-normal text-slate-500">· {exit.directReports.length} need a new manager</span></h3>
+            {canReassign && <Button size="sm" variant="outline" onClick={() => setAction('reassign')}>Reassign…</Button>}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">They report to {exit.employee.name} after {day(exit.lastWorkingDate)}. The exit can’t be completed until they have a new manager.</p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {exit.directReports.map((r) => <li key={r.id} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:bg-white/10 dark:text-slate-200">{r.name} · {r.code}</li>)}
+          </ul>
+        </section>
+      )}
+
+      {exit.obligations.loans.length > 0 && (
+        <section className={`${cardClass} p-5`} aria-labelledby="loans-heading">
+          <h3 id="loans-heading" className="text-sm font-bold text-slate-900 dark:text-slate-100">Loans and advances <span className="font-normal text-slate-500">· {money(exit.obligations.outstanding)} outstanding</span></h3>
+          <p className="mt-1 text-xs text-slate-500">Finance can be cleared once these are settled, or waived with the reason. Nothing is deducted automatically.</p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[32rem] text-left text-sm">
+              <thead className="text-xs text-slate-500"><tr><th scope="col" className="py-1.5 pr-3 font-semibold">Loan</th><th scope="col" className="py-1.5 pr-3 text-right font-semibold">Principal</th><th scope="col" className="py-1.5 pr-3 text-right font-semibold">Outstanding</th><th scope="col" className="py-1.5 text-right font-semibold">Due after last day</th></tr></thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-[#2B293E]">
+                {exit.obligations.loans.map((l) => (
+                  <tr key={l.id}>
+                    <td className="py-2 pr-3">{l.number} <span className="text-xs text-slate-500">· {l.type === 'ADVANCE' ? 'Advance' : 'Loan'}</span></td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{money(l.principal)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{money(l.outstanding)} <span className="text-xs text-slate-500">({l.installmentsLeft} left)</span></td>
+                    <td className="py-2 text-right tabular-nums">{money(l.dueAfterLastDay)} <span className="text-xs text-slate-500">({l.installmentsAfterLastDay})</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {can('offboarding.settlement.view') && (exit.status === 'IN_PROGRESS' || exit.status === 'COMPLETED') && (
+        <SettlementPanel separationId={exit.id} employeeName={exit.employee.name} today={exit.today} />
+      )}
+
+      {(exit.status === 'IN_PROGRESS' || exit.status === 'COMPLETED') && (
+        <ExitDocumentsPanel separationId={exit.id} employeeName={exit.employee.name} isCompleted={exit.status === 'COMPLETED'} />
+      )}
+
       {exit.checklist.length > 0 && (
         <section className={`${cardClass} p-5`} aria-labelledby="checklist-heading">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -180,9 +228,16 @@ export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChange
       )}
 
       {action === 'approve' && <DateAction title={`Accept ${exit.employee.name}’s resignation?`} description="Agree their last working day. The exit checklist opens for each team." initial={exit.lastWorkingDate} min={exit.noticeDate} confirm="Accept resignation"
-        onClose={() => setAction(null)} run={async (date) => changed(await offboardingApi.approve(id, date), 'Resignation accepted')} />}
+        onClose={() => setAction(null)} run={async (date, reason) => changed(await offboardingApi.approve(id, date, reason), 'Resignation accepted')} />}
       {action === 'last-day' && <DateAction title="Change the last working day" description={`It becomes ${exit.employee.name}’s exit date when the exit is completed.`} initial={exit.lastWorkingDate} min={exit.noticeDate} confirm="Save last day"
-        onClose={() => setAction(null)} run={async (date) => changed(await offboardingApi.changeLastDay(id, date), 'Last working day changed')} />}
+        onClose={() => setAction(null)} run={async (date, reason) => changed(await offboardingApi.changeLastDay(id, date, reason), 'Last working day changed')} />}
+      {action === 'waive-notice' && <TextAction title={`Waive the ${exit.notice.shortfallDays}-day notice shortfall?`} description="Nothing is recovered for the days not served. Your reason is kept with the exit." label="Why it’s being waived" confirm="Waive shortfall"
+        onClose={() => setAction(null)} run={async (text) => changed(await offboardingApi.decideNotice(id, 'WAIVE', text), 'Notice shortfall waived')} />}
+      {action === 'reassign' && <ReassignDialog exit={exit} onClose={() => setAction(null)} run={async (managerId) => {
+        const result = await offboardingApi.reassignReports(id, managerId);
+        changed(result.data, result.failed.length ? `${result.failed.length} could not be moved` : 'Reports reassigned');
+        if (result.failed.length) toast.error(result.failed.map((f) => `${f.name}: ${f.reason}`).join(' '));
+      }} />}
       {action === 'cancel' && <TextAction title={exit.status === 'PENDING_APPROVAL' ? `Decline ${exit.employee.name}’s resignation?` : `Cancel ${exit.employee.name}’s exit?`} description="They stay on as an active employee. The exit is kept, marked cancelled, with your reason." label="Reason" confirm={exit.status === 'PENDING_APPROVAL' ? 'Decline resignation' : 'Cancel exit'} danger
         onClose={() => setAction(null)} run={async (text) => changed(await offboardingApi.cancel(id, text), exit.status === 'PENDING_APPROVAL' ? 'Resignation declined' : 'Exit cancelled')} />}
       {action && typeof action === 'object' && <TextAction title="Waive this item?" description={exit.checklist.find((i) => i.id === action.waive)?.title ?? ''} label="Why it’s being waived" confirm="Waive item"
@@ -221,15 +276,23 @@ function useRun() {
   return { busy, run, alert };
 }
 
-const DateAction: React.FC<{ title: string; description: string; initial: string; min: string; confirm: string; onClose: () => void; run: (date: string) => Promise<void> }> = ({ title, description, initial, min, confirm, onClose, run }) => {
+const DateAction: React.FC<{ title: string; description: string; initial: string; min: string; confirm: string; onClose: () => void; run: (date: string, reason?: string) => Promise<void> }> = ({ title, description, initial, min, confirm, onClose, run }) => {
   const id = useId();
   const [date, setDate] = useState(initial);
+  const [reason, setReason] = useState('');
   const { busy, run: go, alert } = useRun();
   return (
     <Dialog title={title} description={description} size="sm" onClose={() => !busy && onClose()}
-      footer={<><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={() => go(() => run(date))} loading={busy} disabled={busy || !date || date < min}>{confirm}</Button></>}>
+      footer={<><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={() => go(() => run(date, reason.trim() || undefined))} loading={busy} disabled={busy || !date || date < min}>{confirm}</Button></>}>
       <label htmlFor={id} className={labelClass}>Last working day</label>
       <input id={id} type="date" className={fieldClass} min={min} value={date} onChange={(e) => setDate(e.target.value)} />
+      {date !== initial && (
+        <div className="mt-3">
+          <label htmlFor={`${id}-reason`} className={labelClass}>Reason for the change <span className="font-normal text-slate-500">(optional)</span></label>
+          <input id={`${id}-reason`} className={fieldClass} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <p className={hintClass}>Kept in the exit’s date history.</p>
+        </div>
+      )}
       {alert}
     </Dialog>
   );
@@ -320,6 +383,85 @@ const CompleteDialog: React.FC<{ exit: ExitDetail; onClose: () => void; run: () 
         {exit.hasSignIn && <li>Their sign-in to this workspace ends now, including any open sessions.</li>}
         <li>Their records, payslips and history are kept. This can’t be undone here.</li>
       </ul>
+      {alert}
+    </Dialog>
+  );
+};
+
+/** The notice period worked out: what was required, served and asked for, and the decision on any shortfall. */
+const NoticeSection: React.FC<{ exit: ExitDetail; canDecide: boolean; onRecover: () => Promise<void>; onWaive: () => void }> = ({ exit, canDecide, onRecover, onWaive }) => {
+  const n = exit.notice;
+  const [busy, setBusy] = useState(false);
+  const facts = [
+    { label: 'Required notice', value: n.requiredDays == null ? 'Not recorded' : `${n.requiredDays} days` },
+    { label: 'Notice served', value: `${n.servedDays} days` },
+    { label: 'Last day asked for', value: day(n.requestedLastDay) },
+    { label: 'Last day by contract', value: n.contractualLastDay ? day(n.contractualLastDay) : '—' },
+    { label: 'Agreed last day', value: day(n.lastDay) },
+    { label: 'Shortfall', value: n.shortfallDays ? `${n.shortfallDays} days` : 'None' },
+  ];
+  return (
+    <section className={`${cardClass} p-5`} aria-labelledby="notice-heading">
+      <h3 id="notice-heading" className="text-sm font-bold text-slate-900 dark:text-slate-100">Notice period</h3>
+      <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {facts.map((f) => (
+          <div key={f.label}><dt className="text-xs text-slate-500 dark:text-slate-400">{f.label}</dt><dd className="text-sm font-semibold text-slate-900 dark:text-slate-100">{f.value}</dd></div>
+        ))}
+      </dl>
+      {n.requiredDays == null && <p className="mt-2 text-xs text-slate-500">No notice period is recorded on their employment, so no shortfall is worked out.</p>}
+      {n.shortfallDays > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-sm dark:border-[#2B293E]">
+          {n.decision ? (
+            <p className="text-slate-700 dark:text-slate-300">
+              <Badge size="sm" variant={n.decision === 'WAIVE' ? 'neutral' : 'warning'}>{n.decision === 'WAIVE' ? 'Waived' : 'To be recovered'}</Badge>{' '}
+              {n.decidedBy && `by ${n.decidedBy}`}{n.decisionReason ? `: ${n.decisionReason}` : ''}. The amount is worked out in the final settlement.
+            </p>
+          ) : <p className="text-slate-700 dark:text-slate-300">Decide whether the {n.shortfallDays} days not served are recovered or waived.</p>}
+          {canDecide && (
+            <span className="flex gap-2">
+              {n.decision !== 'RECOVER' && <Button size="sm" variant="outline" loading={busy} onClick={async () => { setBusy(true); try { await onRecover(); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } }}>Recover</Button>}
+              {n.decision !== 'WAIVE' && <Button size="sm" variant="ghost" onClick={onWaive}>Waive…</Button>}
+            </span>
+          )}
+        </div>
+      )}
+      {exit.dateChanges.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-3 dark:border-[#2B293E]">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Last day changes</h4>
+          <ol className="mt-1 space-y-1 text-xs text-slate-600 dark:text-slate-400">
+            {exit.dateChanges.map((c) => <li key={c.changedAt}>{day(c.from)} → {day(c.to)}{c.changedBy ? ` by ${c.changedBy}` : ''}{c.reason ? `: ${c.reason}` : ''}</li>)}
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+};
+
+/** Picks the new manager for everyone who reported to the leaver; it starts the day after their last day. */
+const ReassignDialog: React.FC<{ exit: ExitDetail; onClose: () => void; run: (managerId: string) => Promise<void> }> = ({ exit, onClose, run }) => {
+  const id = useId();
+  const [search, setSearch] = useState('');
+  const [options, setOptions] = useState<{ id: string; name: string; code: string }[]>([]);
+  const [managerId, setManagerId] = useState('');
+  const { busy, run: go, alert } = useRun();
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      offboardingApi.employees(search.trim())
+        .then((rows) => setOptions(rows.filter((r) => r.id !== exit.employee.id).map((r) => ({ id: r.id, name: r.name, code: r.code }))))
+        .catch(() => setOptions([]));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search, exit.employee.id]);
+  return (
+    <Dialog title="Give the team a new manager" description={`${exit.directReports.length} ${exit.directReports.length === 1 ? 'person reports' : 'people report'} to ${exit.employee.name}. The new manager takes over the day after ${day(exit.lastWorkingDate)}.`} size="sm" onClose={() => !busy && onClose()}
+      footer={<><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={() => go(() => run(managerId))} loading={busy} disabled={busy || !managerId}>Reassign</Button></>}>
+      <label htmlFor={`${id}-search`} className={labelClass}>Find the new manager</label>
+      <input id={`${id}-search`} className={fieldClass} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or employee code" />
+      <label htmlFor={`${id}-manager`} className={`${labelClass} mt-3`}>New manager</label>
+      <select id={`${id}-manager`} className={fieldClass} value={managerId} onChange={(e) => setManagerId(e.target.value)}>
+        <option value="">{options.length ? 'Choose…' : 'No matches'}</option>
+        {options.map((o) => <option key={o.id} value={o.id}>{o.name} · {o.code}</option>)}
+      </select>
       {alert}
     </Dialog>
   );

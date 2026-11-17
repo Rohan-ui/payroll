@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { EmployeeLeaveQueryDto } from './dto/employee-leave-query.dto';
-import { LeaveService, CreateLeaveTypeInput, SubmitLeaveRequestInput } from './leave.service';
+import { LeaveService } from './leave.service';
+import { CreateLeaveTypeDto, SubmitLeaveRequestDto } from './dto/leave-input.dto';
 import { CurrentTenant } from '@/common/decorators/tenant.decorator';
 import { CurrentUser } from '@/common/decorators/auth.decorators';
 import { RequirePermissions } from '@/common/decorators/access.decorators';
@@ -18,13 +19,13 @@ export class LeaveController {
 
   @Post('types')
   @RequirePermissions('leave.configure')
-  async createType(@CurrentTenant() tenantId: string, @Body() body: CreateLeaveTypeInput) {
+  async createType(@CurrentTenant() tenantId: string, @Body() body: CreateLeaveTypeDto) {
     return this.leaveService.createLeaveType(tenantId, body);
   }
 
   @Post('requests')
   @RequirePermissions('leave.create')
-  async submitRequest(@CurrentTenant() tenantId: string, @Body() body: SubmitLeaveRequestInput) {
+  async submitRequest(@CurrentTenant() tenantId: string, @Body() body: SubmitLeaveRequestDto) {
     return this.leaveService.submitLeaveRequest(tenantId, body);
   }
 
@@ -34,7 +35,7 @@ export class LeaveController {
   async approveRequest(
     @CurrentTenant() tenantId: string,
     @CurrentUser() actor: AuthenticatedTenantUser,
-    @Param('id') requestId: string,
+    @Param('id', ParseUUIDPipe) requestId: string,
   ) {
     return this.leaveService.approveLeaveRequest(tenantId, requestId, actor.tenantMemberId);
   }

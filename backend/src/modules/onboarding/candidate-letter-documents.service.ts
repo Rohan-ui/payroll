@@ -111,7 +111,8 @@ export class CandidateLetterDocumentsService {
    */
   async listAvailableTemplates(tenantId: string) {
     const rows = await this.prisma.rndtechnosoft_document_templates.findMany({
-      where: { tenant_id: tenantId, is_archived: false },
+      // Letters to candidates only: quotations belong to CRM and appraisal letters to performance, and neither fills from a candidate.
+      where: { tenant_id: tenantId, is_archived: false, template_kind: { notIn: ['QUOTATION', 'APPRAISAL_LETTER'] } },
       orderBy: [{ template_kind: 'asc' }, { template_name: 'asc' }],
       take: 200,
       include: {
@@ -2125,6 +2126,8 @@ export class CandidateLetterDocumentsService {
 
     const where: Prisma.rndtechnosoft_candidate_documentsWhereInput = {
       tenant_id: tenantId,
+      // Candidates' letters only; exit letters are listed on the exit.
+      candidate_id: { not: null },
       ...(query.type ? { document_type: query.type } : {}),
       ...(query.status ? { document_status: query.status } : {}),
       ...(query.emailStatus ? { email_status: query.emailStatus } : {}),
@@ -2171,15 +2174,15 @@ export class CandidateLetterDocumentsService {
       this.prisma.rndtechnosoft_candidate_documents.count({ where }),
       this.prisma.rndtechnosoft_candidate_documents.groupBy({
         by: ['document_status'],
-        where: { tenant_id: tenantId },
+        where: { tenant_id: tenantId, candidate_id: { not: null } },
         _count: { _all: true },
       }),
       this.prisma.rndtechnosoft_candidate_documents.groupBy({
         by: ['document_type'],
-        where: { tenant_id: tenantId },
+        where: { tenant_id: tenantId, candidate_id: { not: null } },
         _count: { _all: true },
       }),
-      this.prisma.rndtechnosoft_candidate_documents.count({ where: { tenant_id: tenantId } }),
+      this.prisma.rndtechnosoft_candidate_documents.count({ where: { tenant_id: tenantId, candidate_id: { not: null } } }),
     ]);
 
     const statusCounts: Record<string, number> = {
@@ -2214,7 +2217,7 @@ export class CandidateLetterDocumentsService {
         versionNumber: row.version_number,
         versionsCount: row._count.rndtechnosoft_candidate_document_versions,
         emailsCount: row._count.rndtechnosoft_candidate_document_emails,
-        candidate: {
+        candidate: row.rndtechnosoft_candidates && {
           id: row.rndtechnosoft_candidates.id,
           name: row.rndtechnosoft_candidates.full_name,
           code: row.rndtechnosoft_candidates.candidate_code,

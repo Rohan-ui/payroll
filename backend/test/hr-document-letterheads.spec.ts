@@ -163,7 +163,13 @@ describe('HRMS letterheads and document previews', () => {
       await prisma.rndtechnosoft_onboarding_notifications.deleteMany({ where: scope });
       await prisma.rndtechnosoft_offer_approvals.deleteMany({ where: scope });
       await prisma.rndtechnosoft_offer_components.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_offers.updateMany({ where: scope, data: { candidate_document_id: null } });
       await prisma.rndtechnosoft_offers.deleteMany({ where: scope });
+      // Offer letters are kept as candidate documents too, pointing at the template version they came from.
+      await prisma.rndtechnosoft_candidate_document_emails.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_candidate_document_status_history.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_candidate_document_versions.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_candidate_documents.deleteMany({ where: scope });
       await prisma.rndtechnosoft_document_template_versions.deleteMany({ where: scope });
       await prisma.rndtechnosoft_document_templates.deleteMany({ where: scope });
       await prisma.rndtechnosoft_letterhead_elements.deleteMany({ where: scope });

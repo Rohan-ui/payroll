@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { fetchFile } from './onboarding.api';
 
 /** Offboarding: resignations and other exits, their checklist and exit interview, and completing them. */
 
@@ -45,6 +46,19 @@ export interface ExitDetail extends Omit<OwnExit, 'checklist' | 'reason'> {
   exitInterview: { date: string; notes: string | null; rehireEligible: boolean | null; recordedBy: string | null } | null;
   checklist: { id: string; team: ClearanceTeam; title: string; status: ClearanceStatus; note: string | null; clearedBy: string | null; clearedAt: string | null }[];
   hasSignIn: boolean;
+  /** Days counted after the notice date; a shortfall needs a recover-or-waive decision before completion. */
+  notice: {
+    requiredDays: number | null; servedDays: number; requestedLastDay: string; contractualLastDay: string | null; lastDay: string; shortfallDays: number;
+    decision: 'RECOVER' | 'WAIVE' | null; decisionReason: string | null; decidedBy: string | null; decidedAt: string | null;
+  };
+  dateChanges: { from: string; to: string; reason: string | null; changedBy: string | null; changedAt: string }[];
+  /** People who would still report to the leaver after their last day. */
+  directReports: { id: string; code: string; name: string }[];
+  /** Active loans and advances; amounts are decimal strings in rupees. */
+  obligations: {
+    outstanding: string;
+    loans: { id: string; number: string; type: 'LOAN' | 'ADVANCE'; principal: string; installment: string; outstanding: string; installmentsLeft: number; dueAfterLastDay: string; installmentsAfterLastDay: number }[];
+  };
   today: string;
   /** Why it can't be completed yet. */
   blockers: string[];
@@ -86,8 +100,12 @@ export const offboardingApi = {
     data(apiClient.get<Envelope<(ExitPerson & { noticePeriodDays: number | null })[]>>(`/offboarding/employees${query({ search })}`)),
   start: (input: { employeeId: string; type: SeparationType; reason: string; noticeDate: string; lastWorkingDate: string }) =>
     data(apiClient.post<Envelope<ExitDetail>>('/offboarding/separations', input)),
-  approve: (id: string, lastWorkingDate: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/approve`, { lastWorkingDate })),
-  changeLastDay: (id: string, lastWorkingDate: string) => data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/last-working-date`, { lastWorkingDate })),
+  approve: (id: string, lastWorkingDate: string, reason?: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/approve`, { lastWorkingDate, reason })),
+  changeLastDay: (id: string, lastWorkingDate: string, reason?: string) => data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/last-working-date`, { lastWorkingDate, reason })),
+  decideNotice: (id: string, decision: 'RECOVER' | 'WAIVE', reason?: string) =>
+    data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/notice-decision`, { decision, reason })),
+  reassignReports: (id: string, managerEmployeeId: string) =>
+    apiClient.post<Envelope<ExitDetail> & { failed: { employeeId: string; name: string; reason: string }[] }>(`/offboarding/separations/${id}/reassign-reports`, { managerEmployeeId }),
   saveInterview: (id: string, input: { interviewDate: string; notes: string; rehireEligible?: boolean }) =>
     data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/exit-interview`, input)),
   addItem: (id: string, input: { team: ClearanceTeam; title: string }) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/checklist`, input)),
@@ -95,4 +113,109 @@ export const offboardingApi = {
     data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/checklist/${itemId}`, input)),
   cancel: (id: string, reason: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/cancel`, { reason })),
   complete: (id: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/complete`)),
+};
+
+// ── Full and final settlement ───────────────────────────────────
+
+export type SettlementStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'PAID' | 'REJECTED' | 'CANCELLED' | 'REVISED';
+export type SettlementBasis = 'BASIC' | 'GROSS';
+
+export interface SettlementLine {
+  id: string;
+  kind: 'EARNING' | 'RECOVERY';
+  code: string;
+  label: string;
+  /** What the rules worked out; null for a line added by hand. */
+  calculatedAmount: string | null;
+  amount: string;
+  /** False for information only (the final salary, paid through payroll). */
+  countsInTotal: boolean;
+  isManual: boolean;
+  adjustmentReason: string | null;
+  basis: { rule?: string; [key: string]: unknown };
+}
+
+export interface Settlement {
+  id: string;
+  version: number;
+  status: SettlementStatus;
+  currency: string;
+  totals: { earnings: string; recoveries: string; net: string };
+  lines: SettlementLine[];
+  /** What must be resolved before it can be submitted. */
+  problems: string[];
+  finalPayslip: { periodCode: string; gross: string; net: string } | null;
+  calculatedAt: string;
+  preparedBy: string | null;
+  submittedBy: string | null; submittedAt: string | null;
+  reviewedBy: string | null; reviewedAt: string | null; reviewNotes: string | null;
+  approvedBy: string | null; approvedAt: string | null;
+  rejectedBy: string | null; rejectionReason: string | null;
+  paidBy: string | null; paidAt: string | null;
+  payment: { date: string; mode: string; reference: string | null; remarks: string | null } | null;
+  closedBy: string | null; closeReason: string | null;
+}
+
+export interface ExitSettlement {
+  current: Settlement | null;
+  history: { id: string; version: number; status: SettlementStatus; net: string; createdAt: string }[];
+  canPrepare: boolean;
+}
+
+export interface SettlementPolicy {
+  leaveEncashment: { enabled: boolean; basis: SettlementBasis; dayDivisor: number };
+  notice: { basis: SettlementBasis; dayDivisor: number };
+  gratuity: { enabled: boolean; minimumYears: number; roundUpMonths: number; daysPerYear: number; dayDivisor: number; componentCodes: string[]; cap: string | null };
+}
+
+export const MANUAL_SETTLEMENT_CODES = { BONUS: 'Bonus', INCENTIVE: 'Incentive', REIMBURSEMENT: 'Reimbursement', COMMISSION: 'Pending commission', OTHER_PAYMENT: 'Other payment', OTHER_RECOVERY: 'Other recovery' } as const;
+
+const S = '/offboarding/settlements';
+export const settlementApi = {
+  forExit: (separationId: string) => data(apiClient.get<Envelope<ExitSettlement>>(`/offboarding/separations/${separationId}/settlement`)),
+  prepare: (separationId: string) => data(apiClient.post<Envelope<ExitSettlement>>(`/offboarding/separations/${separationId}/settlement`)),
+  recalculate: (id: string) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/recalculate`)),
+  addLine: (id: string, input: { code: keyof typeof MANUAL_SETTLEMENT_CODES; label: string; amount: string; reason: string }) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/lines`, input)),
+  adjustLine: (id: string, lineId: string, input: { amount: string; reason?: string }) => data(apiClient.put<Envelope<ExitSettlement>>(`${S}/${id}/lines/${lineId}`, input)),
+  submit: (id: string) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/submit`)),
+  review: (id: string, notes?: string) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/review`, { notes })),
+  approve: (id: string) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/approve`)),
+  reject: (id: string, reason: string) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/reject`, { reason })),
+  pay: (id: string, input: { paymentDate: string; mode: string; reference?: string; remarks?: string }) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/pay`, input)),
+  revise: (id: string, reason: string) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/revise`, { reason })),
+  cancel: (id: string, reason: string) => data(apiClient.post<Envelope<ExitSettlement>>(`${S}/${id}/cancel`, { reason })),
+  policy: () => data(apiClient.get<Envelope<SettlementPolicy>>('/offboarding/settlement-policy')),
+  setPolicy: (policy: SettlementPolicy) => data(apiClient.put<Envelope<SettlementPolicy>>('/offboarding/settlement-policy', policy)),
+};
+
+// ── Exit letters and the settlement statement ───────────────────
+
+export type ExitDocumentType = 'EXPERIENCE_LETTER' | 'RELIEVING_LETTER' | 'FULL_AND_FINAL_STATEMENT';
+export interface ExitDocument {
+  id: string;
+  type: ExitDocumentType;
+  label: string;
+  title: string;
+  status: 'DRAFT' | 'ISSUED';
+  version: number;
+  generatedBy: string | null;
+  generatedAt: string;
+  /** Details the records lacked; the draft shows them as {{key}} and can't be issued until regenerated with them. */
+  missing: string[];
+}
+export interface ExitDocuments {
+  documents: ExitDocument[];
+  templates: { id: string; name: string; kind: string }[];
+  types: { type: ExitDocumentType; label: string }[];
+}
+
+const docsBase = (separationId: string) => `/offboarding/separations/${separationId}/documents`;
+export const exitDocumentsApi = {
+  list: (separationId: string) => data(apiClient.get<Envelope<ExitDocuments>>(docsBase(separationId))),
+  generate: (separationId: string, input: { documentType: ExitDocumentType; templateId?: string }) => data(apiClient.post<Envelope<ExitDocuments>>(docsBase(separationId), input)),
+  issue: (separationId: string, documentId: string) => data(apiClient.post<Envelope<ExitDocuments>>(`${docsBase(separationId)}/${documentId}/issue`)),
+  versions: (separationId: string, documentId: string) =>
+    data(apiClient.get<Envelope<{ version: number; note: string | null; createdBy: string | null; createdAt: string }[]>>(`${docsBase(separationId)}/${documentId}/versions`)),
+  /** Fetched with the session; there is no public address for these files. */
+  pdf: (separationId: string, documentId: string) => fetchFile(`/api/v1${docsBase(separationId)}/${documentId}/pdf`),
 };

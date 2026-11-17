@@ -6,7 +6,7 @@ import { ModuleAccessGuard } from '@/common/guards/module-access.guard';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { IS_PUBLIC_ROUTE, SKIPS_TENANT_AUTH } from '@/common/decorators/auth.decorators';
 import { REQUIRED_PERMISSIONS } from '@/common/decorators/access.decorators';
-import { MODULES, NAVIGATION, PERMISSIONS, PERMISSION_KEYS, permissionModule } from '@/common/access/access-catalog';
+import { MODULES, NAVIGATION, PERMISSIONS, PERMISSION_KEYS, permissionModule, SHARED_NAV } from '@/common/access/access-catalog';
 
 import { AttendanceController } from '@/modules/attendance/attendance.controller';
 import { AuthController } from '@/modules/auth/auth.controller';
@@ -42,6 +42,8 @@ import { PerformanceCyclesController } from '@/modules/performance/performance-c
 import { PerformanceMyController } from '@/modules/performance/performance-my.controller';
 import { DocumentsController } from '@/modules/documents/documents.controller';
 import { OffboardingController } from '@/modules/offboarding/offboarding.controller';
+import { SettlementsController } from '@/modules/offboarding/settlements.controller';
+import { ExitDocumentsController } from '@/modules/offboarding/exit-documents.controller';
 
 const PATH_METADATA = 'path';
 const METHOD_METADATA = 'method';
@@ -90,6 +92,8 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['PerformanceMyController', PerformanceMyController],
   ['DocumentsController', DocumentsController],
   ['OffboardingController', OffboardingController],
+  ['SettlementsController', SettlementsController],
+  ['ExitDocumentsController', ExitDocumentsController],
 ];
 
 /**
@@ -177,7 +181,6 @@ describe('Tenant route guard coverage', () => {
       'AuthController.changePassword', // the caller's own password
       'AuthController.revokeOtherSessions', // the caller's own sessions
       'TenantsController.getCurrent', // the name and code of the caller's workspace
-      'TenantsController.sendWhatsApp', // refuses every request (not built yet)
       'TenantsController.sendEmail', // refuses every request (not built yet)
       // The caller's own mail account in the session's workspace; none takes a member or user id.
       'MailAccountsController.mine',
@@ -235,9 +238,13 @@ describe('Tenant route guard coverage', () => {
     // Every permission names a real sidebar item (or none) and a real section.
     expect(PERMISSIONS.filter((p) => p.nav !== null && !navIds.includes(p.nav)).map((p) => p.key)).toEqual([]);
     expect(PERMISSIONS.filter((p) => !topLevel.includes(p.section)).map((p) => p.key)).toEqual([]);
-    // Every sidebar item without children can be granted by some permission.
+    // Every sidebar item without children can be granted by some permission, its own or a shared rule's.
     const leaves = navIds.filter((id) => !parents.has(id));
-    expect(leaves.filter((id) => !PERMISSIONS.some((p) => p.nav === id))).toEqual([]);
+    expect(leaves.filter((id) => !PERMISSIONS.some((p) => p.nav === id) && !SHARED_NAV[id]?.length)).toEqual([]);
+    // A shared rule names real permissions of the item's own module.
+    for (const [nav, keys] of Object.entries(SHARED_NAV)) {
+      expect(keys.filter((key) => !PERMISSION_KEYS.includes(key as never) || permissionModule(key) !== byId.get(nav)?.module)).toEqual([]);
+    }
     // A business module is one top-level group named after it, and every item
     // in the group belongs to it, so switching the module off hides the group.
     for (const module of MODULES) {
@@ -274,8 +281,8 @@ describe('Tenant route guard coverage', () => {
       ['LeaveController', ['HRMS']],
       ['PayrollController', ['FINANCE']],
       ['SalaryController', ['FINANCE']],
-      // Workspace administration stays reachable whatever modules are off.
-      ['TenantsController', [null]],
+      // Workspace administration stays reachable whatever modules are off; sending a WhatsApp message is outreach, so CRM.
+      ['TenantsController', [null, 'CRM']],
       ['UsersController', [null]],
       ['PermissionsController', [null]],
       ['OnboardingController', ['HRMS']],
@@ -300,6 +307,8 @@ describe('Tenant route guard coverage', () => {
       // Document templates and letterheads belong to the organization, shared by HRMS and CRM.
       ['DocumentsController', [null]],
       ['OffboardingController', ['HRMS']],
+      ['SettlementsController', ['HRMS']],
+      ['ExitDocumentsController', ['HRMS']],
     ]);
   });
 

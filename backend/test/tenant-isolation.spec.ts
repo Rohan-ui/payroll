@@ -39,6 +39,7 @@ describe('Tenant API isolation', () => {
   let employeeA: Actor;
 
   const createdUserIds: string[] = [];
+  const createdTenantIds: string[] = [];
 
   async function seedActor(tenantId: string, roleCode: string): Promise<Omit<Actor, 'token'>> {
     const email = `isolation-${roleCode.toLowerCase()}-${randomUUID()}@voogyo.test`;
@@ -118,24 +119,20 @@ describe('Tenant API isolation', () => {
     prisma = app.get(PrismaService);
     await prisma.rndtechnosoft_login_throttle.deleteMany({});
 
-    // Both tenants must hold employee records, otherwise the cross-tenant
-    // assertions would pass trivially against empty result sets.
-    const populated = await prisma.rndtechnosoft_employees.groupBy({
-      by: ['tenant_id'],
-      _count: { _all: true },
-    });
-
-    const active = await prisma.rndtechnosoft_tenants.findMany({
-      where: {
-        tenant_status: { in: ['ACTIVE', 'TRIALING'] },
-        id: { in: populated.map((row) => row.tenant_id) },
-      },
-      select: { id: true },
-    });
-
-    expect(active.length).toBeGreaterThanOrEqual(2);
-    tenantA = active[0].id;
-    tenantB = active[1].id;
+    // Two workspaces of the suite's own, each holding employee records,
+    // otherwise the cross-tenant assertions would pass trivially against
+    // empty result sets. Never a developer's real workspaces.
+    const suffix = randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+    for (const key of ['A', 'B'] as const) {
+      const id = randomUUID();
+      await prisma.rndtechnosoft_tenants.create({ data: { id, tenant_code: `ISO${key}${suffix}`, legal_name: `Isolation ${key} ${suffix}`, display_name: `Isolation ${key}`, tenant_status: 'ACTIVE' } });
+      await prisma.rndtechnosoft_employees.createMany({
+        // Different headcounts, so each workspace's view is recognisably its own.
+        data: (key === 'A' ? [1, 2] : [1, 2, 3]).map((n) => ({ id: randomUUID(), tenant_id: id, employee_code: `ISO-${key}${n}-${suffix}`, first_name: `Isolation ${key}${n}` })),
+      });
+      createdTenantIds.push(id);
+    }
+    [tenantA, tenantB] = createdTenantIds;
 
     const [a, b, e] = await Promise.all([
       seedActor(tenantA, 'ADMIN'),
@@ -161,6 +158,19 @@ describe('Tenant API isolation', () => {
       });
       await prisma.rndtechnosoft_users.deleteMany({ where: { id: { in: createdUserIds } } });
       await prisma.rndtechnosoft_login_throttle.deleteMany({});
+    }
+    if (prisma && createdTenantIds.length > 0) {
+      const scope = { tenant_id: { in: createdTenantIds } };
+      await prisma.rndtechnosoft_audit_logs.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employees.deleteMany({ where: scope });
+      // Visiting bookkeeping sets up the workspace's ledgers and financial years.
+      await prisma.rndtechnosoft_financial_year_ledger_balances.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_accounting_ledgers.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_financial_years.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_role_permissions.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_roles.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_tenant_settings.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_tenants.deleteMany({ where: { id: { in: createdTenantIds } } });
     }
     await app?.close();
   });
@@ -243,6 +253,8 @@ describe('Tenant API isolation', () => {
         .query({ tenantId: tenantB })
         .set('Authorization', `Bearer ${adminA.token}`);
 
+      // Refusing the unknown parameter is as safe as ignoring it; it must never switch the tenant.
+      if (forged.status === 400) return;
       expect(forged.body.total).toBe(honest.body.total);
     });
 

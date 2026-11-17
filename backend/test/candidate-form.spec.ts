@@ -164,7 +164,15 @@ describe('Candidate information form and eligibility', () => {
       await prisma.rndtechnosoft_interview_panelists.deleteMany({ where: scope });
       await prisma.rndtechnosoft_interviews.deleteMany({ where: scope });
       await prisma.rndtechnosoft_candidate_events.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_documents.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_education.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_experience.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_addresses.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_emergency_contacts.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_cosec_mappings.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_employments.deleteMany({ where: scope });
       await prisma.rndtechnosoft_candidates.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employees.deleteMany({ where: scope });
       await prisma.rndtechnosoft_employment_types.deleteMany({ where: scope });
       await prisma.rndtechnosoft_onboarding_workflow_transitions.deleteMany({ where: scope });
       await prisma.rndtechnosoft_onboarding_workflow_stages.deleteMany({ where: scope });
@@ -458,5 +466,53 @@ describe('Candidate information form and eligibility', () => {
 
     const required = joining.body.data.requests.filter((r: { isRequired: boolean }) => r.isRequired).length;
     expect(joining.body.data.completion).toMatchObject({ percent: 0, required, verified: 0, status: 'DOCUMENTS_PENDING' });
+  });
+
+  it('converts only after an accepted offer, carrying over the form, education, experience and documents', async () => {
+    const PDF = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n');
+    ids.joiner = await candidate('joiner');
+    const sent = await sendForm(ids.joiner);
+    const resume = (await publicGet(sent.token)).body.data.documents[0].id as string;
+    expect((await request(app.getHttpServer()).post(`${API}/public/candidate-form/${sent.token}/documents/${resume}/files`).set('Host', LOCAL).attach('files', PDF, { filename: 'cv.pdf' })).status).toBe(201);
+    expect((await publicSubmit(sent.token, FORM)).status).toBe(200);
+
+    const body = { employeeCode: `J${SUFFIX}`.slice(0, 20), firstName: 'Arjun', lastName: 'Mehta', joiningDate: '2026-12-01' };
+    // Before an offer is accepted: refused, and nothing is created.
+    const early = await asA('post', `/onboarding/candidates/${ids.joiner}/convert-to-employee`, body);
+    expect(early.status).toBe(409);
+    expect(await prisma.rndtechnosoft_employees.count({ where: { tenant_id: a.tenantId, employee_code: body.employeeCode } })).toBe(0);
+
+    await prisma.rndtechnosoft_candidates.update({ where: { id: ids.joiner }, data: { candidate_status: 'OFFER_ACCEPTED' } });
+    const defaults = (await asA('get', `/onboarding/candidates/${ids.joiner}/conversion-defaults`)).body.data;
+    expect(defaults.defaults).toMatchObject({ dateOfBirth: '1996-04-12', genderCode: 'MALE', currentAddressLine1: null });
+    expect(defaults.carryOver).toMatchObject({ addresses: ['CURRENT'], education: 2, experience: 2, documents: 1 });
+
+    const converted = await asA('post', `/onboarding/candidates/${ids.joiner}/convert-to-employee`, body);
+    expect(converted.status).toBe(200);
+    expect(converted.body.data.carried).toEqual({ education: 2, experience: 2, documents: 1 });
+    const employeeId = converted.body.data.employeeId as string;
+    const where = { tenant_id: a.tenantId, employee_id: employeeId };
+    const employee = await prisma.rndtechnosoft_employees.findFirstOrThrow({ where: { id: employeeId } });
+    expect(employee.date_of_birth?.toISOString().slice(0, 10)).toBe('1996-04-12');
+    expect(employee.gender_code).toBe('MALE');
+    expect(await prisma.rndtechnosoft_employee_addresses.findMany({ where, select: { address_type: true, address_line_1: true, city: true } }))
+      .toEqual([{ address_type: 'CURRENT', address_line_1: '12 MG Road', city: 'Pune' }]);
+    const education = await prisma.rndtechnosoft_employee_education.findMany({ where, orderBy: { qualification_name: 'asc' } });
+    expect(education.map((e) => [e.qualification_name, e.institution_name, e.end_date?.toISOString().slice(0, 10)])).toEqual([
+      ['B.Com', 'Symbiosis College, Pune University', '2017-12-31'],
+      ['M.Com', 'Symbiosis College', '2019-12-31'],
+    ]);
+    const experience = await prisma.rndtechnosoft_employee_experience.findMany({ where, orderBy: { start_date: 'asc' } });
+    expect(experience.map((e) => [e.employer_name, e.end_date?.toISOString().slice(0, 10) ?? null])).toEqual([['Acme Books', '2022-06-30'], ['Ledger & Co', null]]);
+    const documents = await prisma.rndtechnosoft_employee_documents.findMany({ where });
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({ document_type: 'JOINING', document_name: 'Resume', document_status: 'PENDING_VERIFICATION', original_filename: 'cv.pdf' });
+    // The employee's copy opens through the People documents download.
+    const file = await asA('get', `/employees/${employeeId}/documents/${documents[0].id}/file`);
+    expect(file.status).toBe(200);
+    expect(file.body.toString().startsWith('%PDF')).toBe(true);
+
+    // Twice is refused.
+    expect((await asA('post', `/onboarding/candidates/${ids.joiner}/convert-to-employee`, { ...body, employeeCode: `K${SUFFIX}`.slice(0, 20) })).status).toBe(409);
   });
 });

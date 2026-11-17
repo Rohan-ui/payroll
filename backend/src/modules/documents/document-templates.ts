@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import { OFFBOARDING_DOCUMENT_TYPES } from '../offboarding/dto/offboarding.dto';
 
 /**
  * Document templates: text with {{placeholders}}. Each kind has a fixed set
@@ -56,18 +55,18 @@ export const TABLE_KINDS: Partial<Record<string, string>> = {
 };
 
 export const HR_COMMON_PLACEHOLDERS: { key: string; description: string; sample: string }[] = [
-  { key: 'candidate_name', description: "The candidate's full name", sample: 'Harshit Dhodi' },
-  { key: 'candidate_id', description: 'The candidate reference ID', sample: 'CAN-2026-243723' },
-  { key: 'candidate_code', description: 'The candidate reference code', sample: 'CAN-2026-243723' },
-  { key: 'candidate_email', description: "The candidate's email", sample: 'harshit@rndtechnosoft.com' },
-  { key: 'email', description: "The candidate's email", sample: 'harshit@rndtechnosoft.com' },
-  { key: 'candidate_phone', description: "The candidate's phone number", sample: '1234567890' },
-  { key: 'phone', description: "The candidate's phone number", sample: '1234567890' },
+  { key: 'candidate_name', description: "The candidate's full name", sample: 'Priya Rao' },
+  { key: 'candidate_id', description: 'The candidate reference ID', sample: 'CAN-2026-100042' },
+  { key: 'candidate_code', description: 'The candidate reference code', sample: 'CAN-2026-100042' },
+  { key: 'candidate_email', description: "The candidate's email", sample: 'priya.rao@example.com' },
+  { key: 'email', description: "The candidate's email", sample: 'priya.rao@example.com' },
+  { key: 'candidate_phone', description: "The candidate's phone number", sample: '+91 98765 43210' },
+  { key: 'phone', description: "The candidate's phone number", sample: '+91 98765 43210' },
   { key: 'address', description: "The candidate's address", sample: 'Pune, Maharashtra' },
   { key: 'candidate_address', description: "The candidate's address", sample: 'Pune, Maharashtra' },
-  { key: 'job_title', description: 'The job title offered or held', sample: 'Lead Full Stack Engineer' },
-  { key: 'designation', description: 'The designation', sample: 'Lead Full Stack Engineer' },
-  { key: 'department', description: 'The department name', sample: 'TECH' },
+  { key: 'job_title', description: 'The job title offered or held', sample: 'Senior Backend Engineer' },
+  { key: 'designation', description: 'The designation', sample: 'Senior Engineer' },
+  { key: 'department', description: 'The department name', sample: 'Engineering' },
   { key: 'employment_type', description: 'Full-time, contract, etc.', sample: 'Full-time' },
   { key: 'annual_salary', description: 'Annual compensation (CTC)', sample: 'INR 7,80,000.00' },
   { key: 'salary', description: 'Total annual pay (CTC)', sample: 'INR 7,80,000.00' },
@@ -82,16 +81,16 @@ export const HR_COMMON_PLACEHOLDERS: { key: string; description: string; sample:
   { key: 'experience', description: 'Total years of experience', sample: '1.0 years' },
   { key: 'experience_years', description: 'Total years of experience', sample: '1.0' },
   { key: 'hiring_source', description: 'Where the candidate was sourced', sample: 'LINKEDIN' },
-  { key: 'company_name', description: 'Your company’s legal name', sample: 'RND Technosoft' },
+  { key: 'company_name', description: 'Your company’s legal name', sample: 'Acme Technologies Pvt Ltd' },
   { key: 'company_address', description: 'Your company’s registered address', sample: 'Tech Park, Pune' },
   { key: 'company_phone', description: 'Your company’s phone number', sample: '+91 20 1234 5678' },
-  { key: 'company_email', description: 'Your company’s contact email', sample: 'hr@rndtechnosoft.com' },
-  { key: 'company_website', description: 'Your company’s website', sample: 'https://rndtechnosoft.com' },
+  { key: 'company_email', description: 'Your company’s contact email', sample: 'hr@acme.example' },
+  { key: 'company_website', description: 'Your company’s website', sample: 'https://acme.example' },
   { key: 'special_terms', description: 'Any special terms or conditions', sample: 'Subject to company policies.' },
   { key: 'offer_reference', description: 'Reference number', sample: 'DOC-2026-1001' },
   { key: 'offer_expiry_date', description: 'The last day to accept', sample: '15 October 2026' },
-  { key: 'employee_name', description: "The employee / candidate's full name", sample: 'Harshit Dhodi' },
-  { key: 'employee_code', description: 'The employee / candidate code', sample: 'CAN-2026-243723' },
+  { key: 'employee_name', description: "The employee / candidate's full name", sample: 'Priya Rao' },
+  { key: 'employee_code', description: 'The employee / candidate code', sample: 'CAN-2026-100042' },
   { key: 'today', description: "Today's date", sample: '28 October 2026' },
   { key: 'date', description: "Today's date", sample: '28 October 2026' },
   // Salary structure placeholders
@@ -123,6 +122,17 @@ export const HR_COMMON_PLACEHOLDERS: { key: string; description: string; sample:
   { key: 'annual_ctc', description: 'Total annual CTC', sample: 'INR 7,80,000.00' },
 ];
 
+/** What exit letters can say about the exit itself, filled from the exit and employment records. */
+export const EXIT_PLACEHOLDERS: { key: string; description: string; sample: string }[] = [
+  { key: 'last_working_date', description: 'Their last working day', sample: '31 August 2026' },
+  { key: 'notice_date', description: 'The day notice was given', sample: '1 August 2026' },
+  { key: 'separation_type', description: 'How the employment ended (resignation, termination…)', sample: 'resignation' },
+  { key: 'exit_reference', description: 'The reference of the exit', sample: 'EMP-0142/EXIT/2026' },
+  { key: 'employment_duration', description: 'How long they worked here', sample: '4 years 7 months' },
+  { key: 'signatory_name', description: 'The person who generated the letter', sample: 'Priya Nair' },
+];
+const EXIT_LETTER_PLACEHOLDERS = [...HR_COMMON_PLACEHOLDERS, ...EXIT_PLACEHOLDERS];
+
 export const PLACEHOLDERS: Record<string, { key: string; description: string; sample: string }[]> = {
   OFFER_LETTER: HR_COMMON_PLACEHOLDERS,
   APPOINTMENT_LETTER: HR_COMMON_PLACEHOLDERS,
@@ -132,11 +142,11 @@ export const PLACEHOLDERS: Record<string, { key: string; description: string; sa
   WELCOME_LETTER: HR_COMMON_PLACEHOLDERS,
   NDA: HR_COMMON_PLACEHOLDERS,
   SALARY_REVISION: HR_COMMON_PLACEHOLDERS,
-  EXPERIENCE_LETTER: HR_COMMON_PLACEHOLDERS,
-  RELIEVING_LETTER: HR_COMMON_PLACEHOLDERS,
+  EXPERIENCE_LETTER: EXIT_LETTER_PLACEHOLDERS,
+  RELIEVING_LETTER: EXIT_LETTER_PLACEHOLDERS,
   CERTIFICATE: HR_COMMON_PLACEHOLDERS,
   CUSTOM_HR: HR_COMMON_PLACEHOLDERS,
-  OFFBOARDING_LETTER: HR_COMMON_PLACEHOLDERS,
+  OFFBOARDING_LETTER: EXIT_LETTER_PLACEHOLDERS,
   QUOTATION: [
     { key: 'quotation_number', description: 'The quotation number', sample: 'QT-2026-0042' },
     { key: 'quotation_date', description: 'The date the quotation was made', sample: '14 October 2026' },
@@ -180,7 +190,8 @@ const TOKEN = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g;
 export function templateProblem(kind: TemplateKind | string, title: string, body: string): string | null {
   const specific = (PLACEHOLDERS as Record<string, { key: string }[]>)[kind];
   const list = specific && specific.length > 0 ? specific : HR_COMMON_PLACEHOLDERS;
-  const allowed = new Set([...list.map((p) => p.key), ...HR_COMMON_PLACEHOLDERS.map((p) => p.key)]);
+  // Each kind only its own: an HR letter's {{candidate_name}} is never filled on a quotation, so it would print blank.
+  const allowed = new Set(list.map((p) => p.key));
   const text = `${title}\n${body}`;
   const unknown = [...new Set([...text.matchAll(TOKEN)].map((m) => m[1]).filter((key) => !allowed.has(key)))];
   if (unknown.length) return `These placeholders don't exist: ${unknown.map((k) => `{{${k}}}`).join(', ')}. Use only the ones listed.`;

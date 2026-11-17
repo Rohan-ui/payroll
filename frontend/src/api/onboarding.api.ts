@@ -205,6 +205,8 @@ export interface ConversionDefaults {
     salaryEffectiveFrom: string;
     cosecEmployeeId: string;
   };
+  /** What conversion also copies from the candidate's form and documents. */
+  carryOver?: { addresses: ('CURRENT' | 'PERMANENT')[]; emergencyContact: boolean; education: number; experience: number; documents: number };
   masters: {
     departments: Array<{ id: string; department_name: string }>;
     designations: Array<{ id: string; designation_name: string }>;

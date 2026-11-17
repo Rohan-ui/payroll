@@ -911,6 +911,8 @@ export const ConvertToEmployeeModal: React.FC<Props> = ({
                   <CheckCircle2 className="w-4 h-4 text-teal-600" /> Summary Confirmation
                 </div>
 
+                {defaults?.carryOver && <CarryOverNote carryOver={defaults.carryOver} />}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                   {/* Card 1: Identity & Employment */}
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] space-y-2">
@@ -1010,5 +1012,24 @@ export const ConvertToEmployeeModal: React.FC<Props> = ({
         )}
       </div>
     </Dialog>
+  );
+};
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** Lists what the employee record also receives from the candidate's form and documents. */
+const CarryOverNote: React.FC<{ carryOver: NonNullable<ConversionDefaults['carryOver']> }> = ({ carryOver: c }) => {
+  const items = [
+    c.addresses.length > 0 && `${c.addresses.map((a) => a.toLowerCase()).join(' and ')} address`,
+    c.emergencyContact && 'emergency contact',
+    c.education > 0 && plural(c.education, 'education record'),
+    c.experience > 0 && plural(c.experience, 'previous job'),
+    c.documents > 0 && plural(c.documents, 'document'),
+  ].filter(Boolean);
+  if (items.length === 0) return null;
+  return (
+    <p className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs text-teal-900 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-100">
+      Also copied from the candidate's form: {items.join(', ')}. Fields you filled in above take priority; documents not yet verified stay pending verification on the employee.
+    </p>
   );
 };

@@ -10,6 +10,8 @@ import { AuditService } from '@/modules/audit/audit.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { DocNode } from '@/modules/documents/rich-document';
 
+import { createLetterFixture } from './support/letter-fixture';
+
 describe('Candidate Letter Documents System', () => {
   const prisma = new PrismaClient();
   let service: CandidateLetterDocumentsService;
@@ -19,14 +21,19 @@ describe('Candidate Letter Documents System', () => {
   let docx: DocumentDocxService;
   let letterheads: LetterheadsService;
 
-  const tenantId = '74f9eb2a-25b2-48a6-972d-16359e24a85c';
-  const harshitCandidateId = '958fe1ae-4acf-420c-8250-94dd71ea0556';
+  // Its own workspace and candidate, so the suite never depends on a developer's database.
+  let fixture: Awaited<ReturnType<typeof createLetterFixture>>;
+  let tenantId = '';
+  let harshitCandidateId = '';
   let actor: AuthenticatedTenantUser;
   let testTemplateId: string;
   let createdDocId: string;
 
   beforeAll(async () => {
     await prisma.$connect();
+    fixture = await createLetterFixture(prisma);
+    tenantId = fixture.tenantId;
+    harshitCandidateId = fixture.candidateId;
 
     // Find an active tenant member to act as the actor
     const member = await prisma.rndtechnosoft_tenant_members.findFirst({
@@ -157,6 +164,7 @@ describe('Candidate Letter Documents System', () => {
         where: { tenant_id: tenantId, id: createdDocId },
       });
     }
+    await fixture?.cleanup();
     await prisma.$disconnect();
   });
 
@@ -447,7 +455,7 @@ describe('Candidate Letter Documents System', () => {
     expect(preview.subject).toContain('Harshit Dhodi');
     expect(preview.bodyHtml).toContain('Harshit Dhodi');
     expect(preview.recipientEmail).toBe('harshit@rndtechnosoft.com');
-    expect(preview.unresolvedPlaceholders.length).toBe(0);
+    expect(preview.unresolvedPlaceholders).toEqual([]);
     expect(preview.hasUnresolvedPlaceholders).toBe(false);
   });
 

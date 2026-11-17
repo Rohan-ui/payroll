@@ -85,6 +85,7 @@ beforeEach(() => {
       if (url.endsWith('/verify')) return json({ success: true, data: { documents: DOCUMENTS, notifications: [] } });
       if (url.endsWith('/reject')) return json({ success: true, data: { documents: DOCUMENTS, notifications: [{ recipient: 'arjun@candidate.test', status: 'SENT', duplicate: false, error: null }] } });
       if (url.endsWith('/documents/link')) return json({ success: true, data: { documents: DOCUMENTS, notifications: [{ recipient: 'arjun@candidate.test', status: 'SENT', duplicate: false, error: null }] } });
+      if (url.startsWith('/api/v1/documents/')) return json({ success: true, data: [] }); // the letters module, not candidate documents
       if (url.includes('/documents')) return json({ success: true, data: DOCUMENTS }, method === 'POST' ? 201 : 200);
       return json({ success: true, data: [] });
     }),
@@ -137,6 +138,21 @@ describe('documents on the candidate page', () => {
     expect(container.textContent).toContain('Arjun Mehta');
     expect([...container.querySelectorAll('h2')].map((h) => h.textContent)).not.toContain('Documents');
     expect(calls.some((c) => c.url.includes('/documents'))).toBe(false);
+  });
+
+  it('groups the candidate page into tabs, loading documents only when their tab is opened', async () => {
+    await act(async () => root.render(<CandidateDetailView candidateId="c1" meta={null} onBack={() => undefined} onEdit={() => undefined} onOpenOffer={() => undefined} onCreateOffer={() => undefined} />));
+    await settle();
+    const tabs = [...container.querySelectorAll('[role=tab]')] as HTMLButtonElement[];
+    expect(tabs.map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'Candidate form', 'Interviews', 'Documents']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(calls.some((c) => c.url.includes('/candidates/c1/documents'))).toBe(false);
+
+    // Arrow keys move between tabs, as in the employee profile.
+    await act(async () => { tabs[0].focus(); tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })); });
+    await settle();
+    expect(document.activeElement?.textContent).toBe('Documents');
+    expect(calls.some((c) => c.url.includes('/candidates/c1/documents'))).toBe(true);
   });
 
   it('shows each document with its state, the link and earlier uploads', async () => {
