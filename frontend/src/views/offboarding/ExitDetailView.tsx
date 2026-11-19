@@ -12,8 +12,11 @@ import { SettlementPanel } from './SettlementPanel';
 import { ExitDocumentsPanel } from './ExitDocumentsPanel';
 import { ExitEmailsPanel } from './ExitEmailsPanel';
 import { ChecklistItemDialog } from './ChecklistItemDialog';
+import { ExitInterviewPanel } from './ExitInterviewPanel';
+import { AssetsPanel } from '../employee/AssetsPanel';
+import { assetsApi } from '../../api/assets.api';
 
-type Action = 'approve' | 'last-day' | 'cancel' | 'complete' | 'interview' | 'add-item' | 'waive-notice' | 'reassign' | { waive: string } | { edit: string };
+type Action = 'approve' | 'last-day' | 'cancel' | 'complete' | 'add-item' | 'waive-notice' | 'reassign' | { waive: string } | { edit: string };
 
 /** One exit, as HR works it: accept it, agree the last day, clear the checklist, note the exit interview, then complete it. */
 export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChanged: () => void }> = ({ id, onBack, onChanged }) => {
@@ -31,6 +34,7 @@ export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChange
     setError(null);
     offboardingApi.detail(id).then(setExit).catch((e) => setError(errorText(e)));
   }, [id]);
+  const loadAssets = useCallback(() => assetsApi.forExit(id), [id]);
   useEffect(load, [load]);
 
   const changed = (next: ExitDetail, message: string) => {
@@ -182,6 +186,11 @@ export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChange
         <ExitDocumentsPanel separationId={exit.id} employeeName={exit.employee.name} isCompleted={exit.status === 'COMPLETED'} />
       )}
 
+      {(exit.status === 'IN_PROGRESS' || exit.status === 'COMPLETED') && (
+        <AssetsPanel employeeId={exit.employee.id} load={loadAssets} title="Company assets"
+          description="The exit can’t be completed, nor the settlement submitted, while an asset is still with the employee. Recoveries for lost or damaged assets go into the settlement." onChanged={load} />
+      )}
+
       {exit.checklist.length > 0 && (
         <section className={`${cardClass} p-5`} aria-labelledby="checklist-heading">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -245,19 +254,7 @@ export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChange
       )}
 
       {(exit.status === 'IN_PROGRESS' || exit.status === 'COMPLETED') && (
-        <section className={`${cardClass} p-5`} aria-labelledby="interview-heading">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 id="interview-heading" className="text-sm font-bold text-slate-900 dark:text-slate-100">Exit interview</h3>
-            {canManage && <Button size="sm" variant="outline" onClick={() => setAction('interview')}>{exit.exitInterview ? 'Edit' : 'Record exit interview'}</Button>}
-          </div>
-          {exit.exitInterview ? (
-            <div className="mt-2 space-y-1">
-              <p className="text-xs text-slate-500">Held {day(exit.exitInterview.date)}{exit.exitInterview.recordedBy ? ` · noted by ${exit.exitInterview.recordedBy}` : ''} · {exit.exitInterview.rehireEligible == null ? 'Rehire not decided' : exit.exitInterview.rehireEligible ? 'Eligible for rehire' : 'Not eligible for rehire'}</p>
-              <p className="whitespace-pre-line break-words text-sm text-slate-800 dark:text-slate-200">{exit.exitInterview.notes}</p>
-              <p className="text-xs text-slate-500">Only people who can view exits see these notes; the employee doesn’t.</p>
-            </div>
-          ) : <p className="mt-2 text-sm text-slate-500">Not recorded yet. Note what the employee said about why they’re leaving and whether you’d hire them again.</p>}
-        </section>
+        <ExitInterviewPanel exit={exit} canRecord={canManage} onSave={async (input) => changed(await offboardingApi.saveInterview(id, input), 'Exit interview saved')} onChanged={changed} />
       )}
 
       <ExitEmailsPanel separationId={exit.id} refreshKey={exit} />
@@ -284,7 +281,6 @@ export const ExitDetailView: React.FC<{ id: string; onBack: () => void; onChange
         return item && <ChecklistItemDialog item={item} lastWorkingDate={exit.lastWorkingDate} onClose={() => setAction(null)}
           onSave={async (input) => changed(await offboardingApi.itemDetails(id, item.id, input), 'Checklist item saved')} />;
       })()}
-      {action === 'interview' && <InterviewDialog exit={exit} onClose={() => setAction(null)} run={async (input) => changed(await offboardingApi.saveInterview(id, input), 'Exit interview saved')} />}
       {action === 'complete' && (
         <CompleteDialog exit={exit} onClose={() => setAction(null)} run={async () => changed(await offboardingApi.complete(id), `${exit.employee.name}’s exit is complete`)} />
       )}
@@ -348,41 +344,6 @@ const TextAction: React.FC<{ title: string; description: string; label: string; 
       footer={<><Button variant="outline" onClick={onClose} disabled={busy}>Back</Button><Button variant={danger ? 'danger' : 'primary'} onClick={() => go(() => run(text.trim()))} loading={busy} disabled={busy || text.trim().length < 3}>{confirm}</Button></>}>
       <label htmlFor={id} className={labelClass}>{label}</label>
       <textarea id={id} className={fieldClass} rows={3} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
-      {alert}
-    </Dialog>
-  );
-};
-
-const InterviewDialog: React.FC<{ exit: ExitDetail; onClose: () => void; run: (input: { interviewDate: string; notes: string; rehireEligible?: boolean }) => Promise<void> }> = ({ exit, onClose, run }) => {
-  const id = useId();
-  const [date, setDate] = useState(exit.exitInterview?.date ?? exit.today);
-  const [notes, setNotes] = useState(exit.exitInterview?.notes ?? '');
-  const [rehire, setRehire] = useState<'' | 'yes' | 'no'>(exit.exitInterview?.rehireEligible == null ? '' : exit.exitInterview.rehireEligible ? 'yes' : 'no');
-  const { busy, run: go, alert } = useRun();
-  return (
-    <Dialog title="Exit interview" description={`What ${exit.employee.name} said about leaving. The employee doesn’t see these notes.`} size="lg" onClose={() => !busy && onClose()}
-      footer={<><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={() => go(() => run({ interviewDate: date, notes: notes.trim(), rehireEligible: rehire === '' ? undefined : rehire === 'yes' }))} loading={busy} disabled={busy || !date || notes.trim().length < 3}>Save</Button></>}>
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label htmlFor={`${id}-date`} className={labelClass}>Held on</label>
-            <input id={`${id}-date`} type="date" className={fieldClass} value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor={`${id}-rehire`} className={labelClass}>Would you hire them again?</label>
-            <select id={`${id}-rehire`} className={fieldClass} value={rehire} onChange={(e) => setRehire(e.target.value as '' | 'yes' | 'no')}>
-              <option value="">Not decided</option>
-              <option value="yes">Yes, eligible for rehire</option>
-              <option value="no">No</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <label htmlFor={`${id}-notes`} className={labelClass}>Notes</label>
-          <textarea id={`${id}-notes`} className={fieldClass} rows={6} maxLength={4000} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          <p className={hintClass}>{4000 - notes.length} characters left.</p>
-        </div>
-      </div>
       {alert}
     </Dialog>
   );

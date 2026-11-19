@@ -37,6 +37,7 @@ import { PerformanceTemplatesController } from '@/modules/performance/performanc
 import { PerformanceWorkflowsController } from '@/modules/performance/performance-workflows.controller';
 import { EmployeeProfileController } from '@/modules/employees/employee-profile.controller';
 import { EmployeeDocumentsController } from '@/modules/employees/employee-documents.controller';
+import { EmployeeAssetsController } from '@/modules/employees/employee-assets.controller';
 import { EmployeeRelationsController } from '@/modules/employees/employee-relations.controller';
 import { PerformanceCyclesController } from '@/modules/performance/performance-cycles.controller';
 import { PerformanceMyController } from '@/modules/performance/performance-my.controller';
@@ -88,6 +89,7 @@ const TENANT_CONTROLLERS: [string, ControllerClass][] = [
   ['EmployeeRelationsController', EmployeeRelationsController],
   ['EmployeeProfileController', EmployeeProfileController],
   ['EmployeeDocumentsController', EmployeeDocumentsController],
+  ['EmployeeAssetsController', EmployeeAssetsController],
   ['PerformanceCyclesController', PerformanceCyclesController],
   ['PerformanceMyController', PerformanceMyController],
   ['DocumentsController', DocumentsController],
@@ -219,6 +221,10 @@ describe('Tenant route guard coverage', () => {
     const CHECKED_IN_HANDLER = [
       'outreach.create', 'outreach.update', 'leads.delete', 'leads.view_all', 'people.bank.update', 'sequences.logs.view',
       'offboarding.clearance.update', 'offboarding.clearance.it', 'offboarding.clearance.admin', 'offboarding.clearance.finance', 'offboarding.clearance.hr',
+      // Assets likewise: the team that owns each asset gives it out and takes it back.
+      'assets.it.manage', 'assets.admin.manage',
+      // Exit-interview notes: the route needs offboarding.manage; writing or seeing the confidential part needs this too.
+      'offboarding.interview.confidential',
     ];
     // Pages whose data is computed in the browser or is sample data; the
     // permission decides only whether the sidebar shows them.
@@ -307,6 +313,7 @@ describe('Tenant route guard coverage', () => {
       ['EmployeeRelationsController', ['HRMS']],
       ['EmployeeProfileController', ['HRMS']],
       ['EmployeeDocumentsController', ['HRMS']],
+      ['EmployeeAssetsController', ['HRMS']],
       ['PerformanceCyclesController', ['HRMS']],
       ['PerformanceMyController', ['HRMS']],
       // Document templates and letterheads belong to the organization, shared by HRMS and CRM.

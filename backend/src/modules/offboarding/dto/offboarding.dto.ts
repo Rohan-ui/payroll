@@ -81,11 +81,76 @@ export class ExitInterviewDto {
   @IsISO8601(DATE, { message: 'Give the day the exit interview was held.' })
   interviewDate!: string;
 
-  @IsString() @MinLength(3, { message: 'Write down what was discussed.' }) @MaxLength(4000)
-  notes!: string;
+  /** Who held it; the person recording it when left out. */
+  @IsOptional() @IsUUID('4', { message: 'Choose who held the interview.' })
+  conductedByMemberId?: string;
+
+  @IsString() @Matches(/^[A-Z][A-Z0-9_]{1,47}$/, { message: 'Choose the main reason for leaving.' })
+  primaryReason!: string;
+
+  @IsOptional() @IsString() @Matches(/^[A-Z][A-Z0-9_]{1,47}$/, { message: 'Choose a reason from the list.' })
+  secondaryReason?: string;
+
+  /** What the employee said. */
+  @trim() @IsString() @MinLength(3, { message: 'Write down what the employee said.' }) @MaxLength(4000)
+  employeeFeedback!: string;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(5)
+  workplaceRating?: number;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(5)
+  compensationRating?: number;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(5)
+  growthRating?: number;
 
   @IsOptional() @IsBoolean()
   rehireEligible?: boolean;
+
+  @IsOptional() @trim() @IsString() @MaxLength(1000)
+  rehireRemarks?: string;
+
+  /** HR-only; needs offboarding.interview.confidential. Left out, the saved notes stay as they are. */
+  @IsOptional() @trim() @IsString() @MaxLength(4000)
+  confidentialNotes?: string;
+}
+
+export class ScheduleInterviewDto {
+  /** Date and time with its offset, such as 2026-12-10T15:30:00+05:30. */
+  // A date alone would be read as midnight UTC, the small hours in India: the time and its offset are required.
+  @IsISO8601({ strict: true }, { message: 'Give the date and time of the interview.' })
+  @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/, { message: 'Give the date and time of the interview, with its time zone.' })
+  scheduledAt!: string;
+
+  /** Who holds it; the person booking it when left out. */
+  @IsOptional() @IsUUID('4', { message: 'Choose who holds the interview.' })
+  interviewerMemberId?: string;
+
+  /** A room or a meeting link. */
+  @IsOptional() @trim() @IsString() @MaxLength(300)
+  location?: string;
+}
+
+export class ManagerFeedbackDto {
+  @trim() @IsString() @MinLength(3, { message: 'Write your feedback first.' }) @MaxLength(4000)
+  feedback!: string;
+}
+
+export class ExitReasonDto {
+  @IsOptional() @IsString() @Matches(/^[A-Z][A-Z0-9_]{1,47}$/)
+  code?: string;
+
+  @trim() @IsString() @MinLength(2, { message: 'Name the reason.' }) @MaxLength(80)
+  label!: string;
+
+  @IsBoolean()
+  active!: boolean;
+}
+
+export class ExitReasonsDto {
+  @IsArray() @ArrayMaxSize(40, { message: 'Up to 40 reasons.' })
+  @ValidateNested({ each: true }) @Type(() => ExitReasonDto)
+  reasons!: ExitReasonDto[];
 }
 
 export class ClearanceUpdateDto {
@@ -222,4 +287,36 @@ export class NotificationSettingsDto {
   @IsOptional() @IsBoolean() SETTLEMENT_PAID?: boolean;
   @IsOptional() @IsBoolean() EXIT_COMPLETED?: boolean;
   @IsOptional() @IsBoolean() LETTER_ISSUED?: boolean;
+  @IsOptional() @IsBoolean() INTERVIEW_SCHEDULED?: boolean;
+  @IsOptional() @IsBoolean() INTERVIEW_CANCELLED?: boolean;
+}
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+const monthsAgo = (n: number) => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - n); return isoDay(d); };
+
+/** Reports filters. The range picks exits by their last working day: the last 12 months and the next 3 unless given. */
+export class OffboardingReportQueryDto {
+  @IsOptional() @IsISO8601(DATE, { message: 'Give the start of the range as a date.' })
+  from: string = monthsAgo(11);
+
+  @IsOptional() @IsISO8601(DATE, { message: 'Give the end of the range as a date.' })
+  to: string = isoDay(new Date(Date.now() + 90 * 86_400_000));
+
+  @IsOptional() @IsIn(['month', 'quarter', 'year'])
+  groupBy: 'month' | 'quarter' | 'year' = 'month';
+
+  @IsOptional() @IsUUID('4')
+  departmentId?: string;
+
+  @IsOptional() @IsUUID('4')
+  locationId?: string;
+
+  @IsOptional() @IsIn(SEPARATION_TYPES)
+  type?: SeparationType;
+
+  @IsOptional() @IsIn(SEPARATION_STATUSES)
+  status?: SeparationStatus;
+
+  @IsOptional() @IsUUID('4')
+  managerId?: string;
 }

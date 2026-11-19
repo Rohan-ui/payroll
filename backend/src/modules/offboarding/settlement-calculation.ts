@@ -51,7 +51,7 @@ export function settlementPolicy(stored: unknown): SettlementPolicy {
 
 export type SettlementComponent =
   | 'FINAL_SALARY' | 'LEAVE_ENCASHMENT' | 'GRATUITY' | 'NOTICE_PAY' | 'BONUS' | 'INCENTIVE' | 'REIMBURSEMENT' | 'COMMISSION' | 'OTHER_PAYMENT'
-  | 'NOTICE_RECOVERY' | 'LOAN_RECOVERY' | 'ADVANCE_RECOVERY' | 'OTHER_RECOVERY';
+  | 'NOTICE_RECOVERY' | 'LOAN_RECOVERY' | 'ADVANCE_RECOVERY' | 'ASSET_RECOVERY' | 'OTHER_RECOVERY';
 
 export const MANUAL_COMPONENTS: Record<string, 'EARNING' | 'RECOVERY'> = {
   BONUS: 'EARNING', INCENTIVE: 'EARNING', REIMBURSEMENT: 'EARNING', COMMISSION: 'EARNING', OTHER_PAYMENT: 'EARNING', OTHER_RECOVERY: 'RECOVERY',
@@ -66,6 +66,10 @@ export interface SettlementInputs {
   notice: { shortfallDays: number; decision: 'RECOVER' | 'WAIVE' | null };
   leave: { leaveTypeId: string; name: string; balanceDays: string; encashable: boolean; asOf: string }[];
   loans: { loanId: string; number: string; type: string; outstanding: string; installmentIds: string[] }[];
+  /** Lost or damaged assets the employee pays for, recorded during this exit. */
+  assetRecoveries: { assetId: string; name: string; tag: string | null; status: string; amount: string }[];
+  /** Assets still with the employee. */
+  assetsOut: number;
   /** The finalized payslip for the month of the last working day, when there is one. */
   finalPayslip: { periodCode: string; gross: string; net: string } | null;
 }
@@ -167,6 +171,16 @@ export function calculateSettlement(input: SettlementInputs, policy: SettlementP
       countsInTotal: true, amount: money(D(loan.outstanding)),
       basis: { rule: 'Instalments not yet recovered', loanId: loan.loanId, outstanding: loan.outstanding, installmentIds: loan.installmentIds },
     });
+  }
+
+  for (const asset of input.assetRecoveries) {
+    lines.push({
+      kind: 'RECOVERY', code: 'ASSET_RECOVERY', label: `Asset recovery: ${asset.name}${asset.tag ? ` (${asset.tag})` : ''}`, countsInTotal: true, amount: money(D(asset.amount)),
+      basis: { rule: asset.status === 'LOST' ? 'Asset lost' : 'Asset returned damaged', assetId: asset.assetId },
+    });
+  }
+  if (input.assetsOut > 0) {
+    problems.push(`${input.assetsOut} company asset${input.assetsOut > 1 ? 's are' : ' is'} not returned yet. Record ${input.assetsOut > 1 ? 'their' : 'its'} return first, so any recovery is in the settlement.`);
   }
 
   return { lines, problems };

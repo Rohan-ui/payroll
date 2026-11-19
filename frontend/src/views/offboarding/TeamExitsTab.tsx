@@ -75,10 +75,12 @@ const TeamExitDetailView: React.FC<{ id: string; onBack: () => void }> = ({ id, 
   const [kind, setKind] = useState<CommentKind>('HANDOVER');
   const [body, setBody] = useState('');
   const [posting, setPosting] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [savingFeedback, setSavingFeedback] = useState(false);
 
   const load = useCallback(() => {
     setError(null);
-    offboardingApi.teamDetail(id).then(setExit).catch((e) => setError(errorText(e)));
+    offboardingApi.teamDetail(id).then((d) => { setExit(d); setFeedback(d.managerFeedback?.text ?? ''); }).catch((e) => setError(errorText(e)));
   }, [id]);
   useEffect(load, [load]);
 
@@ -108,6 +110,21 @@ const TeamExitDetailView: React.FC<{ id: string; onBack: () => void }> = ({ id, 
       setActionError(errorText(err));
     } finally {
       setPosting(false);
+    }
+  };
+
+  const saveFeedback = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (feedback.trim().length < 3 || savingFeedback) return;
+    setSavingFeedback(true);
+    setActionError(null);
+    try {
+      setExit(await offboardingApi.teamFeedback(id, feedback.trim()));
+      toast.success('Feedback saved');
+    } catch (err) {
+      setActionError(errorText(err));
+    } finally {
+      setSavingFeedback(false);
     }
   };
 
@@ -196,6 +213,21 @@ const TeamExitDetailView: React.FC<{ id: string; onBack: () => void }> = ({ id, 
               </ul>
             </>
           )}
+        </section>
+      )}
+
+      {exit.canGiveFeedback && (
+        <section className={`${cardClass} p-5`} aria-labelledby="team-feedback-heading">
+          <h3 id="team-feedback-heading" className="text-sm font-bold text-slate-900 dark:text-slate-100">Your feedback for the exit interview</h3>
+          <p className="mt-1 text-xs text-slate-500">How they worked and what their leaving means for the team. HR sees it with the exit interview; the employee doesn’t.</p>
+          <form onSubmit={saveFeedback} className="mt-3 space-y-3">
+            <label htmlFor={`${formId}-feedback`} className="sr-only">Your feedback</label>
+            <textarea id={`${formId}-feedback`} className={fieldClass} rows={4} maxLength={4000} value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" loading={savingFeedback} disabled={savingFeedback || feedback.trim().length < 3 || feedback.trim() === exit.managerFeedback?.text}>{exit.managerFeedback ? 'Update feedback' : 'Save feedback'}</Button>
+              {exit.managerFeedback?.at && <span className="text-xs text-slate-500">Saved {new Date(exit.managerFeedback.at).toLocaleString()}</span>}
+            </div>
+          </form>
         </section>
       )}
 

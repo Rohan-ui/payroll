@@ -42,6 +42,13 @@ const CurrentExit: React.FC<{ exit: OwnExit; today: string; onWithdraw: () => vo
         <p className="text-sm text-slate-600 dark:text-slate-400">You asked for {day(exit.requestedLastWorkingDate)}; HR agreed {day(exit.lastWorkingDate)}.</p>
       )}
 
+      {exit.exitInterviewBooking && (
+        <p className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900 dark:border-teal-800/50 dark:bg-teal-950/30 dark:text-teal-100">
+          Your exit interview is on <strong>{new Date(exit.exitInterviewBooking.at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}</strong>
+          {exit.exitInterviewBooking.interviewer ? ` with ${exit.exitInterviewBooking.interviewer}` : ''}{exit.exitInterviewBooking.location ? `, ${exit.exitInterviewBooking.location}` : ''}.
+        </p>
+      )}
+
       {exit.checklist.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Exit checklist <span className="font-normal text-slate-500">· {done} of {exit.checklist.length} done</span></h3>

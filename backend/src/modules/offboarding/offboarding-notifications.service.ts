@@ -14,6 +14,7 @@ type Actor = AuthenticatedTenantUser;
 export const OFFBOARDING_EVENTS = [
   'RESIGNATION_SUBMITTED', 'RESIGNATION_ACCEPTED', 'RESIGNATION_WITHDRAWN', 'EXIT_STARTED', 'CHECKLIST_ASSIGNED', 'CHECKLIST_REMINDER',
   'LAST_DAY_REMINDER', 'SETTLEMENT_PENDING_REVIEW', 'SETTLEMENT_APPROVED', 'SETTLEMENT_PAID', 'EXIT_COMPLETED', 'LETTER_ISSUED',
+  'INTERVIEW_SCHEDULED', 'INTERVIEW_CANCELLED',
 ] as const;
 export type OffboardingEvent = (typeof OFFBOARDING_EVENTS)[number];
 export type NotificationSettings = Record<OffboardingEvent, boolean>;
@@ -23,7 +24,7 @@ export type NotificationSettings = Record<OffboardingEvent, boolean>;
  * holding a permission, or the owners of the open checklist items (whoever
  * has an item, else the team; HR's override only when a team has nobody).
  */
-type Audience = 'EMPLOYEE' | 'MANAGER' | 'CHECKLIST_OWNERS' | PermissionKey;
+type Audience = 'EMPLOYEE' | 'MANAGER' | 'CHECKLIST_OWNERS' | 'MEMBERS' | PermissionKey;
 
 interface Context { name: string; code: string; lastDay: string; type: string; company: string; detail: string }
 
@@ -88,6 +89,16 @@ const EVENTS: Record<OffboardingEvent, { audience: Audience[]; subject: (c: Cont
     subject: (c) => `Exit completed: ${c.name}`,
     text: (c) => `The exit of ${c.name} (${c.code}) is complete. Their last working day was ${c.lastDay}.`,
   },
+  INTERVIEW_SCHEDULED: {
+    audience: ['EMPLOYEE', 'MEMBERS'],
+    subject: (c) => `Exit interview: ${c.name}, ${c.detail}`,
+    text: (c) => `The exit interview of ${c.name} (${c.code}) is booked for ${c.detail}.`,
+  },
+  INTERVIEW_CANCELLED: {
+    audience: ['EMPLOYEE', 'MEMBERS'],
+    subject: (c) => `Exit interview cancelled: ${c.name}`,
+    text: (c) => `The exit interview of ${c.name} (${c.code}) booked for ${c.detail} is cancelled. HR will let you know if it is booked again.`,
+  },
   LETTER_ISSUED: {
     audience: ['EMPLOYEE'],
     subject: (c) => `Your ${c.detail} from ${c.company}`,
@@ -107,6 +118,8 @@ export interface NotifyOptions {
   /** Makes the event distinct, so the same event can happen again (a settlement version, a reminder day). */
   key?: string;
   detail?: string;
+  /** For MEMBERS: these members (an interviewer, say), by their sign-in email. */
+  memberIds?: string[];
   /** Builds the attachment only when the email can be sent. */
   attachment?: () => Promise<{ filename: string; content: Buffer; contentType: string }>;
 }
@@ -215,6 +228,7 @@ export class OffboardingNotificationsService implements OnModuleDestroy {
         if (audience === 'EMPLOYEE') return employeeEmail ? [employeeEmail.trim().toLowerCase()] : [];
         if (audience === 'MANAGER') { const m = await this.managerEmail(tenantId, s.employee_id, s.last_working_date); return m ? [m] : []; }
         if (audience === 'CHECKLIST_OWNERS') return this.checklistOwners(tenantId, separationId, s.employee_id, s.last_working_date, e.user_id);
+        if (audience === 'MEMBERS') return this.memberEmails(tenantId, options.memberIds ?? []);
         // The person leaving never gets HR's or Finance's copy about themselves.
         return this.holders(tenantId, audience, e.user_id);
       }));
@@ -304,6 +318,14 @@ export class OffboardingNotificationsService implements OnModuleDestroy {
     }));
     for (const email of teams.flat()) emails.add(email);
     return emails;
+  }
+
+  private async memberEmails(tenantId: string, memberIds: string[]) {
+    if (!memberIds.length) return [];
+    const members = await this.prisma.rndtechnosoft_tenant_members.findMany({
+      where: { tenant_id: tenantId, id: { in: memberIds }, membership_status: 'ACTIVE' }, select: { rndtechnosoft_users: { select: { email: true } } },
+    });
+    return members.map((m) => m.rndtechnosoft_users.email.trim().toLowerCase());
   }
 
   /** Active members whose active roles grant the permission. */

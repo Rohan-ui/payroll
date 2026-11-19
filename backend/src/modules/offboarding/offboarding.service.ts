@@ -12,9 +12,10 @@ import { dateOnly, finalizedThrough, isoDate } from '@/modules/payroll/payroll-l
 import { DecimalMath } from '@/common/utils/decimal-math.util';
 import { OffboardingNotificationsService } from './offboarding-notifications.service';
 import { canClearTeam, ChecklistTemplateItem, ExitChecklistService } from './exit-checklist.service';
+import { ExitReasonsService } from './exit-reasons.service';
 import {
   CancelSeparationDto, ClearanceDetailsDto, ClearanceItemDto, LastWorkingDateDto, NoticeDecisionDto, ReassignReportsDto, ClearanceTeam, ClearanceUpdateDto, ExitInterviewDto, ListSeparationsQueryDto,
-  ResignDto, SeparationStatus, StartSeparationDto, WithdrawDto,
+  ResignDto, ScheduleInterviewDto, SeparationStatus, StartSeparationDto, WithdrawDto,
 } from './dto/offboarding.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -57,6 +58,9 @@ const DETAIL_INCLUDE = {
   completed_by: memberName,
   closed_by: memberName,
   notice_decided_by: memberName,
+  interview_conducted_by: memberName,
+  interviewer: memberName,
+  manager_feedback_by: memberName,
   rndtechnosoft_separation_date_changes: { orderBy: { created_at: 'asc' }, include: { changed_by: memberName } },
 } as const;
 
@@ -79,7 +83,7 @@ const day = (d: Date | null) => (d ? isoDate(d) : null);
 export class OffboardingService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly access: AccessService,
     private readonly relations: EmployeeRelationsService, private readonly notifications: OffboardingNotificationsService,
-    private readonly checklist: ExitChecklistService,
+    private readonly checklist: ExitChecklistService, private readonly reasons: ExitReasonsService,
   ) {}
 
   // ── The employee's own exit ─────────────────────────────────
@@ -194,7 +198,8 @@ export class OffboardingService {
     const row = await this.find(tenantId, id);
     const isOwnExit = !!actor && row.rndtechnosoft_employees.user_id === actor.userId;
     const employee = row.rndtechnosoft_employees;
-    const [comments, today, permissions, directReports, member, paidThrough, obligations, laterEmployments] = await Promise.all([
+    const [assetsOut, comments, today, permissions, directReports, member, paidThrough, obligations, laterEmployments] = await Promise.all([
+      this.prisma.rndtechnosoft_employee_assets.findMany({ where: { tenant_id: tenantId, employee_id: employee.id, return_status: 'ISSUED' }, orderBy: [{ assigned_date: 'asc' }, { created_at: 'asc' }], select: { asset_name: true }, take: 50 }),
       this.prisma.rndtechnosoft_separation_comments.findMany({ where: { tenant_id: tenantId, separation_id: id }, orderBy: { created_at: 'asc' }, take: 200, include: { author: memberName } }),
       this.today(tenantId),
       actor ? this.checklist.permissions(tenantId, actor) : new Set<string>(),
@@ -222,6 +227,7 @@ export class OffboardingService {
       if (notice.shortfallDays > 0 && !row.notice_shortfall_decision) blockers.push(`Decide whether to recover or waive the ${notice.shortfallDays}-day notice shortfall.`);
       const financeWaived = row.rndtechnosoft_separation_clearance_items.some((i) => i.clearance_team === 'FINANCE' && i.item_status === 'WAIVED');
       if (obligations.loans.length && !financeWaived) blockers.push(`${obligations.loans.length} loan or advance${obligations.loans.length > 1 ? 's are' : ' is'} not settled (${obligations.outstanding} outstanding). Settle ${obligations.loans.length > 1 ? 'them' : 'it'}, or waive the Finance checklist item with the reason.`);
+      if (assetsOut.length) blockers.push(`${assetsOut.length} company asset${assetsOut.length > 1 ? 's are' : ' is'} not returned yet (${assetsOut.map((a) => a.asset_name).join(', ')}). Record ${assetsOut.length > 1 ? 'their' : 'its'} return, or mark ${assetsOut.length > 1 ? 'them' : 'it'} lost or waived.`);
       if (laterEmployments) blockers.push('An employment record starts after the last working day. Correct it on the employee’s page first.');
     }
     const warnings: string[] = [];
@@ -238,8 +244,20 @@ export class OffboardingService {
       closedBy: who(row.closed_by),
       closeReason: row.close_reason,
       exitInterview: row.exit_interview_date
-        ? { date: isoDate(row.exit_interview_date), notes: row.exit_interview_notes, rehireEligible: row.rehire_eligible, recordedBy: who(row.interview_by) }
+        ? {
+          date: isoDate(row.exit_interview_date), conductedBy: row.exit_interview_conducted_by_tenant_member_id ? { id: row.exit_interview_conducted_by_tenant_member_id, name: who(row.interview_conducted_by) } : null,
+          primaryReason: row.primary_exit_reason, secondaryReason: row.secondary_exit_reason, employeeFeedback: row.exit_interview_notes,
+          ratings: { workplace: row.workplace_rating, compensation: row.compensation_rating, growth: row.growth_rating },
+          rehireEligible: row.rehire_eligible, rehireRemarks: row.rehire_remarks, recordedBy: who(row.interview_by),
+          // Only for HR with the permission; never sent to anyone else.
+          confidentialNotes: permissions.has('offboarding.interview.confidential') ? row.exit_interview_confidential_notes : undefined,
+        }
         : null,
+      interviewBooking: row.exit_interview_scheduled_at
+        ? { at: row.exit_interview_scheduled_at.toISOString(), location: row.exit_interview_location, interviewer: row.exit_interview_interviewer_tenant_member_id ? { id: row.exit_interview_interviewer_tenant_member_id, name: who(row.interviewer) } : null }
+        : null,
+      managerFeedback: row.manager_feedback ? { text: row.manager_feedback, by: who(row.manager_feedback_by), at: row.manager_feedback_at?.toISOString() ?? null } : null,
+      canSeeConfidential: permissions.has('offboarding.interview.confidential'),
       checklist: row.rndtechnosoft_separation_clearance_items.map((i) => {
         const owns = row.separation_status === 'IN_PROGRESS' && !isOwnExit && canClearTeam(permissions, i.clearance_team as ClearanceTeam);
         return {
@@ -352,16 +370,111 @@ export class OffboardingService {
     return this.detail(tenantId, id, actor);
   }
 
+  /**
+   * Records the structured exit interview. Reasons come from the workspace's
+   * list (a reason switched off still stands where it was already used); the
+   * confidential notes need their own permission, and are left as they are
+   * when not sent.
+   */
   async recordInterview(tenantId: string, id: string, input: ExitInterviewDto, actor: Actor) {
     const row = await this.find(tenantId, id);
     this.notOwn(row, actor, 'record your own exit interview');
+    if (input.interviewDate > (await this.today(tenantId))) throw new BadRequestException('The interview date can’t be in the future.');
+    const [reasons, permissions] = await Promise.all([this.reasons.list(tenantId), this.checklist.permissions(tenantId, actor)]);
+    const usable = (code: string, current: string | null) => reasons.some((r) => r.code === code && (r.active || r.code === current));
+    if (!usable(input.primaryReason, row.primary_exit_reason)) throw new BadRequestException('Choose the main reason for leaving from the list.');
+    if (input.secondaryReason && !usable(input.secondaryReason, row.secondary_exit_reason)) throw new BadRequestException('Choose the other reason from the list.');
+    if (input.secondaryReason === input.primaryReason) throw new BadRequestException('The other reason must differ from the main one.');
+    if (input.confidentialNotes !== undefined && !permissions.has('offboarding.interview.confidential')) {
+      throw new ForbiddenException('Only HR with access to confidential notes can write them.');
+    }
+    const conductedBy = input.conductedByMemberId ?? actor.tenantMemberId;
+    if (input.conductedByMemberId) {
+      const member = await this.prisma.rndtechnosoft_tenant_members.findFirst({ where: { tenant_id: tenantId, id: input.conductedByMemberId, membership_status: 'ACTIVE' }, select: { id: true } });
+      if (!member) throw new BadRequestException('Choose who held the interview from the workspace’s members.');
+    }
     await this.transition(tenantId, id, ['IN_PROGRESS', 'COMPLETED'], {
-      exit_interview_date: dateOnly(input.interviewDate), exit_interview_notes: input.notes.trim(), rehire_eligible: input.rehireEligible ?? null,
+      exit_interview_date: dateOnly(input.interviewDate), exit_interview_conducted_by_tenant_member_id: conductedBy,
+      primary_exit_reason: input.primaryReason, secondary_exit_reason: input.secondaryReason ?? null,
+      exit_interview_notes: input.employeeFeedback, workplace_rating: input.workplaceRating ?? null, compensation_rating: input.compensationRating ?? null, growth_rating: input.growthRating ?? null,
+      rehire_eligible: input.rehireEligible ?? null, rehire_remarks: input.rehireRemarks || null,
+      ...(input.confidentialNotes !== undefined ? { exit_interview_confidential_notes: input.confidentialNotes || null } : {}),
       exit_interview_recorded_by_tenant_member_id: actor.tenantMemberId,
     });
-    // The notes stay on the exit; the audit trail records only that they changed.
-    await this.log(tenantId, actor, 'SEPARATION_INTERVIEW_RECORDED', id, { new: { interview_date: input.interviewDate, rehire_eligible: input.rehireEligible ?? null } });
+    // What was said stays on the exit; the audit trail keeps the structured answers and only that the text changed.
+    await this.log(tenantId, actor, 'SEPARATION_INTERVIEW_RECORDED', id, {
+      old: row.exit_interview_date ? { primary_reason: row.primary_exit_reason, secondary_reason: row.secondary_exit_reason, rehire_eligible: row.rehire_eligible } : undefined,
+      new: {
+        interview_date: input.interviewDate, conducted_by_member_id: conductedBy, primary_reason: input.primaryReason, secondary_reason: input.secondaryReason ?? null,
+        ratings: { workplace: input.workplaceRating ?? null, compensation: input.compensationRating ?? null, growth: input.growthRating ?? null }, rehire_eligible: input.rehireEligible ?? null,
+        confidential_notes_changed: input.confidentialNotes !== undefined,
+      },
+    });
     return this.detail(tenantId, id, actor);
+  }
+
+  /**
+   * Books the exit interview, or moves it. The employee and the interviewer
+   * are emailed; a new time is emailed again.
+   */
+  async scheduleInterview(tenantId: string, id: string, input: ScheduleInterviewDto, actor: Actor) {
+    const row = await this.find(tenantId, id);
+    this.notOwn(row, actor, 'book your own exit interview');
+    if (row.separation_status !== 'IN_PROGRESS') throw new BadRequestException('An exit interview can be booked once the exit is under way.');
+    const at = new Date(input.scheduledAt);
+    if (at.getTime() <= Date.now()) throw new BadRequestException('Book the interview for a time still to come.');
+    const interviewer = input.interviewerMemberId ?? actor.tenantMemberId;
+    if (!(await this.interviewers(tenantId)).some((m) => m.id === interviewer)) throw new BadRequestException('Choose an interviewer who can see exits.');
+    await this.transition(tenantId, id, ['IN_PROGRESS'], {
+      exit_interview_scheduled_at: at, exit_interview_location: input.location || null,
+      exit_interview_interviewer_tenant_member_id: interviewer, exit_interview_scheduled_by_tenant_member_id: actor.tenantMemberId,
+    });
+    await this.log(tenantId, actor, 'SEPARATION_INTERVIEW_SCHEDULED', id, {
+      old: row.exit_interview_scheduled_at ? { scheduled_at: row.exit_interview_scheduled_at.toISOString(), interviewer_member_id: row.exit_interview_interviewer_tenant_member_id } : undefined,
+      new: { scheduled_at: at.toISOString(), interviewer_member_id: interviewer, location: input.location || null },
+    });
+    const name = (await this.interviewers(tenantId)).find((m) => m.id === interviewer)?.name;
+    const when = await this.when(tenantId, at);
+    this.notifications.notify(tenantId, 'INTERVIEW_SCHEDULED', id, {
+      actor, key: `${at.toISOString()}:${interviewer}`, memberIds: [interviewer],
+      detail: `${when}${name ? ` with ${name}` : ''}${input.location ? `, ${input.location}` : ''}`,
+    });
+    return this.detail(tenantId, id, actor);
+  }
+
+  async cancelInterviewBooking(tenantId: string, id: string, actor: Actor) {
+    const row = await this.find(tenantId, id);
+    this.notOwn(row, actor, 'cancel your own exit interview');
+    if (!row.exit_interview_scheduled_at || !row.exit_interview_interviewer_tenant_member_id) throw new BadRequestException('No exit interview is booked.');
+    const was = row.exit_interview_scheduled_at;
+    const interviewer = row.exit_interview_interviewer_tenant_member_id;
+    await this.transition(tenantId, id, ['IN_PROGRESS', 'COMPLETED'], {
+      exit_interview_scheduled_at: null, exit_interview_location: null, exit_interview_interviewer_tenant_member_id: null, exit_interview_scheduled_by_tenant_member_id: null,
+    });
+    await this.log(tenantId, actor, 'SEPARATION_INTERVIEW_BOOKING_CANCELLED', id, { old: { scheduled_at: was.toISOString(), interviewer_member_id: interviewer } });
+    if (was.getTime() > Date.now()) {
+      this.notifications.notify(tenantId, 'INTERVIEW_CANCELLED', id, { actor, key: `${was.toISOString()}:${interviewer}`, memberIds: [interviewer], detail: await this.when(tenantId, was) });
+    }
+    return this.detail(tenantId, id, actor);
+  }
+
+  /** A moment in the workspace's time zone, as people read it: "Thu, 10 Dec 2026, 3:30 pm IST". */
+  private async when(tenantId: string, at: Date) {
+    const zone = await this.zone(tenantId);
+    return new Intl.DateTimeFormat('en-IN', { timeZone: zone, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(at);
+  }
+
+  /** Members who can hold an exit interview: anyone who can see exits. */
+  async interviewers(tenantId: string) {
+    const members = await this.prisma.rndtechnosoft_tenant_members.findMany({
+      where: {
+        tenant_id: tenantId, membership_status: 'ACTIVE',
+        rndtechnosoft_tenant_member_roles: { some: { rndtechnosoft_roles: { role_status: 'ACTIVE', rndtechnosoft_role_permissions: { some: { rndtechnosoft_permissions: { permission_code: 'offboarding.view' } } } } } },
+      },
+      select: { id: true, rndtechnosoft_users: { select: { display_name: true, email: true } } },
+      take: 100,
+    });
+    return members.map((m) => ({ id: m.id, name: m.rndtechnosoft_users.display_name || m.rndtechnosoft_users.email })).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async addChecklistItem(tenantId: string, id: string, input: ClearanceItemDto, actor: Actor) {
@@ -570,6 +683,10 @@ export class OffboardingService {
       completedAt: row.completed_at?.toISOString() ?? null,
       closedAt: row.closed_at?.toISOString() ?? null,
       exitInterviewDate: day(row.exit_interview_date),
+      // When and where they're expected; what is said stays with HR.
+      exitInterviewBooking: row.exit_interview_scheduled_at && !row.exit_interview_date
+        ? { at: row.exit_interview_scheduled_at.toISOString(), location: row.exit_interview_location, interviewer: who(row.interviewer) }
+        : null,
       checklist: row.rndtechnosoft_separation_clearance_items.map((i) => ({ id: i.id, team: i.clearance_team, title: i.item_title, status: i.item_status, clearedAt: i.cleared_at?.toISOString() ?? null })),
     };
   }
@@ -729,17 +846,23 @@ export class OffboardingService {
     return this.prisma.rndtechnosoft_employee_separations.count({ where: { tenant_id: tenantId, ...where } });
   }
 
-  /** Today in the workspace's time zone (India time unless the workspace set another). */
-  private async today(tenantId: string): Promise<string> {
+  /** The workspace's time zone: India time unless it set another that exists. */
+  private async zone(tenantId: string): Promise<string> {
     const rows = await this.prisma.$queryRaw<{ timezone: string | null }[]>`
       SELECT settings->>'timezone' AS timezone FROM rndtechnosoft_tenant_settings WHERE tenant_id = ${tenantId}::uuid
     `;
     const zone = rows[0]?.timezone || 'Asia/Kolkata';
     try {
-      return new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      new Intl.DateTimeFormat('en-CA', { timeZone: zone });
+      return zone;
     } catch {
-      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      return 'Asia/Kolkata';
     }
+  }
+
+  /** Today in the workspace's time zone. */
+  private async today(tenantId: string): Promise<string> {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: await this.zone(tenantId), year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   }
 
   private log(tenantId: string, actor: Actor, actionCode: string, separationId: string, values: { old?: Record<string, unknown>; new?: Record<string, unknown> } & Record<string, unknown>) {

@@ -29,6 +29,8 @@ export interface OwnExit {
   completedAt: string | null;
   closedAt: string | null;
   exitInterviewDate: string | null;
+  /** A booked interview not yet held: when, where and with whom. */
+  exitInterviewBooking: { at: string; location: string | null; interviewer: string | null } | null;
   checklist: { id: string; team: ClearanceTeam; title: string; status: ClearanceStatus; clearedAt: string | null }[];
 }
 
@@ -43,7 +45,12 @@ export interface ExitDetail extends Omit<OwnExit, 'checklist' | 'reason'> {
   completedBy: string | null;
   closedBy: string | null;
   closeReason: string | null;
-  exitInterview: { date: string; notes: string | null; rehireEligible: boolean | null; recordedBy: string | null } | null;
+  exitInterview: ExitInterview | null;
+  interviewBooking: { at: string; location: string | null; interviewer: { id: string; name: string | null } | null } | null;
+  /** The manager's feedback for the exit interview, from My team. */
+  managerFeedback: { text: string; by: string | null; at: string | null } | null;
+  /** Whether the signed-in member may see and write the confidential notes. */
+  canSeeConfidential: boolean;
   checklist: ExitChecklistItem[];
   hasSignIn: boolean;
   /** Days counted after the notice date; a shortfall needs a recover-or-waive decision before completion. */
@@ -129,6 +136,38 @@ export interface MyChecklistItem {
   employee: { name: string; code: string };
 }
 
+export interface ExitInterview {
+  date: string;
+  conductedBy: { id: string; name: string | null } | null;
+  primaryReason: string | null;
+  secondaryReason: string | null;
+  employeeFeedback: string | null;
+  /** Out of 5. */
+  ratings: { workplace: number | null; compensation: number | null; growth: number | null };
+  rehireEligible: boolean | null;
+  rehireRemarks: string | null;
+  recordedBy: string | null;
+  /** Only sent to HR who may see them. */
+  confidentialNotes?: string | null;
+}
+
+export interface ExitInterviewInput {
+  interviewDate: string;
+  conductedByMemberId?: string;
+  primaryReason: string;
+  secondaryReason?: string;
+  employeeFeedback: string;
+  workplaceRating?: number;
+  compensationRating?: number;
+  growthRating?: number;
+  rehireEligible?: boolean;
+  rehireRemarks?: string;
+  /** Left out, the saved notes stay as they are. */
+  confidentialNotes?: string;
+}
+
+export interface ExitReason { code: string; label: string; active: boolean }
+
 export type CommentKind = 'COMMENT' | 'HANDOVER';
 
 /** A direct report's exit, as their manager sees it: no reason, interview or settlement. */
@@ -147,6 +186,8 @@ export interface TeamExitDetail extends Omit<TeamExitRow, 'pendingManagerItems'>
   checklist: { id: string; team: ClearanceTeam; title: string; status: ClearanceStatus; note: string | null; clearedAt: string | null; canUpdate: boolean }[];
   comments: { id: string; kind: CommentKind; body: string; author: string; createdAt: string; isMine: boolean }[];
   canComment: boolean;
+  managerFeedback: { text: string; at: string | null } | null;
+  canGiveFeedback: boolean;
 }
 
 export const NOTIFICATION_EVENTS = {
@@ -162,6 +203,8 @@ export const NOTIFICATION_EVENTS = {
   SETTLEMENT_PAID: 'Settlement paid',
   EXIT_COMPLETED: 'Exit completed',
   LETTER_ISSUED: 'Letter issued (sent with the PDF)',
+  INTERVIEW_SCHEDULED: 'Exit interview booked or moved',
+  INTERVIEW_CANCELLED: 'Exit interview booking cancelled',
 } as const;
 export type NotificationEvent = keyof typeof NOTIFICATION_EVENTS;
 export type NotificationSettings = Record<NotificationEvent, boolean>;
@@ -179,7 +222,37 @@ export interface ExitNotification {
   updatedAt: string;
 }
 
+export interface ReportQuery {
+  from?: string;
+  to?: string;
+  groupBy?: 'month' | 'quarter' | 'year';
+  departmentId?: string;
+  locationId?: string;
+  type?: SeparationType;
+  status?: SeparationStatus;
+  managerId?: string;
+}
+
+export interface Breakdown { label: string; value: number }
+
+export interface OffboardingReport {
+  range: { from: string; to: string; groupBy: 'month' | 'quarter' | 'year' };
+  today: string;
+  summary: { total: number; pendingResignations: number; accepted: number; upcomingLastDays: number; pastLastDay: number; completed: number; cancelled: number; pendingChecklistItems: number };
+  /** Exits by last working day, one entry per period in the range. */
+  trend: { period: string; value: number }[];
+  byDepartment: Breakdown[];
+  byDesignation: Breakdown[];
+  byType: Breakdown[];
+  byReason: Breakdown[];
+  /** Null for people who may not see settlements. Amounts are rupee decimal strings. */
+  settlements: { pending: number; notStarted: number; inReview: number; approvedUnpaid: number; approvedUnpaidAmount: string; paid: number; totalPaid: string; totalRecoveries: string } | null;
+  upcoming: { id: string; lastWorkingDate: string; type: SeparationType; employee: { name: string; code: string }; department: string | null; location: string | null; manager: string | null }[];
+  options: { departments: { id: string; name: string }[]; locations: { id: string; name: string }[]; managers: { id: string; name: string }[] };
+}
+
 export const offboardingApi = {
+  report: (q: ReportQuery) => data(apiClient.get<Envelope<OffboardingReport>>(`/offboarding/reports${query({ ...q })}`)),
   mine: () => data(apiClient.get<Envelope<MyExit>>('/offboarding/my')),
   resign: (input: { reason: string; lastWorkingDate: string }) => data(apiClient.post<Envelope<MyExit>>('/offboarding/my/resignation', input)),
   withdraw: (reason?: string) => data(apiClient.post<Envelope<MyExit>>('/offboarding/my/resignation/withdraw', { reason })),
@@ -199,7 +272,10 @@ export const offboardingApi = {
     data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/notice-decision`, { decision, reason })),
   reassignReports: (id: string, managerEmployeeId: string) =>
     apiClient.post<Envelope<ExitDetail> & { failed: { employeeId: string; name: string; reason: string }[] }>(`/offboarding/separations/${id}/reassign-reports`, { managerEmployeeId }),
-  saveInterview: (id: string, input: { interviewDate: string; notes: string; rehireEligible?: boolean }) =>
+  scheduleInterview: (id: string, input: { scheduledAt: string; interviewerMemberId?: string; location?: string }) =>
+    data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/exit-interview/schedule`, input)),
+  cancelInterviewBooking: (id: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/exit-interview/cancel-booking`)),
+  saveInterview: (id: string, input: ExitInterviewInput) =>
     data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/exit-interview`, input)),
   addItem: (id: string, input: ChecklistItemInput) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/checklist`, input)),
   updateItem: (id: string, itemId: string, input: { status: ClearanceStatus; note?: string; waiverReason?: string }) =>
@@ -214,6 +290,10 @@ export const offboardingApi = {
     data(apiClient.put<Envelope<MyChecklistItem[]>>(`/offboarding/checklist/items/${itemId}`, input)),
   cancel: (id: string, reason: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/cancel`, { reason })),
   complete: (id: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/complete`)),
+  exitReasons: () => data(apiClient.get<Envelope<ExitReason[]>>('/offboarding/exit-reasons')),
+  saveExitReasons: (reasons: { code?: string; label: string; active: boolean }[]) => data(apiClient.put<Envelope<ExitReason[]>>('/offboarding/exit-reasons', { reasons })),
+  interviewers: () => data(apiClient.get<Envelope<{ id: string; name: string }[]>>('/offboarding/interviewers')),
+  teamFeedback: (id: string, feedback: string) => data(apiClient.put<Envelope<TeamExitDetail>>(`/offboarding/team/${id}/feedback`, { feedback })),
   notifications: (id: string) => data(apiClient.get<Envelope<ExitNotification[]>>(`/offboarding/separations/${id}/notifications`)),
   notificationSettings: () => data(apiClient.get<Envelope<NotificationSettings>>('/offboarding/notification-settings')),
   saveNotificationSettings: (input: Partial<NotificationSettings>) => data(apiClient.put<Envelope<NotificationSettings>>('/offboarding/notification-settings', input)),

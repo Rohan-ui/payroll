@@ -10,6 +10,7 @@ import { ExitDetailView } from './ExitDetailView';
 import { StartExitDialog } from './StartExitDialog';
 import { EmailSettingsDialog } from './EmailSettingsDialog';
 import { ChecklistTemplateDialog } from './ChecklistTemplateDialog';
+import { ExitReasonsDialog } from './ExitReasonsDialog';
 
 const FILTERS: { value: SeparationStatus | ''; label: string }[] = [
   { value: '', label: 'All exits' },
@@ -37,6 +38,7 @@ export const ExitsTab: React.FC = () => {
   const [starting, setStarting] = useState(false);
   const [emailSettings, setEmailSettings] = useState(false);
   const [checklistSettings, setChecklistSettings] = useState(false);
+  const [reasonSettings, setReasonSettings] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setTerm(search.trim()); setPage(1); }, 300);
@@ -81,6 +83,7 @@ export const ExitsTab: React.FC = () => {
           </div>
           {can('offboarding.manage') && (
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setReasonSettings(true)}>Exit reasons</Button>
               <Button variant="outline" onClick={() => setChecklistSettings(true)}>Checklist</Button>
               <Button variant="outline" onClick={() => setEmailSettings(true)}>Exit emails</Button>
               <Button onClick={() => setStarting(true)}>Start an exit</Button>
@@ -151,6 +154,7 @@ export const ExitsTab: React.FC = () => {
 
       {emailSettings && <EmailSettingsDialog onClose={() => setEmailSettings(false)} />}
       {checklistSettings && <ChecklistTemplateDialog onClose={() => setChecklistSettings(false)} />}
+      {reasonSettings && <ExitReasonsDialog onClose={() => setReasonSettings(false)} />}
       {starting && <StartExitDialog onClose={() => setStarting(false)} onStarted={(exit) => { setStarting(false); load(); setOpenId(exit.id); }} />}
     </div>
   );

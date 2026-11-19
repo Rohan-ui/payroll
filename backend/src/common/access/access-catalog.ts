@@ -180,6 +180,9 @@ export const PERMISSIONS = [
   { key: 'people.documents.manage', name: 'Upload, replace and remove employee documents', section: 'hrms', group: 'People', nav: 'people' },
   { key: 'people.documents.verify', name: 'Verify or reject employee documents', section: 'hrms', group: 'People', nav: 'people' },
   { key: 'people.export', name: 'Export the employee directory to Excel', section: 'hrms', group: 'People', nav: 'people' },
+  { key: 'assets.view', name: 'See the company assets given to employees', section: 'hrms', group: 'Assets', nav: 'people' },
+  { key: 'assets.it.manage', name: 'Give out and take back IT assets (laptops, desktops, monitors, phones, SIM cards)', section: 'hrms', group: 'Assets', nav: 'people' },
+  { key: 'assets.admin.manage', name: 'Give out and take back ID cards, access cards, keys and other company property', section: 'hrms', group: 'Assets', nav: 'people' },
 
   { key: 'attendance.view', name: 'View attendance', section: 'hrms', group: 'Attendance', nav: 'attendance' },
   { key: 'attendance.create', name: 'Record clock-in and clock-out punches', section: 'hrms', group: 'Attendance', nav: 'attendance' },
@@ -208,6 +211,7 @@ export const PERMISSIONS = [
   { key: 'offboarding.clearance.admin', name: 'Clear or waive Admin’s exit-checklist items', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'offboarding.clearance.finance', name: 'Clear or waive Finance’s exit-checklist items', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'offboarding.clearance.hr', name: 'Clear or waive HR’s exit-checklist items', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.interview.confidential', name: 'See and write the confidential HR-only notes of exit interviews', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'offboarding.complete', name: 'Complete exits: set the exit date, mark the employee exited and end their sign-in to this workspace', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'offboarding.settlement.view', name: 'View full and final settlements and their calculation', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'offboarding.settlement.manage', name: 'Prepare full and final settlements, adjust them with a reason, submit and revise them, and set the settlement rules', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },

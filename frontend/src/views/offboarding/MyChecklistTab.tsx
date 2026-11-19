@@ -6,9 +6,71 @@ import { offboardingApi, type MyChecklistItem } from '../../api/offboarding.api'
 import { cardClass, day, errorText, fieldClass, labelClass } from '../payroll/payroll-format';
 import { ListState } from '../performance/performance-format';
 import { TEAM } from './offboarding-format';
+import { useAuth } from '../../context/AuthContext';
+import { ASSET_CATEGORIES, assetsApi, type LeaverAsset } from '../../api/assets.api';
+import { RecordReturnDialog } from '../employee/AssetsPanel';
+
+/** Any team's checklist permission, or HR's override. */
+export const CLEARANCE_PERMISSIONS = ['offboarding.clearance.update', 'offboarding.clearance.it', 'offboarding.clearance.admin', 'offboarding.clearance.finance', 'offboarding.clearance.hr'];
+export const ASSET_PERMISSIONS = ['assets.it.manage', 'assets.admin.manage'];
 
 /** Open exit-checklist items the member's team owns, soonest due first: clear or waive them without HR's side of the exit. */
 export const MyChecklistTab: React.FC = () => {
+  const { can } = useAuth();
+  const clears = CLEARANCE_PERMISSIONS.some((p) => can(p));
+  const collects = ASSET_PERMISSIONS.some((p) => can(p));
+  return (
+    <div className="space-y-4">
+      {collects && <LeaverAssets />}
+      {clears && <ChecklistItems />}
+    </div>
+  );
+};
+
+/** Assets still with people who are leaving, for the teams this member looks after. */
+const LeaverAssets: React.FC = () => {
+  const id = useId();
+  const [assets, setAssets] = useState<LeaverAsset[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState<LeaverAsset | null>(null);
+  const load = useCallback(() => {
+    setError(null);
+    assetsApi.leavers().then(setAssets).catch((e) => setError(errorText(e)));
+  }, []);
+  useEffect(load, [load]);
+
+  return (
+    <section className={cardClass} aria-labelledby={`${id}-heading`}>
+      <div className="border-b border-slate-100 p-4 dark:border-[#2B293E]">
+        <h2 id={`${id}-heading`} className="text-sm font-bold text-slate-900 dark:text-slate-100">Assets to collect</h2>
+        <p className="text-xs text-slate-500">Company assets your team looks after that are still with people who are leaving. Their exit can’t be completed until each one is recorded.</p>
+      </div>
+      <ListState loading={!assets && !error} error={error} empty={!!assets && assets.length === 0} what="Assets to collect" onRetry={load}
+        emptyTitle="Nothing to collect" emptyText="When someone leaves with a company asset your team looks after, it appears here." />
+      {assets && assets.length > 0 && (
+        <ul className="divide-y divide-slate-100 dark:divide-[#2B293E]">
+          {assets.map((a) => (
+            <li key={a.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 space-y-0.5">
+                <p className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <span className="text-xs font-semibold text-slate-500">{ASSET_CATEGORIES[a.category]} · </span>{a.name}{a.tag && <span className="text-xs font-normal text-slate-500"> · {a.tag}</span>}
+                </p>
+                <p className="text-sm text-slate-700 dark:text-slate-300">{a.employee.name} <span className="text-xs text-slate-500">· {a.employee.code}{a.lastWorkingDate ? ` · last day ${day(a.lastWorkingDate)}` : ''}</span></p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={() => setRecording(a)} aria-label={`Record return: ${a.name} from ${a.employee.name}`}>Record return</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {recording && (
+        <RecordReturnDialog asset={recording} owner={recording.employee.name} onClose={() => setRecording(null)}
+          run={async (input) => { setAssets(await assetsApi.leaverReturn(recording.id, input)); setRecording(null); toast.success('Return recorded'); }} />
+      )}
+    </section>
+  );
+};
+
+const ChecklistItems: React.FC = () => {
   const id = useId();
   const [items, setItems] = useState<MyChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);

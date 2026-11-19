@@ -311,7 +311,7 @@ export class SettlementsService {
   private async gather(tenantId: string, s: Awaited<ReturnType<SettlementsService['separation']>>): Promise<SettlementInputs> {
     const lastDay = s.last_working_date;
     const employeeId = s.employee_id;
-    const [firstEmployment, monthly, policyAssignment, balances, loans, payslip] = await Promise.all([
+    const [firstEmployment, monthly, policyAssignment, balances, loans, payslip, assets] = await Promise.all([
       this.prisma.rndtechnosoft_employee_employments.findFirst({ where: { tenant_id: tenantId, employee_id: employeeId }, orderBy: { joining_date: 'asc' }, select: { joining_date: true } }),
       this.salary.monthlyOn(tenantId, employeeId, lastDay),
       this.prisma.rndtechnosoft_employee_leave_policy_assignments.findFirst({
@@ -329,6 +329,11 @@ export class SettlementsService {
         orderBy: { created_at: 'desc' },
         select: { gross_earnings: true, net_pay: true, rndtechnosoft_payroll_periods: { select: { period_code: true } } },
       }),
+      this.prisma.rndtechnosoft_employee_assets.findMany({
+        where: { tenant_id: tenantId, employee_id: employeeId, OR: [{ return_status: 'ISSUED' }, { separation_id: s.id, recovery_amount: { gt: 0 }, return_status: { in: ['LOST', 'RETURNED'] } }] },
+        orderBy: { assigned_date: 'asc' },
+        select: { id: true, asset_name: true, asset_tag: true, return_status: true, recovery_amount: true },
+      }),
     ]);
     const encashable = new Set((policyAssignment?.rndtechnosoft_leave_policies.rndtechnosoft_leave_policy_rules ?? []).filter((r) => r.encashment_allowed).map((r) => r.leave_type_id));
     const notice = noticeOf({ noticeDate: isoDate(s.notice_date), requiredDays: s.notice_period_days, requestedLastDay: isoDate(s.requested_last_working_date), lastDay: isoDate(lastDay) });
@@ -344,6 +349,10 @@ export class SettlementsService {
         outstanding: l.rndtechnosoft_loan_installments.reduce((t, i) => t.add(i.total_amount), D(0)).toFixed(2),
         installmentIds: l.rndtechnosoft_loan_installments.map((i) => i.id),
       })),
+      assetRecoveries: assets.filter((a) => a.return_status !== 'ISSUED' && a.recovery_amount).map((a) => ({
+        assetId: a.id, name: a.asset_name, tag: a.asset_tag, status: a.return_status, amount: (a.recovery_amount ?? D(0)).toFixed(2),
+      })),
+      assetsOut: assets.filter((a) => a.return_status === 'ISSUED').length,
       finalPayslip: payslip && { periodCode: payslip.rndtechnosoft_payroll_periods.period_code, gross: payslip.gross_earnings.toFixed(2), net: payslip.net_pay.toFixed(2) },
     };
   }

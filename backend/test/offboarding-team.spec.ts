@@ -95,6 +95,7 @@ describe('Offboarding: managers and emails', () => {
       .send({ companyName: `Offboarding team ${SUFFIX}`, tenantCode: `OFT${SUFFIX.toUpperCase()}`, email: ownerEmail, password: PASSWORD });
     expect(r.status).toBe(201);
     tenantId = r.body.activeTenant.tenantId;
+    tokens.Owner = r.body.token;
 
     const staff = await role('STAFF', STAFF_PERMISSIONS);
     await person('Mona', staff);
@@ -309,4 +310,116 @@ describe('Offboarding: managers and emails', () => {
       expect(detail.blockers.some((b: string) => b.includes('checklist'))).toBe(false);
     });
   });
+
+  describe('structured exit interview', () => {
+    it('keeps a workspace list of exit reasons that can be renamed, switched off and added to, never removed', async () => {
+      const list = await get('/offboarding/exit-reasons', 'Priya');
+      expect(list.body.data).toHaveLength(12);
+      const reasons = list.body.data as { code: string; label: string; active: boolean }[];
+      expect((await put('/offboarding/exit-reasons', 'Mona', { reasons })).status).toBe(403);
+      expect((await put('/offboarding/exit-reasons', 'Priya', { reasons: reasons.slice(1) })).status).toBe(400);
+      const edited = reasons.map((r) => (r.code === 'COMPENSATION' ? { ...r, label: 'Pay' } : r.code === 'RELOCATION' ? { ...r, active: false } : r));
+      const saved = await put('/offboarding/exit-reasons', 'Priya', { reasons: [...edited, { label: 'Long commute', active: true }] });
+      expect(saved.status).toBe(200);
+      expect(saved.body.data).toHaveLength(13);
+      expect(saved.body.data.find((r: { code: string }) => r.code === 'COMPENSATION').label).toBe('Pay');
+      expect(saved.body.data[12]).toMatchObject({ label: 'Long commute', active: true, code: expect.stringMatching(/^CUSTOM_/) });
+    });
+
+    it('books the interview in advance, emails the employee and the interviewer, and emails again when it moves or is cancelled', async () => {
+      const ownerMember = (await prisma.rndtechnosoft_tenant_members.findFirstOrThrow({ where: { tenant_id: tenantId, rndtechnosoft_users: { email: address('owner') } } })).id;
+      const at = new Date(Date.now() + 3 * 86_400_000);
+      at.setUTCHours(10, 0, 0, 0);
+      const book = (who: string, body: object) => put(`/offboarding/separations/${raviExit}/exit-interview/schedule`, who, body);
+      expect((await book('Mona', { scheduledAt: at.toISOString() })).status).toBe(403);
+      expect((await book('Priya', { scheduledAt: new Date(Date.now() - 3_600_000).toISOString() })).status).toBe(400);
+      expect((await book('Priya', { scheduledAt: at.toISOString(), interviewerMemberId: randomUUID() })).status).toBe(400);
+      expect((await book('Priya', { scheduledAt: '2026-12-10' })).status).toBe(400);
+
+      const booked = await book('Priya', { scheduledAt: at.toISOString(), interviewerMemberId: ownerMember, location: 'Room 4B' });
+      expect(booked.status).toBe(200);
+      expect(booked.body.data.interviewBooking).toMatchObject({ at: at.toISOString(), location: 'Room 4B', interviewer: { id: ownerMember } });
+      expect(await sent(raviExit, 'INTERVIEW_SCHEDULED')).toEqual([address('owner'), address('ravi')].sort());
+      expect((await get('/offboarding/my', 'Ravi')).body.data.current.exitInterviewBooking).toMatchObject({ at: at.toISOString(), location: 'Room 4B' });
+
+      const moved = new Date(at.getTime() + 86_400_000);
+      expect((await book('Priya', { scheduledAt: moved.toISOString(), interviewerMemberId: ownerMember, location: 'Room 4B' })).status).toBe(200);
+      expect((await prisma.rndtechnosoft_onboarding_notifications.count({ where: { tenant_id: tenantId, separation_id: raviExit, template_code: 'OFFBOARDING_INTERVIEW_SCHEDULED', recipient_email: address('ravi') } }))).toBe(2);
+
+      const cancelled = await post(`/offboarding/separations/${raviExit}/exit-interview/cancel-booking`, 'Priya');
+      expect(cancelled.status).toBe(200);
+      expect(cancelled.body.data.interviewBooking).toBeNull();
+      expect(await sent(raviExit, 'INTERVIEW_CANCELLED')).toEqual([address('owner'), address('ravi')].sort());
+      expect((await post(`/offboarding/separations/${raviExit}/exit-interview/cancel-booking`, 'Priya')).status).toBe(400);
+    });
+
+    it('records the structured interview, with confidential notes only for HR who may see them', async () => {
+      const commute = ((await get('/offboarding/exit-reasons', 'Priya')).body.data as { code: string; label: string }[]).find((r) => r.label === 'Long commute')?.code;
+      const base = { interviewDate: today, primaryReason: commute, secondaryReason: 'COMPENSATION', employeeFeedback: 'Two hours each way.', workplaceRating: 4, compensationRating: 2, growthRating: 3, rehireEligible: true, rehireRemarks: 'Would hire back for a remote role' };
+      const record = (who: string, body: object) => put(`/offboarding/separations/${raviExit}/exit-interview`, who, body);
+      expect((await record('Priya', { ...base, primaryReason: 'RELOCATION' })).status).toBe(400);
+      expect((await record('Priya', { ...base, secondaryReason: commute })).status).toBe(400);
+      expect((await record('Priya', { ...base, growthRating: 6 })).status).toBe(400);
+      expect((await record('Priya', { ...base, interviewDate: shift(today, 1) })).status).toBe(400);
+      expect((await record('Priya', { ...base, confidentialNotes: 'x' })).status).toBe(403);
+
+      const saved = await record('Priya', base);
+      expect(saved.status).toBe(200);
+      expect(saved.body.data.exitInterview).toMatchObject({ primaryReason: commute, secondaryReason: 'COMPENSATION', ratings: { workplace: 4, compensation: 2, growth: 3 }, rehireEligible: true, conductedBy: { name: 'Priya' } });
+      expect(saved.body.data.exitInterview.confidentialNotes).toBeUndefined();
+      expect(saved.body.data.canSeeConfidential).toBe(false);
+
+      expect((await record('Owner', { ...base, confidentialNotes: 'Asked for a counter-offer; declined.' })).status).toBe(200);
+      // HR without the permission saves again: the confidential notes stay, and still aren't shown to them.
+      expect((await record('Priya', { ...base, employeeFeedback: 'Two hours each way, every day.' })).status).toBe(200);
+      expect((await get(`/offboarding/separations/${raviExit}`, 'Owner')).body.data.exitInterview).toMatchObject({ confidentialNotes: 'Asked for a counter-offer; declined.', employeeFeedback: 'Two hours each way, every day.' });
+      expect(JSON.stringify((await get(`/offboarding/separations/${raviExit}`, 'Priya')).body.data)).not.toContain('counter-offer');
+      // The employee sees none of it.
+      expect(JSON.stringify((await get('/offboarding/my', 'Ravi')).body.data)).not.toMatch(/Two hours|counter-offer|Long commute/);
+      const audit = await prisma.rndtechnosoft_audit_logs.findMany({ where: { tenant_id: tenantId, action_code: 'SEPARATION_INTERVIEW_RECORDED', entity_id: raviExit } });
+      expect(audit).toHaveLength(3);
+      expect(JSON.stringify(audit)).not.toMatch(/Two hours|counter-offer/);
+    });
+
+    it('takes the manager’s feedback from My team, for their own reports only', async () => {
+      expect((await put(`/offboarding/team/${omarExit}/feedback`, 'Mona', { feedback: 'Not mine' })).status).toBe(404);
+      const given = await put(`/offboarding/team/${raviExit}/feedback`, 'Mona', { feedback: 'Strong engineer; the billing work needs a new owner.' });
+      expect(given.status).toBe(200);
+      expect(given.body.data.managerFeedback).toMatchObject({ text: 'Strong engineer; the billing work needs a new owner.' });
+      expect(given.body.data.exitInterview).toBeUndefined();
+      expect((await get(`/offboarding/separations/${raviExit}`, 'Priya')).body.data.managerFeedback).toMatchObject({ text: 'Strong engineer; the billing work needs a new owner.', by: 'Mona' });
+    });
+  });
+
+  describe('dashboard and reports', () => {
+    const report = (who: string, query = '') => get(`/offboarding/reports${query}`, who);
+
+    it('counts the workspace’s exits, groups them, and shows settlement money only to those who may see it', async () => {
+      expect((await report('Mona')).status).toBe(403);
+      expect((await report('Priya', `?from=${today}&to=${shift(today, -1)}`)).status).toBe(400);
+      expect((await report('Priya', '?groupBy=week')).status).toBe(400);
+
+      const hr = (await report('Priya')).body.data;
+      expect(hr.summary).toMatchObject({ total: 3, accepted: 3, pendingResignations: 0, upcomingLastDays: 3, completed: 0 });
+      expect(hr.summary.pendingChecklistItems).toBeGreaterThan(0);
+      expect(hr.byType).toEqual(expect.arrayContaining([{ label: 'Voluntary resignation', value: 1 }, { label: 'Termination', value: 1 }, { label: 'Retirement', value: 1 }]));
+      expect(hr.byReason).toEqual(expect.arrayContaining([{ label: 'Long commute', value: 1 }, { label: 'Interview not recorded', value: 2 }]));
+      expect(hr.upcoming.map((u: { employee: { name: string } }) => u.employee.name)).toEqual(['Zed', 'Ravi', 'Omar']);
+      expect(hr.trend.reduce((t: number, p: { value: number }) => t + p.value, 0)).toBe(3);
+      expect(hr.settlements).toBeNull();
+      expect(hr.options.managers.map((m: { name: string }) => m.name)).toEqual(['Mona', 'Priya']);
+
+      const owner = (await report('Owner')).body.data;
+      expect(owner.settlements).toMatchObject({ notStarted: 3, approvedUnpaid: 0, paid: 0, totalPaid: '0.00' });
+    });
+
+    it('filters by exit type, manager and quarter', async () => {
+      expect((await report('Priya', '?type=TERMINATION')).body.data.summary.total).toBe(1);
+      const mona = (await report('Priya', `?managerId=${employees.Mona}`)).body.data;
+      expect(mona.upcoming.map((u: { employee: { name: string } }) => u.employee.name)).toEqual(['Ravi']);
+      const quarters = (await report('Priya', `?groupBy=quarter&from=${today.slice(0, 4)}-01-01&to=${today.slice(0, 4)}-12-31`)).body.data.trend;
+      expect(quarters.map((p: { period: string }) => p.period)).toEqual([1, 2, 3, 4].map((n) => `${today.slice(0, 4)}-Q${n}`));
+    });
+  });
 });
+

@@ -7,11 +7,15 @@ import { OffboardingService } from './offboarding.service';
 import {
   CancelSeparationDto, ClearanceItemDto, ClearanceUpdateDto, EmployeeSearchQueryDto, ExitInterviewDto, LastWorkingDateDto,
   ListSeparationsQueryDto, ResignDto, StartSeparationDto, WithdrawDto,
-  NoticeDecisionDto, ReassignReportsDto, NotificationSettingsDto, ClearanceDetailsDto, ChecklistTemplateDto, ChecklistOwnersQueryDto, TeamChecklistUpdateDto, TeamCommentDto,
+  NoticeDecisionDto, ReassignReportsDto, NotificationSettingsDto, ManagerFeedbackDto, ScheduleInterviewDto, OffboardingReportQueryDto, ExitReasonsDto, ClearanceDetailsDto, ChecklistTemplateDto, ChecklistOwnersQueryDto, TeamChecklistUpdateDto, TeamCommentDto,
 } from './dto/offboarding.dto';
 import { OffboardingNotificationsService } from './offboarding-notifications.service';
 import { TeamExitsService } from './team-exits.service';
 import { ExitChecklistService } from './exit-checklist.service';
+import { ExitReasonsService } from './exit-reasons.service';
+import { OffboardingReportsService } from './offboarding-reports.service';
+import { EmployeeAssetsService } from '@/modules/employees/employee-assets.service';
+import { RecordAssetReturnDto } from '@/modules/employees/dto/employee-assets.dto';
 
 type Actor = AuthenticatedTenantUser;
 
@@ -22,7 +26,7 @@ type Actor = AuthenticatedTenantUser;
  */
 @Controller('offboarding')
 export class OffboardingController {
-  constructor(private readonly offboarding: OffboardingService, private readonly team: TeamExitsService, private readonly notifications: OffboardingNotificationsService, private readonly checklist: ExitChecklistService) {}
+  constructor(private readonly offboarding: OffboardingService, private readonly team: TeamExitsService, private readonly notifications: OffboardingNotificationsService, private readonly checklist: ExitChecklistService, private readonly assets: EmployeeAssetsService, private readonly reasons: ExitReasonsService, private readonly reports: OffboardingReportsService) {}
 
   // ── A manager's direct reports (who reports to whom decides what they see) ──
 
@@ -42,6 +46,12 @@ export class OffboardingController {
   @RequirePermissions('offboarding.team.view')
   async teamComment(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: TeamCommentDto) {
     return { success: true, data: await this.team.addComment(tenantId, id, body, actor), message: body.kind === 'HANDOVER' ? 'Handover note added' : 'Comment added' };
+  }
+
+  @Put('team/:id/feedback')
+  @RequirePermissions('offboarding.team.view')
+  async teamFeedback(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: ManagerFeedbackDto) {
+    return { success: true, data: await this.team.giveFeedback(tenantId, id, body, actor), message: 'Feedback saved' };
   }
 
   @Put('team/:id/checklist/:itemId')
@@ -68,10 +78,48 @@ export class OffboardingController {
     return { success: true, data: await this.offboarding.updateChecklistItemById(tenantId, itemId, body, actor), message: body.status === 'WAIVED' ? 'Item waived' : body.status === 'CLEARED' ? 'Item cleared' : 'Item reopened' };
   }
 
+  /** Assets still out with people who are leaving, for the teams this member looks after (none, for most). */
+  @Get('checklist/assets')
+  @RequirePermissions('offboarding.my.view')
+  async leaversAssets(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor) {
+    return { success: true, data: await this.assets.outstandingForLeavers(tenantId, actor) };
+  }
+
+  @Put('checklist/assets/:assetId/return')
+  @RequirePermissions('offboarding.my.view')
+  async leaverAssetReturn(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('assetId', ParseUUIDPipe) assetId: string, @Body() body: RecordAssetReturnDto) {
+    await this.assets.recordReturn(tenantId, assetId, body, actor);
+    return { success: true, data: await this.assets.outstandingForLeavers(tenantId, actor), message: 'Return recorded' };
+  }
+
+  @Get('separations/:id/assets')
+  @RequirePermissions('offboarding.view')
+  async separationAssets(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    return { success: true, data: await this.assets.forSeparation(tenantId, id, actor) };
+  }
+
   @Get('checklist/owners')
   @RequirePermissions('offboarding.manage')
   async checklistOwners(@CurrentTenant() tenantId: string, @Query() query: ChecklistOwnersQueryDto) {
     return { success: true, data: await this.checklist.owners(tenantId, query.team) };
+  }
+
+  @Get('exit-reasons')
+  @RequirePermissions('offboarding.view')
+  async exitReasons(@CurrentTenant() tenantId: string) {
+    return { success: true, data: await this.reasons.list(tenantId) };
+  }
+
+  @Put('exit-reasons')
+  @RequirePermissions('offboarding.manage')
+  async saveExitReasons(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Body() body: ExitReasonsDto) {
+    return { success: true, data: await this.reasons.save(tenantId, body.reasons, actor), message: 'Exit reasons saved' };
+  }
+
+  @Get('interviewers')
+  @RequirePermissions('offboarding.manage')
+  async interviewers(@CurrentTenant() tenantId: string) {
+    return { success: true, data: await this.offboarding.interviewers(tenantId) };
   }
 
   @Get('checklist-template')
@@ -125,6 +173,13 @@ export class OffboardingController {
     return { success: true, data: await this.offboarding.withdraw(tenantId, body, actor), message: 'Resignation withdrawn' };
   }
 
+  /** The dashboard and reports; settlement money only for those who may see settlements. */
+  @Get('reports')
+  @RequirePermissions('offboarding.view')
+  async report(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Query() query: OffboardingReportQueryDto) {
+    return { success: true, data: await this.reports.report(tenantId, query, actor) };
+  }
+
   @Get('summary')
   @RequirePermissions('offboarding.view')
   async summary(@CurrentTenant() tenantId: string) {
@@ -167,6 +222,19 @@ export class OffboardingController {
   @RequirePermissions('offboarding.manage')
   async lastWorkingDate(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: LastWorkingDateDto) {
     return { success: true, data: await this.offboarding.changeLastWorkingDate(tenantId, id, body, actor), message: 'Last working day changed' };
+  }
+
+  @Put('separations/:id/exit-interview/schedule')
+  @RequirePermissions('offboarding.manage')
+  async scheduleInterview(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string, @Body() body: ScheduleInterviewDto) {
+    return { success: true, data: await this.offboarding.scheduleInterview(tenantId, id, body, actor), message: 'Exit interview booked' };
+  }
+
+  @Post('separations/:id/exit-interview/cancel-booking')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('offboarding.manage')
+  async cancelInterviewBooking(@CurrentTenant() tenantId: string, @CurrentUser() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    return { success: true, data: await this.offboarding.cancelInterviewBooking(tenantId, id, actor), message: 'Exit interview booking cancelled' };
   }
 
   @Put('separations/:id/exit-interview')

@@ -216,7 +216,7 @@ describe('Offboarding', () => {
     expect((await post('/offboarding/my/resignation/withdraw', 'Sneha')).status).toBe(400);
 
     // The employee sees their checklist, never HR's notes.
-    await put(`/offboarding/separations/${separationId}/exit-interview`, 'Priya', { interviewDate: today, notes: 'Private notes', rehireEligible: false });
+    expect((await put(`/offboarding/separations/${separationId}/exit-interview`, 'Priya', { interviewDate: today, primaryReason: 'CAREER_GROWTH', employeeFeedback: 'Private notes', rehireEligible: false })).status).toBe(200);
     const mine = await get('/offboarding/my', 'Sneha');
     expect(JSON.stringify(mine.body.data)).not.toContain('Private notes');
     expect(mine.body.data.current.checklist).toHaveLength(6);

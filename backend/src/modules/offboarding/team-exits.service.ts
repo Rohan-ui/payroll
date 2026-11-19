@@ -4,7 +4,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { dateOnly, isoDate } from '@/modules/payroll/payroll-lock';
-import { TeamChecklistUpdateDto, TeamCommentDto } from './dto/offboarding.dto';
+import { ManagerFeedbackDto, TeamChecklistUpdateDto, TeamCommentDto } from './dto/offboarding.dto';
 
 type Actor = AuthenticatedTenantUser;
 
@@ -12,7 +12,7 @@ type Actor = AuthenticatedTenantUser;
 const RECENT_DAYS = 30;
 
 const ROW = {
-  id: true, separation_type: true, separation_status: true, notice_date: true, last_working_date: true, completed_at: true,
+  id: true, separation_type: true, separation_status: true, notice_date: true, last_working_date: true, completed_at: true, manager_feedback: true, manager_feedback_at: true,
   rndtechnosoft_employees: {
     select: {
       employee_code: true, first_name: true, last_name: true, preferred_name: true,
@@ -78,7 +78,22 @@ export class TeamExitsService {
         author: c.author.rndtechnosoft_users.display_name || c.author.rndtechnosoft_users.email, isMine: c.author_tenant_member_id === actor.tenantMemberId,
       })),
       canComment: ['PENDING_APPROVAL', 'IN_PROGRESS'].includes(row.separation_status),
+      // The manager's own part of the exit interview; the rest of it stays with HR.
+      managerFeedback: row.manager_feedback ? { text: row.manager_feedback, at: row.manager_feedback_at?.toISOString() ?? null } : null,
+      canGiveFeedback: ['IN_PROGRESS', 'COMPLETED'].includes(row.separation_status),
     };
+  }
+
+  /** The manager's feedback for the exit interview: how the person worked and what leaving means for the team. */
+  async giveFeedback(tenantId: string, id: string, input: ManagerFeedbackDto, actor: Actor) {
+    const row = await this.find(tenantId, id, actor);
+    if (!['IN_PROGRESS', 'COMPLETED'].includes(row.separation_status)) throw new BadRequestException('Feedback can be given once HR has accepted the exit.');
+    await this.prisma.rndtechnosoft_employee_separations.updateMany({
+      where: { tenant_id: tenantId, id },
+      data: { manager_feedback: input.feedback, manager_feedback_by_tenant_member_id: actor.tenantMemberId, manager_feedback_at: new Date(), updated_at: new Date() },
+    });
+    await this.log(tenantId, actor, 'SEPARATION_MANAGER_FEEDBACK', id, { replaced: !!row.manager_feedback });
+    return this.detail(tenantId, id, actor);
   }
 
   async addComment(tenantId: string, id: string, input: TeamCommentDto, actor: Actor) {

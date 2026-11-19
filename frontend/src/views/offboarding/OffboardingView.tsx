@@ -3,17 +3,17 @@ import { useAuth } from '../../context/AuthContext';
 import { MyExitTab } from './MyExitTab';
 import { ExitsTab } from './ExitsTab';
 import { TeamExitsTab } from './TeamExitsTab';
-import { MyChecklistTab } from './MyChecklistTab';
+import { OffboardingReportsTab } from './OffboardingReportsTab';
+import { ASSET_PERMISSIONS, CLEARANCE_PERMISSIONS, MyChecklistTab } from './MyChecklistTab';
 
-type Tab = 'exits' | 'team' | 'checklist' | 'mine';
+type Tab = 'exits' | 'reports' | 'team' | 'checklist' | 'mine';
 
-/** Any team's checklist permission, or HR's override. */
-const CLEARANCE = ['offboarding.clearance.update', 'offboarding.clearance.it', 'offboarding.clearance.admin', 'offboarding.clearance.finance', 'offboarding.clearance.hr'];
 
 const TABS: { id: Tab; label: string; permission: string | string[] }[] = [
   { id: 'exits', label: 'Exits', permission: 'offboarding.view' },
+  { id: 'reports', label: 'Reports', permission: 'offboarding.view' },
   { id: 'team', label: 'My team', permission: 'offboarding.team.view' },
-  { id: 'checklist', label: 'My checklist', permission: CLEARANCE },
+  { id: 'checklist', label: 'My checklist', permission: [...CLEARANCE_PERMISSIONS, ...ASSET_PERMISSIONS] },
   { id: 'mine', label: 'My resignation', permission: 'offboarding.my.view' },
 ];
 
@@ -39,6 +39,7 @@ export const OffboardingView: React.FC = () => {
       </div>
       <div role="tabpanel" id="offboarding-panel" aria-labelledby={`offboarding-tab-${tab}`}>
         {tab === 'exits' && <ExitsTab />}
+        {tab === 'reports' && <OffboardingReportsTab />}
         {tab === 'team' && <TeamExitsTab />}
         {tab === 'checklist' && <MyChecklistTab />}
         {tab === 'mine' && <MyExitTab />}
