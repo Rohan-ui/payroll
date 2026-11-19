@@ -4,14 +4,15 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { AccessService } from '@/common/access/access.service';
-import { CandidateLetterDocumentsService } from '@/modules/onboarding/candidate-letter-documents.service';
+import { EmployeeRelationsService } from '@/modules/employees/employee-relations.service';
 import { ADMIN_ROLE_CODE } from '@/common/access/access-catalog';
 import { isDemoMode } from '@/common/demo/demo-mode';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { dateOnly, finalizedThrough, isoDate } from '@/modules/payroll/payroll-lock';
+import { DecimalMath } from '@/common/utils/decimal-math.util';
 import {
-  CancelSeparationDto, ClearanceItemDto, ClearanceTeam, ClearanceUpdateDto, ExitInterviewDto, ListSeparationsQueryDto,
-  ResignDto, SeparationStatus, StartSeparationDto, WithdrawDto, GenerateOffboardingDocumentDto,
+  CancelSeparationDto, ClearanceItemDto, LastWorkingDateDto, NoticeDecisionDto, ReassignReportsDto, ClearanceTeam, ClearanceUpdateDto, ExitInterviewDto, ListSeparationsQueryDto,
+  ResignDto, SeparationStatus, StartSeparationDto, WithdrawDto,
 } from './dto/offboarding.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -51,6 +52,8 @@ const DETAIL_INCLUDE = {
   interview_by: memberName,
   completed_by: memberName,
   closed_by: memberName,
+  notice_decided_by: memberName,
+  rndtechnosoft_separation_date_changes: { orderBy: { created_at: 'asc' }, include: { changed_by: memberName } },
 } as const;
 
 const fullName = (e: { first_name: string; last_name: string | null; preferred_name: string | null }) => `${e.preferred_name || e.first_name} ${e.last_name ?? ''}`.trim();
@@ -70,7 +73,9 @@ const day = (d: Date | null) => (d ? isoDate(d) : null);
  */
 @Injectable()
 export class OffboardingService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly access: AccessService,    private readonly candidateDocuments: CandidateLetterDocumentsService, ) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly access: AccessService,
+    private readonly relations: EmployeeRelationsService,
+  ) {}
 
   // ── The employee's own exit ─────────────────────────────────
 
@@ -123,93 +128,6 @@ export class OffboardingService {
     await this.log(tenantId, actor, 'SEPARATION_WITHDRAWN', open.id, { old: { status: 'PENDING_APPROVAL' }, new: { status: 'WITHDRAWN' } });
     return this.mine(tenantId, actor);
   }
-
-  //**Employee Offboarding Exit Document Handling Function */
-async generateDocument(
-  tenantId: string,
-  separationId: string,
-  input: GenerateOffboardingDocumentDto,
-  actor: Actor,
-) {
-  // 1. The exit must be under way or done
-  const separation = await this.find(tenantId, separationId);
-  if (!['IN_PROGRESS', 'COMPLETED'].includes(separation.separation_status)) {
-    throw new BadRequestException(
-      'Documents can only be generated for an exit that is under way or complete.',
-    );
-  }
-  const employee = separation.rndtechnosoft_employees;
-
-
-  // 2. The existing letter service is candidate-centric, so we still need
-  //    the candidate row. This is the real constraint — see the gap below.
-  const candidateId = await this.resolveCandidateId(tenantId, employee.id);
-  if (!candidateId) {
-    throw new BadRequestException(
-      'This employee has no candidate record; exit documents can’t be generated until one is linked.',
-    );
-  }
- // 2.5 Build the placeholder values from the separation + employee
-  const employment = employee.rndtechnosoft_employee_employments[0];
-  const customValues = {
-  ...(input.customValues ?? {}),            // caller can still override
-  employeeName: fullName(employee),
-  employeeCode: employee.employee_code,
-  department: employee.rndtechnosoft_employee_employments[0]?.rndtechnosoft_departments?.department_name ?? '',
-  designation: employee.rndtechnosoft_employee_employments[0]?.rndtechnosoft_designations?.designation_name ?? '',
-  separationType: separation.separation_type,
-  noticeDate: isoDate(separation.notice_date),
-  lastWorkingDate: isoDate(separation.last_working_date),
-};
-
-
-  // 3. Preview: template lookup + placeholder fill, nothing saved
-  const preview = await this.candidateDocuments.generateDocument(
-    tenantId,
-    candidateId,
-    {
-      templateId: input.templateId,
-      templateVersionId: input.templateVersionId,
-      customValues // employee/separation-specific placeholders
-    },
-  );
-
-   // 4. Save: document row + version row, inside the service's own transaction
-  const saved = await this.candidateDocuments.saveDocument(
-    tenantId,
-    candidateId,
-    {
-      templateId: preview.templateId,
-      templateVersionId: preview.templateVersionId,
-      documentTitle: input.title ?? preview.documentTitle,
-      documentType: input.documentType,
-      document: preview.document as unknown as Record<string, unknown>,
-      layout: preview.layout,
-      changelogNote: 'Generated from offboarding',
-    },
-    actor,
-  );
-
-  // 5. saveDocument does not accept employee_id / separation_id, so link
-  //    the row after the fact. This is the part that should move into the
-  //    service (see "The real fix" below).
-  await this.prisma.rndtechnosoft_candidate_documents.update({
-    where: { tenant_id_id: { tenant_id: tenantId, id: saved.id } },
-    data: { employee_id: employee.id },
-  });
-
-  await this.log(tenantId, actor, 'OFFBOARDING_DOCUMENT_GENERATED', separationId, {
-    document_id: saved.id,
-    new: {
-      document_type: saved.documentType,
-      template_id: preview.templateId,
-      template_version_id: preview.templateVersionId,
-      version_number: saved.versionNumber,
-    },
-  });
-
-  return this.documentDetail(tenantId, saved.id);
-}
 
   // ── HR ──────────────────────────────────────────────────────
 
@@ -268,26 +186,34 @@ async generateDocument(
     const row = await this.find(tenantId, id);
     const today = await this.today(tenantId);
     const employee = row.rndtechnosoft_employees;
-    const [reports, member, paidThrough] = await Promise.all([
-      this.prisma.rndtechnosoft_employee_reporting_lines.count({
-        where: {
-          tenant_id: tenantId, manager_employee_id: employee.id, relationship_type: 'PRIMARY', line_status: 'ACTIVE',
-          OR: [{ effective_to: null }, { effective_to: { gt: row.last_working_date } }],
-        },
-      }),
+    const [directReports, member, paidThrough, obligations, laterEmployments] = await Promise.all([
+      this.directReports(tenantId, employee.id, row.last_working_date),
       this.signIn(this.prisma, tenantId, employee.user_id),
       finalizedThrough(this.prisma, tenantId, employee.id),
+      this.obligations(tenantId, employee.id, row.last_working_date),
+      this.prisma.rndtechnosoft_employee_employments.count({ where: { tenant_id: tenantId, employee_id: employee.id, effective_from: { gt: row.last_working_date } } }),
     ]);
+    const reports = directReports.length;
+    const notice = noticeOf({
+      noticeDate: isoDate(row.notice_date),
+      requiredDays: row.notice_period_days,
+      requestedLastDay: isoDate(row.requested_last_working_date),
+      lastDay: isoDate(row.last_working_date),
+    });
     const lastDay = isoDate(row.last_working_date);
     const pending = row.rndtechnosoft_separation_clearance_items.filter((i) => i.item_status === 'PENDING').length;
     const blockers: string[] = [];
     if (row.separation_status === 'IN_PROGRESS') {
       if (lastDay > today) blockers.push(`The last working day, ${lastDay}, hasn’t come yet.`);
       if (pending) blockers.push(`${pending} checklist item${pending > 1 ? 's are' : ' is'} still open.`);
+      if (reports) blockers.push(`${reports} ${reports > 1 ? 'people still report' : 'person still reports'} to ${fullName(employee)} after their last day. Give them a new manager first.`);
+      if (notice.shortfallDays > 0 && !row.notice_shortfall_decision) blockers.push(`Decide whether to recover or waive the ${notice.shortfallDays}-day notice shortfall.`);
+      const financeWaived = row.rndtechnosoft_separation_clearance_items.some((i) => i.clearance_team === 'FINANCE' && i.item_status === 'WAIVED');
+      if (obligations.loans.length && !financeWaived) blockers.push(`${obligations.loans.length} loan or advance${obligations.loans.length > 1 ? 's are' : ' is'} not settled (${obligations.outstanding} outstanding). Settle ${obligations.loans.length > 1 ? 'them' : 'it'}, or waive the Finance checklist item with the reason.`);
+      if (laterEmployments) blockers.push('An employment record starts after the last working day. Correct it on the employee’s page first.');
     }
     const warnings: string[] = [];
     if (OPEN.includes(row.separation_status as SeparationStatus)) {
-      if (reports) warnings.push(`${reports} ${reports > 1 ? 'people report' : 'person reports'} to ${fullName(employee)} after their last day. Give them a new manager from their employee page.`);
       if (paidThrough && isoDate(paidThrough) > lastDay) warnings.push(`Payroll is already finalized through ${isoDate(paidThrough)}, after the last working day. Pay for the days after it has been paid; recover it with a payroll deduction.`);
     }
 
@@ -306,6 +232,18 @@ async generateDocument(
         id: i.id, team: i.clearance_team, title: i.item_title, status: i.item_status, note: i.clearance_note, clearedBy: who(i.cleared_by), clearedAt: i.cleared_at?.toISOString() ?? null,
       })),
       hasSignIn: !!member && member.membership_status === 'ACTIVE',
+      notice: {
+        ...notice,
+        decision: row.notice_shortfall_decision as 'RECOVER' | 'WAIVE' | null,
+        decisionReason: row.notice_decision_reason,
+        decidedBy: who(row.notice_decided_by),
+        decidedAt: row.notice_decided_at?.toISOString() ?? null,
+      },
+      dateChanges: row.rndtechnosoft_separation_date_changes.map((c) => ({
+        from: isoDate(c.previous_last_working_date), to: isoDate(c.new_last_working_date), reason: c.change_reason, changedBy: who(c.changed_by), changedAt: c.created_at.toISOString(),
+      })),
+      directReports,
+      obligations,
       today,
       blockers,
       warnings,
@@ -359,7 +297,8 @@ async generateDocument(
   }
 
   /** Accepts a resignation, agreeing the last working day, and opens the exit checklist. */
-  async approve(tenantId: string, id: string, lastWorkingDate: string, actor: Actor) {
+  async approve(tenantId: string, id: string, input: LastWorkingDateDto, actor: Actor) {
+    const { lastWorkingDate } = input;
     const row = await this.find(tenantId, id);
     this.notOwn(row, actor, 'accept your own resignation');
     if (lastWorkingDate < isoDate(row.notice_date)) throw new BadRequestException('The last working day can’t be before the day notice was given.');
@@ -367,18 +306,23 @@ async generateDocument(
       await this.transition(tenantId, id, ['PENDING_APPROVAL'], {
         separation_status: 'IN_PROGRESS', last_working_date: dateOnly(lastWorkingDate), approved_at: new Date(), approved_by_tenant_member_id: actor.tenantMemberId,
       }, tx);
+      await this.recordDateChange(tx, tenantId, id, row.last_working_date, lastWorkingDate, input.reason, actor);
       await this.createChecklist(tx, tenantId, id);
     });
     await this.log(tenantId, actor, 'SEPARATION_APPROVED', id, { old: { status: row.separation_status, last_working_date: isoDate(row.last_working_date) }, new: { status: 'IN_PROGRESS', last_working_date: lastWorkingDate } });
     return this.detail(tenantId, id);
   }
 
-  async changeLastWorkingDate(tenantId: string, id: string, lastWorkingDate: string, actor: Actor) {
+  async changeLastWorkingDate(tenantId: string, id: string, input: LastWorkingDateDto, actor: Actor) {
+    const { lastWorkingDate } = input;
     const row = await this.find(tenantId, id);
     this.notOwn(row, actor, 'change your own last working day');
     if (lastWorkingDate < isoDate(row.notice_date)) throw new BadRequestException('The last working day can’t be before the day notice was given.');
-    await this.transition(tenantId, id, ['IN_PROGRESS'], { last_working_date: dateOnly(lastWorkingDate) });
-    await this.log(tenantId, actor, 'SEPARATION_LAST_DAY_CHANGED', id, { old: { last_working_date: isoDate(row.last_working_date) }, new: { last_working_date: lastWorkingDate } });
+    await this.prisma.$transaction(async (tx) => {
+      await this.transition(tenantId, id, ['IN_PROGRESS'], { last_working_date: dateOnly(lastWorkingDate) }, tx);
+      await this.recordDateChange(tx, tenantId, id, row.last_working_date, lastWorkingDate, input.reason, actor);
+    });
+    await this.log(tenantId, actor, 'SEPARATION_LAST_DAY_CHANGED', id, { old: { last_working_date: isoDate(row.last_working_date) }, new: { last_working_date: lastWorkingDate }, reason: input.reason?.trim() || null });
     return this.detail(tenantId, id);
   }
 
@@ -414,6 +358,10 @@ async generateDocument(
     if (!item) throw new NotFoundException('Checklist item not found.');
     const note = input.note?.trim() || null;
     if (input.status === 'WAIVED' && !note) throw new BadRequestException('Say why this item is being waived.');
+    if (input.status === 'CLEARED' && item.clearance_team === 'FINANCE') {
+      const { loans, outstanding } = await this.obligations(tenantId, row.employee_id, row.last_working_date);
+      if (loans.length) throw new BadRequestException(`Finance can’t be cleared while ${outstanding} in loans or advances is outstanding. Settle them, or waive this item with the reason.`);
+    }
     const done = input.status !== 'PENDING';
     await this.prisma.rndtechnosoft_separation_clearance_items.update({
       where: { tenant_id_id: { tenant_id: tenantId, id: itemId } },
@@ -421,6 +369,51 @@ async generateDocument(
     });
     await this.log(tenantId, actor, 'SEPARATION_ITEM_UPDATED', id, { item_id: itemId, old: { status: item.item_status }, new: { status: input.status } });
     return this.detail(tenantId, id);
+  }
+
+  /** Records whether a notice-period shortfall is recovered or waived; a waiver needs a reason. */
+  async decideNotice(tenantId: string, id: string, input: NoticeDecisionDto, actor: Actor) {
+    const row = await this.find(tenantId, id);
+    this.notOwn(row, actor, 'decide your own notice period');
+    const reason = input.reason?.trim() || null;
+    if (input.decision === 'WAIVE' && !reason) throw new BadRequestException('Say why the notice shortfall is being waived.');
+    const notice = noticeOf({ noticeDate: isoDate(row.notice_date), requiredDays: row.notice_period_days, requestedLastDay: isoDate(row.requested_last_working_date), lastDay: isoDate(row.last_working_date) });
+    if (notice.shortfallDays === 0) throw new BadRequestException('This exit has no notice shortfall to decide.');
+    await this.transition(tenantId, id, OPEN, {
+      notice_shortfall_decision: input.decision, notice_decision_reason: reason, notice_decided_by_tenant_member_id: actor.tenantMemberId, notice_decided_at: new Date(),
+    });
+    await this.log(tenantId, actor, 'SEPARATION_NOTICE_DECIDED', id, {
+      old: { decision: row.notice_shortfall_decision }, new: { decision: input.decision, shortfall_days: notice.shortfallDays }, reason,
+    });
+    return this.detail(tenantId, id);
+  }
+
+  /**
+   * Gives the leaver's direct reports a new manager from the day after the
+   * last working day, through the employee page's own rules (no loops, no
+   * overlaps). Reports that cannot be moved are listed with the reason.
+   */
+  async reassignReports(tenantId: string, id: string, input: ReassignReportsDto, actor: Actor) {
+    const row = await this.find(tenantId, id);
+    this.notOwn(row, actor, 'reassign your own team');
+    if (!OPEN.includes(row.separation_status as SeparationStatus)) throw new BadRequestException('Reports can only be reassigned while the exit is open.');
+    if (input.managerEmployeeId === row.employee_id) throw new BadRequestException('Choose someone other than the person leaving.');
+    const reports = await this.directReports(tenantId, row.employee_id, row.last_working_date);
+    const chosen = input.employeeIds?.length ? reports.filter((r) => input.employeeIds!.includes(r.id)) : reports;
+    const from = addDays(isoDate(row.last_working_date), 1);
+    const failed: { employeeId: string; name: string; reason: string }[] = [];
+    for (const report of chosen) {
+      try {
+        await this.relations.setManager(tenantId, report.id, { managerEmployeeId: input.managerEmployeeId, effectiveFrom: from, reason: `Previous manager leaving (exit ${id})` }, actor);
+      } catch (error) {
+        if (!(error instanceof BadRequestException || error instanceof ConflictException || error instanceof NotFoundException)) throw error;
+        failed.push({ employeeId: report.id, name: report.name, reason: error.message });
+      }
+    }
+    await this.log(tenantId, actor, 'SEPARATION_REPORTS_REASSIGNED', id, {
+      new: { manager_employee_id: input.managerEmployeeId, effective_from: from, moved: chosen.length - failed.length, failed: failed.length },
+    });
+    return { exit: await this.detail(tenantId, id), failed };
   }
 
   async cancel(tenantId: string, id: string, input: CancelSeparationDto, actor: Actor) {
@@ -455,6 +448,7 @@ async generateDocument(
       await this.access.assertHoldsAll(tenantId, actor.tenantMemberId, await this.access.getMemberPermissions(tenantId, ending.id), 'You can’t end the sign-in of someone who has access you don’t have. Ask an administrator to complete this exit.');
     }
     const lastDay = row.last_working_date;
+    let closed: Awaited<ReturnType<OffboardingService['closeRecords']>> | null = null;
 
     await this.prisma.$transaction(async (tx) => {
       const now = new Date();
@@ -463,10 +457,7 @@ async generateDocument(
         where: { tenant_id_id: { tenant_id: tenantId, id: employee.id } },
         data: { employee_status: 'EXITED', exit_date: lastDay, updated_at: now },
       });
-      const employment = employee.rndtechnosoft_employee_employments[0];
-      if (employment) {
-        await tx.rndtechnosoft_employee_employments.update({ where: { tenant_id_id: { tenant_id: tenantId, id: employment.id } }, data: { termination_date: lastDay, updated_at: now } });
-      }
+      closed = await this.closeRecords(tx, tenantId, employee.id, lastDay, actor, now);
       if (ending) {
         if (ending.isAdmin) await this.assertAnotherActiveAdmin(tx, tenantId, ending.id);
         await tx.rndtechnosoft_tenant_members.update({ where: { tenant_id_id: { tenant_id: tenantId, id: ending.id } }, data: { membership_status: 'SUSPENDED', updated_at: now } });
@@ -477,7 +468,8 @@ async generateDocument(
     await this.log(tenantId, actor, 'SEPARATION_COMPLETED', id, {
       employee_id: employee.id,
       old: { status: 'IN_PROGRESS', employee_status: employee.employee_status },
-      new: { status: 'COMPLETED', employee_status: 'EXITED', exit_date: isoDate(lastDay), sign_in_suspended: !!ending },
+      new: { status: 'COMPLETED', employee_status: 'EXITED', exit_date: isoDate(lastDay), sign_in_suspended: !!ending, sessions_ended: !!ending },
+      records_closed: closed,
     });
     return this.detail(tenantId, id);
   }
@@ -505,59 +497,94 @@ async generateDocument(
     };
   }
 
-  private async documentDetail(tenantId: string, documentId: string) {
-  const row = await this.prisma.rndtechnosoft_candidate_documents.findFirst({
-    where: { tenant_id: tenantId, id: documentId },
-    select: {
-      id: true,
-      document_type: true,
-      document_title: true,
-      rendered_title: true,
-      document_status: true,
-      version_number: true,
-      template_id: true,
-      template_version_id: true,
-      employee_id: true,
-      candidate_id: true,
-      created_at: true,
-      updated_at: true,
-      last_sent_at: true,
-      email_status: true,
-    },
-  });
-  if (!row) throw new NotFoundException('Document not found.');
-  return {
-    id: row.id,
-    documentType: row.document_type,
-    title: row.rendered_title ?? row.document_title,
-    status: row.document_status,
-    versionNumber: row.version_number,
-    templateId: row.template_id,
-    templateVersionId: row.template_version_id,
-    employeeId: row.employee_id,
-    candidateId: row.candidate_id,
-    createdAt: row.created_at.toISOString(),
-    updatedAt: row.updated_at.toISOString(),
-    lastSentAt: row.last_sent_at?.toISOString() ?? null,
-    emailStatus: row.email_status,
-  };
-}
-
-
-  private async resolveCandidateId(tenantId: string, employeeId: string): Promise<string | null> {
-    const candidate = await this.prisma.rndtechnosoft_candidates.findFirst({
-      where: { tenant_id: tenantId, employee_id: employeeId },
-      select: { id: true },
-    });
-    return candidate?.id ?? null;
-  }
-
   private person(e: EmployeeRow) {
     const employment = e.rndtechnosoft_employee_employments[0];
     return {
       id: e.id, code: e.employee_code, name: fullName(e),
       department: employment?.rndtechnosoft_departments?.department_name ?? null,
       designation: employment?.rndtechnosoft_designations?.designation_name ?? null,
+    };
+  }
+
+  /** People whose primary manager is the leaver on any day after the last working day. */
+  private async directReports(tenantId: string, employeeId: string, lastDay: Date) {
+    const lines = await this.prisma.rndtechnosoft_employee_reporting_lines.findMany({
+      where: {
+        tenant_id: tenantId, manager_employee_id: employeeId, relationship_type: 'PRIMARY', line_status: 'ACTIVE',
+        OR: [{ effective_to: null }, { effective_to: { gt: lastDay } }],
+      },
+      orderBy: { effective_from: 'asc' },
+      select: { rndtechnosoft_employees_rndtechnosoft_employee_reporting_lines_tenant_id_employee_idTorndtechnosoft_employees: { select: { id: true, employee_code: true, first_name: true, last_name: true, preferred_name: true } } },
+    });
+    const people = lines.map((l) => l.rndtechnosoft_employees_rndtechnosoft_employee_reporting_lines_tenant_id_employee_idTorndtechnosoft_employees);
+    return [...new Map(people.map((p) => [p.id, { id: p.id, code: p.employee_code, name: fullName(p) }])).values()];
+  }
+
+  /** Active loans and advances with what is still to be recovered; amounts are decimal strings. */
+  private async obligations(tenantId: string, employeeId: string, lastDay: Date) {
+    const loans = await this.prisma.rndtechnosoft_employee_loans.findMany({
+      where: { tenant_id: tenantId, employee_id: employeeId, loan_status: 'ACTIVE' },
+      orderBy: { start_date: 'asc' },
+      select: {
+        id: true, loan_number: true, loan_type: true, principal_amount: true, installment_amount: true,
+        rndtechnosoft_loan_installments: { where: { installment_status: { in: ['SCHEDULED', 'DEFERRED'] } }, select: { due_date: true, total_amount: true } },
+      },
+    });
+    const sum = (values: Prisma.Decimal[]) => values.reduce((total, v) => total.add(v), DecimalMath.toDecimal(0));
+    const rows = loans.map((l) => {
+      const open = l.rndtechnosoft_loan_installments;
+      const afterExit = open.filter((i) => i.due_date > lastDay);
+      return {
+        id: l.id, number: l.loan_number, type: l.loan_type, principal: l.principal_amount.toFixed(2), installment: l.installment_amount.toFixed(2),
+        outstanding: sum(open.map((i) => i.total_amount)).toFixed(2),
+        installmentsLeft: open.length,
+        dueAfterLastDay: sum(afterExit.map((i) => i.total_amount)).toFixed(2),
+        installmentsAfterLastDay: afterExit.length,
+      };
+    });
+    return { loans: rows, outstanding: sum(rows.map((r) => DecimalMath.toDecimal(r.outstanding))).toFixed(2) };
+  }
+
+  private recordDateChange(tx: Tx, tenantId: string, separationId: string, previous: Date, next: string, reason: string | undefined, actor: Actor) {
+    if (isoDate(previous) === next) return Promise.resolve();
+    return tx.rndtechnosoft_separation_date_changes.create({
+      data: { id: randomUUID(), tenant_id: tenantId, separation_id: separationId, previous_last_working_date: previous, new_last_working_date: dateOnly(next), change_reason: reason?.trim() || null, changed_by_tenant_member_id: actor.tenantMemberId },
+    });
+  }
+
+  /**
+   * Ends everything that applies to the employee after their last day, keeping
+   * history: records running past it end on it, and records that would only
+   * start after it are cancelled. Nothing is deleted.
+   */
+  private async closeRecords(tx: Tx, tenantId: string, employeeId: string, lastDay: Date, actor: Actor, now: Date) {
+    const scope = { tenant_id: tenantId, employee_id: employeeId };
+    const running = { effective_from: { lte: lastDay }, OR: [{ effective_to: null }, { effective_to: { gt: lastDay } }] };
+    const later = { effective_from: { gt: lastDay } };
+    const why = 'Employee exited before this started';
+    const cancelled = { cancelled_at: now, cancelled_by_tenant_member_id: actor.tenantMemberId, cancellation_reason: why, updated_at: now };
+
+    const employments = await tx.rndtechnosoft_employee_employments.updateMany({ where: { ...scope, ...running }, data: { effective_to: lastDay, termination_date: lastDay, updated_at: now } });
+    const salary = await tx.rndtechnosoft_employee_salary_assignments.updateMany({ where: { ...scope, ...running, assignment_status: 'ACTIVE' }, data: { effective_to: lastDay, updated_at: now } });
+    const salaryCancelled = await tx.rndtechnosoft_employee_salary_assignments.updateMany({ where: { ...scope, ...later, assignment_status: 'ACTIVE' }, data: { assignment_status: 'CANCELLED', ...cancelled } });
+    const shifts = await tx.rndtechnosoft_employee_shift_assignments.updateMany({ where: { ...scope, ...running, assignment_status: 'ACTIVE' }, data: { effective_to: lastDay, updated_at: now } });
+    const shiftsCancelled = await tx.rndtechnosoft_employee_shift_assignments.updateMany({ where: { ...scope, ...later, assignment_status: 'ACTIVE' }, data: { assignment_status: 'CANCELLED', updated_at: now } });
+    const leave = await tx.rndtechnosoft_employee_leave_policy_assignments.updateMany({ where: { ...scope, ...running, assignment_status: 'ACTIVE' }, data: { effective_to: lastDay, updated_at: now } });
+    const leaveCancelled = await tx.rndtechnosoft_employee_leave_policy_assignments.updateMany({ where: { ...scope, ...later, assignment_status: 'ACTIVE' }, data: { assignment_status: 'CANCELLED', updated_at: now } });
+    const managers = await tx.rndtechnosoft_employee_reporting_lines.updateMany({ where: { ...scope, ...running, line_status: 'ACTIVE' }, data: { effective_to: lastDay, updated_at: now } });
+    const managersCancelled = await tx.rndtechnosoft_employee_reporting_lines.updateMany({ where: { ...scope, ...later, line_status: 'ACTIVE' }, data: { line_status: 'CANCELLED', ...cancelled } });
+    // Their attendance-device ID stops mapping to an active person; the ID itself stays on record.
+    const device = await tx.rndtechnosoft_employee_cosec_mappings.updateMany({
+      where: { ...scope, mapping_status: { not: 'DEACTIVATED' } },
+      data: { mapping_status: 'DEACTIVATED', review_notes: `Deactivated on exit (last working day ${isoDate(lastDay)})`, updated_by_tenant_member_id: actor.tenantMemberId, updated_at: now },
+    });
+    return {
+      employments: employments.count,
+      salaryAssignments: salary.count + salaryCancelled.count,
+      shiftAssignments: shifts.count + shiftsCancelled.count,
+      leavePolicyAssignments: leave.count + leaveCancelled.count,
+      reportingLines: managers.count + managersCancelled.count,
+      attendanceDeviceMappings: device.count,
     };
   }
 
@@ -644,3 +671,24 @@ function addDays(iso: string, days: number) {
   return isoDate(new Date(dateOnly(iso).getTime() + days * 24 * 3600 * 1000));
 }
 
+
+/**
+ * The notice period, counted in calendar days after the day notice was given:
+ * notice given on 1 March with 30 days required ends on 31 March. A required
+ * period that was never recorded means there is no shortfall to work out.
+ */
+export function noticeOf(input: { noticeDate: string; requiredDays: number | null; requestedLastDay: string; lastDay: string }) {
+  const days = (from: string, to: string) => Math.round((dateOnly(to).getTime() - dateOnly(from).getTime()) / (24 * 3600 * 1000));
+  const servedDays = days(input.noticeDate, input.lastDay);
+  if (input.requiredDays === null) {
+    return { requiredDays: null, servedDays, requestedLastDay: input.requestedLastDay, contractualLastDay: null, lastDay: input.lastDay, shortfallDays: 0 };
+  }
+  return {
+    requiredDays: input.requiredDays,
+    servedDays,
+    requestedLastDay: input.requestedLastDay,
+    contractualLastDay: addDays(input.noticeDate, input.requiredDays),
+    lastDay: input.lastDay,
+    shortfallDays: Math.max(0, input.requiredDays - servedDays),
+  };
+}

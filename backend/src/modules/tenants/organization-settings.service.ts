@@ -409,8 +409,8 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
 
     await this.mergeSettingsSection(this.prisma, tenantId, 'whatsapp', whatsapp);
 
-    // If Otomat provider, synchronize automatically to CRM WhatsApp config so both modules stay in sync
-    if (input.provider === 'OTOMAT' && vendorUid) {
+    // Synchronize to CRM WhatsApp config table so both modules stay 100% in sync
+    if (vendorUid || input.phoneNumberId) {
       try {
         const existingConfig = await this.prisma.rndtechnosoft_crm_whatsapp_configs.findFirst({
           where: { tenant_id: tenantId, is_default: true },
@@ -423,6 +423,10 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
               vendor_uid: vendorUid,
               bearer_token_encrypted: accessTokenEncrypted,
               from_phone_number_id: input.phoneNumberId || null,
+              sender_phone_number: input.senderPhoneNumber || null,
+              waba_id: input.wabaId || null,
+              provider: input.provider || 'OTOMAT',
+              webhook_verify_token_encrypted: webhookVerifyTokenEncrypted,
               is_active: input.isActive,
             },
           });
@@ -431,11 +435,15 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
             data: {
               id: randomUUID(),
               tenant_id: tenantId,
-              account_name: 'Otomat WhatsApp Gateway',
+              account_name: `${input.provider || 'Otomat'} WhatsApp Gateway`,
               api_base_url: apiBaseUrl,
               vendor_uid: vendorUid,
               bearer_token_encrypted: accessTokenEncrypted,
               from_phone_number_id: input.phoneNumberId || null,
+              sender_phone_number: input.senderPhoneNumber || null,
+              waba_id: input.wabaId || null,
+              provider: input.provider || 'OTOMAT',
+              webhook_verify_token_encrypted: webhookVerifyTokenEncrypted,
               is_default: true,
               is_active: input.isActive,
             },
@@ -478,7 +486,7 @@ export class OrganizationSettingsService implements OnApplicationBootstrap {
         throw new BadRequestException('Enter your Token / Bearer Token to test the Otomat connection.');
       }
 
-      const testUrl = `${apiBaseUrl}/${encodeURIComponent(vendorUid)}/contact/template-list?token=${encodeURIComponent(accessToken)}`;
+      const testUrl = `${apiBaseUrl}/${encodeURIComponent(vendorUid)}/contact/template-list`;
       try {
         const response = await fetch(testUrl, {
           method: 'GET',

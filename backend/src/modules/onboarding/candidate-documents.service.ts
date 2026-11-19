@@ -64,6 +64,31 @@ const FILES = {
  * upload. Supports multiple files per document requirement with dynamic limits
  * and named upload slots (e.g. Front Side, Back Side).
  */
+const EMPLOYMENT_TYPE_LINKS = { rndtechnosoft_document_type_employment_types: { select: { employment_type_id: true } } } as const;
+
+export type OnboardingStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_COMPLETED' | 'COMPLETED';
+
+/**
+ * How far document collection has got: the share of required documents
+ * verified, what is missing or rejected, and the onboarding status that
+ * follows. Optional documents never hold anyone back.
+ */
+export function completionOf(items: { isRequired: boolean; state: string }[], candidateStatus: CandidateStatus) {
+  const required = items.filter((i) => i.isRequired);
+  const verified = required.filter((i) => i.state === 'VERIFIED').length;
+  const missing = required.filter((i) => i.state === 'MISSING' || i.state === 'INCOMPLETE').length;
+  const rejected = required.filter((i) => i.state === 'REJECTED').length;
+  const awaitingReview = required.filter((i) => i.state === 'PENDING_REVIEW' || i.state === 'PARTIALLY_VERIFIED').length;
+  const percent = required.length === 0 ? (items.length ? 100 : 0) : Math.floor((verified / required.length) * 100);
+  const status: OnboardingStatus =
+    candidateStatus === 'JOINED' ? 'COMPLETED'
+      : items.length === 0 ? 'NOT_STARTED'
+      : verified === required.length ? 'DOCUMENTS_COMPLETED'
+      : missing + rejected > 0 ? 'DOCUMENTS_PENDING'
+      : 'IN_PROGRESS';
+  return { percent, required: required.length, verified, missing, rejected, awaitingReview, status };
+}
+
 @Injectable()
 export class CandidateDocumentsService {
   constructor(
@@ -84,6 +109,7 @@ export class CandidateDocumentsService {
     let types = await this.prisma.rndtechnosoft_document_types.findMany({
       where: { tenant_id: tenantId },
       orderBy: [{ is_required: 'desc' }, { name: 'asc' }],
+      include: EMPLOYMENT_TYPE_LINKS,
     });
 
     if (types.length === 0) {
@@ -91,6 +117,7 @@ export class CandidateDocumentsService {
       types = await this.prisma.rndtechnosoft_document_types.findMany({
         where: { tenant_id: tenantId },
         orderBy: [{ is_required: 'desc' }, { name: 'asc' }],
+        include: EMPLOYMENT_TYPE_LINKS,
       });
     }
 
@@ -134,9 +161,11 @@ export class CandidateDocumentsService {
         can_reupload_rejected: dto.canReuploadRejected ?? true,
         slots: slots ? (slots as any) : Prisma.JsonNull,
         is_active: dto.isActive ?? true,
+        collect_at: dto.collectAt ?? 'JOINING',
         created_by_tenant_member_id: actor.tenantMemberId,
       },
     });
+    if (dto.employmentTypeIds?.length) await this.setEmploymentTypes(tenantId, docType.id, dto.employmentTypeIds);
 
     await this.audit.log({
       tenantId,
@@ -148,7 +177,7 @@ export class CandidateDocumentsService {
       newValues: { code: docType.code, name: docType.name, minFiles: docType.min_files, maxFiles: docType.max_files },
     });
 
-    return this.mapDocumentType(docType);
+    return this.mapDocumentType(await this.prisma.rndtechnosoft_document_types.findUniqueOrThrow({ where: { id: docType.id }, include: EMPLOYMENT_TYPE_LINKS }));
   }
 
   async updateDocumentType(tenantId: string, id: string, dto: UpdateDocumentTypeDto, actor: AuthenticatedTenantUser) {
@@ -184,9 +213,11 @@ export class CandidateDocumentsService {
         can_reupload_rejected: dto.canReuploadRejected !== undefined ? dto.canReuploadRejected : undefined,
         slots: slots ? (slots as any) : Prisma.JsonNull,
         is_active: dto.isActive !== undefined ? dto.isActive : undefined,
+        collect_at: dto.collectAt,
         updated_at: new Date(),
       },
     });
+    if (dto.employmentTypeIds !== undefined) await this.setEmploymentTypes(tenantId, id, dto.employmentTypeIds);
 
     await this.audit.log({
       tenantId,
@@ -198,7 +229,7 @@ export class CandidateDocumentsService {
       newValues: { name: updated.name, minFiles: updated.min_files, maxFiles: updated.max_files },
     });
 
-    return this.mapDocumentType(updated);
+    return this.mapDocumentType(await this.prisma.rndtechnosoft_document_types.findUniqueOrThrow({ where: { id: updated.id }, include: EMPLOYMENT_TYPE_LINKS }));
   }
 
   async deleteDocumentType(tenantId: string, id: string, actor: AuthenticatedTenantUser) {
@@ -237,6 +268,39 @@ export class CandidateDocumentsService {
     return { message: 'Document type deleted.' };
   }
 
+  /**
+   * Asks for every active document type in the checklist for this stage that
+   * applies to the candidate's employment type, skipping any already asked
+   * for. Returns the documents as they now stand.
+   */
+  async applyChecklist(tenantId: string, candidateId: string, stage: 'APPLICATION' | 'JOINING', actor: AuthenticatedTenantUser) {
+    const id = this.candidates.idOr404(candidateId);
+    const candidate = await this.prisma.rndtechnosoft_candidates.findFirst({ where: { tenant_id: tenantId, id }, select: { employment_type_id: true } });
+    if (!candidate) throw new NotFoundException('Candidate not found.');
+    await this.listDocumentTypes(tenantId); // seeds the defaults the first time
+    const [types, existing] = await Promise.all([
+      this.prisma.rndtechnosoft_document_types.findMany({ where: { tenant_id: tenantId, is_active: true, collect_at: stage }, include: EMPLOYMENT_TYPE_LINKS, orderBy: [{ is_required: 'desc' }, { name: 'asc' }] }),
+      this.prisma.rndtechnosoft_candidate_document_requests.findMany({ where: { tenant_id: tenantId, candidate_id: id }, select: { document_type_id: true, document_label: true } }),
+    ]);
+    const applies = types.filter((t) => {
+      const limited = t.rndtechnosoft_document_type_employment_types.map((l) => l.employment_type_id);
+      return limited.length === 0 || (candidate.employment_type_id !== null && limited.includes(candidate.employment_type_id));
+    });
+    const missing = applies.filter((t) => !existing.some((e) => e.document_type_id === t.id || e.document_label.toLowerCase() === t.name.toLowerCase()));
+    if (missing.length === 0) return this.list(tenantId, id);
+    return this.request(tenantId, id, missing.map((t) => ({ type: t.code, documentTypeId: t.id, isRequired: t.is_required }) as DocumentRequestItemDto), actor);
+  }
+
+  /** Replaces the employment types a document type is limited to; an empty list means everyone. */
+  private async setEmploymentTypes(tenantId: string, documentTypeId: string, employmentTypeIds: string[]) {
+    await this.prisma.$transaction([
+      this.prisma.rndtechnosoft_document_type_employment_types.deleteMany({ where: { tenant_id: tenantId, document_type_id: documentTypeId } }),
+      this.prisma.rndtechnosoft_document_type_employment_types.createMany({
+        data: [...new Set(employmentTypeIds)].map((employmentTypeId) => ({ id: randomUUID(), tenant_id: tenantId, document_type_id: documentTypeId, employment_type_id: employmentTypeId })),
+      }),
+    ]);
+  }
+
   private async seedDefaultDocumentTypes(tenantId: string) {
     for (const def of DEFAULT_DOCUMENT_DEFINITIONS) {
       await this.prisma.rndtechnosoft_document_types.upsert({
@@ -260,6 +324,8 @@ export class CandidateDocumentsService {
           can_reupload_rejected: def.canReuploadRejected,
           slots: def.slots ? (def.slots as any) : Prisma.JsonNull,
           is_active: def.isActive,
+          // A resume comes with the application; everything else at joining.
+          collect_at: def.code === 'RESUME' ? 'APPLICATION' : 'JOINING',
         },
         update: {},
       });
@@ -285,6 +351,9 @@ export class CandidateDocumentsService {
       canReuploadRejected: t.can_reupload_rejected,
       slots: (t.slots as string[] | null) || null,
       isActive: t.is_active,
+      collectAt: t.collect_at as 'APPLICATION' | 'JOINING',
+      // Empty: the document applies to every employment type.
+      employmentTypeIds: (t.rndtechnosoft_document_type_employment_types ?? []).map((l: { employment_type_id: string }) => l.employment_type_id),
       createdAt: t.created_at,
       updatedAt: t.updated_at,
     };
@@ -412,6 +481,7 @@ export class CandidateDocumentsService {
         verified: items.filter((i) => i.isRequired && i.state === 'VERIFIED').length,
         toReview: items.reduce((acc, i) => acc + i.files.filter((f) => f.isActive && f.reviewStatus === 'PENDING_REVIEW').length, 0),
       },
+      completion: completionOf(items, status),
       types: activeDocTypes.map((t) => ({
         type: t.code,
         label: t.name,
@@ -1064,7 +1134,7 @@ export class CandidateDocumentsService {
   // ── Core Storage Engine ──────────────────────────────────────
 
   /** Checks and stores one or multiple uploads for a requested document with slot tracking and dynamic limits. */
-  private async storeBatch(
+  async storeBatch(
     tenantId: string,
     candidateId: string,
     requestId: string,

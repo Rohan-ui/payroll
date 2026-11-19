@@ -367,7 +367,7 @@ describe('HRMS onboarding in a tenant workspace', () => {
       expect(advance.body.data.candidate.status).toBe('INTERVIEW_COMPLETED');
       const second = await asA('post', `/onboarding/candidates/${ids.rounds}/interviews`, interview({ roundName: 'Culture fit', interviewType: 'PHONE', meetingLink: undefined }));
       expect(second.status).toBe(201);
-      expect(second.body.data.candidate.interviews.map((i: { roundNumber: number; status: string }) => [i.roundNumber, i.status])).toEqual([[1, 'COMPLETED'], [2, 'SCHEDULED']]);
+      expect(second.body.data.candidate.interviews.map((i: { roundNumber: number; status: string }) => [i.roundNumber, i.status])).toEqual([[1, 'PASSED'], [2, 'SCHEDULED']]);
     });
 
     it('books one interview when two requests arrive together', async () => {

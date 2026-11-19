@@ -1,3 +1,7 @@
+import { WhatsAppModule } from '@/modules/crm/whatsapp/whatsapp.module';
+import { OnboardingWhatsAppService } from './onboarding-whatsapp.service';
+import { CandidateFormService } from './candidate-form.service';
+import { PublicCandidateFormController } from './public-candidate-form.controller';
 import { Module } from '@nestjs/common';
 import { TenantsModule } from '@/modules/tenants/tenants.module';
 import { MailModule } from '@/modules/mail/mail.module';
@@ -20,15 +24,18 @@ import { OnboardingWorkflowsController } from './onboarding-workflows.controller
 
 /** HRMS onboarding: candidates, interviews, offers, visual onboarding workflow builder, documents and emails. */
 @Module({
-  imports: [TenantsModule, MailModule, GmailModule, DocumentsModule],
+  imports: [TenantsModule, MailModule, GmailModule, DocumentsModule, WhatsAppModule],
   controllers: [
     OnboardingController,
     OnboardingWorkflowsController,
     PublicOffersController,
     PublicCandidateDocumentsController,
+    PublicCandidateFormController,
   ],
   providers: [
     CandidatesService,
+    CandidateFormService,
+    OnboardingWhatsAppService,
     CandidateDocumentsService,
     CandidateLetterDocumentsService,
     InterviewsService,

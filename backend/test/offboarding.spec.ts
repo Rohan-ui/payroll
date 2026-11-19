@@ -123,7 +123,13 @@ describe('Offboarding', () => {
       const userIds = userRows.map((u) => u.id);
       const scope = { tenant_id: { in: tenantIds } };
       await prisma.rndtechnosoft_separation_clearance_items.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_separation_date_changes.deleteMany({ where: scope });
       await prisma.rndtechnosoft_employee_separations.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_loan_installments.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_loans.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_cosec_mappings.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_reporting_lines.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_employee_employments.deleteMany({ where: scope });
       await prisma.rndtechnosoft_employee_salary_assignments.deleteMany({ where: scope });
       await prisma.rndtechnosoft_salary_structures.deleteMany({ where: scope });
       await prisma.rndtechnosoft_employees.deleteMany({ where: scope });
@@ -220,6 +226,8 @@ describe('Offboarding', () => {
     const row = await prisma.rndtechnosoft_employees.findUniqueOrThrow({ where: { id: employees.Sneha } });
     expect(row.employee_status).toBe('EXITED');
     expect(row.exit_date?.toISOString().slice(0, 10)).toBe(today);
+    const salary = await prisma.rndtechnosoft_employee_salary_assignments.findFirstOrThrow({ where: { employee_id: employees.Sneha } });
+    expect([salary.assignment_status, salary.effective_to?.toISOString().slice(0, 10)]).toEqual(['ACTIVE', today]);
     expect((await get('/offboarding/my', 'Sneha')).status).toBe(401);
 
     const payable = async (month: string) => (await get(`/payroll/calculation/employees?month=${month}`, 'OwnerA')).body.data.map((e: { id: string }) => e.id);
@@ -236,5 +244,75 @@ describe('Offboarding', () => {
     expect((await post(`/offboarding/separations/${started.body.data.id}/complete`, 'Priya')).status).toBe(403);
     const cancelled = await post(`/offboarding/separations/${started.body.data.id}/cancel`, 'Priya', { reason: 'Started by mistake' });
     expect(cancelled.body.data).toMatchObject({ status: 'CANCELLED', closeReason: 'Started by mistake' });
+  });
+
+  it('closes the leaver’s records, after their team is reassigned, notice decided and loans dealt with', async () => {
+    const A = tenants.A;
+    const leaver = await employee('Leaver', A, null);
+    const report = await employee('Report', A, null);
+    const boss = await employee('Boss', A, null);
+    const since = new Date('2025-01-01');
+    await prisma.rndtechnosoft_employee_employments.create({ data: { id: randomUUID(), tenant_id: A, employee_id: leaver, joining_date: since, effective_from: since, employment_status: 'CONFIRMED', notice_period_days: 30 } });
+    await prisma.rndtechnosoft_employee_reporting_lines.createMany({ data: [
+      { id: randomUUID(), tenant_id: A, employee_id: report, manager_employee_id: leaver, relationship_type: 'PRIMARY', effective_from: since },
+      { id: randomUUID(), tenant_id: A, employee_id: leaver, manager_employee_id: employees.OwnerA, relationship_type: 'PRIMARY', effective_from: since },
+    ] });
+    await prisma.rndtechnosoft_employee_cosec_mappings.create({ data: { id: randomUUID(), tenant_id: A, employee_id: leaver, cosec_employee_id: `C${SUFFIX}`, mapping_status: 'MAPPED', mapping_source: 'MANUAL', verification_status: 'VERIFIED' } });
+    const loanId = randomUUID();
+    await prisma.rndtechnosoft_employee_loans.create({ data: { id: loanId, tenant_id: A, employee_id: leaver, loan_number: `L-${SUFFIX}`, loan_type: 'LOAN', principal_amount: '10000', total_repayable_amount: '10000', installment_amount: '5000', start_date: since } });
+    await prisma.rndtechnosoft_loan_installments.createMany({ data: [10, 40].map((d, n) => ({ id: randomUUID(), tenant_id: A, employee_loan_id: loanId, installment_number: n + 1, due_date: new Date(`${shift(today, d)}T00:00:00Z`), principal_amount: '5000', total_amount: '5000' })) });
+
+    const started = await post('/offboarding/separations', 'Priya', { employeeId: leaver, type: 'TERMINATION', reason: 'Role closed', noticeDate: shift(today, -10), lastWorkingDate: shift(today, -1) });
+    expect(started.status).toBe(201);
+    const id = started.body.data.id as string;
+
+    // The day changes, with its reason kept.
+    const moved = await put(`/offboarding/separations/${id}/last-working-date`, 'Priya', { lastWorkingDate: today, reason: 'Handover needs one more day' });
+    expect(moved.body.data.dateChanges).toEqual([expect.objectContaining({ from: shift(today, -1), to: today, reason: 'Handover needs one more day' })]);
+    const exit = moved.body.data;
+    expect(exit.notice).toMatchObject({ requiredDays: 30, servedDays: 10, shortfallDays: 20, contractualLastDay: shift(today, 20), decision: null });
+    expect(exit.obligations).toMatchObject({ outstanding: '10000.00', loans: [expect.objectContaining({ outstanding: '10000.00', dueAfterLastDay: '10000.00', installmentsAfterLastDay: 2 })] });
+    expect(exit.directReports.map((r: { id: string }) => r.id)).toEqual([report]);
+    expect(exit.blockers.join(' ')).toMatch(/still report.*notice shortfall.*not settled/s);
+
+    // Notice: a waiver needs a reason; recovering does not.
+    expect((await put(`/offboarding/separations/${id}/notice-decision`, 'Priya', { decision: 'WAIVE' })).status).toBe(400);
+    expect((await put(`/offboarding/separations/${id}/notice-decision`, 'Priya', { decision: 'RECOVER' })).body.data.notice).toMatchObject({ decision: 'RECOVER' });
+
+    // Finance can't be cleared over an open loan; a waiver with its reason is the recorded exception.
+    const items = exit.checklist as { id: string; team: string }[];
+    const finance = items.find((i) => i.team === 'FINANCE')!;
+    expect((await put(`/offboarding/separations/${id}/checklist/${finance.id}`, 'Priya', { status: 'CLEARED' })).status).toBe(400);
+    expect((await put(`/offboarding/separations/${id}/checklist/${finance.id}`, 'Priya', { status: 'WAIVED', note: 'Recovered from the final settlement' })).status).toBe(200);
+
+    // Reassigning the team needs People access too.
+    expect((await post(`/offboarding/separations/${id}/reassign-reports`, 'Priya', { managerEmployeeId: boss })).status).toBe(403);
+    const reassigned = await post(`/offboarding/separations/${id}/reassign-reports`, 'OwnerA', { managerEmployeeId: boss });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.failed).toEqual([]);
+    expect(reassigned.body.data.directReports).toEqual([]);
+
+    for (const item of items.filter((i) => i.id !== finance.id)) {
+      expect((await put(`/offboarding/separations/${id}/checklist/${item.id}`, 'Priya', { status: 'CLEARED' })).status).toBe(200);
+    }
+    const done = await post(`/offboarding/separations/${id}/complete`, 'Priya');
+    expect(done.status).toBe(200);
+
+    const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
+    const employment = await prisma.rndtechnosoft_employee_employments.findFirstOrThrow({ where: { employee_id: leaver } });
+    expect([day(employment.effective_to), day(employment.termination_date)]).toEqual([today, today]);
+    const ownLine = await prisma.rndtechnosoft_employee_reporting_lines.findFirstOrThrow({ where: { employee_id: leaver } });
+    expect([ownLine.line_status, day(ownLine.effective_to)]).toEqual(['ACTIVE', today]);
+    const reportLines = await prisma.rndtechnosoft_employee_reporting_lines.findMany({ where: { employee_id: report }, orderBy: { effective_from: 'asc' } });
+    expect(reportLines.map((l) => [l.manager_employee_id, day(l.effective_from), day(l.effective_to)])).toEqual([[leaver, '2025-01-01', today], [boss, shift(today, 1), null]]);
+    expect((await prisma.rndtechnosoft_employee_cosec_mappings.findFirstOrThrow({ where: { employee_id: leaver } })).mapping_status).toBe('DEACTIVATED');
+    // History stays: the loan is untouched, waiting for the final settlement.
+    expect((await prisma.rndtechnosoft_employee_loans.findUniqueOrThrow({ where: { id: loanId } })).loan_status).toBe('ACTIVE');
+
+    // Nothing new can start after they left.
+    const structure = await prisma.rndtechnosoft_salary_structures.findFirstOrThrow({ where: { tenant_id: A } });
+    const revision = await post(`/salary/employees/${leaver}/revisions`, 'OwnerA', { salaryStructureId: structure.id, effectiveFrom: shift(today, 1), payBasis: 'MONTHLY', monthlySalary: '50000', currencyCode: 'INR', isOvertimeEligible: false, paymentMethod: 'BANK_TRANSFER', changeReason: 'Increment', componentValues: [] });
+    expect(revision.status).toBe(400);
+    expect(revision.body.message).toContain('left on');
   });
 });

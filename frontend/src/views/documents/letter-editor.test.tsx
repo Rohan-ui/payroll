@@ -131,7 +131,9 @@ describe('offer letter editor', () => {
   it('shows the letter on a page of the template’s size, margins and letterhead, zoomed on screen only', async () => {
     await open();
     const page = () => container.querySelector('[data-letter-page]') as HTMLElement;
-    expect([page().style.width, page().style.minHeight]).toEqual(['210mm', '297mm']);
+    // One A4 sheet: its height is laid out in screen pixels (96 per inch) so pages can be stacked.
+    expect(page().style.width).toBe('210mm');
+    expect(parseFloat(page().style.minHeight)).toBeCloseTo((297 / 25.4) * 96, 1);
     const content = () => [...page().children].find((c) => (c as HTMLElement).style.paddingTop) as HTMLElement;
     const padding = () => ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'].map((k) => parseFloat(content().style[k as 'paddingTop']));
     expect(padding()).toEqual([20, 20, 20, 20]);

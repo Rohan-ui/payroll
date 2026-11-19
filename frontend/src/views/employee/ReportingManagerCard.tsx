@@ -11,10 +11,7 @@ import { employeeRelationsApi, type Reporting, type ReportingLine } from '../../
 import { day, errorText, fieldClass, hintClass, labelClass, todayIso } from '../payroll/payroll-format';
 import { SearchPicker, type PickerOption } from '../performance/SearchPicker';
 
-/** Active employees by name or code, through the People list the viewer may already see. */
-const findEmployees = (term: string) => employeesApi.list(1, 20, term).then((r) => r.items
-  .filter((e) => e.employee_status === 'ACTIVE')
-  .map((e) => ({ id: e.id, name: [e.first_name, e.last_name].filter(Boolean).join(' '), code: e.employee_code })));
+const findEmployees = employeesApi.findActive;
 
 /**
  * Who the employee reports to, with history. A new manager starts from a

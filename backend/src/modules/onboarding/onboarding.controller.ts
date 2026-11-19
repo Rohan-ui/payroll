@@ -13,6 +13,8 @@ import { CandidateDocumentsService, UploadedDocument } from './candidate-documen
 import { CandidateLetterDocumentsService } from './candidate-letter-documents.service';
 import { MAX_FILE_BYTES } from './candidate-documents';
 import { fileResponse } from './file-response';
+import { CandidateFormService } from './candidate-form.service';
+import { ApplyChecklistDto, EligibilityDecisionDto, SendCandidateFormDto } from './dto/candidate-form.dto';
 import {
   CancelInterviewDto,
   CandidateInputDto,
@@ -64,6 +66,7 @@ export class OnboardingController {
     private readonly templates: TemplatesService,
     private readonly documents: CandidateDocumentsService,
     private readonly letterDocs: CandidateLetterDocumentsService,
+    private readonly candidateForm: CandidateFormService,
   ) {}
 
   @Get('dashboard')
@@ -143,6 +146,31 @@ export class OnboardingController {
   @RequirePermissions('onboarding.candidates.override')
   async overrideCandidate(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Body() body: OverrideCandidateStatusDto) {
     return { success: true, data: await this.candidates.override(tenantId, id, body, actor), message: 'Status overridden' };
+  }
+
+  // ── Candidate information form and eligibility ─────────────
+
+  /** Emails the candidate a one-time link to their form; sent again after submission, it asks for more. */
+  @Post('candidates/:id/form/send')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.candidates.manage')
+  async sendForm(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Body() body: SendCandidateFormDto) {
+    const result = await this.candidateForm.send(tenantId, id, body, actor);
+    return { success: true, data: result.candidate, notifications: result.notifications, message: 'Form sent' };
+  }
+
+  @Get('candidates/:id/form')
+  @RequirePermissions('onboarding.view')
+  async reviewForm(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return { success: true, data: await this.candidateForm.review(tenantId, id) };
+  }
+
+  @Post('candidates/:id/eligibility')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.candidates.decide')
+  async eligibility(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Body() body: EligibilityDecisionDto) {
+    const result = await this.candidateForm.decide(tenantId, id, body, actor);
+    return { success: true, data: result.candidate, notifications: result.notifications, message: 'Eligibility recorded' };
   }
 
   @Post('candidates/:id/notes')
@@ -420,6 +448,14 @@ export class OnboardingController {
       data: await this.documents.removeFile(tenantId, id, requestId, fileId, actor),
       message: 'File removed',
     };
+  }
+
+  /** Asks for every document in the checklist for this stage that applies to the candidate's employment type. */
+  @Post('candidates/:id/documents/checklist')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('onboarding.documents.manage')
+  async applyChecklist(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser, @Param('id') id: string, @Body() body: ApplyChecklistDto) {
+    return { success: true, data: await this.documents.applyChecklist(tenantId, id, body.stage, actor), message: 'Checklist applied' };
   }
 
   @Post('candidates/:id/documents/link')

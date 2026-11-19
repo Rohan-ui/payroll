@@ -212,6 +212,7 @@ beforeEach(() => {
         return json({ success: true, data: PUBLIC_SLOTTED });
       }
 
+      if (url.includes('/documents/files/') && url.endsWith('?download=1')) return new Response('jpg-bytes', { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
       if (url.endsWith('/verify')) return json({ success: true, data: { documents: SLOTTED_DOCUMENTS, notifications: [] } });
       if (url.endsWith('/reject')) return json({ success: true, data: { documents: SLOTTED_DOCUMENTS, notifications: [] } });
       if (url.includes('/files/') && method === 'DELETE') return json({ success: true, data: SLOTTED_DOCUMENTS });
@@ -254,6 +255,16 @@ describe('Multi-File & Slotted Document Verification in CandidateDocuments', () 
     expect(byAria('Verify Aadhaar Card Back Side')).not.toBeNull();
     expect(button('Verify Document')).toBeDefined();
     expect(button('Reject Document')).toBeDefined();
+  });
+
+  it('downloads a slot file through the session, never through a bare link', async () => {
+    await act(async () => root.render(<CandidateDocuments candidateId="c1" candidateName="Harshit Dhodi" onChanged={() => undefined} />));
+    await settle();
+    expect(document.querySelector('a[href*="/api/v1/onboarding"]')).toBeNull();
+    await act(async () => byAria('Download Front Side')?.click());
+    await settle();
+    expect(calls.some((c) => c.url === '/api/v1/onboarding/candidates/c1/documents/files/file_front?download=1')).toBe(true);
+    expect(URL.createObjectURL).toHaveBeenCalled();
   });
 
   it('allows verifying an individual slot independently', async () => {

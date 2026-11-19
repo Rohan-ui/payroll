@@ -52,10 +52,17 @@ export interface WhatsAppProviderConfig {
   id?: string;
   is_configured: boolean;
   account_name: string;
+  provider?: string;
   api_base_url: string;
   vendor_uid: string;
   bearer_token_masked?: string;
   from_phone_number_id?: string;
+  sender_phone_number?: string;
+  waba_id?: string;
+  webhook_verify_token?: string;
+  webhook_verify_token_masked?: string;
+  last_synced_at?: string | null;
+  last_sync_error?: string | null;
   is_active: boolean;
   updated_at?: string;
 }
@@ -69,6 +76,8 @@ export interface WhatsAppProviderTemplate {
   body_text?: string;
   header_type?: string;
   buttons_count?: number;
+  components?: any;
+  synced_at?: string;
 }
 
 export interface WhatsAppMessageLog {
@@ -150,10 +159,20 @@ export const whatsAppApi = {
     apiClient.delete<{ success: boolean; message: string }>(`/crm/whatsapp/templates/${id}`),
 
   // Provider Templates & Config
-  listProviderTemplates: (search?: string) =>
-    apiClient.get<{ success: boolean; data: WhatsAppProviderTemplate[] }>(
-      `/crm/whatsapp/provider-templates${search ? `?search=${encodeURIComponent(search)}` : ''}`
+  listProviderTemplates: (search?: string, refresh?: boolean) =>
+    apiClient.get<{ success: boolean; data: WhatsAppProviderTemplate[]; count?: number; synced_at?: string }>(
+      `/crm/whatsapp/provider-templates?${new URLSearchParams({
+        ...(search ? { search } : {}),
+        ...(refresh ? { refresh: 'true' } : {}),
+      }).toString()}`
     ),
+
+  syncProviderTemplates: () =>
+    apiClient.post<{
+      success: boolean;
+      data: { count?: number; syncedCount?: number; lastSyncedAt: string; templates: WhatsAppProviderTemplate[] };
+      message: string;
+    }>('/crm/whatsapp/provider-templates/sync', {}),
 
   getConfig: () =>
     apiClient.get<{ success: boolean; data: WhatsAppProviderConfig }>('/crm/whatsapp/config'),
@@ -215,6 +234,13 @@ export const whatsAppApi = {
       message: string;
     }>('/crm/whatsapp/send', data),
 
+  sendTextMessage: (data: { recipient: string; message: string; lead_id?: string; client_id?: string }) =>
+    apiClient.post<{
+      success: boolean;
+      data: any;
+      message: string;
+    }>('/crm/whatsapp/send-text', data),
+
   // Logs & Status Tracking
   listLogs: (params?: { page?: number; limit?: number; status?: string; search?: string; leadId?: string }) => {
     const sp = new URLSearchParams();
@@ -237,5 +263,8 @@ export const whatsAppApi = {
 
   refreshLogStatus: (id: string) =>
     apiClient.post<{ success: boolean; data: WhatsAppMessageLog; message: string }>(`/crm/whatsapp/logs/${id}/status`, {}),
+
+  retryLog: (id: string) =>
+    apiClient.post<{ success: boolean; data: any; message: string }>(`/crm/whatsapp/logs/${id}/retry`, {}),
 };
 

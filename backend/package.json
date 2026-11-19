@@ -22,6 +22,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "platform:admin": "ts-node -P tsconfig.json src/scripts/platform-admin.ts",
+    "bank:seal": "ts-node -r tsconfig-paths/register -r dotenv/config -P tsconfig.json src/scripts/seal-bank-accounts.ts",
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_EXTRA_CA_CERTS=test/support/tls/localhost.crt jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules NODE_EXTRA_CA_CERTS=test/support/tls/localhost.crt jest --watch"
   },

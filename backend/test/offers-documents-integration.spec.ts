@@ -11,6 +11,8 @@ import { AuditService } from '@/modules/audit/audit.service';
 import { CandidatesService } from '@/modules/onboarding/candidates.service';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 
+import { createLetterFixture } from './support/letter-fixture';
+
 describe('Offers and Onboarding Documents Integration Spec', () => {
   const prisma = new PrismaClient();
   let letterDocsService: CandidateLetterDocumentsService;
@@ -22,13 +24,18 @@ describe('Offers and Onboarding Documents Integration Spec', () => {
   let letterheads: LetterheadsService;
   let candidates: CandidatesService;
 
-  const tenantId = '74f9eb2a-25b2-48a6-972d-16359e24a85c';
-  const harshitCandidateId = '958fe1ae-4acf-420c-8250-94dd71ea0556';
+  // Its own workspace and candidate, so the suite never depends on a developer's database.
+  let fixture: Awaited<ReturnType<typeof createLetterFixture>>;
+  let tenantId = '';
+  let harshitCandidateId = '';
   let actor: AuthenticatedTenantUser;
   let testTemplateId: string;
 
   beforeAll(async () => {
     await prisma.$connect();
+    fixture = await createLetterFixture(prisma);
+    tenantId = fixture.tenantId;
+    harshitCandidateId = fixture.candidateId;
 
     const member = await prisma.rndtechnosoft_tenant_members.findFirst({
       where: { tenant_id: tenantId, membership_status: 'ACTIVE' },
@@ -109,6 +116,7 @@ describe('Offers and Onboarding Documents Integration Spec', () => {
   });
 
   afterAll(async () => {
+    await fixture?.cleanup();
     await prisma.$disconnect();
   });
 

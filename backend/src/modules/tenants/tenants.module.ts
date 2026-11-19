@@ -6,10 +6,11 @@ import { PermissionsController } from './permissions.controller';
 import { OrganizationSettingsService } from './organization-settings.service';
 import { TenantRolesService } from './tenant-roles.service';
 import { TeamMembersService } from './team-members.service';
-
 import { EmploymentTypesService } from './employment-types.service';
+import { WhatsAppModule } from '@/modules/crm/whatsapp/whatsapp.module';
 
 @Module({
+  imports: [WhatsAppModule],
   controllers: [TenantsController, UsersController, PermissionsController],
   providers: [TenantsService, OrganizationSettingsService, TenantRolesService, TeamMembersService, EmploymentTypesService],
   // The platform console shows a workspace's organization profile through the same service.

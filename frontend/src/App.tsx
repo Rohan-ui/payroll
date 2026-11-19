@@ -90,7 +90,6 @@ const MainContent: React.FC = () => {
       case 'payroll':         return <PayrollView />;
       case 'people':          return <EmployeesView />;
       case 'add-employee':    return <AddEmployeeView />;
-      case 'edit-employee':   return <AddEmployeeView />;
       case 'employee-detail': return <EmployeeDetailView />;
       case 'attendance':      return <AttendanceView />;
       case 'clock-in':        return <ClockInView />;

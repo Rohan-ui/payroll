@@ -104,10 +104,35 @@ export class SalaryAssignmentsService {
     };
   }
 
+  /**
+   * A full month of the salary in force on a date, by component code, under the
+   * employee's policy then; null when no salary applies that day. Used by the
+   * final settlement, so it works out amounts exactly as the salary page does.
+   */
+  async monthlyOn(tenantId: string, employeeId: string, onDate: Date) {
+    const assignment = await this.prisma.rndtechnosoft_employee_salary_assignments.findFirst({
+      where: { tenant_id: tenantId, employee_id: employeeId, assignment_status: 'ACTIVE', effective_from: { lte: onDate }, OR: [{ effective_to: null }, { effective_to: { gte: onDate } }] },
+      orderBy: { effective_from: 'desc' },
+      include: { rndtechnosoft_employee_salary_component_values: { include: { rndtechnosoft_salary_components: { select: { component_code: true } } } } },
+    });
+    if (!assignment) return null;
+    const policy = await this.policies.resolve(tenantId, employeeId, onDate, assignment.payroll_policy_id);
+    if (!policy?.version) return null;
+    const estimate = await this.estimate(tenantId, assignment, policy.version.config, onDate);
+    if (!estimate.totals) return null;
+    return {
+      assignmentId: assignment.id,
+      gross: estimate.totals.gross,
+      components: Object.fromEntries(estimate.lines.filter((l) => l.category === 'EARNING').map((l) => [l.code, l.amount])),
+      problems: estimate.problems.map((p) => p.message),
+    };
+  }
+
   /** Records a new salary from a date; the salary before it ends the day before. */
   async revise(tenantId: string, employeeId: string, input: SalaryRevisionDto, actor: AuthenticatedTenantUser) {
-    await this.employee(tenantId, employeeId);
+    const person = await this.employee(tenantId, employeeId);
     const effectiveFrom = dateOnly(input.effectiveFrom);
+    if (person.exit_date && effectiveFrom > person.exit_date) throw new BadRequestException(`They left on ${isoDate(person.exit_date)}, so a salary can’t start after that.`);
     const lockedThrough = await finalizedThrough(this.prisma, tenantId, employeeId);
     const locked = lockedProblem(effectiveFrom, lockedThrough, 'a salary change');
     if (locked) throw new BadRequestException(`${locked} To pay the new salary for earlier months, add arrears from the date it should have started.`);
@@ -237,6 +262,9 @@ export class SalaryAssignmentsService {
     const assignment = await this.prisma.rndtechnosoft_employee_salary_assignments.findFirst({ where: { tenant_id: tenantId, id: assignmentId } });
     if (!assignment) throw new NotFoundException('Salary revision not found.');
     if (assignment.assignment_status !== 'ACTIVE') throw new BadRequestException('This salary revision is already cancelled.');
+    // Cancelling reopens the previous salary, which must not happen for someone who has left.
+    const owner = await this.employee(tenantId, assignment.employee_id);
+    if (owner.employee_status === 'EXITED') throw new BadRequestException('They have left, so their salary history can’t be changed. Record a correction through payroll instead.');
     const usedByPayroll = await this.prisma.rndtechnosoft_payroll_run_employees.count({ where: { tenant_id: tenantId, salary_assignment_id: assignmentId } });
     if (usedByPayroll) throw new BadRequestException('Payroll has already been calculated with this salary, so it can’t be cancelled. Record a new revision instead.');
     const paidArrears = await this.prisma.rndtechnosoft_salary_arrears.count({ where: { tenant_id: tenantId, salary_assignment_id: assignmentId, arrears_status: 'INCLUDED' } });
@@ -382,7 +410,7 @@ export class SalaryAssignmentsService {
   }
 
   private async employee(tenantId: string, employeeId: string) {
-    const employee = await this.prisma.rndtechnosoft_employees.findFirst({ where: { tenant_id: tenantId, id: employeeId }, select: { id: true, employee_code: true, first_name: true, last_name: true } });
+    const employee = await this.prisma.rndtechnosoft_employees.findFirst({ where: { tenant_id: tenantId, id: employeeId }, select: { id: true, employee_code: true, first_name: true, last_name: true, employee_status: true, exit_date: true } });
     if (!employee) throw new NotFoundException('Employee not found.');
     return employee;
   }

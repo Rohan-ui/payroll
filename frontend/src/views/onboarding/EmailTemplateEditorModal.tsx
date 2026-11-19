@@ -239,7 +239,7 @@ export const EmailTemplateEditorModal: React.FC<Props> = ({
   const handleSetLink = () => {
     if (!editor) return;
     const previousUrl = editor.getAttributes('link').href;
-    const url = window.prompt('Enter link URL (e.g. https://rndtechnosoft.com):', previousUrl || 'https://');
+    const url = window.prompt('Enter link URL (e.g. https://example.com):', previousUrl || 'https://');
     if (url === null) return;
     if (url === '' || url === 'https://') {
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -252,12 +252,12 @@ export const EmailTemplateEditorModal: React.FC<Props> = ({
   const previewData = useMemo(() => {
     const rawBody = editor ? editor.getHTML() : '';
     const ctx = candidateContext || {
-      candidateName: 'Harshit Dhodi',
-      candidateEmail: 'harshit@rndtechnosoft.com',
-      candidateId: 'CAN-2026-243723',
+      candidateName: 'Priya Rao',
+      candidateEmail: 'priya.rao@example.com',
+      candidateId: 'CAN-2026-100042',
       designation: 'Lead Full Stack Engineer',
       department: 'Technology',
-      companyName: 'RND Technosoft',
+      companyName: 'Acme Technologies Pvt Ltd',
       recruiterName: 'Ravi Shah',
       documentTitle: 'Appointment Letter',
       documentType: 'Appointment Letter',
@@ -629,7 +629,7 @@ export const EmailTemplateEditorModal: React.FC<Props> = ({
                 </div>
               </div>
             ) : (
-              /* Live Preview with Real Harshit Dhodi / Candidate Context */
+              /* Live preview with the candidate's details, or sample ones */
               <div className="rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] overflow-hidden shadow-xs">
                 <div className="p-3 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-[#2B293E] text-xs space-y-1.5">
                   <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, apiFetch } from './client';
 
 export interface BackendEmployee {
   id: string;
@@ -38,20 +38,115 @@ export interface EmployeeListResponse {
   items: BackendEmployee[];
 }
 
+export type EmployeeSortField = 'name' | 'code' | 'joiningDate' | 'department' | 'designation' | 'status';
+
+/** The People directory's query: every filter is applied by the server. */
+export interface EmployeeDirectoryQuery {
+  page: number;
+  limit: number;
+  search?: string;
+  departmentId?: string;
+  designationId?: string;
+  employmentTypeId?: string;
+  branchId?: string;
+  managerId?: string;
+  status?: string;
+  joinedFrom?: string;
+  joinedTo?: string;
+  sortBy: EmployeeSortField;
+  sortOrder: 'asc' | 'desc';
+}
+
+export interface DirectoryEmployee {
+  id: string;
+  employeeCode: string;
+  firstName: string;
+  middleName: string | null;
+  lastName: string | null;
+  workEmail: string | null;
+  workMobile: string | null;
+  employeeStatus: string;
+  hireDate: string | null;
+  currentEmployment: {
+    branch: string | null;
+    branchId: string | null;
+    department: string | null;
+    departmentId: string | null;
+    designation: string | null;
+    designationId: string | null;
+    employmentType: string | null;
+    employmentTypeId: string | null;
+    joiningDate: string;
+    probationEndDate: string | null;
+  } | null;
+  manager: { id: string; employeeCode: string; name: string } | null;
+}
+
+export interface EmployeeDirectoryPage extends Omit<EmployeeListResponse, 'items'> {
+  items: DirectoryEmployee[];
+}
+
+export interface EmployeeDirectorySummary {
+  total: number;
+  active: number;
+  onNotice: number;
+  inactive: number;
+  onProbation: number;
+  recentlyJoined: number;
+  recentJoinerDays: number;
+}
+
+export interface EmployeeDirectoryFilters {
+  departments: { id: string; department_code: string; department_name: string }[];
+  designations: { id: string; designation_code: string; designation_name: string }[];
+  employmentTypes: { id: string; employment_type_code: string; employment_type_name: string }[];
+  branches: { id: string; branch_code: string; branch_name: string }[];
+  statuses: string[];
+}
+
 export const employeesApi = {
-  list: async (page = 1, limit = 20, search = '', department = ''): Promise<EmployeeListResponse> => {
+  list: async (page = 1, limit = 20, search = ''): Promise<EmployeeDirectoryPage> => {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
       ...(search ? { search } : {}),
-      ...(department ? { department } : {}),
     });
-    return apiClient.get<EmployeeListResponse>(`/employees?${params.toString()}`);
+    return apiClient.get<EmployeeDirectoryPage>(`/employees?${params.toString()}`);
   },
 
-  getById: async (id: string): Promise<BackendEmployee> => {
-    return apiClient.get<BackendEmployee>(`/employees/${id}`);
+  /** Active employees matching a name or code, for pickers; the server filters, a few at a time. */
+  findActive: async (term: string): Promise<{ id: string; name: string; code: string }[]> => {
+    const page = await employeesApi.directory({ page: 1, limit: 20, search: term, status: 'ACTIVE', sortBy: 'name', sortOrder: 'asc' });
+    return page.items.map((e) => ({ id: e.id, name: [e.firstName, e.lastName].filter(Boolean).join(' '), code: e.employeeCode }));
   },
+
+  directory: async (query: EmployeeDirectoryQuery): Promise<EmployeeDirectoryPage> => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    return apiClient.get<EmployeeDirectoryPage>(`/employees?${params.toString()}`);
+  },
+
+  /** The filtered directory as an Excel file, fetched with the session (a bare link would carry no sign-in). */
+  exportDirectory: async (query: Omit<EmployeeDirectoryQuery, 'page' | 'limit'>): Promise<{ blob: Blob; filename: string }> => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const response = await apiFetch(`/api/v1/employees/export?${params.toString()}`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.message || 'The export could not be created. Try again.');
+    }
+    const disposition = response.headers.get('content-disposition') ?? '';
+    const filename = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(disposition)?.[1] ?? 'employees.xlsx');
+    return { blob: await response.blob(), filename };
+  },
+
+  directorySummary: async (): Promise<EmployeeDirectorySummary> => apiClient.get('/employees/meta/summary'),
+
+  directoryFilters: async (): Promise<EmployeeDirectoryFilters> => apiClient.get('/employees/meta/filters'),
 
   create: async (data: {
     employeeCode: string;
@@ -76,47 +171,6 @@ export const employeesApi = {
     };
   }): Promise<BackendEmployee> => {
     return apiClient.post<BackendEmployee>('/employees', data);
-  },
-
-  update: async (
-    id: string,
-    data: {
-      firstName?: string;
-      lastName?: string;
-      workEmail?: string;
-      workMobile?: string;
-      employeeStatus?: string;
-      joiningDate?: string;
-      departmentId?: string;
-      departmentName?: string;
-      designationId?: string;
-      designationName?: string;
-      bankDetails?: {
-        bankName: string;
-        branchName?: string;
-        accountNumber?: string;
-        ifsc: string;
-        accountHolderName?: string;
-      };
-    },
-  ): Promise<BackendEmployee> => {
-    return apiClient.put<BackendEmployee>(`/employees/${id}`, data);
-  },
-
-  addBankAccount: async (
-    employeeId: string,
-    data: {
-      accountHolderName: string;
-      bankName: string;
-      accountNumber: string;
-      bankCode?: string; // IFSC
-      effectiveFrom: string;
-    },
-  ) => {
-    return apiClient.post(`/employees/${employeeId}/bank-account`, {
-      ...data,
-      bankCodeType: 'IFSC',
-    });
   },
 
   getDepartments: async (): Promise<{ id: string; department_code: string; department_name: string }[]> => {

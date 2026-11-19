@@ -401,6 +401,8 @@ export class ExternalApiService {
           },
         });
       } else {
+        // Someone who has left keeps their record as it was: the sync must not reopen their employment or change their status.
+        if (employee.employee_status === 'EXITED') continue;
         // Matched existing employee! Preserve their existing employee_code!
         employee = await this.prisma.rndtechnosoft_employees.update({
           where: { id: employee.id },

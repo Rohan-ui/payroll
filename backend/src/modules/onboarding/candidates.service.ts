@@ -1,3 +1,4 @@
+import { sealAccountNumber } from '@/common/security/bank-account.util';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomInt, randomUUID } from 'crypto';
@@ -39,6 +40,21 @@ const memberName = (member: { rndtechnosoft_users?: { display_name: string | nul
   member?.rndtechnosoft_users ? member.rndtechnosoft_users.display_name || member.rndtechnosoft_users.email : null;
 
 const MEMBER_WITH_USER = { select: { id: true, rndtechnosoft_users: { select: { display_name: true, email: true } } } } as const;
+
+/** Conversion follows an accepted offer; documents may still be in progress. */
+const CONVERTIBLE_FROM: CandidateStatus[] = ['OFFER_ACCEPTED', 'DOCUMENT_COLLECTION', 'VERIFICATION', 'READY_TO_JOIN'];
+const EMPLOYEE_DOCUMENT_FORMATS = ['application/pdf', 'image/jpeg', 'image/png'];
+
+/** The employee document category for an onboarding document type; custom types become OTHER. */
+export function employeeDocumentCategory(onboardingType: string) {
+  const categories: Record<string, string> = {
+    PAN_CARD: 'IDENTITY', AADHAAR_CARD: 'IDENTITY', PASSPORT: 'IDENTITY', DRIVING_LICENCE: 'IDENTITY',
+    EDUCATION_CERTIFICATE: 'EDUCATION', EXPERIENCE_LETTER: 'EXPERIENCE',
+    RELIEVING_LETTER: 'PREVIOUS_EMPLOYMENT', PAYSLIP: 'PREVIOUS_EMPLOYMENT',
+    BANK_PROOF: 'BANK', PHOTO: 'JOINING', RESUME: 'JOINING',
+  };
+  return categories[onboardingType.toUpperCase()] ?? 'OTHER';
+}
 
 @Injectable()
 export class CandidatesService {
@@ -96,7 +112,7 @@ export class CandidatesService {
             },
           },
           rndtechnosoft_interviews: {
-            where: { interview_status: 'SCHEDULED' },
+            where: { interview_status: { in: ['SCHEDULED', 'RESCHEDULED'] } },
             orderBy: { scheduled_start: 'asc' },
             take: 1,
             select: { id: true, scheduled_start: true, round_number: true, timezone: true },
@@ -430,7 +446,8 @@ export class CandidatesService {
       publishedVersion?.rndtechnosoft_onboarding_workflow_stages.find((s) => s.is_initial) ||
       publishedVersion?.rndtechnosoft_onboarding_workflow_stages[0];
 
-    const initialStatus = initialStage?.stage_key || 'NEW';
+    // Every candidate starts as NEW; the workflow's first stage is where they sit in the diagram.
+    const initialStatus: CandidateStatus = 'NEW';
 
     const candidate = await this.withCandidateCode((code) =>
       this.prisma.$transaction(async (tx) => {
@@ -577,10 +594,20 @@ export class CandidatesService {
             }
           }
 
+          // The diagram places the candidate in a stage; it never sets a status that only an
+          // action may set (selected, offer sent, joined…). A stage named after a status the
+          // process allows by hand moves the status too; any other stage leaves it as it is.
+          let nextStatus = fromStatus;
+          if (isCandidateStatus(targetStage.stage_key) && targetStage.stage_key !== fromStatus) {
+            const refusal = refuseManualMove(fromStatus as CandidateStatus, targetStage.stage_key);
+            if (refusal) throw new ConflictException(refusal);
+            nextStatus = targetStage.stage_key;
+          }
+          toStatus = nextStatus;
           await tx.rndtechnosoft_candidates.update({
             where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
             data: {
-              candidate_status: targetStage.stage_key,
+              candidate_status: nextStatus,
               current_stage_id: targetStage.id,
               workflow_version_id: versionId,
               updated_at: new Date(),
@@ -691,10 +718,12 @@ export class CandidatesService {
           toStatus = targetStage.stage_key;
           targetStageName = targetStage.name;
 
+          // An override may set any real status; a stage that is not a status only moves the stage.
+          toStatus = isCandidateStatus(targetStage.stage_key) ? targetStage.stage_key : fromStatus;
           await tx.rndtechnosoft_candidates.update({
             where: { tenant_id_id: { tenant_id: tenantId, id: candidateId } },
             data: {
-              candidate_status: targetStage.stage_key,
+              candidate_status: toStatus,
               current_stage_id: targetStage.id,
               workflow_version_id: versionId,
               updated_at: new Date(),
@@ -757,7 +786,7 @@ export class CandidatesService {
       const current = await this.lockCandidate(tx, tenantId, candidateId);
       if (archived === Boolean(current.archived_at)) return;
       if (archived) {
-        const live = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: candidateId, interview_status: 'SCHEDULED' } });
+        const live = await tx.rndtechnosoft_interviews.count({ where: { tenant_id: tenantId, candidate_id: candidateId, interview_status: { in: ['SCHEDULED', 'RESCHEDULED'] } } });
         if (live > 0) throw new ConflictException('Cancel the scheduled interview before archiving the candidate.');
       } else {
         await this.assertEmailFree(tenantId, current.email, candidateId);
@@ -877,13 +906,11 @@ export class CandidatesService {
       ? candidate.expected_salary.toString()
       : null;
 
-    let monthlyGrossTarget: string | null = null;
-    if (annualCtc) {
-      const num = parseFloat(annualCtc);
-      if (!isNaN(num) && num > 0) {
-        monthlyGrossTarget = (num / 12).toFixed(2);
-      }
-    }
+    // Decimal, never floating point: this seeds a salary figure.
+    const monthlyGrossTarget = annualCtc && new Prisma.Decimal(annualCtc).gt(0)
+      ? new Prisma.Decimal(annualCtc).div(12).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP).toFixed(2)
+      : null;
+    const submitted = await this.submittedDetails(this.prisma, tenantId, candidate.id);
 
     return {
       candidateId: candidate.id,
@@ -895,17 +922,26 @@ export class CandidatesService {
         workEmail: candidate.email,
         personalEmail: candidate.email,
         workMobile: candidate.phone,
-        dateOfBirth: null,
-        genderCode: null,
+        dateOfBirth: candidate.date_of_birth ? candidate.date_of_birth.toISOString().slice(0, 10) : null,
+        genderCode: candidate.gender_code,
         joiningDate,
         departmentId: candidate.department_id,
         designationId: candidate.designation_id,
         employmentTypeId: candidate.employment_type_id,
-        currentAddressLine1: candidate.address,
+        // A structured address the candidate submitted is copied whole on conversion instead.
+        currentAddressLine1: submitted.addresses.some((a) => a.address_type === 'CURRENT') ? null : candidate.address,
         annualCtc,
         monthlyGrossTarget,
         salaryEffectiveFrom: joiningDate,
         cosecEmployeeId: suggestedEmployeeCode,
+      },
+      /** What conversion also copies from the candidate's form and documents. */
+      carryOver: {
+        addresses: submitted.addresses.map((a) => a.address_type),
+        emergencyContact: Boolean(candidate.emergency_contact_name && candidate.emergency_contact_phone),
+        education: submitted.education.length,
+        experience: submitted.experience.length,
+        documents: submitted.files.length,
       },
       masters: {
         departments,
@@ -920,6 +956,84 @@ export class CandidatesService {
         })),
       },
     };
+  }
+
+  /** What the candidate gave on their form and the document files worth keeping (verified or awaiting review). */
+  private async submittedDetails(db: Tx | PrismaService, tenantId: string, candidateId: string) {
+    const scope = { tenant_id: tenantId, candidate_id: candidateId };
+    const [addresses, education, experience, requests] = await Promise.all([
+      db.rndtechnosoft_candidate_addresses.findMany({ where: scope }),
+      db.rndtechnosoft_candidate_education.findMany({ where: scope, orderBy: { sort_order: 'asc' } }),
+      db.rndtechnosoft_candidate_experience.findMany({ where: scope, orderBy: { sort_order: 'asc' } }),
+      db.rndtechnosoft_candidate_document_requests.findMany({
+        where: scope,
+        select: { document_type: true, document_label: true, rndtechnosoft_candidate_document_files: true },
+      }),
+    ]);
+    const files = requests.flatMap((r) => {
+      const all = r.rndtechnosoft_candidate_document_files;
+      const replaced = new Set(all.map((f) => f.replaced_file_id).filter(Boolean));
+      return all
+        .filter((f) => !replaced.has(f.id) && (f.review_status === 'VERIFIED' || f.review_status === 'PENDING_REVIEW') && EMPLOYEE_DOCUMENT_FORMATS.includes(f.content_type))
+        .map((f) => ({ ...f, documentType: r.document_type, label: r.document_label }));
+    });
+    return { addresses, education, experience, files };
+  }
+
+  /**
+   * Copies education, experience and documents onto the new employee. The
+   * stored files are immutable and never deleted, so the employee's document
+   * points at the same file rather than a copy.
+   */
+  private async carryOver(tx: Tx, tenantId: string, employeeId: string, submitted: Awaited<ReturnType<CandidatesService['submittedDetails']>>, actor: AuthenticatedTenantUser) {
+    const base = { tenant_id: tenantId, employee_id: employeeId };
+    await tx.rndtechnosoft_employee_education.createMany({
+      data: submitted.education.map((e) => ({
+        ...base,
+        id: randomUUID(),
+        qualification_name: e.qualification,
+        institution_name: (e.university ? `${e.institution}, ${e.university}` : e.institution).slice(0, 200),
+        // Only the passing year is known; the end date records it as that year's last day.
+        end_date: e.passing_year ? new Date(Date.UTC(e.passing_year, 11, 31)) : null,
+        grade_or_score: e.score,
+      })),
+    });
+    await tx.rndtechnosoft_employee_experience.createMany({
+      data: submitted.experience.map((e) => ({
+        ...base,
+        id: randomUUID(),
+        employer_name: e.company_name,
+        job_title: e.designation,
+        start_date: e.start_date,
+        end_date: e.is_current ? null : e.end_date,
+        responsibilities: e.responsibilities,
+      })),
+    });
+    const now = new Date();
+    await tx.rndtechnosoft_employee_documents.createMany({
+      data: submitted.files.map((f) => {
+        const isVerified = f.review_status === 'VERIFIED';
+        return {
+          ...base,
+          id: randomUUID(),
+          document_type: employeeDocumentCategory(f.documentType),
+          document_name: (f.slot_name ? `${f.label} (${f.slot_name})` : f.label).slice(0, 200),
+          description: 'Collected during onboarding',
+          storage_key: f.storage_key,
+          original_filename: f.original_filename,
+          content_type: f.content_type,
+          file_size_bytes: f.file_size_bytes,
+          file_sha256: f.file_sha256,
+          document_status: isVerified ? 'VERIFIED' : 'PENDING_VERIFICATION',
+          reviewed_at: isVerified ? f.reviewed_at ?? now : null,
+          reviewed_by_tenant_member_id: isVerified ? f.reviewed_by_tenant_member_id : null,
+          verified_at: isVerified ? f.reviewed_at ?? now : null,
+          verified_by_tenant_member_id: isVerified ? f.reviewed_by_tenant_member_id : null,
+          uploaded_by_tenant_member_id: f.uploaded_by_tenant_member_id ?? actor.tenantMemberId ?? null,
+        };
+      }),
+    });
+    return { education: submitted.education.length, experience: submitted.experience.length, documents: submitted.files.length };
   }
 
   /**
@@ -967,6 +1081,11 @@ export class CandidatesService {
       if (candidate.employee_id) {
         throw new ConflictException('This candidate has already been converted to an employee.');
       }
+      if (candidate.archived_at) throw new ConflictException('Restore the candidate before converting them to an employee.');
+      if (!CONVERTIBLE_FROM.includes(candidate.candidate_status as CandidateStatus)) {
+        throw new ConflictException(`Only a candidate who has accepted an offer can be converted. This candidate is ${CANDIDATE_STATUS_LABELS[candidate.candidate_status as CandidateStatus].toLowerCase()}.`);
+      }
+      const submitted = await this.submittedDetails(tx, tenantId, cId);
 
       // 2. Create Employee
       const employee = await tx.rndtechnosoft_employees.create({
@@ -980,8 +1099,8 @@ export class CandidatesService {
           work_email: dto.workEmail?.trim() || null,
           personal_email: dto.personalEmail?.trim() || null,
           work_mobile: dto.workMobile?.trim() || null,
-          date_of_birth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
-          gender_code: dto.genderCode || null,
+          date_of_birth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : candidate.date_of_birth,
+          gender_code: dto.genderCode || candidate.gender_code || null,
           employee_status: 'ACTIVE',
           hire_date: joiningDate,
         },
@@ -1022,7 +1141,28 @@ export class CandidatesService {
         });
       }
 
-      // 5. Create Addresses (if provided)
+      // 5. Addresses: what HR entered, otherwise what the candidate submitted on their form
+      for (const type of ['CURRENT', 'PERMANENT'] as const) {
+        const own = submitted.addresses.find((a) => a.address_type === type);
+        const entered = type === 'CURRENT' ? dto.currentAddressLine1 : dto.permanentAddressLine1;
+        if (entered || !own) continue;
+        await tx.rndtechnosoft_employee_addresses.create({
+          data: {
+            id: randomUUID(),
+            tenant_id: tenantId,
+            employee_id: employeeId,
+            address_type: type,
+            address_line_1: own.address_line_1,
+            address_line_2: own.address_line_2,
+            city: own.city,
+            state_region: own.state_region,
+            postal_code: own.postal_code,
+            country_code: own.country_code,
+            is_primary: type === 'CURRENT',
+            valid_from: joiningDate,
+          },
+        });
+      }
       if (dto.currentAddressLine1) {
         await tx.rndtechnosoft_employee_addresses.create({
           data: {
@@ -1061,24 +1201,31 @@ export class CandidatesService {
         });
       }
 
-      // 6. Emergency Contact (if provided)
-      if (dto.emergencyContactName && dto.emergencyContactPhone) {
+      // 6. Emergency contact: what HR entered, otherwise what the candidate submitted
+      const emergency = dto.emergencyContactName && dto.emergencyContactPhone
+        ? { name: dto.emergencyContactName.trim(), relationship: dto.emergencyContactRelationship?.trim() || null, phone: dto.emergencyContactPhone.trim() }
+        : candidate.emergency_contact_name && candidate.emergency_contact_phone
+          ? { name: candidate.emergency_contact_name, relationship: candidate.emergency_contact_relationship, phone: candidate.emergency_contact_phone }
+          : null;
+      if (emergency) {
         await tx.rndtechnosoft_employee_emergency_contacts.create({
           data: {
             id: randomUUID(),
             tenant_id: tenantId,
             employee_id: employeeId,
-            contact_name: dto.emergencyContactName.trim(),
-            relationship: dto.emergencyContactRelationship?.trim() || null,
-            mobile_number: dto.emergencyContactPhone.trim(),
+            contact_name: emergency.name,
+            relationship: emergency.relationship,
+            mobile_number: emergency.phone,
             is_primary: true,
           },
         });
       }
 
+      // 6b. Education, experience and documents from the candidate's form and checklist
+      const carried = await this.carryOver(tx, tenantId, employeeId, submitted, actor);
+
       // 7. Bank Account (if provided)
       if (dto.accountNumber && dto.ifsc) {
-        const last4 = dto.accountNumber.slice(-4);
         await tx.rndtechnosoft_employee_bank_accounts.create({
           data: {
             id: randomUUID(),
@@ -1087,8 +1234,7 @@ export class CandidatesService {
             account_holder_name: dto.accountHolderName?.trim() || `${dto.firstName} ${dto.lastName || ''}`.trim(),
             bank_name: dto.bankName?.trim() || 'Primary Bank',
             branch_name: dto.branchName?.trim() || null,
-            account_number_encrypted: `ENC[${dto.accountNumber.trim()}]`,
-            account_number_last4: last4,
+            ...sealAccountNumber(dto.accountNumber.trim()),
             bank_code_type: 'IFSC',
             bank_code: dto.ifsc.trim().toUpperCase(),
             account_type: 'SAVINGS',
@@ -1163,12 +1309,14 @@ export class CandidatesService {
           employeeCode: dto.employeeCode,
           cosecEmployeeId: trimmedCosecId || null,
           mappingStatus,
+          carried,
         },
       });
 
       return {
         employee,
         mapping: mappingRow,
+        carried,
       };
     });
 
@@ -1201,6 +1349,7 @@ export class CandidatesService {
         cosecEmployeeId: result.mapping.cosec_employee_id,
         mappingStatus: result.mapping.mapping_status,
       },
+      carried: result.carried,
     };
   }
 

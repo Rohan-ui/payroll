@@ -634,6 +634,12 @@ export const WorkflowBuilderView: React.FC = () => {
         </div>
       )}
 
+      {!isFullscreen && (
+        <p role="note" className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-100">
+          This diagram controls which stages HR can move a candidate between by hand. A candidate’s status still changes only through its own action: sending the form, recording eligibility, interview decisions, sending and accepting the offer, and conversion. A stage named after one of those statuses can’t be reached by hand; use an override with a reason for exceptions.
+        </p>
+      )}
+
       {/* Main Workflow Builder Box */}
       <div
         className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E1D2D] shadow-sm overflow-hidden flex flex-col ${

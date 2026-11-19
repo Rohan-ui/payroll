@@ -177,6 +177,9 @@ export const PERMISSIONS = [
   { key: 'people.update', name: 'Edit employees', section: 'hrms', group: 'People', nav: 'people' },
   { key: 'people.bank.update', name: 'Add or change employee bank details', section: 'hrms', group: 'People', nav: 'people' },
   { key: 'people.login.manage', name: 'Link employees to their sign-in accounts', section: 'hrms', group: 'People', nav: 'people' },
+  { key: 'people.documents.manage', name: 'Upload, replace and remove employee documents', section: 'hrms', group: 'People', nav: 'people' },
+  { key: 'people.documents.verify', name: 'Verify or reject employee documents', section: 'hrms', group: 'People', nav: 'people' },
+  { key: 'people.export', name: 'Export the employee directory to Excel', section: 'hrms', group: 'People', nav: 'people' },
 
   { key: 'attendance.view', name: 'View attendance', section: 'hrms', group: 'Attendance', nav: 'attendance' },
   { key: 'attendance.create', name: 'Record clock-in and clock-out punches', section: 'hrms', group: 'Attendance', nav: 'attendance' },
@@ -201,6 +204,13 @@ export const PERMISSIONS = [
   { key: 'offboarding.manage', name: 'Start exits, accept resignations, agree the last working day, record exit interviews and cancel exits', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'offboarding.clearance.update', name: 'Clear or waive exit-checklist items', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'offboarding.complete', name: 'Complete exits: set the exit date, mark the employee exited and end their sign-in to this workspace', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.settlement.view', name: 'View full and final settlements and their calculation', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.settlement.manage', name: 'Prepare full and final settlements, adjust them with a reason, submit and revise them, and set the settlement rules', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.settlement.review', name: 'Review full and final settlements for Finance', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.settlement.approve', name: 'Approve or reject full and final settlements prepared by someone else', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.settlement.pay', name: 'Record the payment of approved full and final settlements', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.documents.manage', name: 'Generate and regenerate exit letters and the settlement statement as drafts', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
+  { key: 'offboarding.documents.issue', name: 'Issue exit letters as official, after which they can no longer change', section: 'hrms', group: 'Offboarding', nav: 'offboarding' },
   { key: 'performance.my.view', name: 'Use My appraisals and the review inbox (people only ever see their own appraisals and the reviews assigned to them)', section: 'hrms', group: 'Performance', nav: 'performance' },
   { key: 'performance.cycles.view', name: 'View appraisal cycles, appraisals and their progress', section: 'hrms', group: 'Performance', nav: 'performance' },
   { key: 'performance.cycles.manage', name: 'Create and launch appraisal cycles, set targets, and assign or replace reviewers', section: 'hrms', group: 'Performance', nav: 'performance' },
@@ -340,13 +350,22 @@ export interface NavigationEntry {
  * `label` and `parent`, and `moduleEnabled` lets it hide items whose module is
  * off and explain why, without knowing the structure itself.
  */
+/**
+ * Sidebar items opened by any of several permissions instead of one of their
+ * own: WhatsApp templates serve outreach, leads and quotations alike, so any
+ * of those shows them (their routes check outreach access).
+ */
+export const SHARED_NAV: Record<string, readonly string[]> = {
+  'crm.whatsapp': ['outreach.view', 'leads.view', 'quotations.view'],
+};
+
 export function resolveNavigation(permissions: readonly string[], modules: ModuleStates): NavigationEntry[] {
   const granted = new Set<string>();
   for (const permission of PERMISSIONS) {
     if (permission.nav && permissions.includes(permission.key)) granted.add(permission.nav);
   }
-  if (permissions.includes('outreach.view') || permissions.includes('leads.view') || permissions.includes('quotations.view')) {
-    granted.add('crm.whatsapp');
+  for (const [nav, keys] of Object.entries(SHARED_NAV)) {
+    if (keys.some((key) => permissions.includes(key))) granted.add(nav);
   }
   for (const item of NAVIGATION) {
     if (item.parent && granted.has(item.id)) granted.add(item.parent);

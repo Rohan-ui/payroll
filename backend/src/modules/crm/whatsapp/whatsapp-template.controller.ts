@@ -23,6 +23,8 @@ import {
   PreviewTemplateDto,
   SaveWhatsAppConfigDto,
   SendWhatsAppTemplateMessageDto,
+  SendWhatsAppTextMessageDto,
+  SyncTemplatesDto,
   UpdateCrmTemplateDto,
   UpdateWhatsAppMappingDto,
 } from './dto/whatsapp-template.dto';
@@ -92,10 +94,25 @@ export class WhatsAppTemplateController {
   async getProviderTemplates(
     @CurrentTenant() tenantId: string,
     @Query('search') search?: string,
+    @Query('refresh') refresh?: string,
   ) {
-    const creds = await this.mappingService.getRawCredentials(tenantId);
-    const data = await this.providerService.getTemplateList(creds, { searchTerm: search });
+    if (refresh === 'true') {
+      const syncResult = await this.mappingService.syncProviderTemplates(tenantId);
+      return { success: true, data: syncResult.templates, count: syncResult.syncedCount, synced_at: syncResult.lastSyncedAt };
+    }
+    const data = await this.mappingService.listProviderTemplates(tenantId, search);
     return { success: true, data };
+  }
+
+  @Post('provider-templates/sync')
+  @RequirePermissions('outreach.update')
+  async syncProviderTemplates(@CurrentTenant() tenantId: string) {
+    const data = await this.mappingService.syncProviderTemplates(tenantId);
+    return {
+      success: true,
+      data,
+      message: `Synchronized ${data.syncedCount} templates from WhatsApp provider.`,
+    };
   }
 
   @Get('config')
@@ -125,7 +142,7 @@ export class WhatsAppTemplateController {
     let creds: any;
     if (body?.vendor_uid && body?.bearer_token) {
       creds = {
-        apiBaseUrl: body.api_base_url || 'https://api.whatsapp-hub.com',
+        apiBaseUrl: body.api_base_url || 'https://otomat.in/api',
         vendorUid: body.vendor_uid,
         bearerToken: body.bearer_token,
       };
@@ -133,21 +150,8 @@ export class WhatsAppTemplateController {
       creds = await this.mappingService.getRawCredentials(tenantId);
     }
 
-    try {
-      const templates = await this.providerService.getTemplateList(creds, { pageSize: 5 });
-      return {
-        success: true,
-        connected: true,
-        templateCount: templates.length,
-        message: `Connection successful. Provider returned ${templates.length} template(s).`,
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        connected: false,
-        message: err.message || 'Failed to connect to external WhatsApp API.',
-      };
-    }
+    const res = await this.providerService.testConnection(creds);
+    return res;
   }
 
   // ==========================================
@@ -239,6 +243,26 @@ export class WhatsAppTemplateController {
     return { success: data.success, data, message: data.success ? 'WhatsApp message dispatched' : 'Failed to dispatch message' };
   }
 
+  @Post('send-text')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('outreach.update')
+  async sendTextMessage(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Body() body: SendWhatsAppTextMessageDto,
+  ) {
+    const data = await this.messagingService.sendTextMessage(
+      tenantId,
+      body,
+      actor.tenantMemberId,
+    );
+    return {
+      success: data.success,
+      data,
+      message: data.success ? 'WhatsApp text message dispatched' : 'Failed to dispatch message',
+    };
+  }
+
   // ==========================================
   // 5. MESSAGE LOGS & STATUS TRACKING
   // ==========================================
@@ -276,6 +300,22 @@ export class WhatsAppTemplateController {
   async refreshLogStatus(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     const data = await this.messagingService.refreshMessageStatus(tenantId, id);
     return { success: true, data, message: 'Message delivery status refreshed' };
+  }
+
+  @Post('logs/:id/retry')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('outreach.update')
+  async retryMessage(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+  ) {
+    const data = await this.messagingService.retryMessage(tenantId, id, actor.tenantMemberId);
+    return {
+      success: data.status === 'SENT',
+      data,
+      message: data.status === 'SENT' ? 'Message retry dispatched' : (data.error_message || 'Failed to retry message dispatch'),
+    };
   }
 }
 

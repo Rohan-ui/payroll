@@ -1,3 +1,4 @@
+import { employmentTypesApi, type EmploymentTypeItem } from '../../api/employment-types.api';
 import React, { useEffect, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Dialog } from '../../components/ui/Dialog';
@@ -162,6 +163,7 @@ export const DocumentTypesMaster: React.FC = () => {
                       <Badge variant={item.isRequired ? 'danger' : 'neutral'} size="sm">
                         {item.isRequired ? 'Required' : 'Optional'}
                       </Badge>
+                      <p className="mt-1 text-[11px] text-slate-500">{item.collectAt === 'APPLICATION' ? 'With the application' : 'At joining'}{item.employmentTypeIds?.length ? ` · ${item.employmentTypeIds.length} employment type${item.employmentTypeIds.length === 1 ? '' : 's'}` : ''}</p>
                     </td>
                     <td className="py-3 px-3">
                       <span className="font-medium text-slate-800 dark:text-slate-200">
@@ -313,6 +315,12 @@ const DocumentTypeEditorModal: React.FC<EditorModalProps> = ({ initial, onClose,
   const [requiresVerification, setRequiresVerification] = useState(initial?.requiresVerification ?? true);
   const [canReuploadRejected, setCanReuploadRejected] = useState(initial?.canReuploadRejected ?? true);
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  const [collectAt, setCollectAt] = useState<'APPLICATION' | 'JOINING'>(initial?.collectAt ?? 'JOINING');
+  const [employmentTypeIds, setEmploymentTypeIds] = useState<string[]>(initial?.employmentTypeIds ?? []);
+  const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeItem[]>([]);
+  useEffect(() => {
+    employmentTypesApi.list().then((list) => setEmploymentTypes(list.filter((t) => t.status === 'ACTIVE'))).catch(() => setEmploymentTypes([]));
+  }, []);
 
   // Slots
   const [mode, setMode] = useState<'slotted' | 'generic' | 'single'>(
@@ -428,6 +436,8 @@ const DocumentTypeEditorModal: React.FC<EditorModalProps> = ({ initial, onClose,
       canReuploadRejected,
       slots: mode === 'slotted' ? slots : [],
       isActive,
+      collectAt,
+      employmentTypeIds,
     };
 
     setSaving(true);
@@ -714,6 +724,34 @@ const DocumentTypeEditorModal: React.FC<EditorModalProps> = ({ initial, onClose,
               className={inputClass}
             />
           </div>
+        </div>
+
+        {/* Checklist rules */}
+        <div className="grid grid-cols-1 gap-4 border-t border-slate-100 pt-3 sm:grid-cols-2 dark:border-[#2B293E]">
+          <div>
+            <label htmlFor="doc-type-collect-at" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">Asked for</label>
+            <select id="doc-type-collect-at" value={collectAt} onChange={(e) => setCollectAt(e.target.value as 'APPLICATION' | 'JOINING')} className={inputClass}>
+              <option value="APPLICATION">With the candidate form (application)</option>
+              <option value="JOINING">At joining, after the offer is accepted</option>
+            </select>
+          </div>
+          <fieldset>
+            <legend className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">Applies to</legend>
+            {employmentTypes.length === 0 ? (
+              <p className="text-[11px] text-slate-500">Every candidate (no employment types are set up).</p>
+            ) : (
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                {employmentTypes.map((t) => (
+                  <label key={t.id} className="inline-flex items-center gap-1.5">
+                    <input type="checkbox" className="rounded text-teal-600 focus:ring-teal-500" checked={employmentTypeIds.includes(t.id)}
+                      onChange={(e) => setEmploymentTypeIds((ids) => (e.target.checked ? [...ids, t.id] : ids.filter((x) => x !== t.id)))} />
+                    {t.name}
+                  </label>
+                ))}
+                <p className="w-full text-[11px] text-slate-500">{employmentTypeIds.length === 0 ? 'None ticked: asked of every candidate.' : 'Asked only of candidates with a ticked employment type.'}</p>
+              </div>
+            )}
+          </fieldset>
         </div>
 
         {/* Toggles */}

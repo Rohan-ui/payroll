@@ -99,7 +99,7 @@ describe('Onboarding', () => {
     await render();
     expect(calls.some((c) => c.url.startsWith('/api/v1/onboarding/dashboard?timezone='))).toBe(true);
     expect(container.textContent).toContain('Awaiting feedback or decision');
-    act(() => button('Screening')?.click());
+    act(() => button('Under review')?.click());
     await settle();
     expect(calls.find((c) => c.url.startsWith('/api/v1/onboarding/candidates?'))?.url).toContain('status=SCREENING');
     expect(container.querySelector('tbody')?.textContent).toContain('Priya Rao');
@@ -115,16 +115,16 @@ describe('Onboarding', () => {
     setValue(byLabel('Full name'), 'Anu Menon');
     setValue(byLabel('Email'), 'anu@candidate.test');
     setValue(byLabel('Position'), 'Designer');
-    setValue(byLabel('Expected salary'), '9,00,000');
-    await act(async () => (document.querySelector('form') as HTMLFormElement).requestSubmit());
-    expect(container.textContent).toContain('without commas');
-    setValue(byLabel('Expected salary'), '900000');
+    // Only the minimal details are asked for; the candidate fills in the rest through their form.
+    expect(byLabel('Expected salary')).toBeFalsy();
     setValue(byLabel('Department'), 'd1');
     await act(async () => (document.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();
     const post = calls.find((c) => c.method === 'POST');
-    expect(post).toMatchObject({ url: '/api/v1/onboarding/candidates', body: { fullName: 'Anu Menon', email: 'anu@candidate.test', appliedPosition: 'Designer', expectedSalary: '900000', departmentId: 'd1' } });
+    expect(post).toMatchObject({ url: '/api/v1/onboarding/candidates', body: { fullName: 'Anu Menon', email: 'anu@candidate.test', appliedPosition: 'Designer', departmentId: 'd1' } });
     expect(post?.body.status).toBeUndefined();
+    // Sent the candidate form by email straight away, the default.
+    expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/form/send'))?.body).toEqual({ channels: ['EMAIL'] });
   });
 
   it('opens a candidate with their timeline, and schedules an interview at the exact moment chosen', async () => {

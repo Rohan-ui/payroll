@@ -319,12 +319,12 @@ describe('Workspace role-based access control', () => {
       expect(await navigationOf(hr)).toEqual(['hrms', 'people', 'attendance', 'finance', 'payroll']);
     });
 
-    it('needs people.bank.update to send bank details with an employee update', async () => {
+    it('needs people.bank.update to change bank details, but not to edit an employee', async () => {
       const withBank = await api()
-        .put(`${API}/employees/${randomUUID()}`)
+        .post(`${API}/employees/${randomUUID()}/bank-account`)
         .set(as(hr))
-        .send({ bankDetails: { bankName: 'Test Bank', accountNumber: '000011112222', ifsc: 'TEST0000001' } });
-      const withoutBank = await api().put(`${API}/employees/${randomUUID()}`).set(as(hr)).send({ firstName: 'Renamed' });
+        .send({ accountHolderName: 'Test', bankName: 'Test Bank', accountNumber: '000011112222', bankCode: 'TEST0000001', effectiveFrom: '2026-12-01' });
+      const withoutBank = await api().put(`${API}/employees/${randomUUID()}/personal`).set(as(hr)).send({ firstName: 'Renamed' });
 
       expect(withBank.status).toBe(403);
       // Authorized, then refused only because that employee does not exist.

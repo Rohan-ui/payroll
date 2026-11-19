@@ -72,7 +72,7 @@ export class SaveWhatsAppConfigDto {
   api_base_url?: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'Vendor UID is required.' })
+  @IsNotEmpty({ message: 'Vendor UID / WABA ID is required.' })
   @MaxLength(120)
   vendor_uid!: string;
 
@@ -87,8 +87,69 @@ export class SaveWhatsAppConfigDto {
   from_phone_number_id?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  sender_phone_number?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  waba_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  provider?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  webhook_verify_token?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  app_secret?: string;
+
+  @IsOptional()
   @IsBoolean()
   is_default?: boolean;
+}
+
+export class SendWhatsAppTextMessageDto {
+  /** Recipient phone number (digits with country code or E.164, e.g. +919876543210) */
+  @IsOptional()
+  @IsString()
+  recipient?: string;
+
+  @IsOptional()
+  @IsString()
+  recipient_phone?: string;
+
+  @IsOptional()
+  @IsString()
+  recipientPhone?: string;
+
+  /** Free-form text message content */
+  @IsString()
+  @IsNotEmpty({ message: 'Message content is required.' })
+  message!: string;
+
+  /** Optional lead association for CRM tracking */
+  @IsOptional()
+  @IsUUID()
+  lead_id?: string;
+
+  /** Optional client association */
+  @IsOptional()
+  @IsUUID()
+  client_id?: string;
+}
+
+export class SyncTemplatesDto {
+  @IsOptional()
+  @IsString()
+  searchTerm?: string;
 }
 
 export class CreateWhatsAppMappingDto {

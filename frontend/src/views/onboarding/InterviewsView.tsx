@@ -1,3 +1,4 @@
+import { INTERVIEW_STATUS_META } from '../../api/onboarding.api';
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
@@ -117,9 +118,7 @@ export const InterviewsView: React.FC<Props> = ({ onOpenCandidate }) => {
                           Round {row.roundNumber} · {INTERVIEW_TYPE_LABELS[row.interviewType]} · {row.durationMinutes} min
                         </span>
                         <span className="mt-1 flex flex-wrap gap-1">
-                          {row.status === 'COMPLETED' && !row.decision && <Badge variant="warning" size="sm">Awaiting decision</Badge>}
-                          {row.status === 'COMPLETED' && row.decision && <Badge variant="success" size="sm">Decided</Badge>}
-                          {row.status === 'CANCELLED' && <Badge variant="neutral" size="sm">Cancelled</Badge>}
+                          {row.status !== 'SCHEDULED' && <Badge variant={INTERVIEW_STATUS_META[row.status].variant} size="sm">{INTERVIEW_STATUS_META[row.status].label}</Badge>}
                           <Badge variant="neutral" size="sm">
                             Feedback {row.panel.filter((p) => p.feedbackSubmitted).length}/{row.panel.length}
                           </Badge>

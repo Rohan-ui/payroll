@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { DecimalMath } from '@/common/utils/decimal-math.util';
 import { randomUUID } from 'crypto';
+import { EmployeeLeaveQueryDto } from './dto/employee-leave-query.dto';
 
 export interface CreateLeaveTypeInput {
   code: string;
@@ -70,6 +71,10 @@ export class LeaveService {
     const startDate = new Date(input.startDate);
     const endDate = new Date(input.endDate);
 
+    if (employee.exit_date && endDate > employee.exit_date) {
+      throw new BadRequestException(`Leave can’t run past their exit date, ${employee.exit_date.toISOString().slice(0, 10)}.`);
+    }
+
     if (endDate < startDate) {
       throw new BadRequestException('End date cannot be earlier than start date');
     }
@@ -111,15 +116,16 @@ export class LeaveService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.rndtechnosoft_leave_requests.update({
-        // Composite [tenant_id, id] key: the database refuses a write against
-        // another tenant's record even if the id is guessed.
-        where: { tenant_id_id: { tenant_id: tenantId, id: requestId } },
+      // Only a request still pending is approved, so two approvals at once can't both deduct the leave.
+      const changed = await tx.rndtechnosoft_leave_requests.updateMany({
+        where: { tenant_id: tenantId, id: requestId, request_status: 'PENDING' },
         data: {
           request_status: 'APPROVED',
           final_decision_at: new Date(),
         },
       });
+      if (changed.count !== 1) throw new ConflictException('This leave request has already been decided. Reload to see it.');
+      const updated = await tx.rndtechnosoft_leave_requests.findUniqueOrThrow({ where: { tenant_id_id: { tenant_id: tenantId, id: requestId } } });
 
       // Write deduction ledger entry to leave_balance_transactions
       await tx.rndtechnosoft_leave_balance_transactions.create({
@@ -137,8 +143,50 @@ export class LeaveService {
         },
       });
 
+      // The balance people see goes down with the leave taken, in the same step as the ledger entry.
+      await tx.rndtechnosoft_leave_balance_summaries.updateMany({
+        where: { tenant_id: tenantId, employee_id: request.employee_id, leave_type_id: request.leave_type_id },
+        data: { balance_days: { decrement: request.requested_days }, as_of_date: new Date() },
+      });
+
       return updated;
     });
+  }
+
+  /** One employee's leave requests, newest first, a page at a time. */
+  async listEmployeeRequests(tenantId: string, employeeId: string, query: EmployeeLeaveQueryDto) {
+    const employee = await this.prisma.rndtechnosoft_employees.findFirst({ where: { tenant_id: tenantId, id: employeeId }, select: { id: true } });
+    if (!employee) throw new NotFoundException('Employee not found.');
+    const where = { tenant_id: tenantId, employee_id: employeeId, ...(query.status ? { request_status: query.status } : {}) };
+    const [total, rows, pending] = await Promise.all([
+      this.prisma.rndtechnosoft_leave_requests.count({ where }),
+      this.prisma.rndtechnosoft_leave_requests.findMany({
+        where,
+        orderBy: [{ start_date: 'desc' }, { created_at: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        include: { rndtechnosoft_leave_types: { select: { leave_type_name: true, is_paid: true } } },
+      }),
+      this.prisma.rndtechnosoft_leave_requests.count({ where: { tenant_id: tenantId, employee_id: employeeId, request_status: 'PENDING' } }),
+    ]);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        requestNumber: r.request_number,
+        leaveType: r.rndtechnosoft_leave_types.leave_type_name,
+        isPaid: r.rndtechnosoft_leave_types.is_paid,
+        startDate: r.start_date.toISOString().slice(0, 10),
+        endDate: r.end_date.toISOString().slice(0, 10),
+        // Decimal days as text, never a float.
+        days: r.requested_days.toString(),
+        status: r.request_status,
+        reason: r.reason,
+        submittedAt: r.submitted_at?.toISOString() ?? null,
+        decidedAt: r.final_decision_at?.toISOString() ?? null,
+      })),
+      pendingCount: pending,
+      pagination: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) },
+    };
   }
 
   async getLeaveBalances(tenantId: string, employeeId: string) {

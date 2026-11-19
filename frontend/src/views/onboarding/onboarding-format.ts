@@ -136,7 +136,11 @@ export const formatAmount = (amount: string | null) => (amount === null ? '—' 
 
 export const STATUS_VARIANT: Record<CandidateStatus, 'success' | 'warning' | 'danger' | 'info' | 'neutral' | 'purple'> = {
   NEW: 'neutral',
+  FORM_SENT: 'info',
+  FORM_SUBMITTED: 'warning',
   SCREENING: 'info',
+  ELIGIBLE: 'success',
+  NOT_ELIGIBLE: 'danger',
   INTERVIEW_SCHEDULED: 'purple',
   INTERVIEW_COMPLETED: 'purple',
   SELECTED: 'success',
