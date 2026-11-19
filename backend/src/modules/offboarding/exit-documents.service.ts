@@ -10,6 +10,7 @@ import { formatInr, formatLetterDate } from '@/modules/documents/document-templa
 import { defaultDocument, DocNode, documentText, fillDocument, parseDocument } from '@/modules/documents/rich-document';
 import { isoDate } from '@/modules/payroll/payroll-lock';
 import { serviceLength } from './settlement-calculation';
+import { OffboardingNotificationsService } from './offboarding-notifications.service';
 
 type Actor = AuthenticatedTenantUser;
 
@@ -26,6 +27,8 @@ const DEFAULT_LAYOUT = { page_size: 'A4', margin_top_mm: 20, margin_right_mm: 20
  * employee and their exit, and versioned. A draft can be regenerated; once
  * issued it never changes. Files are only ever served through the session.
  */
+const ISSUED_LABEL: Record<string, string> = { EXPERIENCE_LETTER: 'experience letter', RELIEVING_LETTER: 'relieving letter', FULL_AND_FINAL_STATEMENT: 'full and final settlement statement' };
+
 @Injectable()
 export class ExitDocumentsService {
   constructor(
@@ -33,6 +36,7 @@ export class ExitDocumentsService {
     private readonly audit: AuditService,
     private readonly pdf: DocumentPdfService,
     private readonly letterheads: LetterheadsService,
+    private readonly notifications: OffboardingNotificationsService,
   ) {}
 
   async list(tenantId: string, separationId: string) {
@@ -132,6 +136,11 @@ export class ExitDocumentsService {
     });
     if (changed.count !== 1) throw new ConflictException('This document changed while you were working. Reload and try again.');
     await this.log(tenantId, actor, 'EXIT_DOCUMENT_ISSUED', documentId, { separation_id: separationId, new: { type: doc.document_type, version: doc.version_number } });
+    // Their sign-in ends with the exit, so the issued letter reaches them by email, with the PDF.
+    this.notifications.notify(tenantId, 'LETTER_ISSUED', separationId, {
+      actor, key: `${documentId}:${doc.version_number}`, detail: ISSUED_LABEL[doc.document_type] ?? 'letter',
+      attachment: async () => { const file = await this.pdfFile(tenantId, separationId, documentId); return { filename: file.filename, content: Buffer.from(file.bytes), contentType: 'application/pdf' }; },
+    });
     return this.list(tenantId, separationId);
   }
 

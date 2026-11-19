@@ -8,6 +8,8 @@ import { ListState } from '../performance/performance-format';
 import { EXIT_STATUS, EXIT_TYPE } from './offboarding-format';
 import { ExitDetailView } from './ExitDetailView';
 import { StartExitDialog } from './StartExitDialog';
+import { EmailSettingsDialog } from './EmailSettingsDialog';
+import { ChecklistTemplateDialog } from './ChecklistTemplateDialog';
 
 const FILTERS: { value: SeparationStatus | ''; label: string }[] = [
   { value: '', label: 'All exits' },
@@ -33,6 +35,8 @@ export const ExitsTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [emailSettings, setEmailSettings] = useState(false);
+  const [checklistSettings, setChecklistSettings] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setTerm(search.trim()); setPage(1); }, 300);
@@ -75,7 +79,13 @@ export const ExitsTab: React.FC = () => {
             <h2 id={`${id}-heading`} className="text-sm font-bold text-slate-900 dark:text-slate-100">Exits</h2>
             <p className="text-xs text-slate-500">Resignations, terminations, retirements and contract ends.</p>
           </div>
-          {can('offboarding.manage') && <Button onClick={() => setStarting(true)}>Start an exit</Button>}
+          {can('offboarding.manage') && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setChecklistSettings(true)}>Checklist</Button>
+              <Button variant="outline" onClick={() => setEmailSettings(true)}>Exit emails</Button>
+              <Button onClick={() => setStarting(true)}>Start an exit</Button>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-3 border-b border-slate-100 p-4 dark:border-[#2B293E]">
           <div className="w-full sm:w-64">
@@ -139,6 +149,8 @@ export const ExitsTab: React.FC = () => {
         )}
       </section>
 
+      {emailSettings && <EmailSettingsDialog onClose={() => setEmailSettings(false)} />}
+      {checklistSettings && <ChecklistTemplateDialog onClose={() => setChecklistSettings(false)} />}
       {starting && <StartExitDialog onClose={() => setStarting(false)} onStarted={(exit) => { setStarting(false); load(); setOpenId(exit.id); }} />}
     </div>
   );

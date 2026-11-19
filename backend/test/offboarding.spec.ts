@@ -7,6 +7,8 @@ import { AppModule } from '@/app.module';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
 import { PrismaService } from '@/prisma/prisma.service';
 import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
+import { OffboardingNotificationsService } from '@/modules/offboarding/offboarding-notifications.service';
+import { jest } from '@jest/globals';
 
 /**
  * Offboarding: an employee resigns from their own sign-in and only ever sees
@@ -15,6 +17,11 @@ import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/passw
  * them out of later payroll. Nobody approves or completes their own exit, and
  * another workspace sees none of it.
  */
+
+// Each test walks a whole exit through 15 to 20 requests, each many database
+// round trips; against a remote development database that runs past the
+// default 30 seconds without anything being wrong.
+jest.setTimeout(120_000);
 
 const API = '/api/v1';
 const BASE = 'nder.test';
@@ -124,6 +131,9 @@ describe('Offboarding', () => {
       const scope = { tenant_id: { in: tenantIds } };
       await prisma.rndtechnosoft_separation_clearance_items.deleteMany({ where: scope });
       await prisma.rndtechnosoft_separation_date_changes.deleteMany({ where: scope });
+      await app.get(OffboardingNotificationsService).flush();
+      await prisma.rndtechnosoft_onboarding_notifications.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_separation_comments.deleteMany({ where: scope });
       await prisma.rndtechnosoft_employee_separations.deleteMany({ where: scope });
       await prisma.rndtechnosoft_loan_installments.deleteMany({ where: scope });
       await prisma.rndtechnosoft_employee_loans.deleteMany({ where: scope });
@@ -215,7 +225,7 @@ describe('Offboarding', () => {
     expect((await put(`/offboarding/separations/${separationId}/last-working-date`, 'Priya', { lastWorkingDate: today })).status).toBe(200);
     const [first, ...rest] = accepted.body.data.checklist as { id: string }[];
     expect((await put(`/offboarding/separations/${separationId}/checklist/${first.id}`, 'Priya', { status: 'WAIVED' })).status).toBe(400);
-    expect((await put(`/offboarding/separations/${separationId}/checklist/${first.id}`, 'Priya', { status: 'WAIVED', note: 'Remote employee, nothing to hand over' })).status).toBe(200);
+    expect((await put(`/offboarding/separations/${separationId}/checklist/${first.id}`, 'Priya', { status: 'WAIVED', waiverReason: 'Remote employee, nothing to hand over' })).status).toBe(200);
     for (const item of rest) {
       expect((await put(`/offboarding/separations/${separationId}/checklist/${item.id}`, 'Priya', { status: 'CLEARED' })).status).toBe(200);
     }
@@ -283,7 +293,7 @@ describe('Offboarding', () => {
     const items = exit.checklist as { id: string; team: string }[];
     const finance = items.find((i) => i.team === 'FINANCE')!;
     expect((await put(`/offboarding/separations/${id}/checklist/${finance.id}`, 'Priya', { status: 'CLEARED' })).status).toBe(400);
-    expect((await put(`/offboarding/separations/${id}/checklist/${finance.id}`, 'Priya', { status: 'WAIVED', note: 'Recovered from the final settlement' })).status).toBe(200);
+    expect((await put(`/offboarding/separations/${id}/checklist/${finance.id}`, 'Priya', { status: 'WAIVED', waiverReason: 'Recovered from the final settlement' })).status).toBe(200);
 
     // Reassigning the team needs People access too.
     expect((await post(`/offboarding/separations/${id}/reassign-reports`, 'Priya', { managerEmployeeId: boss })).status).toBe(403);

@@ -214,7 +214,12 @@ describe('Tenant route guard coverage', () => {
     );
     // Checked inside a handler because the action decides which permission applies.
     // sequences.logs.view: the sending log leaves out email bodies without it.
-    const CHECKED_IN_HANDLER = ['outreach.create', 'outreach.update', 'leads.delete', 'leads.view_all', 'people.bank.update', 'sequences.logs.view'];
+    // Exit-checklist items are cleared by the team that owns each one, so the
+    // service checks the team's permission (or HR's override) per item.
+    const CHECKED_IN_HANDLER = [
+      'outreach.create', 'outreach.update', 'leads.delete', 'leads.view_all', 'people.bank.update', 'sequences.logs.view',
+      'offboarding.clearance.update', 'offboarding.clearance.it', 'offboarding.clearance.admin', 'offboarding.clearance.finance', 'offboarding.clearance.hr',
+    ];
     // Pages whose data is computed in the browser or is sample data; the
     // permission decides only whether the sidebar shows them.
     const PAGE_ONLY = ['dashboard.view', 'marketing.view', 'analytics.view', 'payslips.view', 'reports.view', 'compliance.view', 'help.view'];

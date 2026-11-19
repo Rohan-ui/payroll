@@ -10,8 +10,10 @@ import { isDemoMode } from '@/common/demo/demo-mode';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { dateOnly, finalizedThrough, isoDate } from '@/modules/payroll/payroll-lock';
 import { DecimalMath } from '@/common/utils/decimal-math.util';
+import { OffboardingNotificationsService } from './offboarding-notifications.service';
+import { canClearTeam, ChecklistTemplateItem, ExitChecklistService } from './exit-checklist.service';
 import {
-  CancelSeparationDto, ClearanceItemDto, LastWorkingDateDto, NoticeDecisionDto, ReassignReportsDto, ClearanceTeam, ClearanceUpdateDto, ExitInterviewDto, ListSeparationsQueryDto,
+  CancelSeparationDto, ClearanceDetailsDto, ClearanceItemDto, LastWorkingDateDto, NoticeDecisionDto, ReassignReportsDto, ClearanceTeam, ClearanceUpdateDto, ExitInterviewDto, ListSeparationsQueryDto,
   ResignDto, SeparationStatus, StartSeparationDto, WithdrawDto,
 } from './dto/offboarding.dto';
 
@@ -30,6 +32,8 @@ const DEFAULT_CHECKLIST: { team: ClearanceTeam; title: string }[] = [
   { team: 'HR', title: 'Exit paperwork signed' },
 ];
 
+const TEAM_NAME: Record<ClearanceTeam, string> = { MANAGER: 'the manager', IT: 'IT', ADMIN: 'Admin', FINANCE: 'Finance', HR: 'HR' };
+
 const EMPLOYEE = {
   select: {
     id: true, employee_code: true, first_name: true, last_name: true, preferred_name: true, user_id: true, employee_status: true, archived_at: true,
@@ -46,7 +50,7 @@ type SeparationRow = Prisma.rndtechnosoft_employee_separationsGetPayload<{ inclu
 const memberName = { select: { rndtechnosoft_users: { select: { display_name: true, email: true } } } } as const;
 const DETAIL_INCLUDE = {
   rndtechnosoft_employees: EMPLOYEE,
-  rndtechnosoft_separation_clearance_items: { orderBy: { display_order: 'asc' }, include: { cleared_by: memberName } },
+  rndtechnosoft_separation_clearance_items: { orderBy: { display_order: 'asc' }, include: { cleared_by: memberName, assigned_to: memberName } },
   requested_by: memberName,
   approved_by: memberName,
   interview_by: memberName,
@@ -74,7 +78,8 @@ const day = (d: Date | null) => (d ? isoDate(d) : null);
 @Injectable()
 export class OffboardingService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly access: AccessService,
-    private readonly relations: EmployeeRelationsService,
+    private readonly relations: EmployeeRelationsService, private readonly notifications: OffboardingNotificationsService,
+    private readonly checklist: ExitChecklistService,
   ) {}
 
   // ── The employee's own exit ─────────────────────────────────
@@ -112,6 +117,7 @@ export class OffboardingService {
       },
     }));
     await this.log(tenantId, actor, 'SEPARATION_RESIGNED', id, { new: { employee_id: employee.id, last_working_date: input.lastWorkingDate } });
+    this.notifications.notify(tenantId, 'RESIGNATION_SUBMITTED', id, { actor });
     return this.mine(tenantId, actor);
   }
 
@@ -126,6 +132,7 @@ export class OffboardingService {
       separation_status: 'WITHDRAWN', closed_at: new Date(), closed_by_tenant_member_id: actor.tenantMemberId, close_reason: input.reason?.trim() || null,
     });
     await this.log(tenantId, actor, 'SEPARATION_WITHDRAWN', open.id, { old: { status: 'PENDING_APPROVAL' }, new: { status: 'WITHDRAWN' } });
+    this.notifications.notify(tenantId, 'RESIGNATION_WITHDRAWN', open.id, { actor });
     return this.mine(tenantId, actor);
   }
 
@@ -182,11 +189,15 @@ export class OffboardingService {
     };
   }
 
-  async detail(tenantId: string, id: string) {
+  /** The exit as HR sees it; with the actor, which checklist items they can clear or waive. */
+  async detail(tenantId: string, id: string, actor?: Actor) {
     const row = await this.find(tenantId, id);
-    const today = await this.today(tenantId);
+    const isOwnExit = !!actor && row.rndtechnosoft_employees.user_id === actor.userId;
     const employee = row.rndtechnosoft_employees;
-    const [directReports, member, paidThrough, obligations, laterEmployments] = await Promise.all([
+    const [comments, today, permissions, directReports, member, paidThrough, obligations, laterEmployments] = await Promise.all([
+      this.prisma.rndtechnosoft_separation_comments.findMany({ where: { tenant_id: tenantId, separation_id: id }, orderBy: { created_at: 'asc' }, take: 200, include: { author: memberName } }),
+      this.today(tenantId),
+      actor ? this.checklist.permissions(tenantId, actor) : new Set<string>(),
       this.directReports(tenantId, employee.id, row.last_working_date),
       this.signIn(this.prisma, tenantId, employee.user_id),
       finalizedThrough(this.prisma, tenantId, employee.id),
@@ -201,11 +212,12 @@ export class OffboardingService {
       lastDay: isoDate(row.last_working_date),
     });
     const lastDay = isoDate(row.last_working_date);
-    const pending = row.rndtechnosoft_separation_clearance_items.filter((i) => i.item_status === 'PENDING').length;
+    // Optional items never hold the exit back.
+    const pending = row.rndtechnosoft_separation_clearance_items.filter((i) => i.item_status === 'PENDING' && i.is_required).length;
     const blockers: string[] = [];
     if (row.separation_status === 'IN_PROGRESS') {
       if (lastDay > today) blockers.push(`The last working day, ${lastDay}, hasn’t come yet.`);
-      if (pending) blockers.push(`${pending} checklist item${pending > 1 ? 's are' : ' is'} still open.`);
+      if (pending) blockers.push(`${pending} required checklist item${pending > 1 ? 's are' : ' is'} still open.`);
       if (reports) blockers.push(`${reports} ${reports > 1 ? 'people still report' : 'person still reports'} to ${fullName(employee)} after their last day. Give them a new manager first.`);
       if (notice.shortfallDays > 0 && !row.notice_shortfall_decision) blockers.push(`Decide whether to recover or waive the ${notice.shortfallDays}-day notice shortfall.`);
       const financeWaived = row.rndtechnosoft_separation_clearance_items.some((i) => i.clearance_team === 'FINANCE' && i.item_status === 'WAIVED');
@@ -228,9 +240,16 @@ export class OffboardingService {
       exitInterview: row.exit_interview_date
         ? { date: isoDate(row.exit_interview_date), notes: row.exit_interview_notes, rehireEligible: row.rehire_eligible, recordedBy: who(row.interview_by) }
         : null,
-      checklist: row.rndtechnosoft_separation_clearance_items.map((i) => ({
-        id: i.id, team: i.clearance_team, title: i.item_title, status: i.item_status, note: i.clearance_note, clearedBy: who(i.cleared_by), clearedAt: i.cleared_at?.toISOString() ?? null,
-      })),
+      checklist: row.rndtechnosoft_separation_clearance_items.map((i) => {
+        const owns = row.separation_status === 'IN_PROGRESS' && !isOwnExit && canClearTeam(permissions, i.clearance_team as ClearanceTeam);
+        return {
+          id: i.id, team: i.clearance_team, title: i.item_title, description: i.item_description, isRequired: i.is_required,
+          dueDate: isoDate(i.due_date ?? row.last_working_date), hasOwnDueDate: !!i.due_date,
+          assignedTo: i.assigned_tenant_member_id ? { id: i.assigned_tenant_member_id, name: who(i.assigned_to) } : null,
+          status: i.item_status, note: i.clearance_note, waiverReason: i.waiver_reason, clearedBy: who(i.cleared_by), clearedAt: i.cleared_at?.toISOString() ?? null,
+          canClear: owns, canWaive: owns,
+        };
+      }),
       hasSignIn: !!member && member.membership_status === 'ACTIVE',
       notice: {
         ...notice,
@@ -243,6 +262,7 @@ export class OffboardingService {
         from: isoDate(c.previous_last_working_date), to: isoDate(c.new_last_working_date), reason: c.change_reason, changedBy: who(c.changed_by), changedAt: c.created_at.toISOString(),
       })),
       directReports,
+      managerComments: comments.map((c) => ({ id: c.id, kind: c.comment_kind, body: c.comment_body, author: who(c.author), createdAt: c.created_at.toISOString() })),
       obligations,
       today,
       blockers,
@@ -280,6 +300,7 @@ export class OffboardingService {
     if (input.lastWorkingDate < input.noticeDate) throw new BadRequestException('The last working day can’t be before the notice date.');
 
     const id = randomUUID();
+    const extra = await this.checklist.template(tenantId);
     await this.createOpen(() => this.prisma.$transaction(async (tx) => {
       const now = new Date();
       await tx.rndtechnosoft_employee_separations.create({
@@ -290,10 +311,12 @@ export class OffboardingService {
           is_self_service: false, requested_by_tenant_member_id: actor.tenantMemberId, approved_by_tenant_member_id: actor.tenantMemberId, approved_at: now,
         },
       });
-      await this.createChecklist(tx, tenantId, id);
+      await this.createChecklist(tx, tenantId, id, extra);
     }));
     await this.log(tenantId, actor, 'SEPARATION_STARTED', id, { new: { employee_id: employee.id, type: input.type, notice_date: input.noticeDate, last_working_date: input.lastWorkingDate } });
-    return this.detail(tenantId, id);
+    this.notifications.notify(tenantId, 'EXIT_STARTED', id, { actor });
+    this.notifications.notify(tenantId, 'CHECKLIST_ASSIGNED', id, { actor });
+    return this.detail(tenantId, id, actor);
   }
 
   /** Accepts a resignation, agreeing the last working day, and opens the exit checklist. */
@@ -302,15 +325,18 @@ export class OffboardingService {
     const row = await this.find(tenantId, id);
     this.notOwn(row, actor, 'accept your own resignation');
     if (lastWorkingDate < isoDate(row.notice_date)) throw new BadRequestException('The last working day can’t be before the day notice was given.');
+    const extra = await this.checklist.template(tenantId);
     await this.prisma.$transaction(async (tx) => {
       await this.transition(tenantId, id, ['PENDING_APPROVAL'], {
         separation_status: 'IN_PROGRESS', last_working_date: dateOnly(lastWorkingDate), approved_at: new Date(), approved_by_tenant_member_id: actor.tenantMemberId,
       }, tx);
       await this.recordDateChange(tx, tenantId, id, row.last_working_date, lastWorkingDate, input.reason, actor);
-      await this.createChecklist(tx, tenantId, id);
+      await this.createChecklist(tx, tenantId, id, extra);
     });
     await this.log(tenantId, actor, 'SEPARATION_APPROVED', id, { old: { status: row.separation_status, last_working_date: isoDate(row.last_working_date) }, new: { status: 'IN_PROGRESS', last_working_date: lastWorkingDate } });
-    return this.detail(tenantId, id);
+    this.notifications.notify(tenantId, 'RESIGNATION_ACCEPTED', id, { actor });
+    this.notifications.notify(tenantId, 'CHECKLIST_ASSIGNED', id, { actor });
+    return this.detail(tenantId, id, actor);
   }
 
   async changeLastWorkingDate(tenantId: string, id: string, input: LastWorkingDateDto, actor: Actor) {
@@ -323,7 +349,7 @@ export class OffboardingService {
       await this.recordDateChange(tx, tenantId, id, row.last_working_date, lastWorkingDate, input.reason, actor);
     });
     await this.log(tenantId, actor, 'SEPARATION_LAST_DAY_CHANGED', id, { old: { last_working_date: isoDate(row.last_working_date) }, new: { last_working_date: lastWorkingDate }, reason: input.reason?.trim() || null });
-    return this.detail(tenantId, id);
+    return this.detail(tenantId, id, actor);
   }
 
   async recordInterview(tenantId: string, id: string, input: ExitInterviewDto, actor: Actor) {
@@ -335,40 +361,90 @@ export class OffboardingService {
     });
     // The notes stay on the exit; the audit trail records only that they changed.
     await this.log(tenantId, actor, 'SEPARATION_INTERVIEW_RECORDED', id, { new: { interview_date: input.interviewDate, rehire_eligible: input.rehireEligible ?? null } });
-    return this.detail(tenantId, id);
+    return this.detail(tenantId, id, actor);
   }
 
   async addChecklistItem(tenantId: string, id: string, input: ClearanceItemDto, actor: Actor) {
     const row = await this.find(tenantId, id);
     if (row.separation_status !== 'IN_PROGRESS') throw new BadRequestException('Checklist items can only be added while the exit is under way.');
+    if (input.assignedMemberId) await this.checklist.assertOwner(tenantId, input.team, input.assignedMemberId);
     const last = row.rndtechnosoft_separation_clearance_items.reduce((max, i) => Math.max(max, i.display_order), 0);
     const itemId = randomUUID();
     await this.prisma.rndtechnosoft_separation_clearance_items.create({
-      data: { id: itemId, tenant_id: tenantId, separation_id: id, clearance_team: input.team, item_title: input.title.trim(), display_order: last + 1 },
+      data: {
+        id: itemId, tenant_id: tenantId, separation_id: id, clearance_team: input.team, item_title: input.title.trim(), item_description: input.description?.trim() || null,
+        is_required: input.isRequired ?? true, due_date: input.dueDate ? dateOnly(input.dueDate) : null, assigned_tenant_member_id: input.assignedMemberId ?? null, display_order: last + 1,
+      },
     });
-    await this.log(tenantId, actor, 'SEPARATION_ITEM_ADDED', id, { new: { item_id: itemId, team: input.team } });
-    return this.detail(tenantId, id);
+    await this.log(tenantId, actor, 'SEPARATION_ITEM_ADDED', id, { new: { item_id: itemId, team: input.team, required: input.isRequired ?? true, due_date: input.dueDate ?? null, assigned_member_id: input.assignedMemberId ?? null } });
+    return this.detail(tenantId, id, actor);
   }
 
+  /** Changes an item's description, whether it is required, its due date or who has it. HR only. */
+  async updateChecklistDetails(tenantId: string, id: string, itemId: string, input: ClearanceDetailsDto, actor: Actor) {
+    const row = await this.find(tenantId, id);
+    if (row.separation_status !== 'IN_PROGRESS') throw new BadRequestException('The checklist can only change while the exit is under way.');
+    const item = row.rndtechnosoft_separation_clearance_items.find((i) => i.id === itemId);
+    if (!item) throw new NotFoundException('Checklist item not found.');
+    if (input.assignedMemberId) await this.checklist.assertOwner(tenantId, item.clearance_team as ClearanceTeam, input.assignedMemberId);
+    const data = {
+      ...(input.description !== undefined ? { item_description: input.description.trim() || null } : {}),
+      ...(input.isRequired !== undefined ? { is_required: input.isRequired } : {}),
+      ...(input.dueDate !== undefined ? { due_date: input.dueDate ? dateOnly(input.dueDate) : null } : {}),
+      ...(input.assignedMemberId !== undefined ? { assigned_tenant_member_id: input.assignedMemberId } : {}),
+    };
+    await this.prisma.rndtechnosoft_separation_clearance_items.update({ where: { tenant_id_id: { tenant_id: tenantId, id: itemId } }, data: { ...data, updated_at: new Date() } });
+    await this.log(tenantId, actor, 'SEPARATION_ITEM_DETAILS_CHANGED', id, {
+      item_id: itemId,
+      old: { description: item.item_description, required: item.is_required, due_date: day(item.due_date), assigned_member_id: item.assigned_tenant_member_id },
+      new: { description: data.item_description, required: data.is_required, due_date: input.dueDate, assigned_member_id: input.assignedMemberId },
+    });
+    return this.detail(tenantId, id, actor);
+  }
+
+  /** An item reached from its owners' list, without the exit's id. */
+  async updateChecklistItemById(tenantId: string, itemId: string, input: ClearanceUpdateDto, actor: Actor) {
+    const item = await this.prisma.rndtechnosoft_separation_clearance_items.findFirst({ where: { tenant_id: tenantId, id: itemId }, select: { separation_id: true } });
+    if (!item) throw new NotFoundException('Checklist item not found.');
+    await this.updateChecklistItem(tenantId, item.separation_id, itemId, input, actor);
+    return this.checklist.mine(tenantId, actor);
+  }
+
+  /**
+   * Clears, waives or reopens an item. Each team clears and waives only its
+   * own items; HR's override covers all of them. A waiver needs its reason.
+   */
   async updateChecklistItem(tenantId: string, id: string, itemId: string, input: ClearanceUpdateDto, actor: Actor) {
     const row = await this.find(tenantId, id);
     this.notOwn(row, actor, 'clear your own exit checklist');
     if (row.separation_status !== 'IN_PROGRESS') throw new BadRequestException('The checklist can only change while the exit is under way.');
     const item = row.rndtechnosoft_separation_clearance_items.find((i) => i.id === itemId);
     if (!item) throw new NotFoundException('Checklist item not found.');
+    const team = item.clearance_team as ClearanceTeam;
+    if (!canClearTeam(await this.checklist.permissions(tenantId, actor), team)) {
+      throw new ForbiddenException(team === 'MANAGER' ? 'The manager clears this item from My team.' : `Only ${TEAM_NAME[team]} clears this item.`);
+    }
     const note = input.note?.trim() || null;
-    if (input.status === 'WAIVED' && !note) throw new BadRequestException('Say why this item is being waived.');
+    const waiverReason = input.waiverReason?.trim() || null;
+    if (input.status === 'WAIVED' && !waiverReason) throw new BadRequestException('Say why this item is being waived.');
     if (input.status === 'CLEARED' && item.clearance_team === 'FINANCE') {
       const { loans, outstanding } = await this.obligations(tenantId, row.employee_id, row.last_working_date);
       if (loans.length) throw new BadRequestException(`Finance can’t be cleared while ${outstanding} in loans or advances is outstanding. Settle them, or waive this item with the reason.`);
     }
     const done = input.status !== 'PENDING';
-    await this.prisma.rndtechnosoft_separation_clearance_items.update({
-      where: { tenant_id_id: { tenant_id: tenantId, id: itemId } },
-      data: { item_status: input.status, clearance_note: note, cleared_at: done ? new Date() : null, cleared_by_tenant_member_id: done ? actor.tenantMemberId : null, updated_at: new Date() },
+    // Only from the status it was read in, so two people acting at once can't both succeed.
+    const changed = await this.prisma.rndtechnosoft_separation_clearance_items.updateMany({
+      where: { tenant_id: tenantId, id: itemId, item_status: item.item_status },
+      data: {
+        item_status: input.status, clearance_note: note, waiver_reason: input.status === 'WAIVED' ? waiverReason : null,
+        cleared_at: done ? new Date() : null, cleared_by_tenant_member_id: done ? actor.tenantMemberId : null, updated_at: new Date(),
+      },
     });
-    await this.log(tenantId, actor, 'SEPARATION_ITEM_UPDATED', id, { item_id: itemId, old: { status: item.item_status }, new: { status: input.status } });
-    return this.detail(tenantId, id);
+    if (changed.count !== 1) throw new ConflictException('This item changed while you were working. Reload and try again.');
+    await this.log(tenantId, actor, input.status === 'WAIVED' ? 'SEPARATION_ITEM_WAIVED' : 'SEPARATION_ITEM_UPDATED', id, {
+      item_id: itemId, team, old: { status: item.item_status, waiver_reason: item.waiver_reason }, new: { status: input.status, waiver_reason: input.status === 'WAIVED' ? waiverReason : null },
+    });
+    return this.detail(tenantId, id, actor);
   }
 
   /** Records whether a notice-period shortfall is recovered or waived; a waiver needs a reason. */
@@ -385,7 +461,7 @@ export class OffboardingService {
     await this.log(tenantId, actor, 'SEPARATION_NOTICE_DECIDED', id, {
       old: { decision: row.notice_shortfall_decision }, new: { decision: input.decision, shortfall_days: notice.shortfallDays }, reason,
     });
-    return this.detail(tenantId, id);
+    return this.detail(tenantId, id, actor);
   }
 
   /**
@@ -413,7 +489,7 @@ export class OffboardingService {
     await this.log(tenantId, actor, 'SEPARATION_REPORTS_REASSIGNED', id, {
       new: { manager_employee_id: input.managerEmployeeId, effective_from: from, moved: chosen.length - failed.length, failed: failed.length },
     });
-    return { exit: await this.detail(tenantId, id), failed };
+    return { exit: await this.detail(tenantId, id, actor), failed };
   }
 
   async cancel(tenantId: string, id: string, input: CancelSeparationDto, actor: Actor) {
@@ -423,7 +499,7 @@ export class OffboardingService {
       separation_status: 'CANCELLED', closed_at: new Date(), closed_by_tenant_member_id: actor.tenantMemberId, close_reason: input.reason.trim(),
     });
     await this.log(tenantId, actor, 'SEPARATION_CANCELLED', id, { old: { status: row.separation_status }, new: { status: 'CANCELLED' } });
-    return this.detail(tenantId, id);
+    return this.detail(tenantId, id, actor);
   }
 
   /**
@@ -471,7 +547,8 @@ export class OffboardingService {
       new: { status: 'COMPLETED', employee_status: 'EXITED', exit_date: isoDate(lastDay), sign_in_suspended: !!ending, sessions_ended: !!ending },
       records_closed: closed,
     });
-    return this.detail(tenantId, id);
+    this.notifications.notify(tenantId, 'EXIT_COMPLETED', id, { actor });
+    return this.detail(tenantId, id, actor);
   }
 
   // ── Helpers ─────────────────────────────────────────────────
@@ -619,9 +696,13 @@ export class OffboardingService {
     }
   }
 
-  private createChecklist(tx: Tx, tenantId: string, separationId: string) {
+  /** The standard six items, then the workspace's own. */
+  private createChecklist(tx: Tx, tenantId: string, separationId: string, extra: ChecklistTemplateItem[]) {
+    const items = [...DEFAULT_CHECKLIST.map((i) => ({ ...i, description: null, isRequired: true })), ...extra];
     return tx.rndtechnosoft_separation_clearance_items.createMany({
-      data: DEFAULT_CHECKLIST.map((item, index) => ({ id: randomUUID(), tenant_id: tenantId, separation_id: separationId, clearance_team: item.team, item_title: item.title, display_order: index + 1 })),
+      data: items.map((item, index) => ({
+        id: randomUUID(), tenant_id: tenantId, separation_id: separationId, clearance_team: item.team, item_title: item.title, item_description: item.description, is_required: item.isRequired, display_order: index + 1,
+      })),
     });
   }
 

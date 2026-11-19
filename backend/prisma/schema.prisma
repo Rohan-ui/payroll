@@ -1601,7 +1601,9 @@ model rndtechnosoft_tenant_members {
   separations_closed                          rndtechnosoft_employee_separations[]               @relation("separation_closed_by")
   separations_notice_decided                  rndtechnosoft_employee_separations[]               @relation("separation_notice_decided_by")
   separation_date_changes                     rndtechnosoft_separation_date_changes[]
+  separation_comments                        rndtechnosoft_separation_comments[]
   separation_items_cleared                    rndtechnosoft_separation_clearance_items[]         @relation("separation_item_cleared_by")
+  separation_items_assigned                  rndtechnosoft_separation_clearance_items[]  @relation("separation_item_assigned_to")
   candidate_doc_status_changes_made           rndtechnosoft_candidate_document_status_history[]  @relation("candidate_doc_status_changed_by")
   candidate_doc_emails_sent                   rndtechnosoft_candidate_document_emails[]          @relation("candidate_doc_email_sender")
   candidate_docs_last_sent                    rndtechnosoft_candidate_documents[]               @relation("candidate_doc_last_sent_by")
@@ -2780,6 +2782,10 @@ model rndtechnosoft_onboarding_notifications {
   recipient_email               String    @db.VarChar(320)
   candidate_id                  String?   @db.Uuid
   interview_id                  String?   @db.Uuid
+  /// The exit an offboarding email belongs to.
+  separation_id                 String?   @db.Uuid
+  /// How many times it was tried: a failed email sent again counts up.
+  attempt_count                 Int       @default(1)
   delivery_status               String    @db.VarChar(32)
   error_message                 String?   @db.VarChar(500)
   sent_at                       DateTime? @db.Timestamptz(6)
@@ -2792,9 +2798,11 @@ model rndtechnosoft_onboarding_notifications {
 
   rndtechnosoft_tenants rndtechnosoft_tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_notifications_tenant")
   initiated_by          rndtechnosoft_tenant_members? @relation("onboarding_notification_initiated_by", fields: [tenant_id, initiated_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_notifications_initiated_by")
+  separation            rndtechnosoft_employee_separations? @relation(fields: [tenant_id, separation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_onboarding_notifications_separation")
 
   @@unique([tenant_id, idempotency_key], map: "uq_onboarding_notifications_key")
   @@index([tenant_id, candidate_id], map: "ix_onboarding_notifications_candidate")
+  @@index([tenant_id, separation_id, created_at], map: "ix_onboarding_notifications_separation")
 }
 
 /// A letter or certificate template of the workspace. Its text lives in versions; only an approved version is used.
@@ -4762,6 +4770,8 @@ model rndtechnosoft_employee_separations {
   rndtechnosoft_separation_date_changes    rndtechnosoft_separation_date_changes[]
   rndtechnosoft_separation_clearance_items rndtechnosoft_separation_clearance_items[]
   rndtechnosoft_candidate_documents        rndtechnosoft_candidate_documents[]
+  rndtechnosoft_separation_comments        rndtechnosoft_separation_comments[]
+  rndtechnosoft_onboarding_notifications   rndtechnosoft_onboarding_notifications[]
 
   @@unique([tenant_id, id], map: "uq_employee_separations_tenant_id")
   @@index([tenant_id, separation_status, last_working_date], map: "ix_employee_separations_status")
@@ -4775,6 +4785,15 @@ model rndtechnosoft_separation_clearance_items {
   separation_id               String    @db.Uuid
   clearance_team              String    @db.VarChar(16)
   item_title                  String    @db.VarChar(200)
+  item_description            String?   @db.VarChar(1000)
+  /// Only required items hold back completing the exit.
+  is_required                 Boolean   @default(true)
+  /// NULL means by the last working day.
+  due_date                    DateTime? @db.Date
+  /// Someone in the owning team who has it; they can clear that team's items.
+  assigned_tenant_member_id   String?   @db.Uuid
+  /// Why it was waived; the remarks stay in clearance_note.
+  waiver_reason               String?   @db.VarChar(500)
   display_order               Int
   item_status                 String    @default("PENDING") @db.VarChar(16)
   cleared_by_tenant_member_id String?   @db.Uuid
@@ -4785,9 +4804,11 @@ model rndtechnosoft_separation_clearance_items {
 
   rndtechnosoft_employee_separations rndtechnosoft_employee_separations @relation(fields: [tenant_id, separation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_clearance_items_separation")
   cleared_by                         rndtechnosoft_tenant_members?      @relation("separation_item_cleared_by", fields: [tenant_id, cleared_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_clearance_items_cleared_by")
+  assigned_to                        rndtechnosoft_tenant_members?      @relation("separation_item_assigned_to", fields: [tenant_id, assigned_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_clearance_items_assigned")
 
   @@unique([tenant_id, id], map: "uq_separation_clearance_items_tenant_id")
   @@index([tenant_id, separation_id, display_order], map: "ix_separation_clearance_items_separation")
+  @@index([tenant_id, item_status, clearance_team], map: "ix_separation_clearance_items_open")
 }
 
 /// Dynamic Onboarding Workflows: visual, versioned, configurable onboarding workflow pipelines
@@ -5160,6 +5181,23 @@ model rndtechnosoft_separation_date_changes {
   changed_by                         rndtechnosoft_tenant_members       @relation(fields: [tenant_id, changed_by_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_date_changes_changed_by")
 
   @@index([tenant_id, separation_id, created_at], map: "ix_separation_date_changes_separation")
+}
+
+/// A manager's comment or handover note on a direct report's exit.
+model rndtechnosoft_separation_comments {
+  id                      String   @id @db.Uuid
+  tenant_id               String   @db.Uuid
+  separation_id           String   @db.Uuid
+  /// COMMENT or HANDOVER.
+  comment_kind            String   @db.VarChar(16)
+  comment_body            String   @db.VarChar(2000)
+  author_tenant_member_id String   @db.Uuid
+  created_at              DateTime @default(dbgenerated("CURRENT_TIMESTAMP(6)")) @db.Timestamptz(6)
+
+  rndtechnosoft_employee_separations rndtechnosoft_employee_separations @relation(fields: [tenant_id, separation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_comments_separation")
+  author                             rndtechnosoft_tenant_members       @relation(fields: [tenant_id, author_tenant_member_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_separation_comments_author")
+
+  @@index([tenant_id, separation_id, created_at], map: "ix_separation_comments_separation")
 }
 
 /// A full and final settlement for an exit; see migration 20261117110000_final_settlements.

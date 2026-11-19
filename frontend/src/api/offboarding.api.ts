@@ -44,7 +44,7 @@ export interface ExitDetail extends Omit<OwnExit, 'checklist' | 'reason'> {
   closedBy: string | null;
   closeReason: string | null;
   exitInterview: { date: string; notes: string | null; rehireEligible: boolean | null; recordedBy: string | null } | null;
-  checklist: { id: string; team: ClearanceTeam; title: string; status: ClearanceStatus; note: string | null; clearedBy: string | null; clearedAt: string | null }[];
+  checklist: ExitChecklistItem[];
   hasSignIn: boolean;
   /** Days counted after the notice date; a shortfall needs a recover-or-waive decision before completion. */
   notice: {
@@ -54,6 +54,7 @@ export interface ExitDetail extends Omit<OwnExit, 'checklist' | 'reason'> {
   dateChanges: { from: string; to: string; reason: string | null; changedBy: string | null; changedAt: string }[];
   /** People who would still report to the leaver after their last day. */
   directReports: { id: string; code: string; name: string }[];
+  managerComments: { id: string; kind: CommentKind; body: string; author: string | null; createdAt: string }[];
   /** Active loans and advances; amounts are decimal strings in rupees. */
   obligations: {
     outstanding: string;
@@ -86,6 +87,98 @@ const query = (q: Record<string, string | number | undefined>) => {
   return text ? `?${text}` : '';
 };
 
+export interface ExitChecklistItem {
+  id: string;
+  team: ClearanceTeam;
+  title: string;
+  description: string | null;
+  /** Only required items hold back completing the exit. */
+  isRequired: boolean;
+  /** The item's own due date, or the last working day. */
+  dueDate: string;
+  hasOwnDueDate: boolean;
+  assignedTo: { id: string; name: string | null } | null;
+  status: ClearanceStatus;
+  /** Remarks on clearing it. */
+  note: string | null;
+  waiverReason: string | null;
+  clearedBy: string | null;
+  clearedAt: string | null;
+  /** Whether the signed-in member's team (or HR's override) owns it. */
+  canClear: boolean;
+  canWaive: boolean;
+}
+
+export interface ChecklistItemInput { team: ClearanceTeam; title: string; description?: string; isRequired?: boolean; dueDate?: string; assignedMemberId?: string }
+export interface ChecklistDetailsInput { description?: string; isRequired?: boolean; dueDate?: string | null; assignedMemberId?: string | null }
+export interface ChecklistTemplateItem { team: ClearanceTeam; title: string; description: string | null; isRequired: boolean }
+export interface ChecklistOwner { id: string; name: string; email: string }
+
+/** An open item of someone else's exit that the member's team owns. */
+export interface MyChecklistItem {
+  id: string;
+  separationId: string;
+  team: ClearanceTeam;
+  title: string;
+  description: string | null;
+  isRequired: boolean;
+  dueDate: string;
+  lastWorkingDate: string;
+  assignedTo: string | null;
+  isMine: boolean;
+  employee: { name: string; code: string };
+}
+
+export type CommentKind = 'COMMENT' | 'HANDOVER';
+
+/** A direct report's exit, as their manager sees it: no reason, interview or settlement. */
+export interface TeamExitRow {
+  id: string;
+  type: SeparationType;
+  status: SeparationStatus;
+  lastWorkingDate: string;
+  employee: { name: string; code: string; department: string | null; designation: string | null };
+  checklistProgress: { done: number; total: number };
+  pendingManagerItems: number;
+}
+
+export interface TeamExitDetail extends Omit<TeamExitRow, 'pendingManagerItems'> {
+  noticeDate: string;
+  checklist: { id: string; team: ClearanceTeam; title: string; status: ClearanceStatus; note: string | null; clearedAt: string | null; canUpdate: boolean }[];
+  comments: { id: string; kind: CommentKind; body: string; author: string; createdAt: string; isMine: boolean }[];
+  canComment: boolean;
+}
+
+export const NOTIFICATION_EVENTS = {
+  RESIGNATION_SUBMITTED: 'Resignation submitted',
+  RESIGNATION_ACCEPTED: 'Resignation accepted',
+  RESIGNATION_WITHDRAWN: 'Resignation withdrawn',
+  EXIT_STARTED: 'Exit started by HR',
+  CHECKLIST_ASSIGNED: 'Exit checklist ready',
+  CHECKLIST_REMINDER: 'Checklist reminder (daily, near the last day)',
+  LAST_DAY_REMINDER: 'Last working day reminder',
+  SETTLEMENT_PENDING_REVIEW: 'Settlement waiting for review',
+  SETTLEMENT_APPROVED: 'Settlement approved',
+  SETTLEMENT_PAID: 'Settlement paid',
+  EXIT_COMPLETED: 'Exit completed',
+  LETTER_ISSUED: 'Letter issued (sent with the PDF)',
+} as const;
+export type NotificationEvent = keyof typeof NOTIFICATION_EVENTS;
+export type NotificationSettings = Record<NotificationEvent, boolean>;
+
+export interface ExitNotification {
+  id: string;
+  event: NotificationEvent;
+  channel: 'EMAIL';
+  recipient: string;
+  status: 'SENT' | 'FAILED' | 'NOT_SENT' | 'SENDING';
+  error: string | null;
+  attempts: number;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const offboardingApi = {
   mine: () => data(apiClient.get<Envelope<MyExit>>('/offboarding/my')),
   resign: (input: { reason: string; lastWorkingDate: string }) => data(apiClient.post<Envelope<MyExit>>('/offboarding/my/resignation', input)),
@@ -108,11 +201,28 @@ export const offboardingApi = {
     apiClient.post<Envelope<ExitDetail> & { failed: { employeeId: string; name: string; reason: string }[] }>(`/offboarding/separations/${id}/reassign-reports`, { managerEmployeeId }),
   saveInterview: (id: string, input: { interviewDate: string; notes: string; rehireEligible?: boolean }) =>
     data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/exit-interview`, input)),
-  addItem: (id: string, input: { team: ClearanceTeam; title: string }) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/checklist`, input)),
-  updateItem: (id: string, itemId: string, input: { status: ClearanceStatus; note?: string }) =>
+  addItem: (id: string, input: ChecklistItemInput) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/checklist`, input)),
+  updateItem: (id: string, itemId: string, input: { status: ClearanceStatus; note?: string; waiverReason?: string }) =>
     data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/checklist/${itemId}`, input)),
+  itemDetails: (id: string, itemId: string, input: ChecklistDetailsInput) =>
+    data(apiClient.put<Envelope<ExitDetail>>(`/offboarding/separations/${id}/checklist/${itemId}/details`, input)),
+  checklistOwners: (team: ClearanceTeam) => data(apiClient.get<Envelope<ChecklistOwner[]>>(`/offboarding/checklist/owners${query({ team })}`)),
+  checklistTemplate: () => data(apiClient.get<Envelope<ChecklistTemplateItem[]>>('/offboarding/checklist-template')),
+  saveChecklistTemplate: (items: ChecklistTemplateItem[]) => data(apiClient.put<Envelope<ChecklistTemplateItem[]>>('/offboarding/checklist-template', { items })),
+  myChecklist: () => data(apiClient.get<Envelope<MyChecklistItem[]>>('/offboarding/checklist/mine')),
+  updateMyItem: (itemId: string, input: { status: ClearanceStatus; note?: string; waiverReason?: string }) =>
+    data(apiClient.put<Envelope<MyChecklistItem[]>>(`/offboarding/checklist/items/${itemId}`, input)),
   cancel: (id: string, reason: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/cancel`, { reason })),
   complete: (id: string) => data(apiClient.post<Envelope<ExitDetail>>(`/offboarding/separations/${id}/complete`)),
+  notifications: (id: string) => data(apiClient.get<Envelope<ExitNotification[]>>(`/offboarding/separations/${id}/notifications`)),
+  notificationSettings: () => data(apiClient.get<Envelope<NotificationSettings>>('/offboarding/notification-settings')),
+  saveNotificationSettings: (input: Partial<NotificationSettings>) => data(apiClient.put<Envelope<NotificationSettings>>('/offboarding/notification-settings', input)),
+
+  team: () => data(apiClient.get<Envelope<TeamExitRow[]>>('/offboarding/team')),
+  teamDetail: (id: string) => data(apiClient.get<Envelope<TeamExitDetail>>(`/offboarding/team/${id}`)),
+  teamComment: (id: string, input: { kind: CommentKind; body: string }) => data(apiClient.post<Envelope<TeamExitDetail>>(`/offboarding/team/${id}/comments`, input)),
+  teamItem: (id: string, itemId: string, input: { status: 'PENDING' | 'CLEARED'; note?: string }) =>
+    data(apiClient.put<Envelope<TeamExitDetail>>(`/offboarding/team/${id}/checklist/${itemId}`, input)),
 };
 
 // ── Full and final settlement ───────────────────────────────────
