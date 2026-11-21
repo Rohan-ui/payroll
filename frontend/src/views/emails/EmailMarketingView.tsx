@@ -14,43 +14,11 @@ import {
   GmailTemplate,
 } from '../../api/gmail.api';
 import {
-  Mail,
-  Send,
-  Plus,
-  CheckCircle2,
-  Users,
-  ShieldCheck,
-  Eye,
-  AlertTriangle,
-  Filter,
-  Search,
-  RefreshCw,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  ExternalLink,
-  Layers,
-  FileCode,
-  Sliders,
-  Inbox,
-  Paperclip,
-  Reply,
-  ReplyAll,
-  Pencil,
-  Trash2,
-  Save,
-  BarChart3,
-  MousePointer,
-  MessageSquare,
-  Copy,
-  Play,
-  Pause,
-  ShieldAlert,
+  Mail, Send, Plus, CheckCircle2, Eye, AlertTriangle, Filter, Search, RefreshCw, ChevronLeft, ChevronRight, X, ExternalLink, FileCode, Sliders, Inbox, Paperclip, Reply, ReplyAll, Pencil, Trash2, Save,
 } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
 import { useAuth } from '../../context/AuthContext';
 import { DripSequencesView } from './DripSequencesView';
-import { ComingSoon } from './ComingSoon';
 
 const INBOX_REFRESH_INTERVAL_MS = 30_000;
 const INBOX_PAGE_SIZE = 25;
@@ -112,7 +80,7 @@ const TemplateSearchPicker: React.FC<{
         role="combobox"
         aria-autocomplete="list"
         aria-expanded={open}
-        className="h-9 w-full rounded-lg border border-indigo-200 bg-indigo-50/70 pl-8 pr-3 text-[11px] text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+        className="h-9 w-full rounded-lg border border-teal-200 bg-teal-50/70 pl-8 pr-3 text-[11px] text-slate-800 placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
       />
       {open && (
         <div role="listbox" className="absolute bottom-full right-0 z-40 mb-1 max-h-64 w-full min-w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
@@ -133,7 +101,7 @@ const TemplateSearchPicker: React.FC<{
                 setSearch('');
                 setOpen(false);
               }}
-              className="block w-full rounded-md px-3 py-2 text-left hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              className="block w-full rounded-md px-3 py-2 text-left hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <span className="block truncate text-xs font-semibold text-slate-800">{template.title}</span>
               <span className="block truncate text-[10px] text-slate-500">{template.category} · {template.subject}</span>
@@ -160,7 +128,7 @@ export const EmailMarketingView: React.FC = () => {
   const canManageEmail = can('marketing.manage');
   
   // Navigation tabs: 'hub' is the Tenant Mailbox & Outbound Hub from screenshot!
-  const [activeTab, setActiveTab] = useState<'hub' | 'campaigns' | 'sequences' | 'templates' | 'audience' | 'deliverability'>('hub');
+  const [activeTab, setActiveTab] = useState<'hub' | 'sequences' | 'templates'>('hub');
 
   // Mailbox Hub State
   const [mailboxEmails, setMailboxEmails] = useState<GmailInboxMessage[]>([]);
@@ -582,6 +550,7 @@ export const EmailMarketingView: React.FC = () => {
 
   return (
     <div
+      data-dark-safe
       className={
         activeTab === 'hub'
           ? 'space-y-5 pb-12 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-5 lg:space-y-0 lg:pb-0'
@@ -589,18 +558,13 @@ export const EmailMarketingView: React.FC = () => {
       }
     >
 
-      {/* ── Top Header Card (Matching User Screenshot) ── */}
-      <div className="shrink-0 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-start gap-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
-              <Mail className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-                  Tenant Mailbox &amp; Outbound Hub
-                </h1>
+      {/* The same page header as the rest of the CRM, with the mailbox's connection state beside the title. */}
+      <div className="shrink-0">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
+          <div className="min-w-0">
+            <nav aria-label="Breadcrumb" className="mb-1 text-xs text-slate-500 dark:text-slate-400">CRM › <span aria-current="page">Email &amp; marketing</span></nav>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Email &amp; marketing</h1>
                 {gmailStatus?.connected ? (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <CheckCircle2 className="w-3.5 h-3.5" />
@@ -612,11 +576,8 @@ export const EmailMarketingView: React.FC = () => {
                     {gmailStatusLoading ? 'Checking Gmail…' : gmailStatus?.requiresReconnect ? 'Reconnect Gmail' : 'Gmail Not Connected'}
                   </span>
                 )}
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Read, send, and reply through your Gmail or your own email account from My email settings
-              </p>
             </div>
+            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Read, send and reply through Gmail or your own email account, and run drip sequences.</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -664,7 +625,7 @@ export const EmailMarketingView: React.FC = () => {
               // The server sends from the account the workspace policy picks: the member's own, or the organization's.
               disabled={!canManageEmail}
               title={!canManageEmail ? 'Your role cannot send email' : 'Compose email'}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="w-4 h-4" />
               <span>Compose Email</span>
@@ -673,89 +634,21 @@ export const EmailMarketingView: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Sub-navigation Tabs (Preserving all existing suite features!) ── */}
-      <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto bg-slate-100/90 p-1.5 rounded-xl border border-slate-200 text-xs font-semibold">
-        <button
-          onClick={() => setActiveTab('hub')}
-          className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeTab === 'hub'
-              ? 'bg-white text-slate-900 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-          }`}
-        >
-          <Inbox className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Tenant Mailbox &amp; Hub</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-50 text-indigo-700 font-bold">
-            Live
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('campaigns')}
-          className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeTab === 'campaigns'
-              ? 'bg-white text-slate-900 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-          }`}
-        >
-          <Mail className="w-3.5 h-3.5 text-teal-600" />
-          <span>Email Campaigns</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-600 font-bold">Soon</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('sequences')}
-          className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeTab === 'sequences'
-              ? 'bg-white text-slate-900 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Drip Sequences</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('templates')}
-          className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeTab === 'templates'
-              ? 'bg-white text-slate-900 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-          }`}
-        >
-          <FileCode className="w-3.5 h-3.5 text-purple-600" />
-          <span>Templates Library</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-700 font-bold">
-            {templates.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('audience')}
-          className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeTab === 'audience'
-              ? 'bg-white text-slate-900 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5 text-blue-600" />
-          <span>Audience &amp; Segments</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-600 font-bold">Soon</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('deliverability')}
-          className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
-            activeTab === 'deliverability'
-              ? 'bg-white text-slate-900 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-          }`}
-        >
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Deliverability &amp; Senders</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-600 font-bold">Soon</span>
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-        </button>
+      {/* The sections that work; ones not built yet aren't shown. */}
+      <div role="tablist" aria-label="Email and marketing" className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 dark:border-[#2B293E]">
+        {([
+          { id: 'hub', label: 'Mailbox' },
+          { id: 'sequences', label: 'Drip sequences' },
+          { id: 'templates', label: 'Templates', count: templates.length },
+        ] as { id: typeof activeTab; label: string; count?: number }[]).map((t) => (
+          <button key={t.id} type="button" role="tab" aria-selected={activeTab === t.id} onClick={() => setActiveTab(t.id)}
+            className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
+              activeTab === t.id ? 'border-teal-600 text-slate-900 dark:text-slate-100' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}>
+            {t.label}
+            {t.count != null && <span className="rounded-full bg-slate-100 px-1.5 text-xs tabular-nums text-slate-600 dark:bg-white/10 dark:text-slate-300">{t.count}</span>}
+          </button>
+        ))}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -765,8 +658,8 @@ export const EmailMarketingView: React.FC = () => {
         <div className="grid min-h-0 grid-cols-1 items-start gap-4 lg:flex-1 lg:grid-cols-12 lg:items-stretch lg:overflow-hidden">
           {/* Left Column: Gmail connection */}
           <div className="space-y-4 lg:col-span-3 lg:min-h-0 lg:overflow-y-auto">
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-3 shadow-2xs space-y-1">
-              <p className="px-3 pt-2 pb-1.5 text-[10px] font-bold tracking-wider uppercase text-slate-400">
+            <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-2xs space-y-1">
+              <p className="px-3 pt-2 pb-1.5 text-xs font-medium text-slate-400">
                 Mailbox Folders
               </p>
               <button
@@ -774,14 +667,14 @@ export const EmailMarketingView: React.FC = () => {
                 onClick={() => handleSelectFolder('inbox')}
                 disabled={!gmailStatus?.connected}
                 aria-current={mailboxFolder === 'inbox' ? 'page' : undefined}
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-colors disabled:opacity-50 ${mailboxFolder === 'inbox' ? 'bg-blue-50/80 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-colors disabled:opacity-50 ${mailboxFolder === 'inbox' ? 'bg-teal-50/80 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Inbox className="w-4 h-4 text-blue-600" />
+                  <Inbox className="w-4 h-4 text-teal-600" />
                   <span>Inbox</span>
                 </div>
                 {folderTotals.inbox > 0 ? (
-                  <span className="text-[10px] px-2 py-0.2 rounded-full bg-blue-100 text-blue-800 font-bold">
+                  <span className="text-[10px] px-2 py-0.2 rounded-full bg-teal-100 text-teal-800 font-bold">
                     {folderTotals.inbox}
                   </span>
                 ) : null}
@@ -791,19 +684,19 @@ export const EmailMarketingView: React.FC = () => {
                 onClick={() => handleSelectFolder('sent')}
                 disabled={!gmailStatus?.connected}
                 aria-current={mailboxFolder === 'sent' ? 'page' : undefined}
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-colors disabled:opacity-50 ${mailboxFolder === 'sent' ? 'bg-blue-50/80 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-colors disabled:opacity-50 ${mailboxFolder === 'sent' ? 'bg-teal-50/80 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Send className="h-4 w-4 text-indigo-500" />
+                  <Send className="h-4 w-4 text-teal-500" />
                   <span>Sent</span>
                 </div>
-                {folderTotals.sent > 0 ? <span className="rounded-full bg-blue-100 px-2 text-[10px] font-bold text-blue-800">{folderTotals.sent}</span> : null}
+                {folderTotals.sent > 0 ? <span className="rounded-full bg-teal-100 px-2 text-[10px] font-bold text-teal-800">{folderTotals.sent}</span> : null}
               </button>
             </div>
 
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
+            <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
               <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 uppercase tracking-wider">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-slate-800">
                   <Mail className="w-3.5 h-3.5 text-slate-500" />
                   <span>Gmail IMAP</span>
                 </div>
@@ -845,7 +738,7 @@ export const EmailMarketingView: React.FC = () => {
           </div>
 
           {/* Middle Column: Email List & Search */}
-          <div className={`${selectedEmail ? 'hidden lg:flex' : 'flex'} h-[70dvh] min-h-[28rem] max-h-[42rem] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs lg:col-span-4 lg:h-full lg:min-h-0 lg:max-h-none`}>
+          <div className={`${selectedEmail ? 'hidden lg:flex' : 'flex'} h-[70dvh] min-h-[28rem] max-h-[42rem] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-2xs lg:col-span-4 lg:h-full lg:min-h-0 lg:max-h-none`}>
             {/* Search header */}
             <div className="p-3 border-b border-slate-100 space-y-2">
               <form onSubmit={handleMailboxSearch} className="relative">
@@ -856,27 +749,27 @@ export const EmailMarketingView: React.FC = () => {
                   onChange={(e) => setMailboxSearch(e.target.value)}
                   aria-label={`Filter ${mailboxFolder} messages`}
                   placeholder={`Filter this ${mailboxFolder} page…`}
-                  className="min-h-11 w-full rounded-lg border border-slate-200/80 bg-slate-50 py-2 pl-8 pr-20 text-xs text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:min-h-9"
+                  className="min-h-11 w-full rounded-lg border border-slate-200/80 bg-slate-50 py-2 pl-8 pr-20 text-xs text-slate-800 placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 sm:min-h-9"
                 />
                 <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center">
-                  <button type="button" onClick={() => openAdvancedSearch()} aria-label="Open advanced Gmail search" aria-expanded={advancedSearchOpen} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:h-7 sm:w-7">
+                  <button type="button" onClick={() => openAdvancedSearch()} aria-label="Open advanced Gmail search" aria-expanded={advancedSearchOpen} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 sm:h-7 sm:w-7">
                     <Sliders className="h-3.5 w-3.5" />
                   </button>
-                  <button type="submit" aria-label="Search Gmail" className="flex h-9 w-9 items-center justify-center rounded-md text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:h-7 sm:w-7">
+                  <button type="submit" aria-label="Search Gmail" className="flex h-9 w-9 items-center justify-center rounded-md text-teal-600 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 sm:h-7 sm:w-7">
                     <Search className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </form>
 
               <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]" aria-label="Mailbox filters">
-                <button type="button" onClick={() => openAdvancedSearch('from')} aria-pressed={Boolean(mailboxFilters.from)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.from ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>
+                <button type="button" onClick={() => openAdvancedSearch('from')} aria-pressed={Boolean(mailboxFilters.from)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.from ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>
                   {mailboxFilters.from ? `From: ${mailboxFilters.from}` : 'From'}
                 </button>
                 <select
                   aria-label="Received date"
                   value={mailboxFilters.dateRange ?? 'any'}
                   onChange={(event) => applyMailboxFilters({ ...mailboxFilters, dateRange: event.target.value as GmailMessageFilters['dateRange'], date: undefined, dateWithinDays: undefined })}
-                  className="min-h-11 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:min-h-8"
+                  className="min-h-11 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 sm:min-h-8"
                 >
                   <option value="any">Any time</option>
                   <option value="1d">Past day</option>
@@ -884,13 +777,13 @@ export const EmailMarketingView: React.FC = () => {
                   <option value="30d">Past month</option>
                   <option value="1y">Past year</option>
                 </select>
-                <button type="button" aria-pressed={Boolean(mailboxFilters.hasAttachment)} onClick={() => applyMailboxFilters({ ...mailboxFilters, hasAttachment: !mailboxFilters.hasAttachment })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.hasAttachment ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Has attachment</button>
-                <button type="button" onClick={() => openAdvancedSearch('to')} aria-pressed={Boolean(mailboxFilters.to)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.to ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>
+                <button type="button" aria-pressed={Boolean(mailboxFilters.hasAttachment)} onClick={() => applyMailboxFilters({ ...mailboxFilters, hasAttachment: !mailboxFilters.hasAttachment })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.hasAttachment ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Has attachment</button>
+                <button type="button" onClick={() => openAdvancedSearch('to')} aria-pressed={Boolean(mailboxFilters.to)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.to ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>
                   {mailboxFilters.to ? `To: ${mailboxFilters.to}` : 'To'}
                 </button>
-                <button type="button" aria-pressed={Boolean(mailboxFilters.excludePromotions)} onClick={() => applyMailboxFilters({ ...mailboxFilters, excludePromotions: !mailboxFilters.excludePromotions })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.excludePromotions ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Exclude Promotions</button>
-                <button type="button" aria-pressed={Boolean(mailboxFilters.unread)} onClick={() => applyMailboxFilters({ ...mailboxFilters, unread: !mailboxFilters.unread })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.unread ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Is unread</button>
-                <button type="button" onClick={() => openAdvancedSearch()} className="min-h-11 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 sm:min-h-8">Advanced search</button>
+                <button type="button" aria-pressed={Boolean(mailboxFilters.excludePromotions)} onClick={() => applyMailboxFilters({ ...mailboxFilters, excludePromotions: !mailboxFilters.excludePromotions })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.excludePromotions ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Exclude Promotions</button>
+                <button type="button" aria-pressed={Boolean(mailboxFilters.unread)} onClick={() => applyMailboxFilters({ ...mailboxFilters, unread: !mailboxFilters.unread })} className={`min-h-11 shrink-0 rounded-lg border px-3 text-[11px] font-semibold sm:min-h-8 ${mailboxFilters.unread ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-[#f8fafc] dark:hover:bg-[#252336]'}`}>Is unread</button>
+                <button type="button" onClick={() => openAdvancedSearch()} className="min-h-11 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-semibold text-teal-600 hover:bg-teal-50 sm:min-h-8">Advanced search</button>
                 {activeFilterCount > 0 && <button type="button" onClick={() => applyMailboxFilters(EMPTY_GMAIL_FILTERS)} className="min-h-11 shrink-0 px-2 text-[11px] font-semibold text-slate-500 hover:text-slate-800 sm:min-h-8">Clear</button>}
               </div>
 
@@ -936,13 +829,13 @@ export const EmailMarketingView: React.FC = () => {
                   <Mail className="mb-3 h-8 w-8 text-slate-300" />
                   <h4 className="text-xs font-bold text-slate-800">Connect Gmail to read your mailbox</h4>
                   <p className="mt-1 max-w-xs text-[11px] leading-relaxed text-slate-400">Google OAuth opens on the next step. Your Gmail password is never requested or stored.</p>
-                  <button type="button" onClick={handleConnectGmail} className="mt-3 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white">
+                  <button type="button" onClick={handleConnectGmail} className="mt-3 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white">
                     Connect Gmail
                   </button>
                 </div>
               ) : currentFolderEmails.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3 shadow-2xs">
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3 shadow-2xs">
                     <Inbox className="w-6 h-6" />
                   </div>
                   <h4 className="text-xs font-bold text-slate-800 mb-1">
@@ -962,9 +855,9 @@ export const EmailMarketingView: React.FC = () => {
                       key={email.uid}
                       onClick={() => void handleOpenEmail(email.uid)}
                       aria-current={isSelected ? 'true' : undefined}
-                      className={`block w-full p-3 text-left transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${
+                      className={`block w-full p-3 text-left transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${
                         isSelected
-                          ? 'bg-blue-50/70 border-l-3 border-indigo-600'
+                          ? 'bg-teal-50/70 border-l-3 border-teal-600'
                           : 'hover:bg-[#f8fafc] dark:hover:bg-[#252336]'
                       }`}
                     >
@@ -987,7 +880,7 @@ export const EmailMarketingView: React.FC = () => {
           </div>
 
           {/* Right Column: Email Viewer Pane */}
-          <div className={`${selectedEmail ? 'flex' : 'hidden lg:flex'} h-[70dvh] min-h-[28rem] max-h-[42rem] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs lg:col-span-5 lg:h-full lg:min-h-0 lg:max-h-none`}>
+          <div className={`${selectedEmail ? 'flex' : 'hidden lg:flex'} h-[70dvh] min-h-[28rem] max-h-[42rem] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-2xs lg:col-span-5 lg:h-full lg:min-h-0 lg:max-h-none`}>
             {messageLoading ? (
               <div role="status" className="flex flex-1 items-center justify-center text-xs text-slate-500">
                 <RefreshCw className="mr-2 h-5 w-5 animate-spin" /> Loading message…
@@ -1004,14 +897,14 @@ export const EmailMarketingView: React.FC = () => {
                       type="button"
                       onClick={() => setSelectedEmail(null)}
                       aria-label="Close email"
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700" aria-hidden="true">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-100 text-sm font-bold text-teal-700" aria-hidden="true">
                       {(selectedEmail.from.name || selectedEmail.from.email || '?').trim().charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1 text-xs">
@@ -1063,7 +956,7 @@ export const EmailMarketingView: React.FC = () => {
                   <article className="mx-auto min-h-full w-full max-w-3xl overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 text-[13px] leading-6 text-slate-800 shadow-2xs sm:p-6">
                     {messageBodyMode === 'formatted' && sanitizedEmailHtml ? (
                       <div
-                        className="gmail-message-body min-w-0 max-w-full break-words [&_*]:max-w-full [&_a]:break-all [&_a]:text-indigo-600 [&_blockquote]:border-l-2 [&_blockquote]:border-slate-200 [&_blockquote]:pl-3 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_table]:w-full [&_table]:table-auto [&_td]:break-words [&_th]:break-words"
+                        className="gmail-message-body min-w-0 max-w-full break-words [&_*]:max-w-full [&_a]:break-all [&_a]:text-teal-600 [&_blockquote]:border-l-2 [&_blockquote]:border-slate-200 [&_blockquote]:pl-3 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_table]:w-full [&_table]:table-auto [&_td]:break-words [&_th]:break-words"
                         dangerouslySetInnerHTML={{ __html: sanitizedEmailHtml }}
                       />
                     ) : (
@@ -1088,12 +981,12 @@ export const EmailMarketingView: React.FC = () => {
                         value={replyBody}
                         onChange={(event) => setReplyBody(event.target.value)}
                         placeholder="Write a reply…"
-                        className="w-full resize-y rounded-lg border border-slate-200 p-3 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        className="w-full resize-y rounded-lg border border-slate-200 p-3 text-xs text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                       />
                       {replyError && <p role="alert" className="text-[11px] text-red-600">{replyError}</p>}
                       <div className="flex flex-wrap justify-end gap-2">
                         <button type="button" onClick={() => setReplyOpen(false)} disabled={replySending} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">Cancel</button>
-                        <button type="button" onClick={() => void handleReply(false)} disabled={replySending || !replyBody.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50">
+                        <button type="button" onClick={() => void handleReply(false)} disabled={replySending || !replyBody.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-50">
                           <Reply className="h-3.5 w-3.5" /> {replySending ? 'Sending…' : 'Reply'}
                         </button>
                         <button type="button" onClick={() => void handleReply(true)} disabled={replySending || !replyBody.trim()} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
@@ -1116,7 +1009,7 @@ export const EmailMarketingView: React.FC = () => {
 
                 {selectedEmail.attachments.length > 0 && (
                   <div className="max-h-40 shrink-0 overflow-y-auto border-t border-slate-100 bg-white px-4 py-3 sm:px-5">
-                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Attachments</p>
+                    <p className="mb-2 text-xs font-medium text-slate-500">Attachments</p>
                     <div className="space-y-2">
                       {selectedEmail.attachments.map((attachment) => (
                         <button
@@ -1140,7 +1033,7 @@ export const EmailMarketingView: React.FC = () => {
             ) : (
               /* Empty Preview State (Matching Screenshot) */
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3.5 shadow-2xs">
+                <div className="w-16 h-16 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3.5 shadow-2xs">
                   <Mail className="w-8 h-8" />
                 </div>
                 <h3 className="text-sm font-bold text-slate-800 mb-1">Select an email to view</h3>
@@ -1153,7 +1046,6 @@ export const EmailMarketingView: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'campaigns' && <ComingSoon tab="campaigns" />}
 
       {activeTab === 'sequences' && <DripSequencesView />}
 
@@ -1170,13 +1062,13 @@ export const EmailMarketingView: React.FC = () => {
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <input type="search" value={templateSearch} onChange={(event) => { setTemplateSearch(event.target.value); setTemplatePage(1); }} placeholder="Search templates…" aria-label="Search email templates" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:w-56" />
+                <input type="search" value={templateSearch} onChange={(event) => { setTemplateSearch(event.target.value); setTemplatePage(1); }} placeholder="Search templates…" aria-label="Search email templates" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-800 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 sm:w-56" />
               </div>
               <button
                 type="button"
                 onClick={() => openTemplateEditor()}
                 disabled={!canManageEmail}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus className="h-3.5 w-3.5" /> New template
               </button>
@@ -1241,7 +1133,7 @@ export const EmailMarketingView: React.FC = () => {
                     type="button"
                     onClick={() => useTemplateInCompose(tmpl)}
                     disabled={!canManageEmail || !gmailStatus?.connected}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Use in email
                   </button>
@@ -1263,19 +1155,17 @@ export const EmailMarketingView: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'audience' && <ComingSoon tab="audience" />}
 
-      {activeTab === 'deliverability' && <ComingSoon tab="deliverability" />}
 
       {/* ─────────────────────────────────────────────────────────────
           MODAL: COMPOSE EMAIL
       ───────────────────────────────────────────────────────────── */}
       {isComposeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-600/10 flex items-center justify-center text-indigo-600">
+                <div className="w-7 h-7 rounded-lg bg-teal-600/10 flex items-center justify-center text-teal-600">
                   <Send className="w-4 h-4" />
                 </div>
                 <h3 className="text-sm font-bold text-slate-900">Compose New Outbound Email</h3>
@@ -1306,18 +1196,18 @@ export const EmailMarketingView: React.FC = () => {
                   value={composeTo}
                   onChange={(e) => setComposeTo(e.target.value)}
                   placeholder="client@example.com, teammate@example.com"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                 />
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Cc <span className="font-normal text-slate-400">(optional)</span></label>
-                  <input type="text" value={composeCc} onChange={(e) => setComposeCc(e.target.value)} placeholder="cc@example.com" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                  <input type="text" value={composeCc} onChange={(e) => setComposeCc(e.target.value)} placeholder="cc@example.com" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Bcc <span className="font-normal text-slate-400">(optional)</span></label>
-                  <input type="text" value={composeBcc} onChange={(e) => setComposeBcc(e.target.value)} placeholder="bcc@example.com" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                  <input type="text" value={composeBcc} onChange={(e) => setComposeBcc(e.target.value)} placeholder="bcc@example.com" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
                 </div>
               </div>
 
@@ -1329,7 +1219,7 @@ export const EmailMarketingView: React.FC = () => {
                   value={composeSubject}
                   onChange={(e) => setComposeSubject(e.target.value)}
                   placeholder="Subject line..."
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                 />
               </div>
 
@@ -1350,7 +1240,7 @@ export const EmailMarketingView: React.FC = () => {
                 value={composeBody}
                 onChange={(e) => setComposeBody(e.target.value)}
                 placeholder="Type your message here..."
-                className="w-full p-3 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none font-sans"
+                className="w-full p-3 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none font-sans"
               />
 
               {composeError && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-700">{composeError}</p>}
@@ -1372,7 +1262,7 @@ export const EmailMarketingView: React.FC = () => {
                   <button
                     type="submit"
                     disabled={composeSending}
-                    className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-colors shadow-xs flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="px-4 py-1.5 rounded-lg bg-teal-500 hover:bg-teal-600 text-white font-bold transition-colors shadow-xs flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>{composeSending ? 'Sending…' : 'Send'}</span>
@@ -1386,7 +1276,7 @@ export const EmailMarketingView: React.FC = () => {
 
       {isTemplateEditorOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
-          <div className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+          <div className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <FileCode className="h-4 w-4 text-purple-600" />
@@ -1399,30 +1289,30 @@ export const EmailMarketingView: React.FC = () => {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label htmlFor="template-title" className="mb-1 block font-semibold text-slate-700">Template name</label>
-                  <input id="template-title" required maxLength={160} value={templateTitle} onChange={(event) => setTemplateTitle(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                  <input id="template-title" required maxLength={160} value={templateTitle} onChange={(event) => setTemplateTitle(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
                 </div>
                 <div>
                   <label htmlFor="template-category" className="mb-1 block font-semibold text-slate-700">Category</label>
-                  <input id="template-category" required maxLength={80} value={templateCategory} onChange={(event) => setTemplateCategory(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                  <input id="template-category" required maxLength={80} value={templateCategory} onChange={(event) => setTemplateCategory(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
                 </div>
               </div>
               <div>
                 <label htmlFor="template-subject" className="mb-1 block font-semibold text-slate-700">Subject</label>
-                <input id="template-subject" required maxLength={300} value={templateSubject} onChange={(event) => setTemplateSubject(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                <input id="template-subject" required maxLength={300} value={templateSubject} onChange={(event) => setTemplateSubject(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
               </div>
               <div>
                 <label htmlFor="template-description" className="mb-1 block font-semibold text-slate-700">Description <span className="font-normal text-slate-400">(optional)</span></label>
-                <input id="template-description" maxLength={500} value={templateDescription} onChange={(event) => setTemplateDescription(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                <input id="template-description" maxLength={500} value={templateDescription} onChange={(event) => setTemplateDescription(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
               </div>
               <div>
                 <label htmlFor="template-body" className="mb-1 block font-semibold text-slate-700">Message</label>
-                <textarea id="template-body" required rows={10} value={templateBody} onChange={(event) => setTemplateBody(event.target.value)} className="w-full resize-y rounded-lg border border-slate-200 p-3 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                <textarea id="template-body" required rows={10} value={templateBody} onChange={(event) => setTemplateBody(event.target.value)} className="w-full resize-y rounded-lg border border-slate-200 p-3 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
                 <p className="mt-1 text-[10px] text-slate-400">Placeholders such as {'{{firstName}}'} stay as text until you replace them.</p>
               </div>
               {templatesError && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-700">{templatesError}</p>}
               <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
                 <button type="button" onClick={() => setIsTemplateEditorOpen(false)} disabled={templateSaving} className="rounded-lg px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">Cancel</button>
-                <button type="submit" disabled={templateSaving} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 font-bold text-white hover:bg-indigo-700 disabled:opacity-50"><Save className="h-3.5 w-3.5" /> {templateSaving ? 'Saving…' : 'Save template'}</button>
+                <button type="submit" disabled={templateSaving} className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 font-bold text-white hover:bg-teal-700 disabled:opacity-50"><Save className="h-3.5 w-3.5" /> {templateSaving ? 'Saving…' : 'Save template'}</button>
               </div>
             </form>
           </div>
@@ -1434,7 +1324,7 @@ export const EmailMarketingView: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       {previewTemplate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+          <div className="bg-white rounded-xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <FileCode className="w-4 h-4 text-purple-600" />
@@ -1471,7 +1361,7 @@ export const EmailMarketingView: React.FC = () => {
                   useTemplateInCompose(previewTemplate);
                 }}
                 disabled={!canManageEmail || !gmailStatus?.connected}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-colors text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                className="px-4 py-1.5 rounded-lg bg-teal-500 hover:bg-teal-600 text-white font-bold transition-colors text-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Use in email
               </button>

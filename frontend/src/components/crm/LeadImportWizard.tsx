@@ -265,7 +265,7 @@ function Wizard({ onClose, onImported }: Omit<LeadImportWizardProps, 'isOpen'>) 
       {step === 'upload' && (
         <div className="space-y-4">
           <label htmlFor={ids.file}
-            className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-300 dark:border-[#2B293E] rounded-2xl text-center cursor-pointer hover:border-teal-500 focus-within:ring-2 focus-within:ring-teal-500">
+            className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-300 dark:border-[#2B293E] rounded-xl text-center cursor-pointer hover:border-teal-500 focus-within:ring-2 focus-within:ring-teal-500">
             <Upload className="w-6 h-6 text-teal-600" aria-hidden="true" />
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{reading ? 'Reading the file…' : fileName ? 'Choose a different file' : 'Choose a spreadsheet'}</span>
             <span className="text-xs text-slate-500">Excel (.xlsx, .xls) or CSV, up to {MAX_IMPORT_ROWS.toLocaleString('en-IN')} rows per import</span>

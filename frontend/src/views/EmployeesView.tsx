@@ -115,6 +115,10 @@ export const EmployeesView: React.FC = () => {
 
   const [saved, setSaved] = useState<SavedDirectory>(() => readSaved(tenantId));
   const query = saved.query;
+  // Search, department and status are always shown; the rest open on demand, and stay open while one is in use.
+  const [showMore, setShowMore] = useState<boolean | null>(null);
+  const moreActive = [query.designationId, query.employmentTypeId, query.branchId, query.managerId, query.joinedFrom, query.joinedTo].filter(Boolean).length;
+  const moreOpen = showMore ?? moreActive > 0;
   const [searchText, setSearchText] = useState(query.search ?? '');
   const [page, setPage] = useState<{ items: DirectoryEmployee[]; total: number; totalPages: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -277,10 +281,10 @@ export const EmployeesView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
+    <div data-dark-safe className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 dark:text-white">People</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">People</h1>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Everyone employed by this workspace, past and present.</p>
         </div>
         <div className="flex gap-2 self-start sm:self-auto">
@@ -299,7 +303,7 @@ export const EmployeesView: React.FC = () => {
 
       <SummaryStrip summary={summary} />
 
-      <section aria-label="Search and filters" className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-[#2B293E] dark:bg-[#181724]">
+      <section aria-label="Search and filters" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-[#2B293E] dark:bg-[#181724]">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="sm:col-span-2">
             <label htmlFor={`${ids}-search`} className={labelClass}>Search</label>
@@ -311,10 +315,18 @@ export const EmployeesView: React.FC = () => {
           </div>
           <FilterSelect id={`${ids}-dept`} label="Department" value={query.departmentId} onChange={(v) => changeQuery({ departmentId: v })}
             options={filters?.departments.map((d) => ({ id: d.id, name: d.department_name }))} all="All departments" />
-          <FilterSelect id={`${ids}-desig`} label="Designation" value={query.designationId} onChange={(v) => changeQuery({ designationId: v })}
-            options={filters?.designations.map((d) => ({ id: d.id, name: d.designation_name }))} all="All designations" />
           <FilterSelect id={`${ids}-status`} label="Employment status" value={query.status} onChange={(v) => changeQuery({ status: v })}
             options={filters?.statuses.map((s) => ({ id: s, name: statusMeta(s).label }))} all="All statuses" />
+        </div>
+
+        <button type="button" onClick={() => setShowMore(!moreOpen)} aria-expanded={moreOpen} aria-controls={`${ids}-more`}
+          className="inline-flex items-center gap-1 rounded text-sm font-medium text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300">
+          {moreOpen ? 'Fewer filters' : `More filters${moreActive ? ` (${moreActive} in use)` : ''}`}
+        </button>
+        {moreOpen && (
+          <div id={`${ids}-more`} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <FilterSelect id={`${ids}-desig`} label="Designation" value={query.designationId} onChange={(v) => changeQuery({ designationId: v })}
+            options={filters?.designations.map((d) => ({ id: d.id, name: d.designation_name }))} all="All designations" />
           <FilterSelect id={`${ids}-type`} label="Employment type" value={query.employmentTypeId} onChange={(v) => changeQuery({ employmentTypeId: v })}
             options={filters?.employmentTypes.map((t) => ({ id: t.id, name: t.employment_type_name }))} all="All types" />
           <FilterSelect id={`${ids}-branch`} label="Work location" value={query.branchId} onChange={(v) => changeQuery({ branchId: v })}
@@ -343,7 +355,8 @@ export const EmployeesView: React.FC = () => {
             <label htmlFor={`${ids}-to`} className={labelClass}>Joined to</label>
             <input id={`${ids}-to`} type="date" value={query.joinedTo ?? ''} min={query.joinedFrom} onChange={(e) => changeQuery({ joinedTo: e.target.value || undefined })} className={fieldClass} />
           </div>
-        </div>
+          </div>
+        )}
 
         {isFiltered && (
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-[#2B293E]">
@@ -516,12 +529,12 @@ const SummaryStrip: React.FC<{ summary: EmployeeDirectorySummary | null }> = ({ 
     : null;
   if (!tiles) return null;
   return (
-    <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5 dark:border-[#2B293E] dark:bg-[#2B293E]">
+    <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5 dark:border-[#2B293E] dark:bg-[#2B293E]">
       {tiles.map((t) => (
         <div key={t.label} className="bg-white px-4 py-3 dark:bg-[#181724]">
-          <dt className="text-xs font-semibold text-slate-500 dark:text-slate-400">{t.label}</dt>
-          <dd className="mt-1 text-2xl font-bold tabular-nums text-slate-800 dark:text-white">{t.value}</dd>
-          <dd className="text-[11px] text-slate-400 dark:text-slate-500">{t.hint}</dd>
+          <dt className="text-xs text-slate-500 dark:text-slate-400">{t.label}</dt>
+          <dd className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{t.value}</dd>
+          <dd className="text-xs text-slate-500 dark:text-slate-400">{t.hint}</dd>
         </div>
       ))}
     </dl>

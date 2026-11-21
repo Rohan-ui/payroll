@@ -179,6 +179,17 @@ function linkedInColumn(value: unknown, kind: 'profile' | 'company'): string | n
   if (!linkedIn) throw new BadRequestException(kind === 'profile' ? LINKEDIN_INVALID : 'Invalid LinkedIn company URL.');
   return linkedIn.url;
 }
+/**
+ * A lead's score as given, or none. No default: a number nobody worked out
+ * would be shown as if it had been. Refuses anything but a whole number 0–100.
+ */
+export function leadScore(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 100) throw new BadRequestException('A lead score is a whole number from 0 to 100.');
+  return n;
+}
+
 @Injectable()
 export class CrmService {
   private readonly logger = new Logger(CrmService.name);
@@ -601,7 +612,7 @@ export class CrmService {
         source_id: data.sourceId || data.source_id || null,
         assigned_tenant_member_id: data.assignedTenantMemberId || data.assigned_user_id || memberId || null,
         temperature,
-        ai_score: data.aiScore || data.ai_score || 50,
+        ai_score: leadScore(data.aiScore ?? data.ai_score),
         win_probability: data.winProbability ? new Prisma.Decimal(data.winProbability) : new Prisma.Decimal(20),
         urgency: data.urgency || 'MEDIUM',
         custom_attributes: customAttributes || undefined,
@@ -652,7 +663,7 @@ export class CrmService {
     if (data.urgency !== undefined) updateData.urgency = data.urgency;
     if (data.isWon !== undefined || data.is_won !== undefined) updateData.is_won = data.isWon ?? data.is_won;
     if (data.isLost !== undefined || data.is_lost !== undefined) updateData.is_lost = data.isLost ?? data.is_lost;
-    if (data.aiScore !== undefined || data.ai_score !== undefined) updateData.ai_score = Number(data.aiScore || data.ai_score);
+    if (data.aiScore !== undefined || data.ai_score !== undefined) updateData.ai_score = leadScore(data.aiScore ?? data.ai_score);
     if (data.winProbability !== undefined || data.win_probability !== undefined) updateData.win_probability = new Prisma.Decimal(data.winProbability || data.win_probability);
     // A new assignee must be an eligible member of this workspace; the change goes on the lead's activity.
     let assignmentNote: string | null = null;

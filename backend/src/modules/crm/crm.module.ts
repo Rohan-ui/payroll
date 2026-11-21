@@ -10,12 +10,14 @@ import { CrmOutreachChannelService } from './crm-outreach-channel.service';
 import { QuotationDocumentsService } from './quotation-documents.service';
 import { DocumentsModule } from '@/modules/documents/documents.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { CrmReportsService } from './crm-reports.service';
 
 @Module({
   imports: [PrismaModule, MailModule, DocumentsModule, WhatsAppModule],
   controllers: [CrmController],
   providers: [
     CrmService,
+    CrmReportsService,
     CrmLeadAssignmentService,
     CrmLeadImportService,
     CrmOutreachEmailService,

@@ -1,221 +1,192 @@
-'use client';
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { StatStrip } from '../ui/StatStrip';
+import { crmApi, type CrmReportSummary } from '../../api/crm.api';
+import { errorText, fieldClass } from '../../views/payroll/payroll-format';
 
-import React from 'react';
-import { 
-  TrendingUp, Sparkles, Trophy, Users, PieChart, BarChart3,
-  Target, ShieldAlert, ArrowUpRight, CheckCircle2, DollarSign
-} from 'lucide-react';
+/** The one series colour, as on the other charts in the app. */
+const SERIES = '#0d9488';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const inr = (value: string | number | null | undefined) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value ?? 0));
+
+const card = 'rounded-xl border border-slate-200 bg-white p-5 dark:border-[#2B293E] dark:bg-[#181724]';
+const heading = 'text-sm font-semibold text-slate-900 dark:text-slate-100';
 
 interface CRMAnalyticsProps {
-  leads: any[];
-  stages: any[];
-  sources: any[];
+  /** Opens the pipeline board filtered to a stage. */
   onSelectStage?: (stageId: string) => void;
+  /** Opens the list of won deals. */
   onSelectWon?: () => void;
-  onSelectLead360?: (leadId: string) => void;
 }
 
-export default function CRMAnalytics({ leads, stages, sources, onSelectStage, onSelectWon, onSelectLead360 }: CRMAnalyticsProps) {
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(val || 0);
-  };
+/**
+ * CRM reports from the server: every lead in the sales pipelines that the
+ * member may see, never just the page the browser holds. Open and won value,
+ * the weighted forecast, open deals by stage, sources, assignees and wins by
+ * month.
+ */
+export default function CRMAnalytics({ onSelectStage, onSelectWon }: CRMAnalyticsProps) {
+  const id = useId();
+  const [report, setReport] = useState<CrmReportSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pipelineId, setPipelineId] = useState('');
 
-  const totalDeals = leads.length;
-  const totalValue = leads.reduce((acc, l) => acc + Number(l.budget_amount || 0), 0);
-  const wonLeads = leads.filter(l => l.is_won || l.temperature === 'WON');
-  const wonValue = wonLeads.reduce((acc, l) => acc + Number(l.budget_amount || 0), 0);
-  const winRate = totalDeals > 0 ? Math.round((wonLeads.length / totalDeals) * 100) : 0;
-  const avgDealSize = totalDeals > 0 ? Math.round(totalValue / totalDeals) : 0;
+  const load = useCallback(() => {
+    setError(null);
+    crmApi.reportSummary().then((r) => setReport(r.data)).catch((e) => setError(errorText(e)));
+  }, []);
+  useEffect(load, [load]);
 
-  const weightedForecast = leads.reduce((acc, l) => {
-    const stage = stages.find(s => s.id === l.stage_id);
-    const prob = Number(stage?.stage_probability || l.win_probability || 20);
-    return acc + (Number(l.budget_amount || 0) * prob / 100);
-  }, 0);
+  const pipelines = useMemo(() => {
+    const seen = new Map<string, string>();
+    report?.stages.forEach((s) => seen.set(s.pipelineId, s.pipelineName));
+    return [...seen.entries()].map(([value, name]) => ({ value, name }));
+  }, [report]);
+  const shownPipeline = pipelineId || pipelines[0]?.value || '';
+  const stages = report?.stages.filter((s) => s.pipelineId === shownPipeline) ?? [];
+  const maxStage = Math.max(1, ...stages.map((s) => s.count));
 
-  // Group by Source
-  const sourceStats = sources.map(src => {
-    const srcLeads = leads.filter(l => l.source_id === src.id);
-    const srcVal = srcLeads.reduce((acc, l) => acc + Number(l.budget_amount || 0), 0);
-    return {
-      name: src.name,
-      channel: src.channel,
-      count: srcLeads.length,
-      value: srcVal
-    };
-  }).filter(s => s.count > 0);
+  if (error) {
+    return (
+      <p role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <span>The reports could not be loaded: {error}</span>
+        <button type="button" onClick={load} className="font-semibold underline">Try again</button>
+      </p>
+    );
+  }
+  if (!report) return <div className={`${card} h-64 animate-pulse motion-reduce:animate-none`} aria-busy="true"><span className="sr-only" role="status">Loading reports</span></div>;
+
+  const t = report.totals;
+  const trend = report.wonByMonth.map((m) => ({ ...m, label: `${MONTHS[Number(m.month.slice(5)) - 1]} ${m.month.slice(2, 4)}`, amount: Number(m.value) }));
 
   return (
-    <div className="space-y-6">
-      {/* KPI Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {/* Total Pipeline */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Pipeline</span>
-          <div className="text-xl font-bold text-slate-900">{formatCurrency(totalValue)}</div>
-          <p className="text-[10px] text-slate-500">{totalDeals} active opportunities</p>
-        </div>
+    <div className="space-y-5">
+      <StatStrip label="Sales summary" stats={[
+        { label: 'Open pipeline', value: inr(t.openValue), hint: `${t.openCount} open deal${t.openCount === 1 ? '' : 's'}` },
+        { label: 'Weighted forecast', value: inr(t.weightedForecast), hint: 'Open value × stage probability' },
+        { label: 'Won', value: inr(t.wonValue), hint: `${t.wonCount} deal${t.wonCount === 1 ? '' : 's'}`, ...(onSelectWon ? { onClick: onSelectWon, actionLabel: 'See the won deals' } : {}) },
+        { label: 'Win rate', value: t.winRate === null ? '—' : `${t.winRate}%`, hint: t.winRate === null ? 'No deals closed yet' : `Of ${t.wonCount + t.lostCount} closed · average win ${inr(t.averageWon)}` },
+      ]} />
 
-        {/* Weighted Forecast */}
-        <div className="bg-blue-50/70 p-4 rounded-xl border border-blue-200 shadow-xs space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Weighted Forecast</span>
-            <TrendingUp className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="text-xl font-bold text-blue-900">{formatCurrency(weightedForecast)}</div>
-          <p className="text-[10px] text-blue-600 font-medium">Probability-adjusted expected ARR</p>
-        </div>
-
-        {/* Won Value */}
-        <div 
-          onClick={() => onSelectWon && onSelectWon()}
-          className={`p-4 rounded-xl border border-emerald-200 shadow-xs space-y-1 transition-all ${
-            onSelectWon ? 'bg-emerald-50/80 hover:bg-emerald-100/80 cursor-pointer' : 'bg-emerald-50/70'
-          }`}
-          title={onSelectWon ? 'Click to view all Won Deals' : undefined}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Deals Won</span>
-            <Trophy className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-xl font-bold text-emerald-900">{formatCurrency(wonValue)}</div>
-          <p className="text-[10px] text-emerald-600 font-medium">
-            {wonLeads.length} deals closed {onSelectWon ? '· Click to view →' : ''}
-          </p>
-        </div>
-
-        {/* Win Rate */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Win Rate %</span>
-          <div className="text-xl font-bold text-slate-900">{winRate}%</div>
-          <div className="w-full bg-slate-100 rounded-full h-1.5 mt-1 overflow-hidden">
-            <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${winRate}%` }} />
-          </div>
-        </div>
-
-        {/* Avg Deal Size */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Avg Deal Size</span>
-          <div className="text-xl font-bold text-slate-900">{formatCurrency(avgDealSize)}</div>
-          <p className="text-[10px] text-slate-500">Per qualified contract</p>
-        </div>
-      </div>
-
-      {/* Conversion Funnel */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
+      <section className={card} aria-labelledby={`${id}-stages`}>
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Sales Pipeline Conversion Funnel</h3>
-            <p className="text-xs text-slate-500">Click any stage to view matching leads in Kanban or Directory</p>
+            <h2 id={`${id}-stages`} className={heading}>Open deals by stage</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{onSelectStage ? 'Choose a stage to see its deals on the board.' : 'Deals not yet won or lost.'}</p>
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 pt-2">
-          {stages.map((stg) => {
-            const count = leads.filter(l => l.stage_id === stg.id).length;
-            const percentage = totalDeals > 0 ? Math.round((count / totalDeals) * 100) : 0;
-
-            return (
-              <div 
-                key={stg.id} 
-                onClick={() => onSelectStage && onSelectStage(stg.id)}
-                className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between space-y-2 ${
-                  onSelectStage 
-                    ? 'bg-slate-50 hover:bg-blue-50 hover:border-blue-300 cursor-pointer shadow-2xs hover:shadow-xs' 
-                    : 'bg-slate-50 border-slate-200'
-                }`}
-                title={onSelectStage ? `Click to view all ${count} deals in "${stg.name}"` : undefined}
-              >
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: stg.color || '#3b82f6' }} />
-                    <span className="text-xs font-bold text-slate-800 truncate">{stg.name}</span>
-                  </div>
-                  <div className="text-lg font-black text-slate-900 mt-1">{count} Deals</div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                    <span>Funnel Share</span>
-                    <span>{percentage}%</span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="h-1.5 rounded-full"
-                      style={{ width: `${Math.max(percentage, 5)}%`, backgroundColor: stg.color || '#3b82f6' }}
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Lead Sources & Temperature Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Source ROI */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Lead Acquisition Channels & ROI</h3>
-          <div className="space-y-3">
-            {sourceStats.map((src, idx) => (
-              <div key={idx} className="space-y-1">
-                <div className="flex justify-between text-xs font-semibold text-slate-800">
-                  <div className="flex items-center gap-2">
-                    <span>{src.name}</span>
-                    <span className="text-[10px] text-slate-400 font-normal">({src.channel})</span>
-                  </div>
-                  <span>{formatCurrency(src.value)} ({src.count} leads)</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full"
-                    style={{ width: `${totalValue > 0 ? (src.value / totalValue) * 100 : 0}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-
-            {sourceStats.length === 0 && (
-              <p className="text-xs text-slate-400 py-4 text-center">No source channel data available.</p>
-            )}
-          </div>
-        </div>
-
-        {/* AI Deal Intelligence */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Voogyo AI Next Best Actions</h3>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1">
-              <span className="font-bold text-amber-900 block">High-Value Lead Follow-Up Required</span>
-              <p className="text-amber-800 text-[11px]">
-                3 deals valued above ₹5,00,000 have not had an activity logged in the past 48 hours. Schedule a demo or check-in call.
-              </p>
+          {pipelines.length > 1 && (
+            <div className="w-full sm:w-56">
+              <label htmlFor={`${id}-pipeline`} className="sr-only">Pipeline</label>
+              <select id={`${id}-pipeline`} className={fieldClass} value={shownPipeline} onChange={(e) => setPipelineId(e.target.value)}>
+                {pipelines.map((p) => <option key={p.value} value={p.value}>{p.name}</option>)}
+              </select>
             </div>
-
-            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
-              <span className="font-bold text-blue-900 block">Proposal Acceleration</span>
-              <p className="text-blue-800 text-[11px]">
-                Leads in "Requirement Analysis" have an average AI win score of 82. Send commercial proposals to improve conversion velocity.
-              </p>
-            </div>
-
-            <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1">
-              <span className="font-bold text-emerald-900 block">Inbound Website Channel Outperforming</span>
-              <p className="text-emerald-800 text-[11px]">
-                Website inbound leads are closing with 35% higher deal sizes than other channels. Recommend allocating marketing budget to SEO.
-              </p>
-            </div>
-          </div>
+          )}
         </div>
+        {stages.length === 0 ? <p className="mt-3 text-sm text-slate-500">This pipeline has no stages yet. Add them in CRM settings.</p> : (
+          <ul className="mt-4 space-y-1">
+            {stages.map((s) => {
+              const row = (
+                <>
+                  <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700 dark:text-slate-300 sm:w-48">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.color }} aria-hidden="true" />
+                    <span className="truncate">{s.name}</span>
+                  </span>
+                  <span className="h-2.5 flex-1 rounded-sm bg-slate-100 dark:bg-white/5" aria-hidden="true">
+                    <span className="block h-2.5 rounded-r" style={{ width: `${(s.count / maxStage) * 100}%`, backgroundColor: SERIES }} />
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-sm tabular-nums text-slate-900 dark:text-slate-100">{s.count}</span>
+                  <span className="hidden w-28 shrink-0 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400 sm:block">{inr(s.value)}</span>
+                </>
+              );
+              return (
+                <li key={s.id}>
+                  {onSelectStage ? (
+                    <button type="button" onClick={() => onSelectStage(s.id)} aria-label={`${s.name}: ${s.count} deals, ${inr(s.value)}. Show on the board`}
+                      className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:hover:bg-white/5">
+                      {row}
+                    </button>
+                  ) : <div className="flex items-center gap-3 px-2 py-1.5">{row}</div>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section className={card} aria-labelledby={`${id}-trend`}>
+        <h2 id={`${id}-trend`} className={heading}>Deals won, last 12 months</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">By the month the deal was won.</p>
+        <div className="mt-3 h-52">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={trend} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748b' }} interval="preserveStartEnd" />
+              <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748b' }} width={40} />
+              <Tooltip cursor={{ fill: 'rgba(148,163,184,0.12)' }} content={({ active, payload }) => {
+                const p = active && (payload?.[0]?.payload as (typeof trend)[number] | undefined);
+                if (!p) return null;
+                return (
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-[#2B293E] dark:bg-[#1E1D2D]">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">{p.label}</p>
+                    <p className="tabular-nums text-slate-600 dark:text-slate-300">{p.won} won · {inr(p.value)}</p>
+                  </div>
+                );
+              }} />
+              <Bar dataKey="won" fill={SERIES} radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <table className="sr-only">
+          <caption>Deals won by month</caption>
+          <thead><tr><th scope="col">Month</th><th scope="col">Won</th><th scope="col">Value</th></tr></thead>
+          <tbody>{trend.map((m) => <tr key={m.month}><td>{m.label}</td><td>{m.won}</td><td>{inr(m.value)}</td></tr>)}</tbody>
+        </table>
+      </section>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <section className={card} aria-labelledby={`${id}-sources`}>
+          <h2 id={`${id}-sources`} className={heading}>Leads by source</h2>
+          {report.sources.length === 0 ? <p className="mt-3 text-sm text-slate-500">No leads yet.</p> : (
+            <table className="mt-3 w-full text-sm">
+              <thead className="text-xs text-slate-500 dark:text-slate-400">
+                <tr><th scope="col" className="py-1.5 text-left font-medium">Source</th><th scope="col" className="py-1.5 text-right font-medium">Leads</th><th scope="col" className="py-1.5 text-right font-medium">Won</th><th scope="col" className="py-1.5 text-right font-medium">Value</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-[#2B293E]">
+                {report.sources.map((s) => (
+                  <tr key={s.name}>
+                    <td className="py-2 pr-3 text-slate-700 dark:text-slate-300">{s.name}</td>
+                    <td className="py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">{s.leads}</td>
+                    <td className="py-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{s.won}</td>
+                    <td className="py-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{inr(s.value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        <section className={card} aria-labelledby={`${id}-assignees`}>
+          <h2 id={`${id}-assignees`} className={heading}>By assignee</h2>
+          {report.assignees.length === 0 ? <p className="mt-3 text-sm text-slate-500">No leads yet.</p> : (
+            <table className="mt-3 w-full text-sm">
+              <thead className="text-xs text-slate-500 dark:text-slate-400">
+                <tr><th scope="col" className="py-1.5 text-left font-medium">Assignee</th><th scope="col" className="py-1.5 text-right font-medium">Open</th><th scope="col" className="py-1.5 text-right font-medium">Open value</th><th scope="col" className="py-1.5 text-right font-medium">Won</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-[#2B293E]">
+                {report.assignees.map((a) => (
+                  <tr key={a.name}>
+                    <td className="py-2 pr-3 text-slate-700 dark:text-slate-300">{a.name}</td>
+                    <td className="py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">{a.open}</td>
+                    <td className="py-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{inr(a.openValue)}</td>
+                    <td className="py-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{a.won}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
       </div>
     </div>
   );

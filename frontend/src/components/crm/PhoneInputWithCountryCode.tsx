@@ -70,7 +70,7 @@ export function PhoneInputWithCountryCode({
     <div className={`relative flex items-stretch rounded-xl border transition-all duration-150 ${
       isWhatsApp 
         ? 'border-emerald-200 bg-emerald-50/20 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20' 
-        : 'border-slate-200 bg-slate-50/50 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:bg-white'
+        : 'border-slate-200 bg-slate-50/50 focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-500/20 focus-within:bg-white'
     } ${disabled ? 'opacity-60 cursor-not-allowed' : ''} ${className}`}>
       
       {/* Country Code Dropdown */}

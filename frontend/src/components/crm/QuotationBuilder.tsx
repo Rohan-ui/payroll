@@ -102,7 +102,7 @@ function templateLines(template: any): Line[] {
 const leadLabel = (lead: any) =>
   [lead.company_name, [lead.first_name, lead.last_name].filter(Boolean).join(' ')].filter(Boolean).join(' — ') + (lead.lead_code ? ` (${lead.lead_code})` : '');
 
-const fieldClass = 'w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500';
+const fieldClass = 'w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500';
 const invalidClass = 'border-red-400';
 
 export default function QuotationBuilder({ services, canAddServices = false, templates, initialLeadId, quotation, onCancel, onSaved }: QuotationBuilderProps) {
@@ -358,7 +358,7 @@ export default function QuotationBuilder({ services, canAddServices = false, tem
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
         <div className="lg:col-span-2 space-y-4">
           <section className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3" aria-labelledby={`${ids}-customer`}>
-            <h4 id={`${ids}-customer`} className="text-xs font-bold uppercase tracking-wider text-slate-500">Customer</h4>
+            <h4 id={`${ids}-customer`} className="text-sm font-semibold text-slate-900 dark:text-slate-100">Customer</h4>
             {isEdit ? (
               <p className="text-xs text-slate-800">
                 <span className="font-bold">{quotation.lead_company_name || quotation.lead?.company_name || 'Lead'}</span>
@@ -388,7 +388,7 @@ export default function QuotationBuilder({ services, canAddServices = false, tem
 
           <section className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3" aria-labelledby={`${ids}-lines`}>
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-              <h4 id={`${ids}-lines`} className="text-xs font-bold uppercase tracking-wider text-slate-500">Line items</h4>
+              <h4 id={`${ids}-lines`} className="text-sm font-semibold text-slate-900 dark:text-slate-100">Line items</h4>
               {templates.length > 0 && (
                 <div className="flex items-end gap-2">
                   <div>
@@ -501,7 +501,7 @@ export default function QuotationBuilder({ services, canAddServices = false, tem
           </section>
 
           <section className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3" aria-labelledby={`${ids}-terms`}>
-            <h4 id={`${ids}-terms`} className="text-xs font-bold uppercase tracking-wider text-slate-500">Tax, validity and notes</h4>
+            <h4 id={`${ids}-terms`} className="text-sm font-semibold text-slate-900 dark:text-slate-100">Tax, validity and notes</h4>
             <fieldset>
               <legend className="block text-xs font-bold text-slate-700 mb-1">GST</legend>
               <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 text-xs text-slate-700">
@@ -555,7 +555,7 @@ export default function QuotationBuilder({ services, canAddServices = false, tem
         </div>
 
         <aside className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 lg:sticky lg:top-4" aria-labelledby={`${ids}-summary`}>
-          <h4 id={`${ids}-summary`} className="text-xs font-bold uppercase tracking-wider text-slate-500">Summary</h4>
+          <h4 id={`${ids}-summary`} className="text-sm font-semibold text-slate-900 dark:text-slate-100">Summary</h4>
           <dl className="text-xs space-y-1.5 tabular-nums">
             <div className="flex justify-between"><dt className="text-slate-600">Subtotal</dt><dd>{formatPaise(totals.subtotal)}</dd></div>
             {taxMode === 'INTRA_STATE' ? (
@@ -573,7 +573,7 @@ export default function QuotationBuilder({ services, canAddServices = false, tem
           </dl>
           <p className="text-[11px] text-slate-500">A preview; the server calculates the saved amounts the same way.</p>
           <div className="flex flex-col gap-2 pt-1">
-            <button type="submit" disabled={saving} className="px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50">
+            <button type="submit" disabled={saving} className="px-4 py-2.5 text-xs font-bold text-white bg-teal-500 hover:bg-teal-600 rounded-lg disabled:opacity-50">
               {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save quotation'}
             </button>
             <button type="button" onClick={onCancel} disabled={saving} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">

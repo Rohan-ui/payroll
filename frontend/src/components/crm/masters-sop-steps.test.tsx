@@ -42,7 +42,7 @@ it('adds a step with its day, channels and messages', async () => {
       el.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
-  act(() => button('30-Day SOP Funnel').click());
+  act(() => button('30-day outreach steps').click());
   expect(button('Add SOP Step')).toBeDefined();
   act(() => button('Add SOP Step').click());
 

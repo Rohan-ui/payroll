@@ -121,8 +121,8 @@ export const EmployeeDetailView: React.FC<{ initialTab?: ProfileTab }> = ({ init
   };
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between dark:border-[#2B293E] dark:bg-[#181724]">
+    <div data-dark-safe className="space-y-4">
+      <header className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between dark:border-[#2B293E] dark:bg-[#181724]">
         <div className="flex min-w-0 items-center gap-4">
           <button type="button" onClick={() => setCurrentView('people')} aria-label="Back to People"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:border-[#2B293E] dark:hover:text-white">
@@ -131,7 +131,7 @@ export const EmployeeDetailView: React.FC<{ initialTab?: ProfileTab }> = ({ init
           <Avatar name={profile.personal.fullName} size="lg" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-lg font-bold text-slate-800 dark:text-white">{profile.personal.fullName}</h1>
+              <h1 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{profile.personal.fullName}</h1>
               <Badge variant={status.variant}>{status.label}</Badge>
               {onProbation && <Badge variant="info">On probation</Badge>}
             </div>
@@ -146,7 +146,7 @@ export const EmployeeDetailView: React.FC<{ initialTab?: ProfileTab }> = ({ init
         )}
       </header>
 
-      {error && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">{error}</p>}
+      {error && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">{error}</p>}
 
       <div role="tablist" aria-label="Employee sections" onKeyDown={onTabKey} className="flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-[#2B293E]">
         {visible.map((t) => (

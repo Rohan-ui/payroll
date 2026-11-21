@@ -173,7 +173,7 @@ export default function IndustriesMaster() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 uppercase tracking-wider">
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50">
               Global CRM Setting
             </span>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
@@ -181,7 +181,7 @@ export default function IndustriesMaster() {
             </span>
           </div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2 mt-1">
-            <Layers className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <Layers className="w-5 h-5 text-teal-600 dark:text-teal-400" />
             Global Industry & Sub-Industry Taxonomy
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -190,7 +190,7 @@ export default function IndustriesMaster() {
         </div>
         <button
           onClick={handleOpenAddIndustry}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-colors shadow-sm cursor-pointer"
+          className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-colors shadow-sm cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           Add Main Industry
@@ -198,7 +198,7 @@ export default function IndustriesMaster() {
       </div>
 
       {/* List */}
-      <div className="bg-white dark:bg-[#181724] rounded-2xl border border-slate-200 dark:border-[#2B293E] overflow-hidden shadow-sm">
+      <div className="bg-white dark:bg-[#181724] rounded-xl border border-slate-200 dark:border-[#2B293E] overflow-hidden shadow-sm">
         {safeIndustries.length === 0 ? (
           <div className="p-12 text-center text-slate-500 dark:text-slate-400">
             <Layers className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
@@ -212,7 +212,7 @@ export default function IndustriesMaster() {
                   <div>
                     <h3 className="font-bold text-slate-900 dark:text-white text-lg flex items-center gap-2">
                       {ind.name}
-                      <span className="px-2 py-0.5 bg-slate-100 dark:bg-[#252336] text-slate-600 dark:text-slate-300 rounded-lg text-[10px] font-bold uppercase tracking-wider">
+                      <span className="px-2 py-0.5 bg-slate-100 dark:bg-[#252336] text-slate-600 dark:text-slate-300 rounded-lg text-xs font-medium">
                         {ind.sub_industries?.length || 0} Sub-sectors
                       </span>
                     </h3>
@@ -223,14 +223,14 @@ export default function IndustriesMaster() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleOpenAddSubIndustry(ind.id)}
-                      className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
+                      className="p-2 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40 rounded-lg transition-colors cursor-pointer"
                       title="Add Sub-Industry"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleOpenEditIndustry(ind)}
-                      className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
+                      className="p-2 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40 rounded-lg transition-colors cursor-pointer"
                       title="Edit Industry"
                     >
                       <Edit3 className="w-4 h-4" />
@@ -250,13 +250,13 @@ export default function IndustriesMaster() {
                   {ind.sub_industries?.map((sub: any) => (
                     <div
                       key={sub.id || sub.name}
-                      className="group flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#15141F] border border-slate-200 dark:border-[#2B293E] rounded-lg shadow-xs text-sm font-medium text-slate-700 dark:text-slate-300 hover:border-indigo-200 dark:hover:border-indigo-500/50 hover:shadow-sm transition-all"
+                      className="group flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#15141F] border border-slate-200 dark:border-[#2B293E] rounded-lg shadow-xs text-sm font-medium text-slate-700 dark:text-slate-300 hover:border-teal-200 dark:hover:border-teal-500/50 hover:shadow-sm transition-all"
                     >
                       <span>{sub.name}</span>
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1 border-l border-slate-200 dark:border-[#2B293E] pl-1.5">
                         <button
                           onClick={() => handleOpenEditSubIndustry(sub)}
-                          className="p-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                          className="p-0.5 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors cursor-pointer"
                         >
                           <Edit3 className="w-3 h-3" />
                         </button>
@@ -282,9 +282,9 @@ export default function IndustriesMaster() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#181724] max-w-md w-full rounded-2xl p-6 shadow-2xl border border-slate-200 dark:border-[#2B293E] animate-in zoom-in-95">
+          <div className="bg-white dark:bg-[#181724] max-w-md w-full rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-[#2B293E] animate-in zoom-in-95">
             <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-              <Layers className="w-5 h-5 text-indigo-500" />
+              <Layers className="w-5 h-5 text-teal-500" />
               {editingId ? 'Edit' : 'Add'} {modalType === 'industry' ? 'Industry' : 'Sub-Industry'}
             </h3>
             
@@ -297,7 +297,7 @@ export default function IndustriesMaster() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder={`e.g. ${modalType === 'industry' ? 'Manufacturing' : 'Chemicals'}`}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-[#15141F] border border-slate-200 dark:border-[#2B293E] rounded-xl text-sm font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-[#15141F] border border-slate-200 dark:border-[#2B293E] rounded-xl text-sm font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 />
               </div>
 
@@ -312,7 +312,7 @@ export default function IndustriesMaster() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-2 text-sm font-bold text-white bg-teal-500 hover:bg-teal-600 rounded-xl shadow-sm flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   Save

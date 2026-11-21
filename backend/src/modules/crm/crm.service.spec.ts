@@ -182,3 +182,17 @@ describe('CrmService.seedCadenceDemoLeads', () => {
     expect(pipelines).toHaveBeenCalled();
   });
 });
+
+describe('lead score', () => {
+  it('is empty until given, and only ever a whole number from 0 to 100', async () => {
+    const { leadScore } = await import('./crm.service');
+    expect(leadScore(undefined)).toBeNull();
+    expect(leadScore(null)).toBeNull();
+    expect(leadScore('')).toBeNull();
+    expect(leadScore(0)).toBe(0);
+    expect(leadScore('82')).toBe(82);
+    expect(() => leadScore(101)).toThrow('A lead score is a whole number from 0 to 100.');
+    expect(() => leadScore(4.5)).toThrow();
+    expect(() => leadScore('high')).toThrow();
+  });
+});

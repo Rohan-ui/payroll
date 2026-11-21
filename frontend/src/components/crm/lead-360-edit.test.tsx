@@ -78,4 +78,17 @@ describe('Lead 360 edit', () => {
     expect(updates()).toEqual([]);
     expect(editForm()).toBeUndefined();
   });
+
+  it('never fills a missing title or brief with an invented person', async () => {
+    await act(async () => root.render(<Lead360Drawer leadId="l1" onClose={() => undefined} onRefreshParent={() => undefined} />));
+    await settle();
+    const drawer = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(drawer.getAttribute('aria-label')).toContain('Lead:');
+    expect(document.body.textContent).not.toMatch(/Founder|Nexus Quantum|Aditya|Embassy Tech|Bengaluru|Inbound \/ Outbound|Voogyo AI|Voogyo RND/);
+    expect([...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Overview', 'Outreach', 'Activity', 'History', 'Follow-ups', 'Meetings', 'Quotations']);
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Overview');
+    expect(document.body.textContent).toContain('No requirements recorded yet');
+    expect(document.querySelector('button[aria-label="Close"]')).not.toBeNull();
+  });
 });
+

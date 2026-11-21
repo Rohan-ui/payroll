@@ -79,7 +79,7 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
             Back to pipeline
@@ -94,7 +94,7 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
           type="button"
           onClick={() => void load()}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
           Refresh
@@ -121,7 +121,7 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
           <table className="w-full min-w-[760px] text-left text-sm">
             <caption className="sr-only">Won deals, most recent first</caption>
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-500">
+              <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
                 <th scope="col" className="py-3 px-4 font-bold">Company</th>
                 <th scope="col" className="py-3 px-4 font-bold">Contact</th>
                 <th scope="col" className="py-3 px-4 font-bold">Converted client</th>
@@ -151,7 +151,7 @@ export default function WonDealsView({ onBack, onSelectLead360 }: WonDealsViewPr
                     <button
                       type="button"
                       onClick={() => onSelectLead360(deal.id)}
-                      className="font-bold text-slate-900 hover:text-blue-700 hover:underline text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      className="font-bold text-slate-900 hover:text-teal-700 hover:underline text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                     >
                       {deal.company_name}
                     </button>

@@ -91,7 +91,9 @@ const button = (text: string) => [...container.querySelectorAll('button')].find(
 async function openConvertDialog() {
   await act(async () => root?.render(<CrmWorkspaceView />));
   await flush();
-  const convert = button('Convert Opp');
+  // Converting is in the card's menu.
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"][aria-label^="More for"]')?.click());
+  const convert = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.trim() === 'Convert to opportunity');
   expect(convert).toBeDefined();
   act(() => convert?.click());
 }

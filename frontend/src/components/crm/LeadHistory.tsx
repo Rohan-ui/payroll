@@ -15,7 +15,7 @@ interface Page {
 }
 
 const quiet = { feedback: { success: false, error: false } } as RequestInit;
-const selectClass = 'h-8 px-2 rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
+const selectClass = 'h-8 px-2 rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500';
 const PAGE_SIZE = 50;
 
 const dayHeading = (iso: string) => {
@@ -128,7 +128,7 @@ export function LeadHistory({ leadId, pipelines = [], stages = [] }: Props) {
             const failed = entry.action_type === 'OUTREACH_EMAIL_FAILED';
             return (
               <li key={entry.id}>
-                {showHeading && <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-1">{heading}</h4>}
+                {showHeading && <h4 className="text-xs font-medium text-slate-400 mt-3 mb-1">{heading}</h4>}
                 <div className={`p-3 rounded-xl border ${failed ? 'border-red-200 bg-red-50/40' : 'border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D]'}`}>
                   <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
                     <time dateTime={entry.created_at} className="text-slate-500 tabular-nums">
@@ -149,7 +149,7 @@ export function LeadHistory({ leadId, pipelines = [], stages = [] }: Props) {
 
       {entries && page < totalPages && (
         <button type="button" onClick={() => load(page + 1)} disabled={loading}
-          className="w-full h-8 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+          className="w-full h-8 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
           {loading ? 'Loading…' : 'Show older'}
         </button>
       )}

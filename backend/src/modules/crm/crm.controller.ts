@@ -36,6 +36,7 @@ import { RequirePermissions } from '@/common/decorators/access.decorators';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
 import { AccessService } from '@/common/access/access.service';
 import { PermissionKey } from '@/common/access/access-catalog';
+import { CrmReportsService } from './crm-reports.service';
 
 /**
  * The acting member comes from the session (@CurrentUser), never from a
@@ -47,6 +48,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class CrmController {
   constructor(
     private readonly crmService: CrmService,
+    private readonly reports: CrmReportsService,
     private readonly accessService: AccessService,
     private readonly assignments: CrmLeadAssignmentService,
     private readonly leadImport: CrmLeadImportService,
@@ -148,6 +150,13 @@ export class CrmController {
   ) {
     const data = await this.crmService.handleInboundWebhook(tenantId, body);
     return { success: true, data, message: 'Lead received successfully' };
+  }
+
+  /** Totals and breakdowns of every lead in the sales pipelines that the member may see. */
+  @Get('reports/summary')
+  @RequirePermissions('analytics.view')
+  async reportSummary(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    return { success: true, data: await this.reports.summary(tenantId, await this.visibility(tenantId, actor)) };
   }
 
   @Get('leads')

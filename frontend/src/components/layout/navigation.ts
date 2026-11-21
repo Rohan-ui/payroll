@@ -46,10 +46,10 @@ export interface NavPresentation {
 export const NAV_PRESENTATION: Record<string, NavPresentation> = {
   dashboard: { icon: LayoutDashboard, view: 'dashboard' },
   crm: { icon: Target },
-  'crm.cold-funnel': { icon: Sparkles, view: 'crm', tab: 'cold-funnel', badge: '30D', hasPlus: true },
+  'crm.cold-funnel': { icon: Sparkles, view: 'crm', tab: 'cold-funnel', hasPlus: true },
   'crm.pipeline': { icon: Kanban, view: 'crm', tab: 'pipeline', hasPlus: true },
   'crm.leads': { icon: ListChecks, view: 'crm', tab: 'leads' },
-  'crm.emails': { icon: Mail, view: 'emails', badge: 'New', hasPlus: true },
+  'crm.emails': { icon: Mail, view: 'emails', hasPlus: true },
   'crm.activities': { icon: Clock, view: 'crm', tab: 'activities', hasPlus: true },
   'crm.proposals': { icon: FileText, view: 'crm', tab: 'proposals', hasPlus: true },
   'crm.whatsapp': { icon: MessageSquare, view: 'crm', tab: 'whatsapp', hasPlus: true },

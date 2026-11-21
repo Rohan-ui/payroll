@@ -239,7 +239,7 @@ export const WhatsAppMappingWizardModal: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="relative w-full max-w-5xl rounded-2xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150">
+      <div className="relative w-full max-w-5xl rounded-xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#2B293E] px-6 py-4 bg-slate-50/50 dark:bg-[#252339]/40">
@@ -348,7 +348,7 @@ export const WhatsAppMappingWizardModal: React.FC<Props> = ({
                         <span className="font-bold text-xs text-slate-800 dark:text-slate-100">
                           {t.template_name}
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300">
                           {t.category}
                         </span>
                       </div>
@@ -684,7 +684,7 @@ export const WhatsAppMappingWizardModal: React.FC<Props> = ({
 
                     {/* Provider JSON Payload Preview */}
                     <div className="p-3 bg-slate-900 text-slate-200 font-mono text-[11px] overflow-x-auto max-h-52">
-                      <div className="text-[10px] uppercase font-bold text-emerald-400 mb-1 flex items-center justify-between">
+                      <div className="text-xs font-medium text-emerald-400 mb-1 flex items-center justify-between">
                         <span>External WhatsApp API Payload</span>
                         <span className="text-slate-400 font-normal">POST .../send-template-message</span>
                       </div>

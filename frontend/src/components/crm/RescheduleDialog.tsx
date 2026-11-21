@@ -52,9 +52,9 @@ export function RescheduleDialog({ lead, today, onClose, onDone }: Props) {
       footer={
         <>
           <button type="button" onClick={onClose} disabled={saving}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Cancel</button>
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">Cancel</button>
           <button type="button" onClick={save} disabled={saving || !date}
-            className="px-4 py-2 text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50">
+            className="px-4 py-2 text-sm font-semibold rounded-xl bg-teal-500 hover:bg-teal-600 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50">
             {saving ? 'Moving…' : date ? `Move to ${shortDate(date)}` : 'Move'}
           </button>
         </>
@@ -65,12 +65,12 @@ export function RescheduleDialog({ lead, today, onClose, onDone }: Props) {
         <div>
           <label htmlFor={ids.date} className="block text-xs font-semibold text-slate-700 mb-1">New due date</label>
           <input id={ids.date} type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)}
-            className="w-full h-10 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500" />
+            className="w-full h-10 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500" />
         </div>
         <div>
           <label htmlFor={ids.reason} className="block text-xs font-semibold text-slate-700 mb-1">Reason <span className="font-normal text-slate-500">(optional)</span></label>
           <input id={ids.reason} value={reason} maxLength={2000} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Asked to call after Diwali"
-            className="w-full h-10 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500" />
+            className="w-full h-10 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500" />
         </div>
         <p className="text-[11px] text-slate-500">The next touchpoints follow from when this one is done.</p>
       </div>

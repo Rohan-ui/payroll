@@ -246,28 +246,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [access],
   );
 
-  const effectiveNavigation = useMemo<NavigationEntry[]>(() => {
-    if (!access?.navigation) return NO_NAVIGATION;
-    const list = [...access.navigation];
-    const crmItem = list.find((e) => e.id === 'crm' || e.parent === 'crm');
-    if (crmItem && !list.some((e) => e.id === 'crm.whatsapp')) {
-      const idx = list.findIndex((e) => e.id === 'crm.proposals');
-      const whatsappEntry: NavigationEntry = {
-        id: 'crm.whatsapp' as any,
-        label: 'WhatsApp Templates',
-        parent: 'crm' as any,
-        module: 'CRM' as any,
-        moduleName: 'CRM',
-        moduleEnabled: crmItem.moduleEnabled,
-      };
-      if (idx !== -1) {
-        list.splice(idx + 1, 0, whatsappEntry);
-      } else {
-        list.push(whatsappEntry);
-      }
-    }
-    return list;
-  }, [access]);
+  // Exactly what the server sends; the client never adds an entry (WhatsApp Templates included).
+  const effectiveNavigation = useMemo<NavigationEntry[]>(() => access?.navigation ?? NO_NAVIGATION, [access]);
 
   const navigationEntry = useCallback(
     (navId: string) => effectiveNavigation.find((entry) => entry.id === navId),

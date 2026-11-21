@@ -147,7 +147,7 @@ export const WhatsAppSendModal: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="relative w-full max-w-xl rounded-2xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] flex flex-col overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150">
+      <div className="relative w-full max-w-xl rounded-xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] flex flex-col overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#2B293E] px-6 py-4 bg-slate-50/50 dark:bg-[#252339]/40">
@@ -273,7 +273,7 @@ export const WhatsAppSendModal: React.FC<Props> = ({
               {selectedTemplate && (selectedTemplate.detected_variables || []).length > 0 && (
                 <div className="p-3.5 bg-slate-50 dark:bg-[#252339]/50 rounded-xl border border-slate-200 dark:border-[#2B293E] space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300 block">
                       Dynamic Variables
                     </span>
                     <span className="text-[10px] text-slate-400">

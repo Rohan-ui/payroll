@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useId } from 'react';
 import {
   ArrowLeft,
   UserPlus,
@@ -20,6 +20,8 @@ import {
 import { usePayroll } from '../context/PayrollContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { PageHeader } from '../components/ui/PageHeader';
+import { fieldClass, labelClass } from './payroll/payroll-format';
 import { employeesApi } from '../api/employees.api';
 
 interface IfscInfo {
@@ -34,6 +36,7 @@ interface IfscInfo {
 }
 
 export const AddEmployeeView: React.FC = () => {
+  const ids = useId();
   const {
     setCurrentView,
     addEmployee,
@@ -276,45 +279,28 @@ export const AddEmployeeView: React.FC = () => {
     }
   };
 
-  const inputClass =
-    'w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all';
+  const inputClass = `${fieldClass} h-11`;
 
   return (
-    <div className="w-full space-y-6 pb-12">
-      {/* Top Breadcrumb & Page Title */}
-      <div>
-        <button
-          type="button"
-          onClick={() => setCurrentView('people')}
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0E5A47] transition-colors mb-2 cursor-pointer"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to People Directory
+    <div data-dark-safe className="w-full space-y-6 pb-12">
+      <div className="space-y-2">
+        <button type="button" onClick={() => setCurrentView('people')}
+          className="inline-flex items-center gap-1.5 rounded text-sm font-medium text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> People
         </button>
-
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-slate-800">
-                Add New Employee
-              </h1>
-            </div>
-            <p className="text-sm text-slate-500 mt-1">
-              Create an official employee profile with dynamic department & Razorpay IFSC validation
-            </p>
-          </div>
-        </div>
+        <PageHeader breadcrumb={['People', 'Add employee']} title="Add employee" description="Their job, bank account and salary. Everything can be changed later from their profile." />
       </div>
 
       {/* Notifications */}
       {successMessage && (
-        <div className="flex items-center gap-2.5 p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-2xl shadow-xs">
+        <div role="status" className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span className="font-medium">{successMessage}</span>
         </div>
       )}
 
       {errorMessage && (
-        <div className="flex items-center gap-2.5 p-4 bg-red-50 border border-red-200 text-red-800 text-sm rounded-2xl shadow-xs">
+        <div role="alert" className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
           <span className="font-medium">{errorMessage}</span>
         </div>
@@ -324,18 +310,18 @@ export const AddEmployeeView: React.FC = () => {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* 1. Identity & Employment Information */}
         <Card
-          title="1. Personal & Employment Details"
-          subtitle="Official employment identifier, designation, and contact information"
+          title="Personal and job details"
+          subtitle="Their employee ID, contact details and role."
         >
           <div className="space-y-4 pt-1">
             {/* Identity & Contact Row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Employee Code */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label htmlFor={`${ids}-f1`} className={labelClass}>
                   Employee Code *
                 </label>
-                <input
+                <input id={`${ids}-f1`}
                   type="text"
                   required
                   value={employeeCode}
@@ -343,17 +329,17 @@ export const AddEmployeeView: React.FC = () => {
                   placeholder="e.g. RND009"
                   className={`${inputClass} font-mono font-medium`}
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Unique staff code for punches and payslips
                 </p>
               </div>
 
               {/* Full Name */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label htmlFor={`${ids}-f2`} className={labelClass}>
                   Full Name *
                 </label>
-                <input
+                <input id={`${ids}-f2`}
                   type="text"
                   required
                   value={fullName}
@@ -361,17 +347,17 @@ export const AddEmployeeView: React.FC = () => {
                   placeholder="e.g. Priya Sharma"
                   className={inputClass}
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Legal name as shown in official documents
                 </p>
               </div>
 
               {/* Work Email */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label htmlFor={`${ids}-f3`} className={labelClass}>
                   Work Email *
                 </label>
-                <input
+                <input id={`${ids}-f3`}
                   type="email"
                   required
                   value={workEmail}
@@ -379,24 +365,24 @@ export const AddEmployeeView: React.FC = () => {
                   placeholder="e.g. priya@company.in"
                   className={inputClass}
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Official tenant email for system access
                 </p>
               </div>
 
               {/* Mobile Number */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label htmlFor={`${ids}-f4`} className={labelClass}>
                   Mobile Number
                 </label>
-                <input
+                <input id={`${ids}-f4`}
                   type="tel"
                   value={mobileNumber}
                   onChange={(e) => setMobileNumber(e.target.value)}
                   placeholder="e.g. 9876543210"
                   className={inputClass}
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Primary contact number for notifications
                 </p>
               </div>
@@ -407,7 +393,7 @@ export const AddEmployeeView: React.FC = () => {
               {/* Dynamic Department */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-slate-700">
+                  <label htmlFor={`${ids}-dept`} className={labelClass}>
                     Department *
                   </label>
                   <button
@@ -416,15 +402,15 @@ export const AddEmployeeView: React.FC = () => {
                       setIsCustomDept(!isCustomDept);
                       if (!isCustomDept) setCustomDept('');
                     }}
-                    className="text-[11px] font-semibold text-teal-700 hover:text-teal-900 cursor-pointer"
+                    className="rounded text-xs font-medium text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300"
                   >
-                    {isCustomDept ? '← Choose Existing' : '+ Enter New Department'}
+                    {isCustomDept ? 'Choose an existing department' : 'Add a new department'}
                   </button>
                 </div>
 
                 {isCustomDept ? (
                   <div className="space-y-1">
-                    <input
+                    <input id={`${ids}-dept`}
                       type="text"
                       required
                       value={customDept}
@@ -437,7 +423,7 @@ export const AddEmployeeView: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  <select
+                  <select id={`${ids}-dept`}
                     value={selectedDept}
                     onChange={(e) => {
                       if (e.target.value === '__NEW__') {
@@ -462,7 +448,7 @@ export const AddEmployeeView: React.FC = () => {
               {/* Dynamic Designation */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-slate-700">
+                  <label htmlFor={`${ids}-desig`} className={labelClass}>
                     Designation
                   </label>
                   <button
@@ -471,14 +457,14 @@ export const AddEmployeeView: React.FC = () => {
                       setIsCustomDesig(!isCustomDesig);
                       if (!isCustomDesig) setCustomDesig('');
                     }}
-                    className="text-[11px] font-semibold text-teal-700 hover:text-teal-900 cursor-pointer"
+                    className="rounded text-xs font-medium text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300"
                   >
-                    {isCustomDesig ? '← Choose Existing' : '+ Enter New Designation'}
+                    {isCustomDesig ? 'Choose an existing designation' : 'Add a new designation'}
                   </button>
                 </div>
 
                 {isCustomDesig ? (
-                  <input
+                  <input id={`${ids}-desig`}
                     type="text"
                     value={customDesig}
                     onChange={(e) => setCustomDesig(e.target.value)}
@@ -486,7 +472,7 @@ export const AddEmployeeView: React.FC = () => {
                     className={`${inputClass} border-teal-300 ring-1 ring-teal-200`}
                   />
                 ) : (
-                  <select
+                  <select id={`${ids}-desig`}
                     value={selectedDesig}
                     onChange={(e) => {
                       if (e.target.value === '__NEW__') {
@@ -510,17 +496,17 @@ export const AddEmployeeView: React.FC = () => {
 
               {/* Joining Date */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label htmlFor={`${ids}-f5`} className={labelClass}>
                   Joining Date *
                 </label>
-                <input
+                <input id={`${ids}-f5`}
                   type="date"
                   required
                   value={joiningDate}
                   onChange={(e) => setJoiningDate(e.target.value)}
                   className={inputClass}
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Official date of commencement of employment
                 </p>
               </div>
@@ -533,23 +519,21 @@ export const AddEmployeeView: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* 2. Bank Details with Razorpay IFSC Verification */}
           <Card
-            title="2. Bank Details & Direct Deposit Advice"
-            subtitle="All IFSC codes are verified in real time using the official Razorpay Bank Directory"
+            title="Bank account"
+            subtitle="Where their salary is paid. The IFSC is checked against the bank directory."
           >
             <div className="space-y-4 pt-1">
               {/* IFSC Code with Live Verification */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-slate-700">
+                    <label htmlFor={`${ids}-ifsc`} className={labelClass}>
                       IFSC Code *
                     </label>
-                    <span className="text-[10px] text-teal-700 font-bold uppercase tracking-wider">
-                      Razorpay Checked
-                    </span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Checked against the bank directory</span>
                   </div>
                   <div className="relative">
-                    <input
+                    <input id={`${ids}-ifsc`}
                       type="text"
                       required
                       maxLength={11}
@@ -598,17 +582,17 @@ export const AddEmployeeView: React.FC = () => {
 
                 {/* Bank Name (Auto-populated by Razorpay) */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  <label htmlFor={`${ids}-f6`} className={labelClass}>
                     Bank Name
                   </label>
-                  <input
+                  <input id={`${ids}-f6`}
                     type="text"
                     value={bankName}
                     onChange={(e) => setBankName(e.target.value)}
                     placeholder="Auto-filled from IFSC"
                     className={inputClass}
                   />
-                  <p className="text-[11px] text-slate-400 mt-1">
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     Populates automatically when a valid IFSC is entered
                   </p>
                 </div>
@@ -617,11 +601,11 @@ export const AddEmployeeView: React.FC = () => {
               {/* Account Number & Confirm Account Number */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  <label htmlFor={`${ids}-f7`} className={labelClass}>
                     Account Number *
                   </label>
                   <div className="relative">
-                    <input
+                    <input id={`${ids}-f7`}
                       type={showAccountNumber ? 'text' : 'password'}
                       required
                       value={accountNumber}
@@ -646,11 +630,11 @@ export const AddEmployeeView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  <label htmlFor={`${ids}-f8`} className={labelClass}>
                     Confirm Account Number *
                   </label>
                   <div className="relative">
-                    <input
+                    <input id={`${ids}-f8`}
                       type={showConfirmAccountNumber ? 'text' : 'password'}
                       required={!!accountNumber}
                       value={confirmAccountNumber}
@@ -686,7 +670,7 @@ export const AddEmployeeView: React.FC = () => {
           </Card>
 
           {/* 3. Salary */}
-          <Card title="3. Salary" subtitle="Kept in Payroll, with its history">
+          <Card title="Salary" subtitle="Kept in Payroll, with its history.">
             <p className="pt-1 text-sm text-slate-600 dark:text-slate-400">
               Salaries aren’t entered here. After saving, open the employee and use <strong>Set salary</strong> in their Salary panel, or import salaries in <strong>Payroll → Setup → Import salaries</strong>.
               Each salary is recorded from a date with its structure, so past months keep the pay they were worked out on.

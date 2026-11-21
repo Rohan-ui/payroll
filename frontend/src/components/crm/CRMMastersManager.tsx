@@ -1,13 +1,8 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { 
-  Settings2, Plus, Edit3, Trash2, CheckCircle2, RefreshCw, X,
-  Layers, Tag, Flag, Briefcase, HelpCircle, Check, Palette, FileText,
-  Users, MoreVertical, AlertTriangle, ShieldCheck, Mail, Phone, DollarSign,
-  FolderKanban, GripVertical, Clock, MessageSquare, Send, Sparkles,
-  ExternalLink, ChevronRight, Share2, Target, PhoneCall, ArrowUpDown,
-  Eye, EyeOff, LayoutGrid, List, Info, Crown, Radio
+import {
+  Plus, Edit3, Trash2, CheckCircle2, RefreshCw, X, Layers, Tag, Flag, Briefcase, HelpCircle, Check, FileText, Users, AlertTriangle, GripVertical, Clock, MessageSquare, Send, Sparkles, Target, ArrowUpDown, Eye, EyeOff, LayoutGrid, List, Info, Crown, Radio,
 } from 'lucide-react';
 import WordDocumentEditor from './WordDocumentEditor';
 import IndustriesMaster from './IndustriesMaster';
@@ -15,6 +10,7 @@ import LeadIntegrationsCenter from './LeadIntegrationsCenter';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
+import { Button } from '../ui/Button';
 interface CRMMastersManagerProps {
   onRefreshParent: () => void;
 }
@@ -34,6 +30,24 @@ const MASTER_ACTIONS: Record<string, { create: boolean; update: boolean; delete:
   templates: { create: false, update: false, delete: true },
 };
 const canChange = (tab: string, action: 'create' | 'update' | 'delete') => MASTER_ACTIONS[tab]?.[action] ?? false;
+
+/** What each settings section is, in a line, so people know what they're changing. */
+const SECTION_INFO: Record<string, { title: string; description: string }> = {
+  pipelines: { title: 'Pipelines', description: 'The sales processes deals move through. Each has its own stages.' },
+  stages: { title: 'Pipeline stages', description: 'The steps of each pipeline, with the win probability the forecast uses.' },
+  lost_reasons: { title: 'Lost reasons', description: 'Why a deal was lost; chosen when someone marks a deal lost.' },
+  sources: { title: 'Lead sources', description: 'Where leads come from; chosen on each lead and used in reports.' },
+  industries: { title: 'Industries', description: 'Industries and sub-industries to classify leads.' },
+  sales_persons: { title: 'Assignees', description: 'The people leads can be assigned to.' },
+  sop_steps: { title: '30-day outreach steps', description: 'What to do on each day of client outreach, and on which channel.' },
+  sop_branches: { title: 'Objection replies', description: 'Ready replies for the objections leads raise during outreach.' },
+  services: { title: 'Services', description: 'What you sell, with the default rates quotations start from.' },
+  templates: { title: 'Quotation templates', description: 'The layouts quotation documents are made from.' },
+  integrations: { title: 'APIs & lead channels', description: 'Connections that bring leads into the CRM.' },
+};
+
+/** A stored code shown as words: INBOUND_WEB becomes "Inbound web". */
+const words = (code: string | null | undefined) => (code ? `${code.charAt(0)}${code.slice(1).toLowerCase().replace(/_/g, ' ')}` : '—');
 
 export default function CRMMastersManager({ onRefreshParent }: CRMMastersManagerProps) {
   const [activeMasterTab, setActiveMasterTab] = useState<
@@ -485,194 +499,98 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
   return (
     <div className="space-y-4">
 
-      {/* Sub-Header & Navigation */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Settings2 className="w-5 h-5 text-blue-600" />
-            <h3 className="font-bold text-sm text-slate-900">CRM Master Configuration & Dropdowns</h3>
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Configure dropdown values, 30-Day SOP strategy & dynamic messages. Reorder any list from the backend by dragging and dropping.
-          </p>
-        </div>
-
+      {/* The page title is the CRM header above; this is the settings toolbar. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <ArrowUpDown className="h-3.5 w-3.5" aria-hidden="true" /> Drag rows to change their order.
+        </p>
         <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1 text-[11px] text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
-            <ArrowUpDown className="w-3.5 h-3.5 text-blue-600" />
-            <span>Drag & drop rows to reorder positions</span>
-          </div>
-          <button
-            onClick={fetchAllMasters}
-            className="p-2 hover:bg-slate-100 rounded-lg border border-slate-200 text-slate-500 transition-colors"
-            title="Refresh Masters"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-          </button>
+          <Button variant="ghost" size="sm" onClick={fetchAllMasters} aria-label="Refresh">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
+          </Button>
           {canChange(activeMasterTab, 'create') && (
-            <button
-              onClick={handleOpenAdd}
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add to Master</span>
-            </button>
+            <Button size="sm" onClick={handleOpenAdd}>
+              <Plus className="h-4 w-4" aria-hidden="true" /> Add to Master
+            </Button>
           )}
         </div>
       </div>
 
-      {/* TABS HEADER */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto text-xs font-semibold scrollbar-none">
-        {/* Dynamic Global CRM Industries */}
-        <button
-          onClick={() => { setActiveMasterTab('industries'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap font-bold ${
-            activeMasterTab === 'industries'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Industries & Sub-Industries</span>
-        </button>
-
-        <div className="h-4 w-px bg-slate-300 mx-1 flex-shrink-0" />
-
-        {/* 30-Day SOP Funnel Steps */}
-        <button
-          onClick={() => { setActiveMasterTab('sop_steps'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'sop_steps'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>30-Day SOP Funnel ({sopSteps.length})</span>
-        </button>
-
-        {/* SOP Reply Branches */}
-        <button
-          onClick={() => { setActiveMasterTab('sop_branches'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'sop_branches'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Target className="w-3.5 h-3.5" />
-          <span>SOP Objection Strategies ({sopBranches.length})</span>
-        </button>
-
-        <div className="h-4 w-px bg-slate-300 mx-1 flex-shrink-0" />
-
-        {/* Pipeline Stages */}
-        <button
-          onClick={() => { setActiveMasterTab('stages'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'stages'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Flag className="w-3.5 h-3.5" />
-          <span>Pipeline Stages ({stages.length})</span>
-        </button>
-
-        {/* Pipelines */}
-        <button
-          onClick={() => { setActiveMasterTab('pipelines'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'pipelines'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Pipelines ({pipelines.length})</span>
-        </button>
-
-        {/* Lead Sources */}
-        <button
-          onClick={() => { setActiveMasterTab('sources'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'sources'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Tag className="w-3.5 h-3.5" />
-          <span>Lead Sources ({sources.length})</span>
-        </button>
-
-        {/* Services Master */}
-        <button
-          onClick={() => { setActiveMasterTab('services'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'services'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Briefcase className="w-3.5 h-3.5" />
-          <span>Services Master ({services.length})</span>
-        </button>
-
-        {/* Lost Reasons */}
-        <button
-          onClick={() => { setActiveMasterTab('lost_reasons'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'lost_reasons'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <HelpCircle className="w-3.5 h-3.5" />
-          <span>Lost Reasons ({lostReasons.length})</span>
-        </button>
-
-        {/* Quotation Templates */}
-        <button
-          onClick={() => { setActiveMasterTab('templates'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'templates'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>Quotation Templates ({templates.length})</span>
-        </button>
-
-        {/* Assignee Master */}
-        <button
-          onClick={() => { setActiveMasterTab('sales_persons'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
-            activeMasterTab === 'sales_persons'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          <span>Assignees ({salesPersons.length})</span>
-        </button>
-
-        {/* APIs & Lead Channels */}
-        <button
-          onClick={() => { setActiveMasterTab('integrations'); setOpenActionId(null); }}
-          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-            activeMasterTab === 'integrations'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 border hover:bg-slate-50'
-          }`}
-        >
-          <Radio className="w-3.5 h-3.5 text-indigo-600" />
-          <span>APIs & Lead Channels</span>
-        </button>
-      </div>
+      {/* Settings sections, grouped by what they configure; a dropdown on phones. */}
+      {(() => {
+        const groups: { group: string; tabs: { id: typeof activeMasterTab; label: string; count?: number }[] }[] = [
+          { group: 'Pipeline', tabs: [
+            { id: 'pipelines', label: 'Pipelines', count: pipelines.length },
+            { id: 'stages', label: 'Pipeline stages', count: stages.length },
+            { id: 'lost_reasons', label: 'Lost reasons', count: lostReasons.length },
+          ] },
+          { group: 'Leads', tabs: [
+            { id: 'sources', label: 'Lead sources', count: sources.length },
+            { id: 'industries', label: 'Industries' },
+            { id: 'sales_persons', label: 'Assignees', count: salesPersons.length },
+          ] },
+          { group: 'Outreach', tabs: [
+            { id: 'sop_steps', label: '30-day outreach steps', count: sopSteps.length },
+            { id: 'sop_branches', label: 'Objection replies', count: sopBranches.length },
+          ] },
+          { group: 'Sales', tabs: [
+            { id: 'services', label: 'Services', count: services.length },
+            { id: 'templates', label: 'Quotation templates', count: templates.length },
+          ] },
+          { group: 'Integrations', tabs: [{ id: 'integrations', label: 'APIs & lead channels' }] },
+        ];
+        const choose = (id: typeof activeMasterTab) => { setActiveMasterTab(id); setOpenActionId(null); };
+        return (
+          <>
+            <div className="md:hidden">
+              <label htmlFor="crm-settings-section" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">Section</label>
+              <select id="crm-settings-section" value={activeMasterTab} onChange={(e) => choose(e.target.value as typeof activeMasterTab)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-[#2B293E] dark:bg-[#1E1D2D] dark:text-slate-100">
+                {groups.map((g) => (
+                  <optgroup key={g.group} label={g.group}>
+                    {g.tabs.map((t) => <option key={t.id} value={t.id}>{t.label}{t.count != null ? ` (${t.count})` : ''}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <nav aria-label="CRM settings sections" className="hidden flex-wrap gap-x-6 gap-y-3 border-b border-slate-200 pb-3 dark:border-[#2B293E] md:flex">
+              {groups.map((g) => (
+                <div key={g.group}>
+                  <p className="mb-1 text-[11px] font-medium text-slate-400">{g.group}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {g.tabs.map((t) => (
+                      <button key={t.id} type="button" aria-current={activeMasterTab === t.id ? 'page' : undefined} onClick={() => choose(t.id)}
+                        className={`rounded-md px-2.5 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${activeMasterTab === t.id ? 'bg-teal-50 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200'}`}>
+                        {t.label}{t.count != null && <span className="ml-1 text-xs tabular-nums text-slate-400">{t.count}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </nav>
+          </>
+        );
+      })()}
 
       {/* MASTER TABLES WITH DRAG AND DROP */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-[#2B293E] dark:bg-[#181724]">
+        {SECTION_INFO[activeMasterTab] && (
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-[#2B293E]">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{SECTION_INFO[activeMasterTab].title}</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{SECTION_INFO[activeMasterTab].description}</p>
+          </div>
+        )}
+        {(() => {
+          const counts: Partial<Record<string, number>> = {
+            pipelines: pipelines.length, stages: stages.length, lost_reasons: lostReasons.length, sources: sources.length, sales_persons: salesPersons.length,
+            sop_steps: sopSteps.length, sop_branches: sopBranches.length, services: services.length, templates: templates.length,
+          };
+          return counts[activeMasterTab] === 0 && !loading ? (
+            <p className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              Nothing here yet.{canChange(activeMasterTab, 'create') ? ' Add the first one with Add to Master.' : ''}
+            </p>
+          ) : null;
+        })()}
         {/* 1. SOP STEPS MASTER (DAY 1 TO DAY 30) */}
         {activeMasterTab === 'sop_steps' && (
           <div className="space-y-3 p-4">
@@ -680,8 +598,8 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="font-extrabold text-sm text-slate-900">30-Day Multi-Channel SOP Funnel</h4>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 text-blue-800">
+                  <h4 className="font-semibold text-sm text-slate-900">30-Day Multi-Channel SOP Funnel</h4>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-100 text-teal-800">
                     {sopSteps.length} Milestones
                   </span>
                 </div>
@@ -698,7 +616,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     onClick={() => setSopStepsViewMode('cards')}
                     className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 transition-all ${
                       sopStepsViewMode === 'cards'
-                        ? 'bg-white text-blue-700 shadow-xs'
+                        ? 'bg-white text-teal-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -710,7 +628,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     onClick={() => setSopStepsViewMode('table')}
                     className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 transition-all ${
                       sopStepsViewMode === 'table'
-                        ? 'bg-white text-blue-700 shadow-xs'
+                        ? 'bg-white text-teal-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -722,7 +640,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                 {canChange('sop_steps', 'create') && (
                   <button
                     onClick={handleOpenAdd}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 transition-colors"
+                    className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Add SOP Step</span>
@@ -749,10 +667,10 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       onDrop={(e) => handleDrop(e, idx, 'sop_steps', sopSteps, setSopSteps)}
                       className={`rounded-xl border transition-all ${
                         draggedIndex === idx 
-                          ? 'opacity-40 bg-blue-50/50 border-dashed border-blue-400' 
+                          ? 'opacity-40 bg-teal-50/50 border-dashed border-teal-400' 
                           : dragOverIndex === idx 
-                          ? 'border-blue-500 bg-blue-50/30 ring-2 ring-blue-400' 
-                          : 'bg-white border-slate-200 hover:border-blue-200 hover:shadow-xs'
+                          ? 'border-teal-500 bg-teal-50/30 ring-2 ring-teal-400' 
+                          : 'bg-white border-slate-200 hover:border-teal-200 hover:shadow-xs'
                       }`}
                     >
                       {/* Card Header */}
@@ -765,7 +683,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                             <GripVertical className="w-4 h-4" />
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="px-2.5 py-1 bg-blue-600 text-white font-extrabold rounded-lg text-xs shadow-2xs">
+                            <span className="px-2.5 py-1 bg-teal-600 text-white font-semibold rounded-lg text-xs shadow-2xs">
                               Day {step.day_number}
                             </span>
                             <span className="text-[11px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
@@ -786,8 +704,8 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                         <div className="flex items-center gap-2 ml-7 md:ml-0">
                           <button
                             type="button"
-                            onClick={() => handleOpenEdit(step, currentChannel)} disabled={!canChange(activeMasterTab, 'update')}
-                            className="disabled:hidden px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 flex items-center gap-1.5 transition-colors shadow-2xs"
+                            aria-label="Edit step" onClick={() => handleOpenEdit(step, currentChannel)} disabled={!canChange(activeMasterTab, 'update')}
+                            className="disabled:hidden px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-bold rounded-lg border border-teal-200 flex items-center gap-1.5 transition-colors shadow-2xs"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Edit Strategy & Messages</span>
@@ -812,9 +730,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                             {channels.map((ch) => (
                               <span
                                 key={ch}
-                                className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase ${
+                                className={`text-xs font-semibold px-2 py-0.5 rounded ${
                                   ch === 'WHATSAPP' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                                  ch === 'EMAIL' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' :
+                                  ch === 'EMAIL' ? 'bg-teal-50 text-teal-700 border border-teal-200' :
                                   ch === 'LINKEDIN' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
                                   'bg-amber-50 text-amber-700 border border-amber-200'
                                 }`}
@@ -839,7 +757,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                                 onClick={() => setCardActiveChannel((prev) => ({ ...prev, [step.id]: ch as any }))}
                                 className={`px-2 py-0.5 rounded transition-all ${
                                   currentChannel === ch
-                                    ? 'bg-white text-slate-900 shadow-2xs font-extrabold'
+                                    ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                                     : 'text-slate-500 hover:text-slate-800'
                                 }`}
                               >
@@ -853,12 +771,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
                         {/* Message Preview Box */}
                         <div className="bg-slate-50/80 rounded-lg p-3 border border-slate-200 text-xs font-sans relative group">
-                          <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                          <div className="flex items-center justify-between text-xs font-medium text-slate-400 mb-1.5">
                             <span>Preview of {currentChannel} message template:</span>
                             <button
                               type="button"
-                              onClick={() => handleOpenEdit(step, currentChannel)} disabled={!canChange(activeMasterTab, 'update')}
-                              className="disabled:hidden text-blue-600 hover:underline font-semibold flex items-center gap-1 lowercase"
+                              aria-label="Edit step" onClick={() => handleOpenEdit(step, currentChannel)} disabled={!canChange(activeMasterTab, 'update')}
+                              className="disabled:hidden text-teal-600 hover:underline font-semibold flex items-center gap-1 lowercase"
                             >
                               <Edit3 className="w-3 h-3" />
                               <span>edit this template</span>
@@ -933,9 +851,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
             {/* VIEW 2: DETAILED TABLE */}
             {sopStepsViewMode === 'table' && (
               <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-sm">
                   <thead>
-                    <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                       <th className="py-3 px-3 w-8" title="Drag and Drop to Reorder"></th>
                       <th className="py-3 px-4">Milestone Day</th>
                       <th className="py-3 px-4">Step Title & Strategic Goal</th>
@@ -960,17 +878,17 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                           onDragEnd={handleDragEnd}
                           onDrop={(e) => handleDrop(e, idx, 'sop_steps', sopSteps, setSopSteps)}
                           className={`hover:bg-slate-50/70 transition-all ${
-                            draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                            draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                           } ${
-                            dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                            dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                           }`}
                         >
                           <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                            <GripVertical className="w-4 h-4 mx-auto" />
+                            <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                           </td>
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-1.5">
-                              <span className="px-2.5 py-1 bg-blue-100 text-blue-800 font-extrabold rounded-md text-[11px]">
+                              <span className="px-2.5 py-1 bg-teal-100 text-teal-800 font-semibold rounded-md text-[11px]">
                                 Day {step.day_number}
                               </span>
                               <span className="text-[10px] text-slate-400 font-mono">
@@ -989,7 +907,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                                   key={ch} 
                                   className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
                                     ch === 'WHATSAPP' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                                    ch === 'EMAIL' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' :
+                                    ch === 'EMAIL' ? 'bg-teal-50 text-teal-700 border border-teal-200' :
                                     ch === 'LINKEDIN' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
                                     'bg-amber-50 text-amber-700 border border-amber-200'
                                   }`}
@@ -1012,7 +930,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                               )}
                               {templates.email?.subject && (
                                 <div className="text-[10px] text-slate-600 truncate flex items-center gap-1">
-                                  <span className="font-bold text-indigo-600">Email:</span>
+                                  <span className="font-bold text-teal-600">Email:</span>
                                   <span className="truncate">{templates.email.subject}</span>
                                 </div>
                               )}
@@ -1038,7 +956,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button 
-                                onClick={() => handleOpenEdit(step)} disabled={!canChange(activeMasterTab, 'update')} 
+                                aria-label="Edit step" onClick={() => handleOpenEdit(step)} disabled={!canChange(activeMasterTab, 'update')} 
                                 className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" 
                                 title="Edit Step Strategy & Messages"
                               >
@@ -1065,9 +983,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 2. SOP OBJECTION REPLY STRATEGIES */}
         {activeMasterTab === 'sop_branches' && (
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-3 w-8" title="Drag and Drop to Reorder"></th>
                 <th className="py-3 px-4">Objection Trigger</th>
                 <th className="py-3 px-4">Next Temperature</th>
@@ -1087,13 +1005,13 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   onDragEnd={handleDragEnd}
                   onDrop={(e) => handleDrop(e, idx, 'sop_branches', sopBranches, setSopBranches)}
                   className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                    draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                   } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                    dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                   }`}
                 >
                   <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
+                    <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                   </td>
                   <td className="py-3 px-4 font-bold text-slate-900">
                     <div>{br.label}</div>
@@ -1104,7 +1022,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       br.next_lead_temperature === 'HOT' ? 'bg-rose-100 text-rose-800' :
                       br.next_lead_temperature === 'WARM' ? 'bg-amber-100 text-amber-800' :
                       br.next_lead_temperature === 'LOST' ? 'bg-slate-100 text-slate-700' :
-                      'bg-blue-100 text-blue-800'
+                      'bg-teal-100 text-teal-800'
                     }`}>
                       {br.next_lead_temperature}
                     </span>
@@ -1134,7 +1052,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       >
                         <Eye className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
-                      <button onClick={() => handleOpenEdit(br)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Strategy">
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(br)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Strategy">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
@@ -1154,9 +1072,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 4. SOURCES */}
         {activeMasterTab === 'sources' && (
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-3 w-8"></th>
                 <th className="py-3 px-4">Source Name</th>
                 <th className="py-3 px-4">Channel Group</th>
@@ -1174,16 +1092,16 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   onDragEnd={handleDragEnd}
                   onDrop={(e) => handleDrop(e, idx, 'sources', sources, setSources)}
                   className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                    draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                   } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                    dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                   }`}
                 >
                   <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
+                    <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                   </td>
-                  <td className="py-3 px-4 font-bold text-slate-800">{s.name}</td>
-                  <td className="py-3 px-4 text-slate-600">{s.channel}</td>
+                  <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">{s.name}</td>
+                  <td className="py-3 px-4 text-slate-600">{words(s.channel)}</td>
                   <td className="py-3 px-4">
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${s.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                       {s.is_active ? 'Active' : 'Inactive'}
@@ -1191,13 +1109,13 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(s)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(s)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
                         onClick={() => setDeleteConfirmItem({ id: s.id, label: s.name, tab: 'sources' })} disabled={!canChange(activeMasterTab, 'delete')} 
                         className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
-                        title="Delete"
+                        title="Delete" aria-label="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1211,9 +1129,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 5. STAGES */}
         {activeMasterTab === 'stages' && (
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-3 w-8"></th>
                 <th className="py-3 px-4">Stage Name</th>
                 <th className="py-3 px-4">Pipeline</th>
@@ -1234,13 +1152,13 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   onDragEnd={handleDragEnd}
                   onDrop={(e) => handleDrop(e, idx, 'stages', stages, setStages)}
                   className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                    draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                   } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                    dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                   }`}
                 >
                   <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
+                    <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                   </td>
                   <td className="py-3 px-4 font-bold text-slate-800 flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stg.color }} />
@@ -1248,7 +1166,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-slate-500">{pipelines.find((p) => p.id === stg.pipeline_id)?.name ?? 'Unknown pipeline'}</td>
                   <td className="py-3 px-4 font-mono text-[11px]">{stg.color}</td>
-                  <td className="py-3 px-4 font-semibold text-blue-700">{stg.stage_probability}%</td>
+                  <td className="py-3 px-4 font-semibold text-teal-700">{stg.stage_probability}%</td>
                   <td className="py-3 px-4 text-slate-600">{stg.sla_duration_hours}h</td>
                   <td className="py-3 px-4">
                     {stg.is_won ? (
@@ -1256,18 +1174,18 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     ) : stg.is_lost ? (
                       <span className="text-[10px] font-bold bg-red-100 text-red-800 px-1.5 py-0.5 rounded">LOST</span>
                     ) : (
-                      <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">OPEN</span>
+                      <span className="text-[10px] font-bold bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded">OPEN</span>
                     )}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(stg)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(stg)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
                         onClick={() => setDeleteConfirmItem({ id: stg.id, label: stg.name, tab: 'stages' })} disabled={!canChange(activeMasterTab, 'delete')} 
                         className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
-                        title="Delete"
+                        title="Delete" aria-label="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1281,9 +1199,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 6. PIPELINES */}
         {activeMasterTab === 'pipelines' && (
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-3 w-8"></th>
                 <th className="py-3 px-4">Pipeline Name</th>
                 <th className="py-3 px-4">Code</th>
@@ -1304,35 +1222,35 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   onDragEnd={handleDragEnd}
                   onDrop={(e) => handleDrop(e, idx, 'pipelines', pipelines, setPipelines)}
                   className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                    draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                   } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                    dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                   }`}
                 >
                   <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
+                    <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                   </td>
-                  <td className="py-3 px-4 font-bold text-slate-800">{p.name}</td>
+                  <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">{p.name}</td>
                   <td className="py-3 px-4 font-mono text-[11px] text-slate-500">{p.code}</td>
                   <td className="py-3 px-4 text-slate-600">{p.pipeline_kind === 'OUTREACH' ? 'Client Outreach' : 'Sales'}</td>
                   <td className="py-3 px-4 text-slate-600">{p.stages_count || 0} stages</td>
-                  <td className="py-3 px-4 font-semibold text-blue-700">{p.leads_count || 0} deals</td>
+                  <td className="py-3 px-4 font-semibold text-teal-700">{p.leads_count || 0} deals</td>
                   <td className="py-3 px-4">
                     {p.is_default ? (
-                      <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">Default</span>
+                      <span className="text-[10px] bg-teal-100 text-teal-800 font-bold px-1.5 py-0.5 rounded">Default</span>
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(p)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(p)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
                         onClick={() => setDeleteConfirmItem({ id: p.id, label: p.name, tab: 'pipelines' })} disabled={!canChange(activeMasterTab, 'delete')} 
                         className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
-                        title="Delete"
+                        title="Delete" aria-label="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1346,9 +1264,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 7. SERVICES */}
         {activeMasterTab === 'services' && (
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-3 w-8"></th>
                 <th className="py-3 px-4">Service Name</th>
                 <th className="py-3 px-4">Category</th>
@@ -1368,15 +1286,15 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   onDragEnd={handleDragEnd}
                   onDrop={(e) => handleDrop(e, idx, 'services', services, setServices)}
                   className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                    draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                   } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                    dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                   }`}
                 >
                   <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
+                    <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                   </td>
-                  <td className="py-3 px-4 font-bold text-slate-800">{srv.name}</td>
+                  <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">{srv.name}</td>
                   <td className="py-3 px-4 text-slate-600">{srv.category}</td>
                   <td className="py-3 px-4 font-mono font-semibold text-slate-700">{srv.sac_code}</td>
                   <td className="py-3 px-4 font-bold text-slate-900">{formatCurrency(srv.default_rate)}</td>
@@ -1387,13 +1305,13 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(srv)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(srv)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
                         onClick={() => setDeleteConfirmItem({ id: srv.id, label: srv.name, tab: 'services' })} disabled={!canChange(activeMasterTab, 'delete')} 
                         className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
-                        title="Delete"
+                        title="Delete" aria-label="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1407,9 +1325,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 8. LOST REASONS */}
         {activeMasterTab === 'lost_reasons' && (
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-3 w-8"></th>
                 <th className="py-3 px-4">Lost Reason</th>
                 <th className="py-3 px-4">Status</th>
@@ -1426,15 +1344,15 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   onDragEnd={handleDragEnd}
                   onDrop={(e) => handleDrop(e, idx, 'lost_reasons', lostReasons, setLostReasons)}
                   className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                    draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                   } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                    dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                   }`}
                 >
                   <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
+                    <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                   </td>
-                  <td className="py-3 px-4 font-bold text-slate-800">{lr.reason_name}</td>
+                  <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">{lr.reason_name}</td>
                   <td className="py-3 px-4">
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${lr.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                       {lr.is_active ? 'Active' : 'Inactive'}
@@ -1442,13 +1360,13 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(lr)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(lr)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
                         onClick={() => setDeleteConfirmItem({ id: lr.id, label: lr.reason_name, tab: 'lost_reasons' })} disabled={!canChange(activeMasterTab, 'delete')} 
                         className="disabled:hidden p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600"
-                        title="Delete"
+                        title="Delete" aria-label="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1462,9 +1380,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
         {/* 9. QUOTATION TEMPLATES */}
         {activeMasterTab === 'templates' && (
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-3 w-8"></th>
                 <th className="py-3 px-4">Template Name</th>
                 <th className="py-3 px-4">Quotation Category</th>
@@ -1484,22 +1402,22 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   onDragEnd={handleDragEnd}
                   onDrop={(e) => handleDrop(e, idx, 'templates', templates, setTemplates)}
                   className={`hover:bg-slate-50/70 transition-all ${
-                    draggedIndex === idx ? 'opacity-40 bg-blue-50/50' : ''
+                    draggedIndex === idx ? 'opacity-40 bg-teal-50/50' : ''
                   } ${
-                    dragOverIndex === idx ? 'border-t-2 border-blue-500 bg-blue-50/30' : ''
+                    dragOverIndex === idx ? 'border-t-2 border-teal-500 bg-teal-50/30' : ''
                   }`}
                 >
                   <td className="py-3 px-3 text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing text-center">
-                    <GripVertical className="w-4 h-4 mx-auto" />
+                    <GripVertical className="w-4 h-4 mx-auto" aria-hidden="true" />
                   </td>
-                  <td className="py-3 px-4 font-bold text-slate-800">
+                  <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">
                     <div className="flex items-center gap-2">
-                      <FileText className="w-3.5 h-3.5 text-blue-600" />
+                      <FileText className="w-3.5 h-3.5 text-teal-600" />
                       <span>{tmpl.name}</span>
                     </div>
                   </td>
                   <td className="py-3 px-4">
-                    <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold text-[10px]">
+                    <span className="px-2 py-0.5 rounded bg-teal-50 text-teal-700 font-semibold text-[10px]">
                       {tmpl.category}
                     </span>
                   </td>
@@ -1516,7 +1434,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => handleOpenEdit(tmpl)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Template">
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(tmpl)} disabled={!canChange(activeMasterTab, 'update')} className="disabled:hidden p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Edit Template">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button 
@@ -1540,9 +1458,9 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
           <p className="px-4 py-3 text-xs text-slate-600 bg-slate-50 border-b border-slate-100">
             Assignees are this workspace’s team members. Add, edit or remove people in Organization &amp; Settings → Team Members.
           </p>
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-400">
                 <th className="py-3 px-4">Assignee</th>
                 <th className="py-3 px-4">Designation</th>
                 <th className="py-3 px-4">Role Access</th>
@@ -1558,7 +1476,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2.5">
                         <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs border ${
-                          isSalesHead ? 'bg-amber-100 text-amber-800 border-amber-300 ring-2 ring-amber-300/40' : 'bg-blue-100 text-blue-700 border-blue-200'
+                          isSalesHead ? 'bg-amber-100 text-amber-800 border-amber-300 ring-2 ring-amber-300/40' : 'bg-teal-100 text-teal-700 border-teal-200'
                         }`}>
                           {u.first_name[0]}{u.last_name?.[0] || ''}
                         </div>
@@ -1566,7 +1484,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                           <div className="flex items-center gap-1.5 font-bold text-slate-900">
                             <span>{u.first_name} {u.last_name || ''}</span>
                             {isSalesHead && (
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white flex items-center gap-0.5 shadow-2xs">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500 text-white flex items-center gap-0.5 shadow-2xs">
                                 <Crown className="w-2.5 h-2.5" />
                                 <span>Sales Head & Default Assignee</span>
                               </span>
@@ -1587,7 +1505,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                         {u.role_name || 'CRM User'}
                       </span>
                     </td>
-                    <td className="py-3 px-4 font-semibold text-blue-600">{u.leads_count || 0} leads</td>
+                    <td className="py-3 px-4 font-semibold text-teal-600">{u.leads_count || 0} leads</td>
                     <td className="py-3 px-4">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                         {u.is_active ? 'Active' : 'Inactive'}
@@ -1619,10 +1537,10 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
       {/* CREATE / EDIT MODAL */}
       {(showAddModal || showEditModal) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-5 my-8 animate-in zoom-in-95 max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-2xl w-full p-5 my-8 animate-in zoom-in-95 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-shrink-0">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center font-bold">
                   {showAddModal ? <Plus className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
                 </div>
                 <div>
@@ -1663,7 +1581,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                             day_offset: Math.max(0, val - 1)
                           });
                         }}
-                        className="w-full px-3 py-2 text-xs border rounded-lg font-bold text-blue-700"
+                        className="w-full px-3 py-2 text-xs border rounded-lg font-bold text-teal-700"
                       />
                     </div>
                     <div>
@@ -1725,12 +1643,12 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                             onClick={() => toggleChannelSelection(ch)}
                             className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all ${
                               isChecked
-                                ? 'bg-blue-50 border-blue-600 text-blue-700'
+                                ? 'bg-teal-50 border-teal-600 text-teal-700'
                                 : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
                             }`}
                           >
                             <span className={`w-3.5 h-3.5 rounded flex items-center justify-center text-[10px] ${
-                              isChecked ? 'bg-blue-600 text-white' : 'border border-slate-300'
+                              isChecked ? 'bg-teal-600 text-white' : 'border border-slate-300'
                             }`}>
                               {isChecked && <Check className="w-2.5 h-2.5" />}
                             </span>
@@ -1745,7 +1663,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                   <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50 p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                        <MessageSquare className="w-4 h-4 text-blue-600" />
+                        <MessageSquare className="w-4 h-4 text-teal-600" />
                         <span>Dynamic Multi-Channel Templates for Day {formData.day_number}</span>
                       </div>
                       <div className="flex items-center gap-1">
@@ -1756,7 +1674,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                             onClick={() => setSopModalActiveChannel(tab as any)}
                             className={`px-2 py-1 text-[11px] font-bold rounded transition-colors ${
                               sopModalActiveChannel === tab
-                                ? 'bg-blue-600 text-white'
+                                ? 'bg-teal-600 text-white'
                                 : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
                             }`}
                           >
@@ -1826,7 +1744,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                             className={`px-2 py-1 text-[11px] font-mono rounded-md border flex items-center gap-1 cursor-grab active:cursor-grabbing transition-all ${
                               item.highlight 
                                 ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 font-bold' 
-                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-300'
                             }`}
                           >
                             <GripVertical className="w-2.5 h-2.5 opacity-40" />
@@ -1855,7 +1773,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     {sopModalActiveChannel === 'EMAIL' && (
                       <div className="space-y-2">
                         <div>
-                          <label className="block text-xs font-bold text-indigo-800 mb-1">Email Subject Line</label>
+                          <label className="block text-xs font-bold text-teal-800 mb-1">Email Subject Line</label>
                           <input
                             type="text"
                             value={formData.templates?.email?.subject || ''}
@@ -1865,7 +1783,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-indigo-800 mb-1">Email Body</label>
+                          <label className="block text-xs font-bold text-teal-800 mb-1">Email Body</label>
                           <textarea
                             rows={5}
                             value={formData.templates?.email?.body || ''}
@@ -1960,13 +1878,13 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     <div className="border border-slate-200 rounded-xl bg-white p-3 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                          <Eye className="w-3.5 h-3.5 text-blue-600" />
+                          <Eye className="w-3.5 h-3.5 text-teal-600" />
                           <span>Test Dynamic Variations with Sample Lead Data</span>
                         </div>
                         <button
                           type="button"
                           onClick={() => setShowVarTestInputs(!showVarTestInputs)}
-                          className="text-[11px] text-blue-600 font-semibold hover:underline flex items-center gap-1"
+                          className="text-[11px] text-teal-600 font-semibold hover:underline flex items-center gap-1"
                         >
                           {showVarTestInputs ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                           <span>{showVarTestInputs ? 'Collapse Test Inputs' : 'Edit Test Values'}</span>
@@ -2020,7 +1938,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       )}
 
                       <div className="bg-slate-50/90 rounded-lg p-3 border border-slate-200">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <div className="text-xs font-medium text-slate-500 mb-1.5 flex items-center justify-between">
                           <span>Rendered Message Live Preview ({sopModalActiveChannel}):</span>
                           <span className="text-emerald-600 font-bold flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" />
@@ -2072,7 +1990,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       <select
                         value={formData.next_lead_temperature || 'WARM'}
                         onChange={(e) => setFormData({ ...formData, next_lead_temperature: e.target.value })}
-                        className="w-full px-3 py-2 text-xs border rounded-lg bg-white font-bold text-blue-700"
+                        className="w-full px-3 py-2 text-xs border rounded-lg bg-white font-bold text-teal-700"
                       >
                         <option value="HOT">HOT (Immediate follow-up)</option>
                         <option value="WARM">WARM (Nurture/Audit)</option>
@@ -2335,7 +2253,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                       disabled={formData.pipeline_kind === 'OUTREACH'}
                       checked={Boolean(Number(formData.is_default ?? 0))}
                       onChange={(e) => setFormData({ ...formData, is_default: e.target.checked ? 1 : 0 })}
-                      className="rounded text-blue-600 focus:ring-blue-500"
+                      className="rounded text-teal-600 focus:ring-teal-500"
                     />
                     <span>Default pipeline (new leads start here; only one pipeline can be the default)</span>
                   </label>
@@ -2422,7 +2340,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-xs font-bold text-slate-700">Quotation Category *</label>
-                        <span className="text-[10px] text-blue-600 font-semibold">From Categories Master</span>
+                        <span className="text-[10px] text-teal-600 font-semibold">From Categories Master</span>
                       </div>
                       <select
                         value={formData.category || (quotationCategories[0]?.name || 'SaaS Platform Engineering')}
@@ -2481,7 +2399,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     type="checkbox"
                     checked={Boolean(formData.is_active ?? 1)}
                     onChange={(e) => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })}
-                    className="rounded text-blue-600 focus:ring-blue-500"
+                    className="rounded text-teal-600 focus:ring-teal-500"
                   />
                   <span>Active in CRM Dropdowns</span>
                 </label>
@@ -2500,7 +2418,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 disabled:opacity-50"
                 >
                   {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{showAddModal ? 'Save to Master' : 'Update Record'}</span>
@@ -2519,11 +2437,11 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
             aria-modal="true"
             aria-labelledby="view-branch-title"
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+            className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
           >
             <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Objection strategy</p>
+                <p className="text-xs font-medium text-slate-500">Objection strategy</p>
                 <h4 id="view-branch-title" className="font-bold text-sm text-slate-900 break-words">{viewBranch.label}</h4>
                 <p className="text-[11px] text-slate-400 font-mono mt-0.5 break-all">{viewBranch.branch_key}</p>
               </div>
@@ -2550,7 +2468,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                 ['Email body', viewBranch.email_body],
               ] as [string, string | undefined][]).map(([term, value]) => (
                 <div key={term}>
-                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">{term}</dt>
+                  <dt className="text-xs font-medium text-slate-500 mb-1">{term}</dt>
                   <dd className={`whitespace-pre-wrap break-words leading-relaxed ${value ? 'text-slate-800' : 'text-slate-400 italic'}`}>{value || 'Not set'}</dd>
                 </div>
               ))}
@@ -2571,7 +2489,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
                     setViewBranch(null);
                     handleOpenEdit(branch);
                   }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg"
+                  className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold rounded-lg"
                 >
                   Edit strategy
                 </button>
@@ -2583,7 +2501,7 @@ export default function CRMMastersManager({ onRefreshParent }: CRMMastersManager
 
       {deleteConfirmItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-5 text-center animate-in zoom-in-95">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-sm w-full p-5 text-center animate-in zoom-in-95">
             <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-3">
               <AlertTriangle className="w-6 h-6" />
             </div>

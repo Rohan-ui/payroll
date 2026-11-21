@@ -102,7 +102,7 @@ const MarkSent: React.FC<{
     setAgain(false);
     onRecorded(result.data);
   };
-  const accent = tone === 'emerald' ? 'bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-500' : 'bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-500';
+  const accent = tone === 'emerald' ? 'bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-500' : 'bg-teal-500 hover:bg-teal-600 focus-visible:ring-teal-500';
 
   return (
     <div className="space-y-2 pt-2 border-t border-slate-200/70">
@@ -242,7 +242,7 @@ const CopyStatus: React.FC<{ state: 'idle' | 'copied' | 'failed' }> = ({ state }
 const MessageBox: React.FC<{ id: string; label: string; message: string; tone: 'emerald' | 'blue' }> = ({ id, label, message, tone }) => (
   <div>
     <p id={id} className="sr-only">{label}</p>
-    <div aria-labelledby={id} className={`bg-white p-3 rounded-lg border ${tone === 'emerald' ? 'border-emerald-100' : 'border-blue-100'} font-sans text-xs text-slate-800 whitespace-pre-wrap break-words leading-relaxed shadow-2xs select-text`}>
+    <div aria-labelledby={id} className={`bg-white p-3 rounded-lg border ${tone === 'emerald' ? 'border-emerald-100' : 'border-teal-100'} font-sans text-xs text-slate-800 whitespace-pre-wrap break-words leading-relaxed shadow-2xs select-text`}>
       {message}
     </div>
   </div>
@@ -365,10 +365,10 @@ export const OutreachLinkedInPanel: React.FC<{
   };
 
   return (
-    <section aria-labelledby={`${ids}-title`} className="border border-blue-200 bg-blue-50/20 rounded-xl p-4 space-y-3">
+    <section aria-labelledby={`${ids}-title`} className="border border-teal-200 bg-teal-50/20 rounded-xl p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 font-bold text-blue-900 text-sm">
-          <Globe className="w-4 h-4 text-blue-600" aria-hidden="true" />
+        <div className="flex items-center gap-2 font-bold text-teal-900 text-sm">
+          <Globe className="w-4 h-4 text-teal-600" aria-hidden="true" />
           <h3 id={`${ids}-title`}>LinkedIn: {actionType}</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -376,7 +376,7 @@ export const OutreachLinkedInPanel: React.FC<{
             <button
               type="button"
               onClick={async () => { if (await copy(message)) { const data = recorded(await recordChannel(leadId, 'LINKEDIN', 'MESSAGE_COPIED')); if (data) onRecorded(data); } }}
-              className={`${button} bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 focus-visible:ring-blue-500`}
+              className={`${button} bg-white border border-teal-200 hover:bg-teal-50 text-teal-700 focus-visible:ring-teal-500`}
             >
               {copied === 'copied' ? <Check className="w-3 h-3" aria-hidden="true" /> : <Copy className="w-3 h-3" aria-hidden="true" />}
               <span>Copy message</span>
@@ -391,7 +391,7 @@ export const OutreachLinkedInPanel: React.FC<{
                 setOpened(true);
                 recordChannel(leadId, 'LINKEDIN', 'OPENED').then((result) => { const data = recorded(result); if (data) onRecorded(data); });
               }}
-              className={`${button} bg-blue-600 hover:bg-blue-700 text-white font-bold focus-visible:ring-blue-500`}
+              className={`${button} bg-teal-500 hover:bg-teal-600 text-white font-bold focus-visible:ring-teal-500`}
             >
               <ExternalLink className="w-3 h-3" aria-hidden="true" />
               <span>{conversation ? 'Open LinkedIn conversation' : 'Open LinkedIn profile'}</span>
@@ -430,11 +430,11 @@ export const OutreachLinkedInPanel: React.FC<{
               onChange={(e) => setDraft(e.target.value)}
               placeholder="https://www.linkedin.com/in/name"
               aria-invalid={Boolean(saveError)}
-              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             />
           </div>
-          <button type="submit" disabled={saving} className={`${button} bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 focus-visible:ring-blue-500`}>{saving ? 'Saving…' : 'Save'}</button>
-          <button type="button" onClick={() => { setEditing(false); setSaveError(null); }} className={`${button} bg-white border border-slate-200 text-slate-700 focus-visible:ring-blue-500`}>Cancel</button>
+          <button type="submit" disabled={saving} className={`${button} bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50 focus-visible:ring-teal-500`}>{saving ? 'Saving…' : 'Save'}</button>
+          <button type="button" onClick={() => { setEditing(false); setSaveError(null); }} className={`${button} bg-white border border-slate-200 text-slate-700 focus-visible:ring-teal-500`}>Cancel</button>
           {saveError && <p role="alert" className="w-full text-[11px] font-semibold text-rose-700">{saveError}</p>}
         </form>
       )}
