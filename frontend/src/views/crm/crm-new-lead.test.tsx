@@ -91,7 +91,7 @@ async function addLeadFromTopButton() {
   await flush();
   // The server says demo seeding is not allowed here, so the button is not offered.
   expect(container.textContent).not.toContain('Seed Demo');
-  const add = container.querySelector('button[aria-label="Add Lead"], button[aria-label="Add Cold Lead"]') as HTMLButtonElement;
+  const add = [...container.querySelectorAll('button')].find((b) => /^(Add lead|Add outreach lead)$/.test(b.textContent?.trim() ?? '')) as HTMLButtonElement;
   act(() => add.click());
   fillPlaceholder('e.g. Acme FinTech Technologies Ltd.', created.company_name);
   fillPlaceholder('e.g. Rahul', 'Rahul');
@@ -105,13 +105,13 @@ describe('adding a lead', () => {
     payroll.crmTab = 'pipeline';
     await act(async () => root?.render(<CrmWorkspaceView />));
     await flush();
-    expect(container.textContent).toContain('Sales Pipelines');
+    expect(container.querySelector('h1')?.textContent).toBe('Sales pipeline');
 
     payroll.crmTab = 'leads';
     await act(async () => root?.render(<CrmWorkspaceView />));
     await flush();
 
-    expect(container.textContent).toContain('Lead Management');
+    expect(container.querySelector('h1')?.textContent).toBe('Leads');
     expect(container.textContent).toContain('Every lead in one table');
   });
 

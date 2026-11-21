@@ -827,7 +827,7 @@ describe('Organization settings and tenant access control', () => {
           m.requires,
         ]),
       ).toEqual([
-        ['CRM', 'CRM & Sales', expect.arrayContaining(['Sales Pipelines', 'Quotations']), []],
+        ['CRM', 'CRM & Sales', expect.arrayContaining(['Sales pipeline', 'Quotations']), []],
         ['HRMS', 'HRMS', ['People', 'Attendance', 'Onboarding', 'Offboarding', 'Performance', 'Compliance'], []],
         ['FINANCE', 'Finance', ['Payroll', 'Payslips', 'Bookkeeping', 'Reports'], ['HRMS']],
       ]);

@@ -64,7 +64,7 @@ const button = (text: string) => [...container.querySelectorAll('button')].find(
 
 it('shows why a stage cannot be deleted inside the dialog, and deletes nothing', async () => {
   deleteReply = () => json({ statusCode: 409, message: '12 leads are in "Qualified". Move them to another stage on the Sales Pipeline board, then delete it.' }, 409);
-  act(() => button('Pipeline Stages')?.click());
+  act(() => button('Pipeline stages')?.click());
   act(() => (container.querySelector('button[title="Delete"]') as HTMLButtonElement).click());
   await act(async () => button('Delete Record')?.click());
   await flush();
@@ -79,7 +79,7 @@ it('shows why a stage cannot be deleted inside the dialog, and deletes nothing',
 });
 
 it('adds an objection strategy with its scripts', async () => {
-  act(() => button('SOP Objection Strategies')?.click());
+  act(() => button('Objection replies')?.click());
   act(() => button('Add to Master')?.click());
   const type = (selector: string, value: string) =>
     act(() => {
@@ -99,7 +99,7 @@ it('adds an objection strategy with its scripts', async () => {
 });
 
 it('shows an objection strategy in full from its eye button, and closes with Escape', async () => {
-  act(() => button('SOP Objection Strategies')?.click());
+  act(() => button('Objection replies')?.click());
   const eye = container.querySelector('button[aria-label="View details of Send me details"]') as HTMLButtonElement;
   act(() => eye.click());
 
@@ -124,7 +124,7 @@ it('shows an objection strategy in full from its eye button, and closes with Esc
 });
 
 it('edits a lead source from its Edit button', async () => {
-  act(() => button('Lead Sources')?.click());
+  act(() => button('Lead sources')?.click());
   const row = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('Google Ads'))!;
   act(() => (row.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
   const type = (selector: string, value: string) =>
@@ -146,7 +146,7 @@ it('edits a lead source from its Edit button', async () => {
 });
 
 it('edits a lost reason from its Edit button', async () => {
-  act(() => button('Lost Reasons')?.click());
+  act(() => button('Lost reasons')?.click());
   const row = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('Budget too low'))!;
   act(() => (row.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
   const input = container.querySelector('input[placeholder="e.g. Competitor provided cheaper rate"]') as HTMLInputElement;
@@ -165,7 +165,7 @@ it('edits a lost reason from its Edit button', async () => {
 });
 
 it('adds a lost reason from Add to Master', async () => {
-  act(() => button('Lost Reasons')?.click());
+  act(() => button('Lost reasons')?.click());
   act(() => button('Add to Master')?.click());
   const input = container.querySelector('input[placeholder="e.g. Competitor provided cheaper rate"]') as HTMLInputElement;
   expect(input.value).toBe('');

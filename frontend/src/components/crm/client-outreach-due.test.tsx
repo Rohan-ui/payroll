@@ -106,7 +106,9 @@ it('says on every card when its touchpoint is due, and counts what is due in eac
 it('reschedules a touchpoint to a chosen date and reloads', async () => {
   await render();
   const loads = requests.filter((r) => r.url.startsWith('/api/v1/crm/cadence?')).length;
-  act(() => [...container.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Reschedule')[0].click());
+  // Reschedule is in the card's menu.
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+  act(() => [...container.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.trim() === 'Reschedule')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   const dialog = document.querySelector('[role="dialog"]')!;
   expect(dialog.textContent).toContain('Reschedule Day 1 for Late Co');
   expect((dialog.querySelector('input[type="date"]') as HTMLInputElement).min).toBe('2026-10-08');

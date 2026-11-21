@@ -64,10 +64,10 @@ export function OutreachCalendar({ today, mine, onPickDate }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month"
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"><ChevronLeft className="w-4 h-4" aria-hidden="true" /></button>
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"><ChevronLeft className="w-4 h-4" aria-hidden="true" /></button>
           <h3 className="text-sm font-bold text-slate-900 min-w-[9rem] text-center">{label}</h3>
           <button type="button" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month"
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"><ChevronRight className="w-4 h-4" aria-hidden="true" /></button>
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"><ChevronRight className="w-4 h-4" aria-hidden="true" /></button>
         </div>
         {data && data.overdue > 0 && (
           <button type="button" onClick={() => onPickDate(data.today)}
@@ -88,10 +88,10 @@ export function OutreachCalendar({ today, mine, onPickDate }: Props) {
           return (
             <button key={date} type="button" role="gridcell" onClick={() => onPickDate(date)}
               aria-label={`${date}: ${count} ${count === 1 ? 'touchpoint' : 'touchpoints'} due${holiday ? ', holiday' : weekend ? ', weekend' : ''}`}
-              className={`min-h-[64px] rounded-lg border p-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 hover:border-indigo-400 ${
-                isToday ? 'border-indigo-500 bg-indigo-50' : weekend || holiday ? 'border-slate-100 bg-slate-50 text-slate-400' : 'border-slate-200 bg-white'}`}>
+              className={`min-h-[64px] rounded-lg border p-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 hover:border-teal-400 ${
+                isToday ? 'border-teal-500 bg-teal-50' : weekend || holiday ? 'border-slate-100 bg-slate-50 text-slate-400' : 'border-slate-200 bg-white'}`}>
               <div className="flex items-center justify-between">
-                <span className={`font-semibold ${isToday ? 'text-indigo-700' : ''}`}>{Number(date.slice(8))}</span>
+                <span className={`font-semibold ${isToday ? 'text-teal-700' : ''}`}>{Number(date.slice(8))}</span>
                 {holiday && <span className="text-[9px] font-semibold text-amber-700">Holiday</span>}
               </div>
               {count > 0 && <div className="mt-1 text-xs font-bold text-slate-800">{`${count} due`}</div>}

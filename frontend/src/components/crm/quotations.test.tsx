@@ -120,8 +120,8 @@ describe('Quotations', () => {
 
   it('creates a quotation in the app: lead search, template lines, live totals, then back to the list', async () => {
     const href = window.location.href;
-    await render();
-    act(() => button('Create Quotation')?.click());
+    // The CRM header's "New quotation" opens the builder through this prop.
+    await render({ autoOpenCreate: true, onCloseCreate: () => undefined });
     expect(container.querySelector('h3')?.textContent).toBe('New quotation');
     expect(window.location.href).toBe(href);
 
@@ -164,7 +164,7 @@ describe('Quotations', () => {
         ],
       },
     });
-    expect(container.querySelector('h3')?.textContent).toBe('Quotations');
+    expect(container.querySelector('h2')?.textContent).toBe('Quotations');
   });
 
   it('keeps the page open with the server’s reason when saving is refused', async () => {

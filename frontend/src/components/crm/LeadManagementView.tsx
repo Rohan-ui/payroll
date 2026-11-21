@@ -34,10 +34,10 @@ const STATUS_LABEL: Record<LeadStatus, { label: string; variant: 'info' | 'succe
   WON: { label: 'Won', variant: 'success' },
   LOST: { label: 'Lost', variant: 'danger' },
 };
-const fieldClass = 'w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-blue-500';
-const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50';
+const fieldClass = 'w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-teal-500';
+const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50';
 const dangerActionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-300 text-red-700 bg-white hover:bg-red-50 dark:bg-transparent dark:text-red-300 dark:border-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50';
-const primaryClass = 'px-4 py-2 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50';
+const primaryClass = 'px-4 py-2 text-sm font-semibold rounded-xl bg-teal-500 hover:bg-teal-600 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50';
 const date = (iso: string) => new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -145,7 +145,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
     const Icon = !active ? ChevronsUpDown : query.direction === 'asc' ? ArrowUp : ArrowDown;
     return (
       <th scope="col" aria-sort={active ? (query.direction === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-3 px-3 whitespace-nowrap">
-        <button type="button" onClick={() => sortBy(sort)} className="inline-flex items-center gap-1 font-bold uppercase hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
+        <button type="button" onClick={() => sortBy(sort)} className="inline-flex items-center gap-1 font-bold uppercase hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded">
           {label}
           <Icon className="w-3 h-3" aria-hidden="true" />
         </button>
@@ -157,8 +157,8 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Lead Management</h2>
-          <p className="text-sm text-slate-500" role="status">{loading && rows === null ? 'Loading leads…' : `${plural(total, 'lead')}${filtered ? ' match these filters' : seesAll ? ' in this workspace' : ' assigned to you'}`}</p>
+          {/* The page title is the CRM header above; this says how many leads the filters give. */}
+          <p className="text-sm text-slate-500 dark:text-slate-400" role="status">{loading && rows === null ? 'Loading leads…' : `${plural(total, 'lead')}${filtered ? ' match these filters' : seesAll ? ' in this workspace' : ' assigned to you'}`}</p>
         </div>
       </div>
 
@@ -201,8 +201,8 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
       </div>
 
       {canSelect && selected.size > 0 && (
-        <div role="region" aria-label="Selected leads" className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/40 dark:border-blue-900">
-          <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+        <div role="region" aria-label="Selected leads" className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-teal-200 bg-teal-50 dark:bg-teal-950/40 dark:border-teal-900">
+          <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">
             {plural(selected.size, 'lead')} selected{selected.size > pageSelected ? ` (${selected.size - pageSelected} on other pages)` : ''}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -220,14 +220,14 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
           The leads could not be loaded: {error} <button type="button" onClick={load} className="font-semibold underline">Try again</button>
         </div>
       ) : rows === null ? (
-        <div className="h-64 rounded-2xl bg-slate-100 dark:bg-[#1E1D2D] animate-pulse motion-reduce:animate-none" aria-busy="true" />
+        <div className="h-64 rounded-xl bg-slate-100 dark:bg-[#1E1D2D] animate-pulse motion-reduce:animate-none" aria-busy="true" />
       ) : rows.length === 0 ? (
-        <div className="p-10 text-center rounded-2xl border border-dashed border-slate-300 dark:border-[#2B293E]">
+        <div className="p-10 text-center rounded-xl border border-dashed border-slate-300 dark:border-[#2B293E]">
           <p className="font-semibold text-slate-800 dark:text-slate-200">{filtered ? 'No leads match these filters' : 'No leads yet'}</p>
           <p className="mt-1 text-sm text-slate-500">{filtered ? 'Change or clear the filters to see more leads.' : 'Leads added in Sales Pipelines or Client Outreach appear here.'}</p>
         </div>
       ) : (
-        <div className={`rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] overflow-x-auto ${loading ? 'opacity-60' : ''}`} aria-busy={loading}>
+        <div className={`rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] overflow-x-auto ${loading ? 'opacity-60' : ''}`} aria-busy={loading}>
           <table className="w-full min-w-[1100px] text-left text-sm">
             <caption className="sr-only">Leads</caption>
             <thead className="bg-slate-50 dark:bg-white/5 text-[11px] text-slate-500 tracking-wide">
@@ -258,14 +258,14 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-[#2B293E]">
               {rows.map((lead) => (
-                <tr key={lead.id} className={selected.has(lead.id) ? 'bg-blue-50/60 dark:bg-blue-950/20' : 'hover:bg-slate-50/70 dark:hover:bg-white/5'}>
+                <tr key={lead.id} className={selected.has(lead.id) ? 'bg-teal-50/60 dark:bg-teal-950/20' : 'hover:bg-slate-50/70 dark:hover:bg-white/5'}>
                   {canSelect && (
                     <td className="py-2.5 px-3">
                       <input type="checkbox" aria-label={`Select ${lead.name}, ${lead.companyName}`} checked={selected.has(lead.id)} onChange={() => toggle(lead)} />
                     </td>
                   )}
                   <td className="py-2.5 px-3">
-                    <button type="button" onClick={() => onOpenLead(lead.id)} className="font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-700 hover:underline text-left">{lead.name}</button>
+                    <button type="button" onClick={() => onOpenLead(lead.id)} className="font-semibold text-slate-900 dark:text-slate-100 hover:text-teal-700 hover:underline text-left">{lead.name}</button>
                     <span className="block text-[11px] text-slate-500">{lead.leadCode}</span>
                   </td>
                   <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 max-w-[200px] break-words">{lead.companyName}</td>
@@ -301,7 +301,7 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
             <label htmlFor={`${ids}-page-size`} className="flex items-center gap-2">
               <span>Leads per page</span>
               <select id={`${ids}-page-size`} value={query.limit} onChange={(e) => changeQuery({ limit: Number(e.target.value) })}
-                className="h-8 px-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-blue-500">
+                className="h-8 px-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-teal-500">
                 {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
               </select>
             </label>

@@ -162,6 +162,27 @@ describe('Sales Pipelines board', () => {
   });
 });
 
+describe('Pipeline card', () => {
+  it('shows the deal plainly, invents no score, and keeps its actions in one menu', () => {
+    const onCreateQuotation = vi.fn();
+    board({ leads: [lead('l9', 'Acme Corp', 'p-sales', 's-sales', { budget_amount: 125000, primary_service: 'SEO retainer', assigned_user_name: 'Priya Rao' })], pipelines: PIPELINES, stages: STAGES, onCreateQuotation });
+    choose('p-sales');
+    const card = container.querySelector('[data-lead-card="l9"]') as HTMLElement;
+    expect(card.textContent).toContain('Acme Corp');
+    expect(card.textContent).toContain('SEO retainer');
+    expect(card.textContent).toContain('Priya Rao');
+    expect(card.textContent).not.toContain('Score');
+    const more = card.querySelector('button[aria-label="Actions for Acme Corp"]') as HTMLButtonElement;
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    act(() => more.click());
+    const items = [...card.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent);
+    expect(items).toEqual(['Open lead', 'Edit lead', 'Create quotation', 'Mark deal won']);
+    act(() => (card.querySelector('[role="menuitem"]:nth-child(3)') as HTMLButtonElement).click());
+    expect(onCreateQuotation).toHaveBeenCalledWith('l9');
+    expect(card.querySelector('[role="menu"]')).toBeNull();
+  });
+});
+
 describe('Won deals', () => {
   it('lists won deals from the server, most recent win first, with the converted client', async () => {
     const fetch = vi.fn(async () =>

@@ -1,12 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { 
-  Sparkles, ArrowRight, ArrowLeft, Building2, Trophy, Clock,
-  Eye, Filter, Plus, ChevronDown, CheckCircle2, TrendingUp,
-  Edit3, Trash2, X, Check, Palette, GripVertical, FileText,
-  Calendar, UserCheck, Globe, Smartphone, Layers, Server,
-  ShoppingBag, Code2, Cpu, Kanban, List, ChevronLeft, ChevronRight
+import React, { useEffect, useId, useState } from 'react';
+import { fieldClass, labelClass } from '../../views/payroll/payroll-format';
+import {
+  Sparkles, ArrowRight, Trophy, Eye, Filter, Plus, TrendingUp, Edit3, Trash2, X, Palette, FileText, Calendar, UserCheck, Globe, Smartphone, Layers, Server, ShoppingBag, Code2, Cpu, Kanban, List, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   useTenantIndustries,
@@ -22,6 +19,7 @@ import { useCrmLeadPage } from './useCrmLeadPage';
 import { toast } from '../../lib/toast';
 import { useAuth } from '../../context/AuthContext';
 import { dealWonMessage, isInOutreach, readRememberedPipeline, rememberPipeline, resolveBoardPipeline } from './pipelineBoard';
+import { OverflowMenu } from '../ui/OverflowMenu';
 
 /** Asks the board to show one lead: select its pipeline, clear filters, and highlight the card. */
 export interface BoardFocusRequest {
@@ -77,6 +75,7 @@ export default function PipelineKanban({
   onFocusHandled,
   onOpenOutreach
 }: PipelineKanbanProps) {
+  const ids = useId();
   const { industries, getSubIndustries, getIndustryLabel, getSubIndustryLabel } = useTenantIndustries();
   // The board shows the user's chosen pipeline while it exists, else the default one. This is
   // derived on every render, so pipelines that arrive after the board mounts are picked up.
@@ -214,8 +213,8 @@ export default function PipelineKanban({
     
     if (name.includes('web') || name.includes('react') || name.includes('next') || name.includes('frontend') || name.includes('fullstack')) {
       return {
-        icon: <Globe className="w-2.5 h-2.5 text-blue-600 shrink-0" />,
-        bg: 'bg-blue-50 text-blue-800 border-blue-200/80',
+        icon: <Globe className="w-2.5 h-2.5 text-teal-600 shrink-0" />,
+        bg: 'bg-teal-50 text-teal-800 border-teal-200/80',
         category: 'Web Engineering'
       };
     }
@@ -235,8 +234,8 @@ export default function PipelineKanban({
     }
     if (name.includes('erp') || name.includes('crm') || name.includes('cloud saas') || name.includes('enterprise') || name.includes('custom build')) {
       return {
-        icon: <Layers className="w-2.5 h-2.5 text-indigo-600 shrink-0" />,
-        bg: 'bg-indigo-50 text-indigo-800 border-indigo-200/80',
+        icon: <Layers className="w-2.5 h-2.5 text-teal-600 shrink-0" />,
+        bg: 'bg-teal-50 text-teal-800 border-teal-200/80',
         category: 'Enterprise SaaS'
       };
     }
@@ -449,6 +448,52 @@ export default function PipelineKanban({
 
   return (
     <div className="space-y-4 relative">
+      {/* Filters on the left, board or list on the right; they wrap onto two rows on narrow screens. */}
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-[#2B293E] dark:bg-[#181724]">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-full sm:w-48">
+            <label htmlFor={`${ids}-pipeline`} className={labelClass}>Pipeline</label>
+            <select id={`${ids}-pipeline`} value={selectedPipelineId} onChange={(e) => choosePipeline(e.target.value)} className={fieldClass}>
+              {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="w-full sm:w-44">
+            <label htmlFor={`${ids}-assignee`} className={labelClass}>Assignee</label>
+            <select id={`${ids}-assignee`} value={selectedSalesPerson} onChange={(e) => setSelectedSalesPerson(e.target.value)} className={fieldClass}>
+              <option value="ALL">All assignees</option>
+              {salesPersons.map((sp) => <option key={sp.id} value={sp.id}>{sp.first_name} {sp.last_name}</option>)}
+            </select>
+          </div>
+          <div className="w-full sm:w-44">
+            <label htmlFor={`${ids}-industry`} className={labelClass}>Industry</label>
+            <select id={`${ids}-industry`} value={selectedIndustry} onChange={(e) => { setSelectedIndustry(e.target.value); setSelectedSubIndustry('ALL'); }} className={fieldClass}>
+              <option value="ALL">All industries</option>
+              {industries.map((ind) => <option key={ind.id || ind.key} value={ind.name}>{ind.name}</option>)}
+            </select>
+          </div>
+          {selectedIndustry !== 'ALL' && (
+            <div className="w-full sm:w-48">
+              <label htmlFor={`${ids}-sub-industry`} className={labelClass}>Sub-industry</label>
+              <select id={`${ids}-sub-industry`} value={selectedSubIndustry} onChange={(e) => setSelectedSubIndustry(e.target.value)} className={fieldClass}>
+                <option value="ALL">All sub-industries</option>
+                {getSubIndustries(selectedIndustry).map((sub) => <option key={sub.id || sub.key} value={sub.name}>{sub.name}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {onViewModeChange && (
+          <div role="group" aria-label="View" className="inline-flex shrink-0 rounded-lg bg-slate-100 p-1 dark:bg-white/5">
+            {([['kanban', 'Board', Kanban], ['list', 'List', List]] as const).map(([mode, label, Icon]) => (
+              <button key={mode} type="button" aria-pressed={viewMode === mode} onClick={() => onViewModeChange(mode)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${viewMode === mode ? 'bg-white text-slate-900 shadow-sm dark:bg-[#181724] dark:text-slate-100' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" /> {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {serverPaged && (
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600" aria-busy={leadPage.loading}>
           <span>{leadPage.loading ? 'Loading...' : `${leadPage.total ? (leadPage.page - 1) * 50 + 1 : 0}-${Math.min(leadPage.page * 50, leadPage.total)} of ${leadPage.total} leads`}</span>
@@ -461,118 +506,12 @@ export default function PipelineKanban({
         </div>
       )}
 
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-4">
-        {/* Pipeline & Sales Person Selectors */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sales Pipeline</label>
-            <select
-              value={selectedPipelineId}
-              onChange={(e) => choosePipeline(e.target.value)}
-              className="mt-0.5 px-3 py-1.5 bg-slate-50 text-xs font-bold text-slate-800 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
-            >
-              {pipelines.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="h-8 w-px bg-slate-200 hidden sm:block" />
-
-          {/* Assignee Filter */}
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Assignee</label>
-            <select
-              value={selectedSalesPerson}
-              onChange={(e) => setSelectedSalesPerson(e.target.value)}
-              className="mt-0.5 px-3 py-1.5 bg-slate-50 text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg focus:outline-none"
-            >
-              <option value="ALL">All Assignees</option>
-              {salesPersons.map((sp) => (
-                <option key={sp.id} value={sp.id}>👤 {sp.first_name} {sp.last_name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="h-8 w-px bg-slate-200 hidden sm:block" />
-
-          {/* Industry Filter */}
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Industry</label>
-            <select
-              value={selectedIndustry}
-              onChange={(e) => {
-                setSelectedIndustry(e.target.value);
-                setSelectedSubIndustry('ALL');
-              }}
-              className="mt-0.5 px-3 py-1.5 bg-slate-50 text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg focus:outline-none max-w-[170px] truncate"
-            >
-              <option value="ALL">All Industries</option>
-              {industries.map((ind) => (
-                <option key={ind.id || ind.key} value={ind.name}>{ind.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Sub-Industry Filter (Cascading) */}
-          {selectedIndustry !== 'ALL' && (
-            <div className="animate-in fade-in duration-150">
-              <label className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">Sub-Industry</label>
-              <select
-                value={selectedSubIndustry}
-                onChange={(e) => setSelectedSubIndustry(e.target.value)}
-                className="mt-0.5 px-3 py-1.5 bg-indigo-50/70 text-xs font-semibold text-indigo-900 border border-indigo-200 rounded-lg focus:outline-none max-w-[190px] truncate"
-              >
-                <option value="ALL">All Sub-Industries</option>
-                {getSubIndustries(selectedIndustry).map((sub) => (
-                  <option key={sub.id || sub.key} value={sub.name}>{sub.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-
-        </div>
-
-        {/* Kanban / List View Toggle on Extreme Right */}
-        {onViewModeChange && (
-          <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/90 shadow-2xs shrink-0">
-            <button
-              type="button"
-              onClick={() => onViewModeChange('kanban')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                viewMode === 'kanban'
-                  ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-200/60'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
-              }`}
-              title="Switch to Kanban Board View"
-            >
-              <Kanban className={`w-3.5 h-3.5 ${viewMode === 'kanban' ? 'text-blue-600' : 'text-slate-400'}`} />
-              <span>Kanban</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onViewModeChange('list')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                viewMode === 'list'
-                  ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-200/60'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
-              }`}
-              title="Switch to List View"
-            >
-              <List className={`w-3.5 h-3.5 ${viewMode === 'list' ? 'text-blue-600' : 'text-slate-400'}`} />
-              <span>List</span>
-            </button>
-          </div>
-        )}
-      </div>
-
       {outreachCount > 0 && (
         <p className="text-xs text-slate-600">
           <button
             type="button"
             onClick={onOpenOutreach}
-            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+            className="inline-flex items-center gap-1 font-semibold text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
           >
             {outreachCount} lead{outreachCount === 1 ? '' : 's'} in outreach
             <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
@@ -583,7 +522,7 @@ export default function PipelineKanban({
       )}
 
       {/* DRAGGABLE KANBAN BOARD */}
-      <div className="flex gap-4 overflow-x-auto pb-4 items-start min-h-[600px]">
+      <div className="flex items-start gap-3 overflow-x-auto pb-4">
         {stages.filter((stage) => stage.pipeline_id === selectedPipelineId).map((stage) => {
           const stageLeads = pipelineLeads.filter(l => l.stage_id === stage.id);
           const stageValue = stageLeads.reduce((acc, l) => acc + Number(l.budget_amount || 0), 0);
@@ -595,10 +534,10 @@ export default function PipelineKanban({
               onDragOver={(e) => handleDragOver(e, stage.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, stage.id)}
-              className={`w-72 shrink-0 rounded-xl p-3 border transition-all flex flex-col max-h-[750px] ${
-                isOver 
-                  ? 'bg-blue-50/80 border-blue-400 ring-2 ring-blue-300' 
-                  : 'bg-slate-100/70 border-slate-200/80'
+              className={`flex max-h-[calc(100vh-14rem)] w-72 shrink-0 flex-col rounded-xl border p-2.5 transition-colors ${
+                isOver
+                  ? 'border-teal-400 bg-teal-50/60 ring-2 ring-teal-300 dark:bg-teal-950/20'
+                  : 'border-slate-200 bg-slate-50 dark:border-[#2B293E] dark:bg-[#15141F]'
               }`}
             >
               {/* Column Header with Inline Edit option */}
@@ -641,196 +580,78 @@ export default function PipelineKanban({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 mt-1.5">
-                  <span>{formatCurrency(stageValue)}</span>
-                  <span className="text-[10px] text-slate-400 font-normal">
-                    {stage.stage_probability}% Prob
-                  </span>
+                <div className="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-medium tabular-nums text-slate-700 dark:text-slate-300">{formatCurrency(stageValue)}</span>
+                  <span>{stage.stage_probability}% probability</span>
                 </div>
               </div>
 
               {/* Draggable Cards Container */}
               <div className="space-y-2.5 mt-3 overflow-y-auto pr-0.5 flex-1 min-h-[200px]">
-                {stageLeads.map((lead) => (
-                  <div
-                    key={lead.id}
-                    data-lead-card={lead.id}
-                    draggable={true}
-                    onDragStart={(e) => handleDragStart(e, lead.id)}
-                    className={`bg-white p-3.5 rounded-xl border shadow-2xs hover:shadow-md transition-all space-y-2.5 group cursor-grab active:cursor-grabbing relative ${
-                      lead.id === highlightedLeadId ? 'border-blue-500 ring-2 ring-blue-400' : 'border-slate-200'
-                    }`}
-                  >
-                    {/* Grip & Value & AI Score */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1">
-                        <GripVertical className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500" />
-                        <span className="text-xs font-bold text-slate-900">
-                          {formatCurrency(lead.budget_amount)}
-                        </span>
-                      </div>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold rounded">
-                        <Sparkles className="w-2.5 h-2.5 text-amber-600" />
-                        <span>{lead.ai_score || 70}</span>
-                      </span>
-                    </div>
-
-                    {/* Company & Contact */}
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <button
-                          onClick={() => onSelectLead360?.(lead.id)}
-                          className="text-xs font-bold text-slate-900 hover:text-blue-600 text-left block leading-tight"
-                        >
-                          {lead.company_name}
+                {stageLeads.map((lead) => {
+                  const service = lead.primary_service;
+                  const industry = lead.industry ? getIndustryLabel(lead.industry) : null;
+                  const menu = [
+                    { label: 'Open lead', icon: Eye, onSelect: () => onSelectLead360?.(lead.id) },
+                    { label: 'Edit lead', icon: Edit3, onSelect: () => handleOpenEditLead(lead) },
+                    ...(onCreateQuotation ? [{ label: 'Create quotation', icon: FileText, onSelect: () => onCreateQuotation(lead.id) }] : []),
+                    ...(onScheduleMeeting || onScheduleFollowup ? [{ label: 'Schedule meeting or follow-up', icon: Calendar, onSelect: () => (onScheduleMeeting ? onScheduleMeeting(lead.id) : onScheduleFollowup?.(lead.id)) }] : []),
+                    ...(onReassignSalesPerson ? [{ label: 'Reassign', icon: UserCheck, onSelect: () => onReassignSalesPerson(lead) }] : []),
+                    ...(!lead.is_won && lead.temperature !== 'WON' ? [{ label: 'Mark deal won', icon: Trophy, onSelect: () => setDealWonConfirmLead(lead) }] : []),
+                  ];
+                  return (
+                    <div
+                      key={lead.id}
+                      data-lead-card={lead.id}
+                      draggable={true}
+                      onDragStart={(e) => handleDragStart(e, lead.id)}
+                      className={`group relative cursor-grab space-y-2 rounded-lg border bg-white p-3 shadow-sm transition-shadow hover:shadow active:cursor-grabbing dark:bg-[#1E1D2D] ${
+                        lead.id === highlightedLeadId ? 'border-teal-500 ring-2 ring-teal-400' : 'border-slate-200 dark:border-[#2B293E]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <button type="button" onClick={() => onSelectLead360?.(lead.id)}
+                          className="min-w-0 text-left text-sm font-semibold leading-snug text-slate-900 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-slate-100 dark:hover:text-teal-300">
+                          <span className="line-clamp-2 break-words">{lead.company_name}</span>
                         </button>
-                        {(lead.is_existing_client || lead.client_id) && (
-                          <span className="inline-flex items-center px-1.5 py-0.2 text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200 rounded" title="Existing Customer Opportunity">
-                            🔁 Repeat
+                        <OverflowMenu label={`Actions for ${lead.company_name}`} items={menu} />
+                      </div>
+
+                      <div className="flex items-baseline justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">{lead.first_name} {lead.last_name || ''}</span>
+                        <span className="shrink-0 font-semibold tabular-nums text-slate-900 dark:text-slate-100">{formatCurrency(lead.budget_amount)}</span>
+                      </div>
+
+                      {(service || industry) && (
+                        <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={[service, industry, lead.sub_industry ? getSubIndustryLabel(lead.industry, lead.sub_industry) : null].filter(Boolean).join(' · ')}>
+                          {[service, industry].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); onReassignSalesPerson?.(lead); }}
+                          disabled={!onReassignSalesPerson}
+                          className="flex min-w-0 items-center gap-1.5 rounded text-xs text-slate-600 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:hover:text-slate-600 dark:text-slate-300"
+                          aria-label={`Assigned to ${lead.assigned_user_name || 'nobody'}${onReassignSalesPerson ? '; reassign' : ''}`}>
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-300" aria-hidden="true">
+                            {(lead.assigned_user_name || '?').split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
                           </span>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenEditLead(lead);
-                          }}
-                          className="text-[11px] text-slate-600 hover:text-blue-600 font-semibold flex items-center gap-1 group/edit text-left"
-                          title="Click to edit First Name, Last Name, etc."
-                        >
-                          <span>{lead.first_name} {lead.last_name || ''}</span>
-                          <Edit3 className="w-2.5 h-2.5 text-slate-400 group-hover/edit:text-blue-600" />
+                          <span className="truncate">{lead.assigned_user_name || 'Unassigned'}</span>
                         </button>
-                      </div>
-
-                      {/* Industry & Sub-Industry Tags */}
-                      <div className="flex items-center gap-1 flex-wrap mt-1">
-                        <span className="inline-flex items-center px-1.5 py-0.2 text-[9px] font-bold bg-slate-100 text-slate-700 border border-slate-200 rounded">
-                          {getIndustryLabel(lead.industry)}
-                        </span>
-                        {lead.sub_industry && (
-                          <span 
-                            className="inline-flex items-center px-1.5 py-0.2 text-[9px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded truncate max-w-[150px]"
-                            title={getSubIndustryLabel(lead.industry, lead.sub_industry)}
-                          >
-                            {getSubIndustryLabel(lead.industry, lead.sub_industry)}
-                          </span>
-                        )}
+                        <div className="flex shrink-0 items-center gap-1">
+                          {(lead.is_existing_client || lead.client_id) && (
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/10 dark:text-slate-300">Repeat client</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-
-                    {/* Sales Person Avatar & Service Tag */}
-                    <div className="flex items-center justify-between text-[10px] pt-1 gap-1">
-                      {(() => {
-                        const badge = getServiceBadge(lead.primary_service);
-                        return (
-                          <div 
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-medium ${badge.bg} truncate max-w-[130px] shadow-2xs`}
-                            title={lead.primary_service || 'Service'}
-                          >
-                            {badge.icon}
-                            <span className="truncate">{lead.primary_service || 'Service'}</span>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Assignee badge (Clickable to Reassign) */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onReassignSalesPerson) onReassignSalesPerson(lead);
-                        }}
-                        className="text-[10px] font-semibold text-slate-600 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 px-1.5 py-0.5 rounded border border-slate-200 transition-all flex items-center gap-1 cursor-pointer"
-                        title="Click to reassign Assignee"
-                      >
-                        <span>👤</span>
-                        <span className="hover:underline">
-                          {lead.assigned_user_name || 'Unassigned'}
-                        </span>
-                      </button>
-                    </div>
-
-                    {/* Card Smart Quick Action Dock ("Do Anything From Anywhere") */}
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => onSelectLead360?.(lead.id)}
-                          className="text-[11px] text-slate-500 hover:text-blue-600 font-semibold flex items-center gap-1"
-                          title="Open 360° Lead Dossier"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>360°</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenEditLead(lead);
-                          }}
-                          className="p-1 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded transition-colors"
-                          title="Quick Edit Lead (First Name, Last Name, etc.)"
-                        >
-                          <Edit3 className="w-3 h-3 text-blue-500" />
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        {/* 📄 Quick Quote */}
-                        {onCreateQuotation && (
-                          <button
-                            onClick={() => onCreateQuotation(lead.id)}
-                            className="p-1 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded transition-colors"
-                            title="Generate Proposal for this lead"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-
-                        {/* 📅 Quick Meeting */}
-                        {(onScheduleMeeting || onScheduleFollowup) && (
-                          <button
-                            onClick={() => {
-                              if (onScheduleMeeting) onScheduleMeeting(lead.id);
-                              else if (onScheduleFollowup) onScheduleFollowup(lead.id);
-                            }}
-                            className="p-1 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded transition-colors"
-                            title="Schedule Meeting / Follow-up"
-                          >
-                            <Calendar className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-
-                        {/* 👤 Quick Reassign */}
-                        {onReassignSalesPerson && (
-                          <button
-                            onClick={() => onReassignSalesPerson(lead)}
-                            className="p-1 hover:bg-violet-50 text-slate-400 hover:text-violet-600 rounded transition-colors"
-                            title="Reassign Sales Rep"
-                          >
-                            <UserCheck className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-
-                        {/* 🏆 1-Click Convert Won */}
-                        {!lead.is_won && lead.temperature !== 'WON' && (
-                          <button
-                            onClick={() => setDealWonConfirmLead(lead)}
-                            className="p-1 hover:bg-amber-50 text-slate-400 hover:text-amber-600 rounded transition-colors"
-                            title="1-Click Mark Won & Convert"
-                          >
-                            <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {stageLeads.length === 0 && (
-                  <div className="h-28 border border-dashed border-slate-300 rounded-xl flex items-center justify-center text-[11px] text-slate-400">
-                    Drop cards here
+                  <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-300 text-xs text-slate-400 dark:border-[#2B293E]">
+                    No deals in this stage
                   </div>
                 )}
               </div>
@@ -841,7 +662,7 @@ export default function PipelineKanban({
         {/* Quick Add Stage Column Placeholder */}
         <div
           onClick={() => setShowAddStageModal(true)}
-          className="w-72 shrink-0 h-44 rounded-xl border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50/50 cursor-pointer flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 transition-all space-y-1.5"
+          className="w-72 shrink-0 h-44 rounded-xl border-2 border-dashed border-slate-300 hover:border-teal-400 hover:bg-teal-50/50 cursor-pointer flex flex-col items-center justify-center text-slate-400 hover:text-teal-600 transition-all space-y-1.5"
         >
           <Plus className="w-6 h-6" />
           <span className="text-xs font-bold">Add New Stage</span>
@@ -851,9 +672,9 @@ export default function PipelineKanban({
       {/* ON-THE-FLY ADD STAGE MODAL */}
       {showAddStageModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4">
+          <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
-              <h3 className="text-xs font-bold text-slate-900 uppercase">Add New Pipeline Stage</h3>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add New Pipeline Stage</h3>
               <button onClick={() => setShowAddStageModal(false)}>
                 <X className="w-4 h-4 text-slate-500" />
               </button>
@@ -909,7 +730,7 @@ export default function PipelineKanban({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-blue-600 text-white font-semibold text-xs rounded-lg shadow-xs"
+                  className="px-4 py-1.5 bg-teal-600 text-white font-semibold text-xs rounded-lg shadow-xs"
                 >
                   Create Stage
                 </button>
@@ -922,9 +743,9 @@ export default function PipelineKanban({
       {/* EDIT STAGE MODAL */}
       {editingStage && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4">
+          <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
-              <h3 className="text-xs font-bold text-slate-900 uppercase">Edit Stage — {editingStage.name}</h3>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Edit Stage — {editingStage.name}</h3>
               <button onClick={() => setEditingStage(null)}>
                 <X className="w-4 h-4 text-slate-500" />
               </button>
@@ -979,7 +800,7 @@ export default function PipelineKanban({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-blue-600 text-white font-semibold text-xs rounded-lg shadow-xs"
+                  className="px-4 py-1.5 bg-teal-600 text-white font-semibold text-xs rounded-lg shadow-xs"
                 >
                   Update Stage
                 </button>
@@ -992,7 +813,7 @@ export default function PipelineKanban({
       {/* DEAL WON CONFIRMATION MODAL */}
       {dealWonConfirmLead && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
                 <Trophy className="w-5 h-5" />
@@ -1031,10 +852,10 @@ export default function PipelineKanban({
       {/* QUICK EDIT LEAD MODAL */}
       {editingLead && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
+          <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center font-bold">
                   <Edit3 className="w-4 h-4" />
                 </div>
                 <div>
@@ -1061,7 +882,7 @@ export default function PipelineKanban({
                     required
                     value={editFormData.first_name ?? ''}
                     onChange={(e) => setEditFormData({ ...editFormData, first_name: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                   />
                 </div>
                 <div>
@@ -1070,7 +891,7 @@ export default function PipelineKanban({
                     type="text"
                     value={editFormData.last_name}
                     onChange={(e) => setEditFormData({ ...editFormData, last_name: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                   />
                 </div>
               </div>
@@ -1083,7 +904,7 @@ export default function PipelineKanban({
                     required
                     value={editFormData.company_name}
                     onChange={(e) => setEditFormData({ ...editFormData, company_name: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                   />
                 </div>
                 <div>
@@ -1093,7 +914,7 @@ export default function PipelineKanban({
                     value={editFormData.designation}
                     onChange={(e) => setEditFormData({ ...editFormData, designation: e.target.value })}
                     placeholder="e.g. Managing Director"
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                   />
                 </div>
               </div>
@@ -1112,7 +933,7 @@ export default function PipelineKanban({
                         sub_industry: subs[0]?.name || subs[0]?.key || ''
                       });
                     }}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-white"
                   >
                     {industries.map((ind) => (
                       <option key={ind.id || ind.key} value={ind.name}>{ind.name}</option>
@@ -1124,7 +945,7 @@ export default function PipelineKanban({
                   <select
                     value={editFormData.sub_industry || ''}
                     onChange={(e) => setEditFormData({ ...editFormData, sub_industry: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-white"
                   >
                     {getSubIndustries(editFormData.industry || 'Manufacturing').map((sub) => (
                       <option key={sub.id || sub.key} value={sub.name}>{sub.name}</option>
@@ -1141,7 +962,7 @@ export default function PipelineKanban({
                     required
                     value={editFormData.email}
                     onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                   />
                 </div>
                 <div>
@@ -1161,7 +982,7 @@ export default function PipelineKanban({
                     type="number"
                     value={editFormData.budget_amount}
                     onChange={(e) => setEditFormData({ ...editFormData, budget_amount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                   />
                 </div>
                 <div>
@@ -1169,7 +990,7 @@ export default function PipelineKanban({
                   <select
                     value={editFormData.assigned_user_id}
                     onChange={(e) => setEditFormData({ ...editFormData, assigned_user_id: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-white"
                   >
                     {salesPersons.map((sp) => (
                       <option key={sp.id} value={sp.id}>
@@ -1185,7 +1006,7 @@ export default function PipelineKanban({
                 <select
                   value={editFormData.stage_id}
                   onChange={(e) => setEditFormData({ ...editFormData, stage_id: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-white"
                 >
                   {stages.map((st) => (
                     <option key={st.id} value={st.id}>{st.name}</option>
@@ -1204,7 +1025,7 @@ export default function PipelineKanban({
                 <button
                   type="submit"
                   disabled={savingLead}
-                  className="px-5 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                  className="px-5 py-2 text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
                 >
                   {savingLead ? 'Saving...' : 'Save Changes'}
                 </button>

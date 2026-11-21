@@ -38,7 +38,8 @@ export interface CrmLead {
   budget_amount?: number;
   currency_code: string;
   temperature: 'HOT' | 'WARM' | 'COLD';
-  ai_score: number;
+  /** Out of 100; null until something works one out. */
+  ai_score: number | null;
   win_probability: number;
   pipeline_id: string;
   stage_id: string;

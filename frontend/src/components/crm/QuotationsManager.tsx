@@ -1,12 +1,8 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { 
-  FileText, Plus, Trash2, CheckCircle2, RefreshCw, Trophy,
-  Printer, ChevronRight, ArrowUpRight, Calculator, IndianRupee,
-  MoreVertical, ChevronLeft, Eye, Check, AlertCircle, Sparkles,
-  Calendar, Users, LayoutTemplate, UploadCloud, Image as ImageIcon,
-  Edit3
+import {
+  Trash2, RefreshCw, Trophy, ChevronRight, MoreVertical, ChevronLeft, Eye, Calendar, Users, Edit3,
 } from 'lucide-react';
 import WordDocumentEditor from './WordDocumentEditor';
 
@@ -15,6 +11,7 @@ import { toast } from '../../lib/toast';
 import { dealWonMessage } from './pipelineBoard';
 import QuotationBuilder from './QuotationBuilder';
 import { QuotationPdfViewer } from './QuotationPdfViewer';
+import { Button } from '../ui/Button';
 interface QuotationsManagerProps {
   leads: any[];
   services: any[];
@@ -183,33 +180,12 @@ export default function QuotationsManager({
   return (
     <div className="space-y-4 relative">
 
-      {/* Top Action Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h3 className="font-bold text-sm text-slate-900">Quotations</h3>
-          <p className="text-xs text-slate-500">
-            GST-compliant proposal builder with rich text editor, fixed industry templates & dynamic pricing table
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={fetchQuotationsAndTemplates}
-            className="p-2 hover:bg-slate-100 rounded-lg border border-slate-200 text-slate-500 transition-colors cursor-pointer"
-            title="Refresh Quotations"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setBuilder({ leadId: initialLeadId ?? null, quotation: null })}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Create Quotation</span>
-          </button>
-        </div>
+      {/* The page title and "New quotation" are in the CRM header above. */}
+      <h2 className="sr-only">Quotations</h2>
+      <div className="flex justify-end">
+        <Button variant="ghost" size="sm" onClick={fetchQuotationsAndTemplates} aria-label="Refresh quotations">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
+        </Button>
       </div>
 
       {/* Proposals List Table */}
@@ -217,14 +193,14 @@ export default function QuotationsManager({
         <div className="overflow-x-auto min-h-[300px]">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-500">
                 <th className="py-3 px-4">Quote #</th>
-                <th className="py-3 px-4">Company / Lead</th>
-                <th className="py-3 px-4">Valid Until</th>
-                <th className="py-3 px-4">Tax Type</th>
-                <th className="py-3 px-4">Subtotal</th>
-                <th className="py-3 px-4">GST Tax</th>
-                <th className="py-3 px-4">Grand Total</th>
+                <th className="py-3 px-4">Company / lead</th>
+                <th className="hidden py-3 px-4 md:table-cell">Valid until</th>
+                <th className="hidden py-3 px-4 xl:table-cell">Tax type</th>
+                <th className="hidden py-3 px-4 text-right lg:table-cell">Subtotal</th>
+                <th className="hidden py-3 px-4 text-right lg:table-cell">GST</th>
+                <th className="py-3 px-4 text-right">Total</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Action</th>
               </tr>
@@ -232,15 +208,15 @@ export default function QuotationsManager({
             <tbody className="divide-y divide-slate-100">
               {paginatedQuotes.map((q) => (
                 <tr key={q.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
+                  <td className="py-3.5 px-4 font-mono font-semibold text-teal-700 dark:text-teal-300">
                     <button
                       type="button"
                       onClick={() => setSelectedQuoteForPreview(q)}
-                      className="hover:text-blue-900 hover:underline inline-flex items-center gap-1.5"
+                      className="hover:text-teal-900 hover:underline inline-flex items-center gap-1.5"
                       title={`View quotation ${q.quotation_number} as a PDF`}
                     >
                       <span>{q.quotation_number}</span>
-                      <Eye className="w-3 h-3 text-blue-500 opacity-60" aria-hidden="true" />
+                      <Eye className="w-3 h-3 text-teal-500 opacity-60" aria-hidden="true" />
                     </button>
                   </td>
 
@@ -249,25 +225,25 @@ export default function QuotationsManager({
                     <span className="text-[11px] text-slate-400">{q.contact_person}</span>
                   </td>
 
-                  <td className="py-3.5 px-4 text-slate-700 font-medium whitespace-nowrap">
+                  <td className="hidden py-3.5 px-4 text-slate-700 font-medium whitespace-nowrap md:table-cell">
                     {q.valid_until ? new Date(q.valid_until).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                   </td>
 
-                  <td className="py-3.5 px-4">
+                  <td className="hidden py-3.5 px-4 xl:table-cell">
                     <span className="text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded">
                       {q.tax_mode === 'INTER_STATE' ? 'IGST (18%)' : 'CGST+SGST (9%+9%)'}
                     </span>
                   </td>
 
-                  <td className="py-3.5 px-4 text-slate-700">
+                  <td className="hidden py-3.5 px-4 text-right tabular-nums text-slate-700 lg:table-cell">
                     {formatCurrency(q.subtotal)}
                   </td>
 
-                  <td className="py-3.5 px-4 text-slate-500">
+                  <td className="hidden py-3.5 px-4 text-right tabular-nums text-slate-500 lg:table-cell">
                     {formatCurrency(q.total_tax)}
                   </td>
 
-                  <td className="py-3.5 px-4 font-bold text-slate-900">
+                  <td className="py-3.5 px-4 text-right font-semibold tabular-nums text-slate-900">
                     {formatCurrency(q.total_amount)}
                   </td>
 
@@ -277,7 +253,7 @@ export default function QuotationsManager({
                       onChange={(e) => handleUpdateStatus(q.id, e.target.value)}
                       className={`text-[10px] font-bold px-2 py-1 rounded border ${
                         q.status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        q.status === 'SENT' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                        q.status === 'SENT' ? 'bg-teal-50 text-teal-700 border-teal-200' :
                         q.status === 'REJECTED' ? 'bg-red-50 text-red-700 border-red-200' :
                         'bg-slate-100 text-slate-700 border-slate-200'
                       }`}
@@ -307,7 +283,7 @@ export default function QuotationsManager({
                             onClick={() => { setOpenActionId(null); setBuilder({ leadId: q.lead_id, quotation: q }); }}
                             className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
                           >
-                            <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                            <Edit3 className="w-3.5 h-3.5 text-teal-600" />
                             <span>Edit Quotation</span>
                           </button>
                         )}
@@ -330,7 +306,7 @@ export default function QuotationsManager({
                             }}
                             className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                           >
-                            <Users className="w-3.5 h-3.5 text-indigo-600" />
+                            <Users className="w-3.5 h-3.5 text-teal-600" />
                             <span>View Lead 360°</span>
                           </button>
                         )}
@@ -432,7 +408,7 @@ export default function QuotationsManager({
                 onClick={() => setCurrentPage(p)}
                 className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
                   currentPage === p
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'bg-teal-600 text-white shadow-xs'
                     : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
                 }`}
               >
@@ -465,7 +441,7 @@ export default function QuotationsManager({
       {/* CUSTOM IN-APP DELETE MODAL */}
       {deleteConfirmQuote && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
                 <Trash2 className="w-5 h-5" />
@@ -503,7 +479,7 @@ export default function QuotationsManager({
       {/* CUSTOM IN-APP DEAL WON CONFIRMATION MODAL */}
       {dealWonConfirmQuote && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
                 <Trophy className="w-5 h-5" />

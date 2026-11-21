@@ -2,34 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  ShieldCheck,
-  Search,
-  Filter,
-  RefreshCw,
-  Download,
-  PlusCircle,
-  Edit3,
-  Trash2,
-  Zap,
-  LogIn,
-  LogOut,
-  FileSpreadsheet,
-  Layers,
-  Clock,
-  User,
-  ExternalLink,
-  ChevronRight,
-  Eye,
-  X,
-  AlertCircle,
-  CheckCircle2,
-  Phone,
-  MessageSquare,
-  Sparkles
+  ShieldCheck, Search, Filter, RefreshCw, Download, PlusCircle, Edit3, Trash2, Zap, LogIn, LogOut, FileSpreadsheet, Layers, Clock, ChevronRight, Eye, X,
 } from 'lucide-react';
 
 import { apiFetch } from '../../api/client';
 import { ACTION_FILTERS, actionLabel, describeEntry, type HistoryEntry } from './crmHistory';
+import { Button } from '../ui/Button';
+import { StatStrip } from '../ui/StatStrip';
+import { fieldClass } from '../../views/payroll/payroll-format';
 interface AuditLogItem {
   id: string;
   tenant_id: string;
@@ -173,8 +153,8 @@ export default function CrmAuditTrailView({
         };
       case 'UPDATE':
         return {
-          bg: 'bg-blue-50 text-blue-700 border-blue-200',
-          icon: <Edit3 className="w-3.5 h-3.5 text-blue-600" />,
+          bg: 'bg-teal-50 text-teal-700 border-teal-200',
+          icon: <Edit3 className="w-3.5 h-3.5 text-teal-600" />,
           label: 'Updated'
         };
       case 'OUTREACH_EMAIL_FAILED':
@@ -233,102 +213,44 @@ export default function CrmAuditTrailView({
 
   return (
     <div className="space-y-6">
-      {/* Top Header Card */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-indigo-50 border border-indigo-200 rounded-full text-indigo-700 text-[11px] font-bold uppercase tracking-wider mb-2">
-            <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Immutable Accountability & Compliance</span>
-          </div>
-          <h1 className="text-xl font-black text-slate-900 tracking-tight">CRM Audit Trail & Employee Activity Center</h1>
-          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            Complete tamper-proof logging of every employee action across the entire CRM: additions, updates with field diffs, permanent deletion records, outreach connects, and login/logout sessions.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void fetchAuditLogs()}
-            disabled={loading}
-            className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
-            title="Refresh Audit Logs"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-            <span>Refresh</span>
-          </button>
-
-          <button
-            onClick={handleExportCsv}
-            disabled={logs.length === 0}
-            className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
-            title="Export full audit trail to CSV file"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Audit Log</span>
-          </button>
-        </div>
+      {/* The page title is the CRM header above; this is the log's own toolbar. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={() => void fetchAuditLogs()} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" /> Refresh
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={logs.length === 0}>
+          <Download className="h-4 w-4" aria-hidden="true" /> Export CSV
+        </Button>
       </div>
 
-      {/* KPI Overview Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase block">Total Logged</span>
-          <div className="text-xl font-black text-slate-900 mt-1">{metrics.total.toLocaleString()}</div>
-          <span className="text-[10px] text-slate-400">All audit events</span>
-        </div>
-
-        <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 shadow-2xs">
-          <span className="text-[11px] font-bold text-emerald-700 uppercase block">Additions</span>
-          <div className="text-xl font-black text-emerald-900 mt-1">{metrics.add.toLocaleString()}</div>
-          <span className="text-[10px] text-emerald-600">Leads, Quotes, Tasks</span>
-        </div>
-
-        <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 shadow-2xs">
-          <span className="text-[11px] font-bold text-blue-700 uppercase block">Updates & Stages</span>
-          <div className="text-xl font-black text-blue-900 mt-1">{metrics.update.toLocaleString()}</div>
-          <span className="text-[10px] text-blue-600">Field edits & moves</span>
-        </div>
-
-        <div className="bg-purple-50/50 p-4 rounded-xl border border-purple-100 shadow-2xs">
-          <span className="text-[11px] font-bold text-purple-700 uppercase block">Connect Actions</span>
-          <div className="text-xl font-black text-purple-900 mt-1">{metrics.connect.toLocaleString()}</div>
-          <span className="text-[10px] text-purple-600">Calls, WhatsApp, Cadence</span>
-        </div>
-
-        <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100 shadow-2xs">
-          <span className="text-[11px] font-bold text-amber-700 uppercase block">User Sessions</span>
-          <div className="text-xl font-black text-amber-900 mt-1">{metrics.session.toLocaleString()}</div>
-          <span className="text-[10px] text-amber-600">Logins & logouts</span>
-        </div>
-
-        <div className="bg-rose-50/50 p-4 rounded-xl border border-rose-100 shadow-2xs">
-          <span className="text-[11px] font-bold text-rose-700 uppercase block">Deletions</span>
-          <div className="text-xl font-black text-rose-900 mt-1">{metrics.delete.toLocaleString()}</div>
-          <span className="text-[10px] text-rose-600">Permanently preserved</span>
-        </div>
-      </div>
+      <StatStrip label="Audit summary" stats={[
+        { label: 'Events logged', value: metrics.total.toLocaleString() },
+        { label: 'Records added or updated', value: (metrics.add + metrics.update).toLocaleString() },
+        { label: 'Outreach and sign-ins', value: (metrics.connect + metrics.session).toLocaleString() },
+        { label: 'Deletions', value: metrics.delete.toLocaleString(), attention: metrics.delete > 0 },
+      ]} />
 
       {/* Filter & Search Toolbar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Search */}
         <form onSubmit={handleSearchSubmit} className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
+          <input aria-label="Search the audit trail"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by employee name, lead company, title, or action..."
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 focus:bg-white text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            placeholder="Search member, company, title or action"
+            className={`${fieldClass} pl-9`}
           />
         </form>
 
         {/* Filter Pills */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Action Type */}
-          <select
+          <select aria-label="Actions"
             value={selectedAction}
             onChange={(e) => { setSelectedAction(e.target.value); setPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All actions</option>
             {[...ACTION_FILTERS, { label: 'Imports', value: 'IMPORT_LEADS' }, { label: 'Reordering', value: 'REORDER' }].map((a) => (
@@ -337,10 +259,10 @@ export default function CrmAuditTrailView({
           </select>
 
           {/* Actor / Employee */}
-          <select
+          <select aria-label="Members"
             value={selectedActor}
             onChange={(e) => { setSelectedActor(e.target.value); setPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All members</option>
             {actors.map((a) => (
@@ -349,10 +271,10 @@ export default function CrmAuditTrailView({
           </select>
 
           {/* Entity Type */}
-          <select
+          <select aria-label="Records"
             value={selectedEntity}
             onChange={(e) => { setSelectedEntity(e.target.value); setPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All records</option>
             <option value="LEAD">Leads</option>
@@ -369,20 +291,20 @@ export default function CrmAuditTrailView({
         <div className="overflow-x-auto min-h-[400px]">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <th className="py-3 px-4 w-44">Timestamp</th>
-                <th className="py-3 px-4 w-48">Employee / User</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-medium text-slate-500">
+                <th className="py-3 px-4 w-44">When</th>
+                <th className="py-3 px-4 w-48">Who</th>
                 <th className="py-3 px-4 w-32">Action</th>
-                <th className="py-3 px-4 w-48">Target Entity</th>
-                <th className="py-3 px-4">Event Details & Description</th>
-                <th className="py-3 px-4 w-28 text-center">Audit Inspector</th>
+                <th className="hidden py-3 px-4 w-48 lg:table-cell">Record</th>
+                <th className="py-3 px-4">Details</th>
+                <th className="py-3 px-4 w-28 text-center"><span className="sr-only">Changes</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {loading ? (
                 <tr>
                   <td colSpan={6} className="py-16 text-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-600" />
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-600" />
                     <span>Loading immutable activity logs...</span>
                   </td>
                 </tr>
@@ -431,14 +353,14 @@ export default function CrmAuditTrailView({
                       </td>
 
                       {/* Target Entity */}
-                      <td className="py-3 px-4">
+                      <td className="hidden py-3 px-4 lg:table-cell">
                         {log.entity_name ? (
                           <div className="flex items-center gap-1.5">
                             <span className="text-[10px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200 shrink-0">
                               {log.entity_type}
                             </span>
                             <span 
-                              className={`font-semibold text-slate-800 truncate ${log.entity_type === 'LEAD' && log.entity_id && onSelectLead360 ? 'hover:text-blue-600 cursor-pointer underline decoration-dotted' : ''}`}
+                              className={`font-semibold text-slate-800 truncate ${log.entity_type === 'LEAD' && log.entity_id && onSelectLead360 ? 'hover:text-teal-600 cursor-pointer underline decoration-dotted' : ''}`}
                               onClick={() => {
                                 if (log.entity_type === 'LEAD' && log.entity_id && onSelectLead360) {
                                   onSelectLead360(log.entity_id);
@@ -467,10 +389,10 @@ export default function CrmAuditTrailView({
                         <button
                           type="button"
                           onClick={() => setSelectedLogForDetails(log)}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 border border-slate-200 hover:border-indigo-200 rounded-lg text-[11px] font-semibold transition-all inline-flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 border border-slate-200 hover:border-teal-200 rounded-lg text-[11px] font-semibold transition-all inline-flex items-center gap-1 cursor-pointer"
                         >
                           <Eye className="w-3 h-3" />
-                          <span>Inspect</span>
+                          <span>View changes</span>
                         </button>
                       </td>
                     </tr>
@@ -513,15 +435,15 @@ export default function CrmAuditTrailView({
       {/* Inspector Modal / Change Diff Drawer */}
       {selectedLogForDetails && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in-50 zoom-in-95">
+          <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in-50 zoom-in-95">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl">
+                <div className="p-2 bg-teal-100 text-teal-700 rounded-xl">
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-slate-900">Audit Record Inspector</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">Audit Record Inspector</h3>
                   <p className="text-[11px] text-slate-500 font-mono">ID: {selectedLogForDetails.id}</p>
                 </div>
               </div>
@@ -555,14 +477,14 @@ export default function CrmAuditTrailView({
               {/* Actor & Security Metadata */}
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Actor (Employee)</span>
+                  <span className="text-xs font-medium text-slate-400 block">Actor (Employee)</span>
                   <p className="font-bold text-slate-900 mt-0.5">{selectedLogForDetails.actor_name}</p>
                   <p className="text-slate-500 text-[11px]">{selectedLogForDetails.actor_email}</p>
                 </div>
 
                 {selectedLogForDetails.ip_address && (
                   <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Origin</span>
+                    <span className="text-xs font-medium text-slate-400 block">Origin</span>
                     <p className="font-mono text-slate-800 mt-0.5">IP: {selectedLogForDetails.ip_address}</p>
                   </div>
                 )}
@@ -571,8 +493,8 @@ export default function CrmAuditTrailView({
               {/* What was recorded: before → after values and the action's facts */}
               {describeEntry(selectedLogForDetails as unknown as HistoryEntry).length > 0 && (
                 <div>
-                  <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                  <h5 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    <Edit3 className="w-3.5 h-3.5 text-teal-600" />
                     <span>Recorded details</span>
                   </h5>
                   <ul className="border border-slate-200 rounded-xl divide-y divide-slate-100 text-xs">
@@ -586,7 +508,7 @@ export default function CrmAuditTrailView({
               {/* Additional Metadata JSON */}
               {selectedLogForDetails.metadata && Object.keys(selectedLogForDetails.metadata).length > 0 && (
                 <div>
-                  <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <h5 className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
                     <Layers className="w-3.5 h-3.5 text-slate-500" />
                     <span>Raw Context & Snapshot Metadata</span>
                   </h5>
@@ -607,7 +529,7 @@ export default function CrmAuditTrailView({
                     setSelectedLogForDetails(null);
                     if (id) onSelectLead360(id);
                   }}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                  className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
                 >
                   <span>Open Lead 360 Profile</span>
                   <ChevronRight className="w-3.5 h-3.5" />

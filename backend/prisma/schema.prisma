@@ -2325,7 +2325,8 @@ model rndtechnosoft_crm_leads {
   source_id                                String?                                    @db.Uuid
   assigned_tenant_member_id                String?                                    @db.Uuid
   temperature                              String                                     @default("WARM") @db.VarChar(32)
-  ai_score                                 Int                                        @default(50)
+  /// Out of 100; NULL until something works one out.
+  ai_score                                 Int?
   win_probability                          Decimal?                                   @default(20) @db.Decimal(5, 2)
   urgency                                  String?                                    @default("MEDIUM") @db.VarChar(32)
   cadence_step                             Int                                        @default(1)

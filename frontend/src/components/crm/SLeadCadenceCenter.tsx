@@ -1,13 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { 
-  Sparkles, Clock, Send, CheckCircle2, AlertCircle, Calendar,
-  ArrowRight, Copy, Check, PhoneCall, MessageSquare,
-  Mail, Users, Filter, Search, RefreshCw, Play, Pause, Building2,
-  Tag, ChevronRight, ChevronLeft, X, UserCheck, Flame, Phone, Globe, HelpCircle, MapPin,
-  TrendingUp, Layers, CheckSquare, ShieldCheck, Kanban, List, Trophy,
-  DollarSign, Target, CheckCheck, Briefcase, Settings2, Download, Upload, MoreVertical, Loader2
+import {
+  Sparkles, Clock, Send, CheckCircle2, AlertCircle, Calendar, ArrowRight, Copy, Check, PhoneCall, MessageSquare, Mail, Users, Filter, Search, RefreshCw, Building2, ChevronRight, ChevronLeft, X, Flame, Phone, Layers, CheckSquare, Kanban, List, Trophy, DollarSign, Download, Upload, Loader2, Eye,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { 
@@ -38,6 +33,9 @@ import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
 import { conversionDestination } from './pipelineBoard';
 import { ConvertDestination } from './ConvertDestination';
+import { Button } from '../ui/Button';
+import { StatStrip } from '../ui/StatStrip';
+import { OverflowMenu } from '../ui/OverflowMenu';
 interface SLeadCadenceCenterProps {
   onSelectLead360: (leadId: string) => void;
   onRefreshParent?: () => void;
@@ -527,9 +525,9 @@ export default function SLeadCadenceCenter({
     count: number;
   };
   const COLUMN_STYLES = [
-    ['border-blue-500', 'bg-blue-100 text-blue-800'],
+    ['border-teal-500', 'bg-teal-100 text-teal-800'],
     ['border-emerald-500', 'bg-emerald-100 text-emerald-800'],
-    ['border-indigo-500', 'bg-indigo-100 text-indigo-800'],
+    ['border-teal-500', 'bg-teal-100 text-teal-800'],
     ['border-violet-500', 'bg-violet-100 text-violet-800'],
     ['border-cyan-500', 'bg-cyan-100 text-cyan-800'],
     ['border-amber-500', 'bg-amber-100 text-amber-800'],
@@ -562,15 +560,15 @@ export default function SLeadCadenceCenter({
     return (
                     <div 
                       key={col.id} 
-                      className="w-80 flex-shrink-0 bg-slate-100/70 dark:bg-[#151421] border border-slate-200/90 dark:border-[#262438] rounded-2xl flex flex-col shadow-2xs max-h-[780px]"
+                      className="flex max-h-[calc(100vh-14rem)] w-72 shrink-0 flex-col rounded-xl border border-slate-200 bg-slate-50 dark:border-[#2B293E] dark:bg-[#15141F]"
                     >
                       {/* Column Header */}
                       <div className={`p-3.5 border-t-4 ${col.accentColor} rounded-t-2xl border-b border-slate-200 dark:border-[#262438] bg-white dark:bg-[#1a1928]`}>
                         <div className="flex items-center justify-between gap-2">
-                          <h3 className="text-xs font-black text-slate-900 dark:text-white truncate tracking-tight">
+                          <h3 className="text-xs font-semibold text-slate-900 dark:text-white truncate tracking-tight">
                             {col.title}
                           </h3>
-                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-black whitespace-nowrap ${col.badgeBg}`}>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${col.badgeBg}`}>
                             {radarData?.schedule?.due ? `${radarData.facets?.milestoneDueCounts?.[col.id] ?? 0} due · ${col.count} total` : col.count}
                           </span>
                         </div>
@@ -581,8 +579,8 @@ export default function SLeadCadenceCenter({
                           {col.channels.map((ch) => (
                             <span 
                               key={ch} 
-                              className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
-                                ch === 'LINKEDIN' ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300' :
+                              className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                                ch === 'LINKEDIN' ? 'bg-teal-100 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300' :
                                 ch === 'EMAIL' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300' :
                                 ch === 'WHATSAPP' ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300' :
                                 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
@@ -609,178 +607,61 @@ export default function SLeadCadenceCenter({
                             const isConverted = item.cadence?.status === 'CONVERTED' || item.cadence?.convertedToOpportunity;
                             const isBranched = item.cadence?.status === 'BRANCHED';
 
+                            const industry = getIndustryLabel(item.industry || item.cadence?.industry);
+                            const place = [item.city, item.state].filter(Boolean).join(', ');
+                            const status = isConverted
+                              ? { text: 'Moved to the pipeline', tone: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300', Icon: Trophy }
+                              : isBranched
+                                ? { text: `Replied: ${item.cadence.branchReply?.leadFeedback || 'response received'}`, tone: 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200', Icon: MessageSquare }
+                                : isOverdue
+                                  ? { text: dueText(currentStep)?.text ?? 'Overdue', tone: 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300', Icon: AlertCircle }
+                                  : isDueToday
+                                    ? { text: 'Due today', tone: 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200', Icon: Clock }
+                                    : { text: dueText(currentStep)?.text ?? 'Upcoming', tone: 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300', Icon: Clock };
+                            const whatsapp = generateWhatsAppUrl(item.whatsapp_number || item.phone, '');
+                            const contactLink = 'rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100';
+
                             return (
-                              <div
-                                key={item.id}
-                                className="bg-white dark:bg-[#1c1b29] border border-slate-200 dark:border-[#2e2c43] hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl p-3 shadow-xs hover:shadow-md transition-all space-y-2.5 group"
-                              >
-                                {/* Card Header */}
-                                <div className="flex items-start justify-between gap-1.5">
-                                  <div className="min-w-0 flex-1">
-                                    <div 
-                                      onClick={() => onSelectLead360(item.id)}
-                                      className="font-bold text-slate-900 dark:text-white text-xs truncate flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" 
-                                      title={item.company_name}
-                                    >
-                                      <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
-                                      <span className="truncate">{item.company_name}</span>
-                                    </div>
-                                    <div className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
-                                      {item.first_name} {item.last_name}
-                                      {item.designation ? ` • ${item.designation}` : ''}
-                                    </div>
-                                    {item.website_url && (
-                                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 truncate flex items-center gap-1 mt-0.5">
-                                        <Globe className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                                        <span className="truncate">{item.website_url.replace(/^https?:\/\//, '')}</span>
-                                      </div>
-                                    )}
-                                    {item.city && item.state && (
-                                      <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate flex items-center gap-1">
-                                        <MapPin className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                                        <span>{item.city}, {item.state}</span>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-col items-end gap-1 shrink-0">
-                                    <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 dark:bg-[#252336] text-slate-700 dark:text-slate-300 rounded border border-slate-200/80 dark:border-[#383550]">
-                                      {getIndustryLabel(item.industry || item.cadence?.industry)}
-                                    </span>
-                                    {(item.sub_industry || item.subIndustry) && (
-                                      <span className="text-[9px] font-medium px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded border border-indigo-200 dark:border-indigo-800/60">
-                                        {getSubIndustryLabel(item.industry || item.cadence?.industry, item.sub_industry || item.subIndustry)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Status / Due Badge */}
-                                <div>
-                                  {isConverted ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                      <Trophy className="w-3 h-3 text-emerald-600" />
-                                      <span>Opportunity Won • Sales Pipeline</span>
-                                    </span>
-                                  ) : isBranched ? (
-                                    <div className="text-[10px] font-medium bg-amber-50 dark:bg-[#252119] text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-900/60 p-1.5 rounded-lg line-clamp-2">
-                                      <span className="font-bold text-amber-700 dark:text-amber-400">⚡ Replied: </span>
-                                      {item.cadence.branchReply?.leadFeedback || 'Response received'}
-                                    </div>
-                                  ) : isOverdue ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 animate-pulse">
-                                      <AlertCircle className="w-3 h-3 text-rose-600" />
-                                      <span>{dueText(currentStep)?.text ?? 'Overdue'}</span>
-                                    </span>
-                                  ) : isDueToday ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                      <Flame className="w-3 h-3 text-amber-600" />
-                                      <span>Due today</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                                      <Clock className="w-3 h-3 text-slate-400" />
-                                      <span>{dueText(currentStep)?.text ?? 'Upcoming'}</span>
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Contact Links & Deal Value */}
-                                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#2e2c43]">
-                                  <div className="flex items-center gap-1.5">
-                                    {generateWhatsAppUrl(item.whatsapp_number || item.phone, '') ? (
-                                      <a
-                                        href={generateWhatsAppUrl(item.whatsapp_number || item.phone, '')}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
-                                        title="WhatsApp"
-                                      >
-                                        <MessageSquare className="w-3.5 h-3.5" />
-                                      </a>
-                                    ) : null}
-                                    {item.email ? (
-                                      <a
-                                        href={`mailto:${item.email}`}
-                                        className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition-colors"
-                                        title="Email"
-                                      >
-                                        <Mail className="w-3.5 h-3.5" />
-                                      </a>
-                                    ) : null}
-                                    {item.phone ? (
-                                      <a
-                                        href={`tel:${item.phone}`}
-                                        className="p-1 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
-                                        title="Call"
-                                      >
-                                        <Phone className="w-3.5 h-3.5" />
-                                      </a>
-                                    ) : null}
-                                  </div>
-
-                                  {item.budget_amount ? (
-                                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 font-mono">
-                                      ₹{Number(item.budget_amount).toLocaleString('en-IN')}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-600 italic">No budget</span>
-                                  )}
-                                </div>
-
-                                {/* Card Action Buttons */}
-                                <div className="grid grid-cols-2 gap-1.5 pt-1">
-                                  {!isConverted ? (
-                                    <>
-                                      {item.currentStep?.channelActions?.EMAIL?.status === 'SENT' && (
-                                        <span className="px-1.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-[10px] font-bold" title={`Day ${item.currentStep.dayNumber} email sent`}>✓ Email sent</span>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenActionModal(item)}
-                                        className="px-2 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
-                                        title="Execute Multi-Channel Step"
-                                      >
-                                        <Send className="w-3 h-3" />
-                                        <span>Execute</span>
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenConvertModal(item)}
-                                        className="px-2 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
-                                        title="Convert to Sales Opportunity"
-                                      >
-                                        <Sparkles className="w-3 h-3 text-amber-300" />
-                                        <span>Convert Opp</span>
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => onNavigateToPipeline && onNavigateToPipeline()}
-                                      className="col-span-2 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs transition-colors"
-                                    >
-                                      <Trophy className="w-3 h-3 text-amber-300" />
-                                      <span>View in Sales Pipeline</span>
+                              <div key={item.id} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-[#2B293E] dark:bg-[#1E1D2D]">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <button type="button" onClick={() => onSelectLead360(item.id)}
+                                      className="block max-w-full truncate text-left text-sm font-semibold text-slate-900 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-slate-100 dark:hover:text-teal-300">
+                                      {item.company_name}
                                     </button>
-                                  )}
+                                    <p className="truncate text-xs text-slate-600 dark:text-slate-300">{[`${item.first_name || ''} ${item.last_name || ''}`.trim(), item.designation].filter(Boolean).join(' · ')}</p>
+                                    {(industry || place) && <p className="truncate text-xs text-slate-500 dark:text-slate-400">{[industry, place].filter(Boolean).join(' · ')}</p>}
+                                  </div>
+                                  <OverflowMenu label={`More for ${item.company_name}`} items={[
+                                    { label: 'Open lead', icon: Eye, onSelect: () => onSelectLead360(item.id) },
+                                    ...(!isConverted ? [{ label: 'Convert to opportunity', icon: Trophy, onSelect: () => handleOpenConvertModal(item) }] : []),
+                                    ...(item.cadence?.status === 'ACTIVE' && !isConverted ? [{ label: 'Reschedule', icon: Calendar, onSelect: () => setRescheduling(item) }] : []),
+                                  ]} />
                                 </div>
 
-                                {item.cadence?.status === 'ACTIVE' && !isConverted && (
-                                  <button type="button" onClick={() => setRescheduling(item)}
-                                    className="w-full py-1 text-center text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-                                    Reschedule
-                                  </button>
+                                <p className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${status.tone}`}>
+                                  <status.Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                  <span className="truncate">{status.text}</span>
+                                </p>
+
+                                <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-[#2B293E]">
+                                  <div className="flex items-center gap-0.5">
+                                    {whatsapp && <a href={whatsapp} target="_blank" rel="noreferrer" className={contactLink} aria-label={`WhatsApp ${item.company_name}`}><MessageSquare className="h-4 w-4" aria-hidden="true" /></a>}
+                                    {item.email && <a href={`mailto:${item.email}`} className={contactLink} aria-label={`Email ${item.company_name}`}><Mail className="h-4 w-4" aria-hidden="true" /></a>}
+                                    {item.phone && <a href={`tel:${item.phone}`} className={contactLink} aria-label={`Call ${item.company_name}`}><Phone className="h-4 w-4" aria-hidden="true" /></a>}
+                                    {item.budget_amount ? <span className="ml-1 text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">₹{Number(item.budget_amount).toLocaleString('en-IN')}</span> : null}
+                                  </div>
+                                  {!isConverted ? (
+                                    <Button size="sm" onClick={() => handleOpenActionModal(item)} aria-label={`Do the current step for ${item.company_name}`}>
+                                      <Send className="h-3.5 w-3.5" aria-hidden="true" /> Do step
+                                    </Button>
+                                  ) : (
+                                    <Button size="sm" variant="outline" onClick={() => onNavigateToPipeline && onNavigateToPipeline()}>View in pipeline</Button>
+                                  )}
+                                </div>
+                                {item.currentStep?.channelActions?.EMAIL?.status === 'SENT' && !isConverted && (
+                                  <p className="text-xs text-emerald-700 dark:text-emerald-300">This step's email is sent.</p>
                                 )}
-                                {/* Bottom full 360 link */}
-                                <button
-                                  type="button"
-                                  onClick={() => onSelectLead360(item.id)}
-                                  className="w-full py-1 text-center text-[10px] font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/40 rounded transition-colors"
-                                >
-                                  View 360° Lead Dossier →
-                                </button>
                               </div>
                             );
                           })
@@ -792,191 +673,66 @@ export default function SLeadCadenceCenter({
 
   return (
     <div className="space-y-6">
-      {/* Minimalist Top Header: Outreach Funnel Command Center */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-amber-600" />
-                {activeTenantName} Outbound
-              </span>
-              {sop && (
-                <>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                    {sop.name}
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    {`${sop.milestones} ${sop.milestones === 1 ? 'milestone' : 'milestones'}`}
-                  </span>
-                </>
-              )}
-            </div>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
-              Cold Outreach Command Center
-            </h1>
-            <p className="text-slate-500 text-xs mt-0.5 max-w-2xl">
-              Systematic cadence across LinkedIn, Email, WhatsApp & Phone. Builds familiarity to book high-intent client calls.
-            </p>
+      {/* The page title is the CRM header above; this is outreach's own toolbar and numbers. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div role="group" aria-label="View" className="inline-flex rounded-lg bg-slate-100 p-1 dark:bg-white/5">
+          <button type="button" aria-pressed={viewMode === 'kanban'} onClick={() => setViewMode('kanban')}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${viewMode === 'kanban' ? 'bg-white text-slate-900 shadow-sm dark:bg-[#181724] dark:text-slate-100' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'}`}>
+            <Kanban className="h-3.5 w-3.5" aria-hidden="true" /> Board
+          </button>
+          <button type="button" aria-pressed={viewMode === 'list'} onClick={() => setViewMode('list')}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm dark:bg-[#181724] dark:text-slate-100' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'}`}>
+            <List className="h-3.5 w-3.5" aria-hidden="true" /> List
+          </button>
+          <button type="button" aria-pressed={viewMode === 'calendar'} onClick={() => setViewMode('calendar')}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${viewMode === 'calendar' ? 'bg-white text-slate-900 shadow-sm dark:bg-[#181724] dark:text-slate-100' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'}`}>
+            <Calendar className="h-3.5 w-3.5" aria-hidden="true" /> Calendar
+          </button>
           </div>
-
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            {/* View Mode Toggle: Kanban vs Radar List */}
-            <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setViewMode('kanban')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'kanban'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Kanban className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Kanban</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('list')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'list'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <List className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Radar List</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('calendar')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'calendar'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Calendar</span>
-              </button>
-            </div>
-
-            {/* Import Leads Button */}
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Import Leads</span>
-            </button>
-
-            {/* Export Leads Button */}
-            <button
-              onClick={handleExportLeads}
-              disabled={isExporting}
-              className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
-              title="Export all cadence leads to Excel spreadsheet (.xlsx)"
-            >
-              {isExporting ? (
-                <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
-              ) : (
-                <Download className="w-3.5 h-3.5 text-emerald-600" />
-              )}
-              <span>{isExporting ? 'Exporting...' : 'Export Leads'}</span>
-            </button>
-
-
-            {/* Seed Demo Leads: only where the server allows it (a demo or sandbox deployment) */}
-            {radarData?.demoSeedAllowed === true && (
-              <button
-                onClick={handleReSeedDemoLeads}
-                disabled={seeding}
-                className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Seed 12 realistic cold leads across all steps"
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${seeding ? 'animate-spin' : ''}`} />
-                <span>{seeding ? 'Seeding...' : '⚡ Seed Demo'}</span>
-              </button>
-            )}
-
-            {/* Refresh */}
-            <button
-              onClick={fetchCadenceData}
-              disabled={loading}
-              className="p-2 hover:bg-slate-100 text-slate-500 rounded-xl border border-slate-200 transition-all cursor-pointer"
-              title="Refresh Data"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+          {sop && <p className="text-xs text-slate-500 dark:text-slate-400">Playbook: {sop.name} · {`${sop.milestones} ${sop.milestones === 1 ? 'milestone' : 'milestones'}`}</p>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Seed Demo Leads: only where the server allows it (a demo or sandbox deployment) */}
+          {radarData?.demoSeedAllowed === true && (
+            <Button variant="ghost" size="sm" onClick={handleReSeedDemoLeads} disabled={seeding}>
+              <Sparkles className={`h-4 w-4 ${seeding ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" /> {seeding ? 'Seeding…' : 'Seed Demo'}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={handleExportLeads} disabled={isExporting}>
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
+            {isExporting ? 'Exporting…' : 'Export'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setIsImportModalOpen(true)}>
+            <Upload className="h-4 w-4" aria-hidden="true" /> Import leads
+          </Button>
+          <Button variant="ghost" size="sm" onClick={fetchCadenceData} disabled={loading} aria-label="Refresh">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
+          </Button>
         </div>
       </div>
 
-      {/* 4 High-Clarity Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-        <div 
-          onClick={() => { setViewMode('list'); setSelectedQueueTab('ALL_ACTIVE'); }}
-          className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:border-indigo-300 transition-all cursor-pointer"
-        >
-          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
-            <span>In Active Cadence</span>
-            <Users className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 mt-1">{stats.activeCount}</div>
-          <div className="text-[11px] text-slate-400 mt-0.5">{`${stats.totalEnrolled} total enrolled in ${sop?.name ?? 'the playbook'}`}</div>
-        </div>
-
-        <div 
-          onClick={() => { setViewMode('list'); setSelectedQueueTab('ACTION_RADAR'); }}
-          className="bg-white rounded-2xl p-4 border border-amber-200/80 shadow-xs hover:border-amber-400 transition-all cursor-pointer"
-        >
-          <div className="flex items-center justify-between text-xs text-amber-700 font-semibold">
-            <span>Due Today</span>
-            <Clock className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="text-2xl font-black text-amber-900 mt-1">{stats.dueTodayCount}</div>
-          <div className="text-[11px] text-amber-600/80 mt-0.5">Execution required today</div>
-        </div>
-
-        <div 
-          onClick={() => { setViewMode('list'); setSelectedQueueTab('ACTION_RADAR'); }}
-          className="bg-white rounded-2xl p-4 border border-rose-200/80 shadow-xs hover:border-rose-400 transition-all cursor-pointer"
-        >
-          <div className="flex items-center justify-between text-xs text-rose-700 font-semibold">
-            <span>Overdue SLA</span>
-            <AlertCircle className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="text-2xl font-black text-rose-900 mt-1">{stats.overdueCount}</div>
-          <div className="text-[11px] text-rose-600/80 mt-0.5">Delayed touchpoints</div>
-        </div>
-
-        <div 
-          onClick={() => { setViewMode('list'); setSelectedQueueTab('CONVERTED'); }}
-          className="bg-white rounded-2xl p-4 border border-emerald-200/80 shadow-xs hover:border-emerald-400 transition-all cursor-pointer"
-        >
-          <div className="flex items-center justify-between text-xs text-emerald-700 font-semibold">
-            <span>Converted to Deals</span>
-            <Trophy className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-2xl font-black text-emerald-900 mt-1">{stats.convertedCount}</div>
-          <div className="text-[11px] text-emerald-600/80 mt-0.5">Transferred to Pipeline</div>
-        </div>
-      </div>
+      <StatStrip label="Outreach summary" stats={[
+        { label: 'In active cadence', value: stats.activeCount, hint: `of ${stats.totalEnrolled} enrolled`, onClick: () => { setViewMode('list'); setSelectedQueueTab('ALL_ACTIVE'); }, actionLabel: 'List the leads in active cadence' },
+        { label: 'Due today', value: stats.dueTodayCount, attention: stats.dueTodayCount > 0, onClick: () => { setViewMode('list'); setSelectedQueueTab('ACTION_RADAR'); }, actionLabel: 'List the touchpoints due today' },
+        { label: 'Overdue', value: stats.overdueCount, attention: stats.overdueCount > 0, onClick: () => { setViewMode('list'); setSelectedQueueTab('ACTION_RADAR'); }, actionLabel: 'List the overdue touchpoints' },
+        { label: 'Moved to the pipeline', value: stats.convertedCount, onClick: () => { setViewMode('list'); setSelectedQueueTab('CONVERTED'); }, actionLabel: 'List the leads moved to the pipeline' },
+      ]} />
 
       {/* Main Radar Card */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         {/* When: what is due on a day (overdue first), and whose leads */}
         <div className="p-4 border-b border-slate-200 flex flex-wrap items-center gap-3 bg-white">
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
             <span>Due</span>
             <select aria-label="Due" value={due} onChange={(e) => setDue(e.target.value as DueFilter)}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
               {DUE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           {due === 'DATE' && (
             <input type="date" aria-label="Due date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
           )}
           <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200" role="group" aria-label="Whose leads">
             {[{ value: false, label: 'All leads' }, { value: true, label: 'My leads' }].map((option) => (
@@ -1003,7 +759,7 @@ export default function SLeadCadenceCenter({
               placeholder="Search company, contact person, phone, email..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
             />
           </div>
 
@@ -1014,7 +770,7 @@ export default function SLeadCadenceCenter({
                 aria-label="Industry"
                 value={selectedIndustry}
                 onChange={(e) => { setSelectedIndustry(e.target.value); setSelectedSubIndustry('ALL'); }}
-                className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
               >
                 <option value="ALL">All Industries</option>
                 {tenantIndustries.map((ind) => (
@@ -1045,8 +801,8 @@ export default function SLeadCadenceCenter({
 
         {/* Industry Segregation Quick Bar */}
         <div className="px-4 py-2.5 bg-white border-b border-slate-200/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar shadow-2xs">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap flex items-center gap-1.5 mr-1">
-            <Layers className="w-3.5 h-3.5 text-indigo-600" />
+          <span className="text-xs font-medium text-slate-500 whitespace-nowrap flex items-center gap-1.5 mr-1">
+            <Layers className="w-3.5 h-3.5 text-teal-600" />
             <span>Industry Sector:</span>
           </span>
           <button
@@ -1057,12 +813,12 @@ export default function SLeadCadenceCenter({
             }}
             className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
               selectedIndustry === 'ALL'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
             <span>All Industries</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${selectedIndustry === 'ALL' ? 'bg-indigo-800 text-indigo-100' : 'bg-white text-slate-600'}`}>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${selectedIndustry === 'ALL' ? 'bg-teal-800 text-teal-100' : 'bg-white text-slate-600'}`}>
               {radarData?.facets?.enrolledCount ?? 0}
             </span>
           </button>
@@ -1078,16 +834,16 @@ export default function SLeadCadenceCenter({
                 }}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                   selectedIndustry === ind.key
-                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    ? 'bg-teal-600 text-white shadow-xs font-bold'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
                 <span>{ind.name}</span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                   selectedIndustry === ind.key 
-                    ? 'bg-indigo-800 text-indigo-100' 
+                    ? 'bg-teal-800 text-teal-100' 
                     : count > 0 
-                      ? 'bg-indigo-100 text-indigo-700 font-extrabold' 
+                      ? 'bg-teal-100 text-teal-700 font-semibold' 
                       : 'bg-white text-slate-400'
                 }`}>
                   {count}
@@ -1099,8 +855,8 @@ export default function SLeadCadenceCenter({
 
         {/* Secondary Sub-Industry Filter Bar (Cascades from Selected Industry) */}
         {selectedIndustry !== 'ALL' && availableSubIndustries.length > 0 && (
-          <div className="px-4 py-2 bg-indigo-50/50 border-b border-indigo-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar animate-in fade-in duration-150">
-            <span className="text-[11px] font-bold text-indigo-800 uppercase tracking-wider whitespace-nowrap flex items-center gap-1 mr-1">
+          <div className="px-4 py-2 bg-teal-50/50 border-b border-teal-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar animate-in fade-in duration-150">
+            <span className="text-xs font-medium text-teal-800 whitespace-nowrap flex items-center gap-1 mr-1">
               <span>Sub-Industry:</span>
             </span>
             <button
@@ -1108,8 +864,8 @@ export default function SLeadCadenceCenter({
               onClick={() => setSelectedSubIndustry('ALL')}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                 selectedSubIndustry === 'ALL'
-                  ? 'bg-indigo-600 text-white shadow-xs font-bold'
-                  : 'bg-white text-slate-700 hover:bg-indigo-100 border border-indigo-200'
+                  ? 'bg-teal-600 text-white shadow-xs font-bold'
+                  : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200'
               }`}
             >
               <span>All Sub-Industries</span>
@@ -1123,14 +879,14 @@ export default function SLeadCadenceCenter({
                   onClick={() => setSelectedSubIndustry(sub.key)}
                   className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                     selectedSubIndustry === sub.key
-                      ? 'bg-indigo-600 text-white shadow-xs font-bold'
-                      : 'bg-white text-slate-700 hover:bg-indigo-100 border border-indigo-200'
+                      ? 'bg-teal-600 text-white shadow-xs font-bold'
+                      : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200'
                   }`}
                 >
                   <span>{sub.name}</span>
                   {count > 0 && (
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      selectedSubIndustry === sub.key ? 'bg-indigo-800 text-indigo-100' : 'bg-indigo-100 text-indigo-700'
+                      selectedSubIndustry === sub.key ? 'bg-teal-800 text-teal-100' : 'bg-teal-100 text-teal-700'
                     }`}>
                       {count}
                     </span>
@@ -1161,12 +917,12 @@ export default function SLeadCadenceCenter({
           <div className="p-4 bg-slate-50/40">
             {loading ? (
               <div className="p-16 text-center text-slate-400">
-                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-indigo-500" />
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-teal-500" />
                 <p className="text-xs font-semibold">Loading the outreach board…</p>
               </div>
             ) : allEnrolledLeads.length === 0 ? (
               <div className="p-16 text-center">
-                <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-3 text-indigo-600">
+                <div className="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center mx-auto mb-3 text-teal-600">
                   <Sparkles className="w-6 h-6 text-amber-500" />
                 </div>
                 <h3 className="text-sm font-bold text-slate-800">
@@ -1201,7 +957,7 @@ export default function SLeadCadenceCenter({
                 onClick={() => setSelectedQueueTab('ACTION_RADAR')}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'ACTION_RADAR'
-                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    ? 'bg-teal-600 text-white shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
               >
@@ -1213,7 +969,7 @@ export default function SLeadCadenceCenter({
                 onClick={() => setSelectedQueueTab('ALL_ACTIVE')}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'ALL_ACTIVE'
-                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    ? 'bg-teal-600 text-white shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
               >
@@ -1225,7 +981,7 @@ export default function SLeadCadenceCenter({
                 onClick={() => setSelectedQueueTab('BRANCHED')}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'BRANCHED'
-                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    ? 'bg-teal-600 text-white shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
               >
@@ -1249,7 +1005,7 @@ export default function SLeadCadenceCenter({
                 onClick={() => setSelectedQueueTab('COMPLETED')}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'COMPLETED'
-                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    ? 'bg-teal-600 text-white shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
               >
@@ -1261,7 +1017,7 @@ export default function SLeadCadenceCenter({
             {/* Lead Table / List */}
             {loading ? (
               <div className="p-12 text-center text-slate-400">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-500" />
                 <p className="text-xs font-medium">Calculating cadence due dates & templates...</p>
               </div>
             ) : displayedLeads.length === 0 ? (
@@ -1290,14 +1046,14 @@ export default function SLeadCadenceCenter({
                     >
                       {/* Left: Lead Identity */}
                       <div className="flex items-start gap-3 min-w-[280px]">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-black text-sm flex-shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 font-semibold text-sm flex-shrink-0">
                           {item.company_name?.charAt(0) || 'L'}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
                             <span 
                               onClick={() => onSelectLead360(item.id)}
-                              className="font-bold text-slate-900 text-sm hover:text-indigo-600 cursor-pointer transition-colors"
+                              className="font-bold text-slate-900 text-sm hover:text-teal-600 cursor-pointer transition-colors"
                             >
                               {item.company_name}
                             </span>
@@ -1308,7 +1064,7 @@ export default function SLeadCadenceCenter({
                               {getIndustryLabel(item.industry || item.cadence?.industry)}
                             </span>
                             {(item.sub_industry || item.subIndustry) && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-md font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              <span className="text-[10px] px-2 py-0.5 rounded-md font-medium bg-teal-50 text-teal-700 border border-teal-200">
                                 {getSubIndustryLabel(item.industry || item.cadence?.industry, item.sub_industry || item.subIndustry)}
                               </span>
                             )}
@@ -1342,7 +1098,7 @@ export default function SLeadCadenceCenter({
                             {item.email && (
                               <a
                                 href={`mailto:${item.email}`}
-                                className="flex items-center gap-1 text-blue-600 hover:text-blue-700"
+                                className="flex items-center gap-1 text-teal-600 hover:text-teal-700"
                               >
                                 <Mail className="w-3 h-3" />
                                 <span>{item.email}</span>
@@ -1362,7 +1118,7 @@ export default function SLeadCadenceCenter({
                             </span>
                           ) : (
                             <>
-                              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200 flex items-center gap-1">
                                 <Sparkles className="w-3 h-3 text-amber-500" />
                                 <span>Day {currentStep?.dayNumber}: {currentStep?.title}</span>
                               </span>
@@ -1404,7 +1160,7 @@ export default function SLeadCadenceCenter({
                                   : ch === 'EMAIL'
                                     ? 'bg-purple-50 text-purple-700 border-purple-200'
                                     : ch === 'LINKEDIN'
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      ? 'bg-teal-50 text-teal-700 border-teal-200'
                                       : 'bg-amber-50 text-amber-700 border-amber-200'
                               }`}
                             >
@@ -1434,21 +1190,21 @@ export default function SLeadCadenceCenter({
                             )}
                             <button
                               onClick={() => handleOpenActionModal(item)}
-                              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all hover:shadow-md"
+                              className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all hover:shadow-md"
                             >
                               <Send className="w-3.5 h-3.5" />
                               <span>Execute Touchpoint</span>
                             </button>
                             {item.cadence?.status === 'ACTIVE' && (
                               <button type="button" onClick={() => setRescheduling(item)}
-                                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
                                 Reschedule
                               </button>
                             )}
 
                             <button
                               onClick={() => handleOpenConvertModal(item)}
-                              className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all hover:shadow-md"
+                              className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all hover:shadow-md"
                               title="Convert to Sales Opportunity"
                             >
                               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
@@ -1507,18 +1263,18 @@ export default function SLeadCadenceCenter({
       {/* ----------------------------------------------------------------- */}
       {selectedLeadForAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-200 bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex items-center justify-between">
+            <div className="p-5 border-b border-slate-200 bg-slate-900 text-white flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-400/20 text-amber-300 border border-amber-400/30">
                     {activeTenantName} Funnel
                   </span>
                   <span className="text-xs font-semibold text-slate-300">
                     Day {selectedLeadForAction.currentStep.dayNumber}{sop ? ` of ${sop.days}` : ''}
                   </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-white/10 text-slate-200 border border-white/20">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-white/10 text-slate-200 border border-white/20">
                     {selectedLeadForAction.currentStep.dayStatus === 'IN_PROGRESS' ? 'In progress' : 'Not started'}
                   </span>
                 </div>
@@ -1556,7 +1312,7 @@ export default function SLeadCadenceCenter({
                   <select
                     value={activeIndustryKey}
                     onChange={(e) => setActiveIndustryKey(e.target.value)}
-                    className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                   >
                     {tenantIndustries.map((ind) => (
                       <option key={ind.key} value={ind.key}>{ind.name}</option>
@@ -1566,12 +1322,12 @@ export default function SLeadCadenceCenter({
               </div>
 
               {/* Timing & Role Guidance */}
-              <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl text-indigo-900">
+              <div className="p-3 bg-teal-50/60 border border-teal-100 rounded-xl text-teal-900">
                 <div className="font-bold flex items-center gap-1.5 mb-1">
-                  <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                  <Clock className="w-3.5 h-3.5 text-teal-600" />
                   <span>SOP Timing & Role Guidance</span>
                 </div>
-                <div className="text-[11px] text-indigo-800 space-y-1">
+                <div className="text-[11px] text-teal-800 space-y-1">
                   <div>⏰ <strong>Recommended Timing:</strong> {selectedLeadForAction.currentStep.timingGuide}</div>
                   <div>🎯 <strong>Platform Role:</strong> {selectedLeadForAction.currentStep.roleNote}</div>
                 </div>
@@ -1594,7 +1350,7 @@ export default function SLeadCadenceCenter({
                             <button
                               onClick={handleSendViaWhatsAppApi}
                               disabled={sendingWhatsAppApi}
-                              className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                              className="px-3 py-1 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
                               title="Directly send template via WhatsApp Cloud API"
                             >
                               <Send className={`w-3 h-3 ${sendingWhatsAppApi ? 'animate-spin' : ''}`} />
@@ -1686,7 +1442,7 @@ export default function SLeadCadenceCenter({
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-amber-200/80 font-sans text-xs text-slate-800 whitespace-pre-wrap leading-relaxed shadow-2xs">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Live Call Script:</div>
+                    <div className="text-xs font-medium text-slate-400 mb-1">Live Call Script:</div>
                     {interpolateText(selectedLeadForAction.currentStep.templates.phone.pitchScript, getInterpolationVars())}
                   </div>
 
@@ -1813,7 +1569,7 @@ export default function SLeadCadenceCenter({
                   placeholder="e.g. Sent WhatsApp and connection request. Prospect viewed profile."
                   value={executionNotes}
                   onChange={(e) => setExecutionNotes(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 />
               </div>
             </div>
@@ -1856,9 +1612,9 @@ export default function SLeadCadenceCenter({
       {/* ================================================================= */}
       {selectedLeadForConvert && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden my-8">
+          <div className="bg-white rounded-xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden my-8">
             {/* Modal Header */}
-            <div className="p-6 bg-gradient-to-r from-orange-500 to-yellow-500 text-white flex items-center justify-between">
+            <div className="p-6 bg-teal-600 text-white flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <div className="p-2 bg-white/20 rounded-xl backdrop-blur-xs">
@@ -1899,7 +1655,7 @@ export default function SLeadCadenceCenter({
                   <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-bold">
                     Day {selectedLeadForConvert.currentStep?.dayNumber || 1} Cadence
                   </span>
-                  <div className="text-[10px] text-slate-400 mt-1 uppercase font-mono">
+                  <div className="text-xs text-slate-400 mt-1 font-mono">
                     {selectedLeadForConvert.lead_code}
                   </div>
                 </div>
@@ -2006,7 +1762,7 @@ export default function SLeadCadenceCenter({
               <button
                 onClick={handleExecuteConvertOpportunity}
                 disabled={convertingOpp || !convertDestination.stage}
-                className="px-6 py-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all hover:shadow-lg disabled:opacity-50"
+                className="px-6 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all hover:shadow-lg disabled:opacity-50"
               >
                 <Trophy className="w-4 h-4" />
                 <span>{convertingOpp ? 'Converting...' : '🚀 Confirm Conversion to Opportunity'}</span>

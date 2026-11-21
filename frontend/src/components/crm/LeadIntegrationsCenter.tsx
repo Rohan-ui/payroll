@@ -74,11 +74,11 @@ export default function LeadIntegrationsCenter() {
     <div className="space-y-6">
 
       {/* Top Banner */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200">
                 API & Lead Channel Hub
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
@@ -86,7 +86,7 @@ export default function LeadIntegrationsCenter() {
               </span>
             </div>
             <h2 className="text-xl font-bold text-slate-900 mt-1.5 flex items-center gap-2">
-              <Zap className="w-5 h-5 text-indigo-600" />
+              <Zap className="w-5 h-5 text-teal-600" />
               Lead Channels, Marketplaces & Google Meet Settings
             </h2>
             <p className="text-xs text-slate-500 mt-1 max-w-3xl">
@@ -105,7 +105,7 @@ export default function LeadIntegrationsCenter() {
             onClick={() => setActiveTab('google_meet')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
               activeTab === 'google_meet'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -117,7 +117,7 @@ export default function LeadIntegrationsCenter() {
             onClick={() => setActiveTab('indiamart')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
               activeTab === 'indiamart'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -129,11 +129,11 @@ export default function LeadIntegrationsCenter() {
             onClick={() => setActiveTab('tradeindia')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
               activeTab === 'tradeindia'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <Globe className="w-4 h-4 text-blue-600" />
+            <Globe className="w-4 h-4 text-teal-600" />
             <span>TradeIndia API</span>
           </button>
 
@@ -141,7 +141,7 @@ export default function LeadIntegrationsCenter() {
             onClick={() => setActiveTab('gmb')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
               activeTab === 'gmb'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -153,7 +153,7 @@ export default function LeadIntegrationsCenter() {
             onClick={() => setActiveTab('justdial')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
               activeTab === 'justdial'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -165,7 +165,7 @@ export default function LeadIntegrationsCenter() {
             onClick={() => setActiveTab('inbound_api')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
               activeTab === 'inbound_api'
-                ? 'bg-indigo-600 text-white shadow-xs'
+                ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -177,10 +177,10 @@ export default function LeadIntegrationsCenter() {
 
       {/* TAB 1: GOOGLE MEET CONFIGURATION */}
       {activeTab === 'google_meet' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-600">
                 <Video className="w-5 h-5" />
               </div>
               <div>
@@ -207,7 +207,7 @@ export default function LeadIntegrationsCenter() {
                       value="instant"
                       checked={meetConfig.defaultRoomType === 'instant'}
                       onChange={() => setMeetConfig({ ...meetConfig, defaultRoomType: 'instant' })}
-                      className="text-indigo-600 focus:ring-indigo-500"
+                      className="text-teal-600 focus:ring-teal-500"
                     />
                     <div>
                       <div className="text-xs font-bold text-slate-900">1-Click Instant Room (https://meet.google.com/new)</div>
@@ -222,7 +222,7 @@ export default function LeadIntegrationsCenter() {
                       value="custom_room"
                       checked={meetConfig.defaultRoomType === 'custom_room'}
                       onChange={() => setMeetConfig({ ...meetConfig, defaultRoomType: 'custom_room' })}
-                      className="text-indigo-600 focus:ring-indigo-500"
+                      className="text-teal-600 focus:ring-teal-500"
                     />
                     <div>
                       <div className="text-xs font-bold text-slate-900">Dedicated Company Room / Custom URL</div>
@@ -241,7 +241,7 @@ export default function LeadIntegrationsCenter() {
                     type="url"
                     value={meetConfig.customRoomUrl}
                     onChange={(e) => setMeetConfig({ ...meetConfig, customRoomUrl: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                     placeholder="https://meet.google.com/abc-defg-hij"
                   />
                 </div>
@@ -254,7 +254,7 @@ export default function LeadIntegrationsCenter() {
                 <select
                   value={meetConfig.defaultDuration}
                   onChange={(e) => setMeetConfig({ ...meetConfig, defaultDuration: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
                   <option value={15}>15 Minutes (Quick Intro / Alignment)</option>
                   <option value={30}>30 Minutes (Standard Discovery Call)</option>
@@ -273,14 +273,14 @@ export default function LeadIntegrationsCenter() {
                   rows={5}
                   value={meetConfig.inviteTemplate}
                   onChange={(e) => setMeetConfig({ ...meetConfig, inviteTemplate: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">Available Merge Tags: {"{{ClientName}}, {{MeetingTime}}, {{MeetLink}}"}</p>
               </div>
 
-              <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 text-xs space-y-2">
-                <div className="font-bold text-indigo-950 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
+              <div className="bg-teal-50/70 border border-teal-200 rounded-xl p-4 text-xs space-y-2">
+                <div className="font-bold text-teal-950 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-teal-600" />
                   Direct CRM Scheduling
                 </div>
                 <p className="text-slate-600 text-[11px] leading-relaxed">
@@ -290,7 +290,7 @@ export default function LeadIntegrationsCenter() {
                   href="https://meet.google.com/new"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 pt-1"
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-800 pt-1"
                 >
                   <span>Test Google Meet Room Now</span>
                   <ExternalLink className="w-3 h-3" />
@@ -303,7 +303,7 @@ export default function LeadIntegrationsCenter() {
 
       {/* TAB 2: INDIAMART INTEGRATION */}
       {activeTab === 'indiamart' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
@@ -330,7 +330,7 @@ export default function LeadIntegrationsCenter() {
                   type="checkbox"
                   checked={indiaMartConfig.enabled}
                   onChange={(e) => setIndiaMartConfig({ ...indiaMartConfig, enabled: e.target.checked })}
-                  className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
+                  className="w-4 h-4 text-teal-600 rounded cursor-pointer"
                 />
               </div>
 
@@ -343,7 +343,7 @@ export default function LeadIntegrationsCenter() {
                   value={indiaMartConfig.apiKey}
                   onChange={(e) => setIndiaMartConfig({ ...indiaMartConfig, apiKey: e.target.value })}
                   placeholder="mR_XXXXXXXXXX..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">Found in your IndiaMART Seller Panel under CRM Integration.</p>
               </div>
@@ -357,7 +357,7 @@ export default function LeadIntegrationsCenter() {
                   value={indiaMartConfig.mobileNumber}
                   onChange={(e) => setIndiaMartConfig({ ...indiaMartConfig, mobileNumber: e.target.value })}
                   placeholder="+91 98765 43210"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
             </div>
@@ -401,10 +401,10 @@ export default function LeadIntegrationsCenter() {
 
       {/* TAB 3: TRADEINDIA INTEGRATION */}
       {activeTab === 'tradeindia' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-600">
                 <Globe className="w-5 h-5" />
               </div>
               <div>
@@ -428,7 +428,7 @@ export default function LeadIntegrationsCenter() {
                   value={tradeIndiaConfig.userId}
                   onChange={(e) => setTradeIndiaConfig({ ...tradeIndiaConfig, userId: e.target.value })}
                   placeholder="e.g. 1029384"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
@@ -441,7 +441,7 @@ export default function LeadIntegrationsCenter() {
                   value={tradeIndiaConfig.profileId}
                   onChange={(e) => setTradeIndiaConfig({ ...tradeIndiaConfig, profileId: e.target.value })}
                   placeholder="e.g. 5948302"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
@@ -454,7 +454,7 @@ export default function LeadIntegrationsCenter() {
                   value={tradeIndiaConfig.apiKey}
                   onChange={(e) => setTradeIndiaConfig({ ...tradeIndiaConfig, apiKey: e.target.value })}
                   placeholder="ti_XXXXXXXXXX..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
             </div>
@@ -486,7 +486,7 @@ export default function LeadIntegrationsCenter() {
 
       {/* TAB 4: GOOGLE MY BUSINESS */}
       {activeTab === 'gmb' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
@@ -513,7 +513,7 @@ export default function LeadIntegrationsCenter() {
                   value={gmbConfig.locationId}
                   onChange={(e) => setGmbConfig({ ...gmbConfig, locationId: e.target.value })}
                   placeholder="locations/109283746..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
@@ -543,7 +543,7 @@ export default function LeadIntegrationsCenter() {
 
       {/* TAB 5: JUSTDIAL */}
       {activeTab === 'justdial' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-orange-600">
@@ -570,7 +570,7 @@ export default function LeadIntegrationsCenter() {
                   value={justdialConfig.vendorMobile}
                   onChange={(e) => setJustdialConfig({ ...justdialConfig, vendorMobile: e.target.value })}
                   placeholder="+91 98200 XXXXX"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
@@ -600,7 +600,7 @@ export default function LeadIntegrationsCenter() {
 
       {/* TAB 6: INBOUND API / WEBHOOK / FORM */}
       {activeTab === 'inbound_api' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600">
@@ -630,7 +630,7 @@ export default function LeadIntegrationsCenter() {
                 />
                 <button
                   onClick={() => copyToClipboard(genericWebhookUrl, 'generic_url')}
-                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
                 >
                   {copiedKey === 'generic_url' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedKey === 'generic_url' ? 'Copied' : 'Copy Endpoint'}</span>

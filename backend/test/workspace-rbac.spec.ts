@@ -202,6 +202,7 @@ describe('Workspace role-based access control', () => {
       // Business modules list their feature-level permissions underneath them.
       expect(sections.find((s) => s.section === 'HRMS')?.groups.map((g) => g.group)).toEqual([
         'People',
+        'Assets',
         'Attendance',
         'Onboarding',
         'Offboarding',
@@ -285,7 +286,7 @@ describe('Workspace role-based access control', () => {
     });
 
     it('sees only the CRM sidebar items its permissions reveal', async () => {
-      expect(await navigationOf(sales)).toEqual(['crm', 'crm.cold-funnel', 'crm.pipeline', 'crm.leads', 'crm.proposals', 'crm.whatsapp', 'crm.masters']);
+      expect(await navigationOf(sales)).toEqual(['crm', 'crm.pipeline', 'crm.leads', 'crm.cold-funnel', 'crm.proposals', 'crm.whatsapp', 'crm.masters']);
     });
 
     it('can work outreach steps but not enroll new leads without outreach.create', async () => {

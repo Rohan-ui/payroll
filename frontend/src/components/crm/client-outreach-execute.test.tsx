@@ -60,7 +60,7 @@ afterEach(() => {
 it('links to the lead’s own WhatsApp chat with the exact message, and to the lead’s own LinkedIn profile', async () => {
   await act(async () => root.render(<SLeadCadenceCenter onSelectLead360={() => undefined} />));
   await act(async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
-  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Execute')!.click());
+  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Do step')!.click());
 
   const links = [...document.querySelectorAll('a')];
   const whatsapp = links.find((a) => a.textContent?.includes('Open WhatsApp'))!;
@@ -97,7 +97,7 @@ it('keeps “Mark Day complete” off until each message of the day is sent, wit
   const button = (text: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
   await act(async () => root.render(<SLeadCadenceCenter onSelectLead360={() => undefined} />));
   await settle();
-  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Execute')!.click());
+  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Do step')!.click());
 
   const complete = button('Mark Day 1 Complete');
   expect(complete.disabled).toBe(true);
@@ -136,7 +136,7 @@ it('offers “no WhatsApp number” only for a lead without one', async () => {
   });
   await act(async () => root.render(<SLeadCadenceCenter onSelectLead360={() => undefined} />));
   await act(async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
-  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Execute')!.click());
+  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Do step')!.click());
   expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('This lead has no WhatsApp number'))).toBe(true);
   expect([...document.querySelectorAll('a')].some((a) => a.textContent?.includes('Open WhatsApp'))).toBe(false);
 });

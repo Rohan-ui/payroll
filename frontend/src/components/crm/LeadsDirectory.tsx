@@ -1,13 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Plus, Search, Filter, Eye, Edit3, Trash2, ArrowRight, Sparkles,
-  Phone, Mail, Building2, MapPin, Calendar, Clock, CheckCircle2,
-  FileText, Trophy, X, ChevronRight, AlertCircle, RefreshCw, Send,
-  Check, MoreVertical, ChevronLeft, UserCheck, ShieldAlert, Video,
-  Globe, Smartphone, Layers, Server, TrendingUp, Palette, ShoppingBag,
-  Code2, Cpu, Kanban, List, Snowflake, Download, Upload, Loader2
+import {
+  Plus, Search, Eye, Edit3, Trash2, ArrowRight, Sparkles, Phone, Mail, Building2, MapPin, Calendar, FileText, Trophy, X, ChevronRight, RefreshCw, Send, MoreVertical, ChevronLeft, UserCheck, ShieldAlert, Globe, Smartphone, Layers, Server, TrendingUp, Palette, ShoppingBag, Code2, Cpu, Kanban, List, Snowflake, Download, Upload, Loader2,
 } from 'lucide-react';
 import { LeadImportWizard } from './LeadImportWizard';
 import {
@@ -23,6 +18,8 @@ import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
 import { dealWonMessage, isInOutreach } from './pipelineBoard';
 import { useCrmLeadPage } from './useCrmLeadPage';
+import { Button } from '../ui/Button';
+import { fieldClass } from '../../views/payroll/payroll-format';
 interface LeadsDirectoryProps {
   leads: any[];
   stages: any[];
@@ -45,6 +42,8 @@ interface LeadsDirectoryProps {
   onLeadCreated?: (lead: any) => void;
   viewMode?: 'kanban' | 'list';
   onViewModeChange?: (mode: 'kanban' | 'list') => void;
+  /** Opens Client Outreach in the CRM, without leaving the app. */
+  onOpenOutreach?: () => void;
 }
 
 export default function LeadsDirectory({
@@ -67,7 +66,8 @@ export default function LeadsDirectory({
   initialFilterStageId,
   autoOpenAdd,
   viewMode = 'list',
-  onViewModeChange
+  onViewModeChange,
+  onOpenOutreach,
 }: LeadsDirectoryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTemp, setFilterTemp] = useState<string>('ALL');
@@ -445,8 +445,8 @@ export default function LeadsDirectory({
     
     if (name.includes('web') || name.includes('react') || name.includes('next') || name.includes('frontend') || name.includes('fullstack')) {
       return {
-        icon: <Globe className="w-3.5 h-3.5 text-blue-600 shrink-0" />,
-        bg: 'bg-blue-50/90 text-blue-900 border-blue-200/80',
+        icon: <Globe className="w-3.5 h-3.5 text-teal-600 shrink-0" />,
+        bg: 'bg-teal-50/90 text-teal-900 border-teal-200/80',
         category: 'Web Engineering'
       };
     }
@@ -466,8 +466,8 @@ export default function LeadsDirectory({
     }
     if (name.includes('erp') || name.includes('crm') || name.includes('cloud saas') || name.includes('enterprise') || name.includes('custom build')) {
       return {
-        icon: <Layers className="w-3.5 h-3.5 text-indigo-600 shrink-0" />,
-        bg: 'bg-indigo-50/90 text-indigo-900 border-indigo-200/80',
+        icon: <Layers className="w-3.5 h-3.5 text-teal-600 shrink-0" />,
+        bg: 'bg-teal-50/90 text-teal-900 border-teal-200/80',
         category: 'Enterprise SaaS'
       };
     }
@@ -559,63 +559,80 @@ export default function LeadsDirectory({
   return (
     <div className="space-y-4 relative">
       {serverPaged && leadPage.error && <div role="alert" className="text-sm text-red-700">{leadPage.error} <button type="button" onClick={leadPage.reload} className="underline">Retry</button></div>}
-      {/* Search & Actions Toolbar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-        {/* Search Input */}
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-            placeholder="Search leads by company, contact person, email, code, or assignee..."
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 focus:bg-white text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
-          />
+      {/* Search and the list's own actions on top; filters underneath, wrapping on narrow screens. */}
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-[#2B293E] dark:bg-[#181724]">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[12rem] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input aria-label="Search leads" type="search" value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              placeholder="Search company, contact, email, code or assignee"
+              className={`${fieldClass} pl-9`} />
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setIsImportModalOpen(true)}>
+            <Upload className="h-4 w-4" aria-hidden="true" /> Import
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportLeads} disabled={isExporting}>
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
+            {isExporting ? 'Exporting…' : 'Export'}
+          </Button>
+          {onViewModeChange && (
+            <div role="group" aria-label="View" className="inline-flex shrink-0 rounded-lg bg-slate-100 p-1 dark:bg-white/5">
+              {([['kanban', 'Board', Kanban], ['list', 'List', List]] as const).map(([mode, label, Icon]) => (
+                <button key={mode} type="button" aria-pressed={viewMode === mode} onClick={() => onViewModeChange(mode)}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${viewMode === mode ? 'bg-white text-slate-900 shadow-sm dark:bg-[#181724] dark:text-slate-100' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+          <Button variant="ghost" size="sm" onClick={onRefresh} aria-label="Refresh leads">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
+          </Button>
         </div>
 
-        {/* Filter Pills & Add Button */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Origin filter (Prospect vs Existing Client) */}
-          <select
+          <select aria-label="Origins"
             value={filterOrigin}
             onChange={(e) => { setFilterOrigin(e.target.value as any); setCurrentPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All Origins</option>
-            <option value="EXISTING">🔁 Existing Clients ({leads.filter(l => l.is_existing_client || l.client_id).length})</option>
+            <option value="EXISTING">Existing Clients ({leads.filter(l => l.is_existing_client || l.client_id).length})</option>
             <option value="NEW">🆕 New Prospects ({leads.filter(l => !l.is_existing_client && !l.client_id).length})</option>
           </select>
 
           {/* Assignee filter */}
-          <select
+          <select aria-label="Assignees"
             value={filterSalesPerson}
             onChange={(e) => { setFilterSalesPerson(e.target.value); setCurrentPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All Assignees</option>
             {salesPersons.map((sp) => (
-              <option key={sp.id} value={sp.id}>👤 {sp.first_name} {sp.last_name}</option>
+              <option key={sp.id} value={sp.id}>{sp.first_name} {sp.last_name}</option>
             ))}
           </select>
 
           {/* Temperature filter */}
-          <select
+          <select aria-label="Temperatures"
             value={filterTemp}
             onChange={(e) => { setFilterTemp(e.target.value); setCurrentPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All Temperatures</option>
-            <option value="HOT">🔥 Hot Leads</option>
-            <option value="WARM">☀️ Warm Leads</option>
-            <option value="COLD">❄️ Cold Leads</option>
-            <option value="WON">🏆 Won</option>
+            <option value="HOT">Hot Leads</option>
+            <option value="WARM">Warm Leads</option>
+            <option value="COLD">Cold Leads</option>
+            <option value="WON">Won</option>
           </select>
 
           {/* Stage filter */}
-          <select
+          <select aria-label="Pipeline Stages"
             value={filterStage}
             onChange={(e) => { setFilterStage(e.target.value); setCurrentPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All Pipeline Stages</option>
             {stages.map((s) => (
@@ -624,10 +641,10 @@ export default function LeadsDirectory({
           </select>
 
           {/* Service filter */}
-          <select
+          <select aria-label="Services"
             value={filterService}
             onChange={(e) => { setFilterService(e.target.value); setCurrentPage(1); }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
             <option value="ALL">All Services</option>
             {services.map((srv) => (
@@ -636,16 +653,16 @@ export default function LeadsDirectory({
           </select>
 
           {/* Industry Sector filter */}
-          <select
+          <select aria-label="Industries"
             value={filterIndustry}
             onChange={(e) => {
               setFilterIndustry(e.target.value);
               setFilterSubIndustry('ALL');
               setCurrentPage(1);
             }}
-            className="px-2.5 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none"
+            className={`${fieldClass} sm:w-44`}
           >
-            <option value="ALL">🏢 All Industries</option>
+            <option value="ALL">All Industries</option>
             {industries.map((ind) => (
               <option key={ind.id || ind.key} value={ind.name}>{ind.name}</option>
             ))}
@@ -656,7 +673,7 @@ export default function LeadsDirectory({
             <select
               value={filterSubIndustry}
               onChange={(e) => { setFilterSubIndustry(e.target.value); setCurrentPage(1); }}
-              className="px-2.5 py-1.5 bg-blue-50/70 text-xs border border-blue-200 rounded-lg text-blue-900 font-medium focus:outline-none animate-in fade-in-50"
+              className={`${fieldClass} sm:w-44`}
             >
               <option value="ALL">All Sub-Industries ({availableFilterSubIndustries.length})</option>
               {availableFilterSubIndustries.map((sub) => (
@@ -665,97 +682,23 @@ export default function LeadsDirectory({
             </select>
           )}
 
-          <button
-            onClick={onRefresh}
-            className="p-2 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 transition-colors cursor-pointer"
-            title="Refresh Leads"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-
           {isolatedColdCount > 0 && (
             <button
               type="button"
               onClick={() => setIncludeColdFunnelLeads(!includeColdFunnelLeads)}
               aria-pressed={!includeColdFunnelLeads}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
-                includeColdFunnelLeads
-                  ? 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                  : 'bg-indigo-600 text-white shadow-xs'
-              }`}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium text-teal-700 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300 dark:hover:bg-teal-950/30"
               title={includeColdFunnelLeads ? 'Leave out leads that are still in the 30-day outreach cadence' : 'Include leads that are in the 30-day outreach cadence'}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>{includeColdFunnelLeads ? `Exclude ${isolatedColdCount} in outreach` : `${isolatedColdCount} in outreach excluded · Show`}</span>
             </button>
           )}
 
-          <a
-            href="/crm?tab=cold-funnel"
-            className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all shrink-0"
-            title="Open Client Outreach Cadence Radar"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>Client Outreach</span>
-          </a>
-
-          {/* Import Leads Button */}
-          <button
-            type="button"
-            onClick={() => setIsImportModalOpen(true)}
-            className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer shrink-0"
-            title="Import leads from Excel spreadsheet (.xlsx)"
-          >
-            <Upload className="w-3.5 h-3.5 text-blue-600" />
-            <span>Import</span>
-          </button>
-
-          {/* Export Leads Button */}
-          <button
-            type="button"
-            onClick={handleExportLeads}
-            disabled={isExporting}
-            className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
-            title="Export all CRM leads with 26 fields and live master taxonomy (.xlsx)"
-          >
-            {isExporting ? (
-              <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
-            ) : (
-              <Download className="w-3.5 h-3.5 text-emerald-600" />
-            )}
-            <span>{isExporting ? 'Exporting...' : 'Export'}</span>
-          </button>
-
-          {/* Kanban / List View Toggle on Extreme Right */}
-          {onViewModeChange && (
-            <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/90 shadow-2xs shrink-0 ml-1">
-              <button
-                type="button"
-                onClick={() => onViewModeChange('kanban')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'kanban'
-                    ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-200/60'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
-                }`}
-                title="Switch to Kanban Board View"
-              >
-                <Kanban className={`w-3.5 h-3.5 ${viewMode === 'kanban' ? 'text-blue-600' : 'text-slate-400'}`} />
-                <span>Kanban</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onViewModeChange('list')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'list'
-                    ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-200/60'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
-                }`}
-                title="Switch to List View"
-              >
-                <List className={`w-3.5 h-3.5 ${viewMode === 'list' ? 'text-blue-600' : 'text-slate-400'}`} />
-                <span>List</span>
-              </button>
-            </div>
+          {onOpenOutreach && (
+            <button type="button" onClick={onOpenOutreach}
+              className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-2 text-xs font-medium text-teal-700 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300 dark:hover:bg-teal-950/30">
+              Client outreach <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
           )}
         </div>
       </div>
@@ -765,7 +708,7 @@ export default function LeadsDirectory({
         <div className="overflow-x-auto min-h-[300px]">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr className="bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-500">
                 <th className="py-3 px-3 w-10 text-center">
                   <input
                     type="checkbox"
@@ -779,7 +722,7 @@ export default function LeadsDirectory({
                         setSelectedLeadIds(prev => prev.filter(id => !pageIds.has(id)));
                       }
                     }}
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
                     title="Select / Deselect all on current page"
                   />
                 </th>
@@ -798,7 +741,7 @@ export default function LeadsDirectory({
                 <tr 
                   key={lead.id} 
                   className={`transition-colors group ${
-                    selectedLeadIds.includes(lead.id) ? 'bg-blue-50/50' : 'hover:bg-slate-50/70'
+                    selectedLeadIds.includes(lead.id) ? 'bg-teal-50/50' : 'hover:bg-slate-50/70'
                   }`}
                 >
                   {/* Checkbox */}
@@ -813,7 +756,7 @@ export default function LeadsDirectory({
                           setSelectedLeadIds(prev => prev.filter(id => id !== lead.id));
                         }
                       }}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
                     />
                   </td>
 
@@ -823,13 +766,13 @@ export default function LeadsDirectory({
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <button
                           onClick={() => onSelectLead360(lead.id)}
-                          className="font-bold text-slate-900 hover:text-blue-600 hover:underline text-left block"
+                          className="font-bold text-slate-900 hover:text-teal-600 hover:underline text-left block"
                         >
                           {lead.company_name}
                         </button>
                         {isInOutreach(lead) && (
                           <span
-                            className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-bold rounded-md"
+                            className="px-1.5 py-0.5 bg-teal-50 text-teal-700 border border-teal-200 text-[9px] font-bold rounded-md"
                             title="Being worked in the 30-day Client Outreach cadence; not on the pipeline board yet"
                           >
                             In outreach
@@ -869,7 +812,7 @@ export default function LeadsDirectory({
                           )}
                           {lead.sub_industry && (
                             <span 
-                              className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[10px] font-medium rounded inline-flex items-center gap-1"
+                              className="px-1.5 py-0.5 bg-teal-50 text-teal-700 border border-teal-200/80 text-[10px] font-medium rounded inline-flex items-center gap-1"
                               title={`Sub-Industry: ${getSubIndustryLabel(lead.industry, lead.sub_industry)}`}
                             >
                               <span>🔹</span>
@@ -905,10 +848,10 @@ export default function LeadsDirectory({
                           <a
                             href={`mailto:${lead.email}`}
                             onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1.5 text-slate-600 hover:text-blue-600 transition-colors group/mail"
+                            className="inline-flex items-center gap-1.5 text-slate-600 hover:text-teal-600 transition-colors group/mail"
                             title={`Send email to ${lead.email}`}
                           >
-                            <span className="p-0.5 bg-blue-50 text-blue-600 rounded group-hover/mail:bg-blue-100 shrink-0">
+                            <span className="p-0.5 bg-teal-50 text-teal-600 rounded group-hover/mail:bg-teal-100 shrink-0">
                               <Mail className="w-2.5 h-2.5" />
                             </span>
                             <span className="truncate max-w-[180px] font-medium">{lead.email}</span>
@@ -937,13 +880,13 @@ export default function LeadsDirectory({
                     <button
                       type="button"
                       onClick={() => onReassignSalesPerson && onReassignSalesPerson(lead)}
-                      className="group/rep flex items-center gap-2 hover:bg-blue-50/80 p-1 -m-1 rounded-lg transition-all text-left cursor-pointer"
+                      className="group/rep flex items-center gap-2 hover:bg-teal-50/80 p-1 -m-1 rounded-lg transition-all text-left cursor-pointer"
                       title="Click to reassign Assignee"
                     >
-                      <div className="w-6 h-6 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center text-[10px] font-bold text-blue-700">
+                      <div className="w-6 h-6 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-[10px] font-bold text-teal-700">
                         {lead.assigned_user_name ? lead.assigned_user_name.substring(0, 2).toUpperCase() : 'RS'}
                       </div>
-                      <span className="text-xs font-semibold text-slate-800 group-hover/rep:text-blue-600 block leading-tight">
+                      <span className="text-xs font-semibold text-slate-800 group-hover/rep:text-teal-600 block leading-tight">
                         {lead.assigned_user_name || 'Ravi Shah'}
                       </span>
                     </button>
@@ -993,13 +936,6 @@ export default function LeadsDirectory({
                       <span className="font-bold text-slate-900">
                         {formatCurrency(lead.budget_amount)}
                       </span>
-                      <span 
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200/90 text-[10px] font-bold rounded-md shadow-2xs"
-                        title={`AI Health Score: ${lead.ai_score || 70}/100`}
-                      >
-                        <Sparkles className="w-2.5 h-2.5 text-amber-600" />
-                        <span>{lead.ai_score || 70}</span>
-                      </span>
                     </div>
                     {lead.win_probability && (
                       <p className="text-[10px] text-slate-500 mt-0.5">{lead.win_probability}% Win Prob</p>
@@ -1047,7 +983,7 @@ export default function LeadsDirectory({
                           return (
                             <span 
                               onClick={(e) => { e.stopPropagation(); onSelectLead360(lead.id); }}
-                              className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 cursor-pointer hover:bg-indigo-100 flex items-center gap-1 transition-colors"
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200 cursor-pointer hover:bg-teal-100 flex items-center gap-1 transition-colors"
                               title="Active in Client Outreach Cadence. Click to view."
                             >
                               <Sparkles className="w-2.5 h-2.5 text-amber-500" />
@@ -1058,7 +994,7 @@ export default function LeadsDirectory({
                           return (
                             <span 
                               onClick={(e) => { e.stopPropagation(); onSelectLead360(lead.id); }}
-                              className="text-[9px] font-semibold text-indigo-600 hover:underline cursor-pointer"
+                              className="text-[9px] font-semibold text-teal-600 hover:underline cursor-pointer"
                               title="Click to enroll into Client Outreach Cadence"
                             >
                               + Enroll Funnel
@@ -1116,7 +1052,7 @@ export default function LeadsDirectory({
                               onClick={() => { setOpenActionMenuId(null); onSelectLead360(lead.id); }}
                               className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                             >
-                              <Eye className="w-3.5 h-3.5 text-blue-600" />
+                              <Eye className="w-3.5 h-3.5 text-teal-600" />
                               <span>View 360° Dossier</span>
                             </button>
 
@@ -1146,9 +1082,9 @@ export default function LeadsDirectory({
                             {onReassignSalesPerson && (
                               <button
                                 onClick={() => { setOpenActionMenuId(null); onReassignSalesPerson(lead); }}
-                                className="w-full px-3 py-2 text-indigo-700 hover:bg-indigo-50 flex items-center gap-2 font-medium"
+                                className="w-full px-3 py-2 text-teal-700 hover:bg-teal-50 flex items-center gap-2 font-medium"
                               >
-                                <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                                <UserCheck className="w-3.5 h-3.5 text-teal-600" />
                                 <span>Reassign Assignee</span>
                               </button>
                             )}
@@ -1214,7 +1150,7 @@ export default function LeadsDirectory({
                     <p className="text-sm font-medium">No leads found matching your criteria</p>
                     <button
                       onClick={() => handleOpenAdd(false)}
-                      className="mt-3 px-3.5 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 inline-flex items-center gap-1"
+                      className="mt-3 px-3.5 py-1.5 bg-teal-50 text-teal-600 rounded-lg text-xs font-semibold hover:bg-teal-100 inline-flex items-center gap-1"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Add New Lead</span>
@@ -1267,7 +1203,7 @@ export default function LeadsDirectory({
                 onClick={() => setCurrentPage(p)}
                 className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
                   currentPage === p
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'bg-teal-600 text-white shadow-xs'
                     : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
                 }`}
               >
@@ -1289,9 +1225,9 @@ export default function LeadsDirectory({
 
       {/* FLOATING SMART BULK ACTIONS DOCK */}
       {selectedLeadIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-4 text-xs animate-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-xl shadow-2xl border border-slate-700/80 flex items-center gap-4 text-xs animate-in slide-in-from-bottom-5 duration-200">
           <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
-            <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[11px] shadow-xs">
+            <span className="w-6 h-6 rounded-full bg-teal-600 text-white font-bold flex items-center justify-center text-[11px] shadow-xs">
               {selectedLeadIds.length}
             </span>
             <span className="font-semibold text-slate-200">Selected</span>
@@ -1308,7 +1244,7 @@ export default function LeadsDirectory({
                 }
               }}
               disabled={bulkLoading}
-              className="bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              className="bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
               defaultValue=""
             >
               <option value="" disabled>Choose Sales Rep...</option>
@@ -1329,7 +1265,7 @@ export default function LeadsDirectory({
                 }
               }}
               disabled={bulkLoading}
-              className="bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              className="bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
               defaultValue=""
             >
               <option value="" disabled>Move Stage...</option>
@@ -1358,7 +1294,7 @@ export default function LeadsDirectory({
             <button
               onClick={() => handleBulkAction({ action: 'change_temperature', temperature: 'COLD' })}
               disabled={bulkLoading}
-              className="px-2 py-1 bg-blue-950/70 hover:bg-blue-900 border border-blue-800/80 text-blue-200 text-[11px] font-semibold rounded-md transition-colors"
+              className="px-2 py-1 bg-teal-950/70 hover:bg-teal-900 border border-teal-800/80 text-teal-200 text-[11px] font-semibold rounded-md transition-colors"
             >
               ❄️ Cold
             </button>
@@ -1388,7 +1324,7 @@ export default function LeadsDirectory({
       {/* CUSTOM IN-APP BULK DELETE CONFIRMATION MODAL */}
       {showBulkDeleteModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150">
             <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-4">
               <ShieldAlert className="w-6 h-6" />
             </div>
@@ -1423,7 +1359,7 @@ export default function LeadsDirectory({
       {/* CUSTOM IN-APP DELETE CONFIRMATION MODAL (NO BROWSER ALERT) */}
       {deleteConfirmLead && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4 animate-in zoom-in-95 duration-150">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4 animate-in zoom-in-95 duration-150">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
                 <Trash2 className="w-5 h-5" />
@@ -1461,7 +1397,7 @@ export default function LeadsDirectory({
       {/* CUSTOM IN-APP DEAL WON CONFIRMATION MODAL (NO BROWSER ALERT) */}
       {dealWonConfirmLead && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4 animate-in zoom-in-95 duration-150">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4 animate-in zoom-in-95 duration-150">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
                 <Trophy className="w-5 h-5" />
@@ -1505,10 +1441,10 @@ export default function LeadsDirectory({
       {/* ADD / EDIT LEAD MODAL */}
       {(showAddModal || showEditModal) && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl border border-slate-200 overflow-hidden my-8">
+          <div className="bg-white w-full max-w-2xl rounded-xl shadow-xl border border-slate-200 overflow-hidden my-8">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-blue-600" />
+                <Building2 className="w-5 h-5 text-teal-600" />
                 <h3 className="font-bold text-slate-900">
                   {showAddModal ? 'Create New Lead (Enterprise CRM)' : 'Edit Lead Details'}
                 </h3>
@@ -1543,7 +1479,7 @@ export default function LeadsDirectory({
                     }}
                     className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                       !formData.isExistingClient
-                        ? 'bg-white text-blue-700 shadow-xs'
+                        ? 'bg-white text-teal-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -1629,7 +1565,7 @@ export default function LeadsDirectory({
                       ) : (
                         clients.map((c) => (
                           <option key={c.id} value={c.id}>
-                            🏢 {c.company_name} — {c.contact_person} ({c.city || 'India'})
+                            {c.company_name} — {c.contact_person} ({c.city || 'India'})
                           </option>
                         ))
                       )}
@@ -1651,7 +1587,7 @@ export default function LeadsDirectory({
                     value={formData.companyName}
                     onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
                     placeholder="e.g. Acme FinTech Technologies Ltd."
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-100"
                   />
                 </div>
 
@@ -1669,7 +1605,7 @@ export default function LeadsDirectory({
                         sub_industry: subList[0]?.name || subList[0]?.key || ''
                       });
                     }}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-100"
                   >
                     {industries.map((ind) => (
                       <option key={ind.id || ind.key} value={ind.name}>{ind.name}</option>
@@ -1683,7 +1619,7 @@ export default function LeadsDirectory({
                   <select
                     value={formData.sub_industry}
                     onChange={(e) => setFormData({ ...formData, sub_industry: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-100"
                   >
                     {getSubIndustries(formData.industry).map((sub) => (
                       <option key={sub.id || sub.key} value={sub.name}>{sub.name}</option>
@@ -1700,7 +1636,7 @@ export default function LeadsDirectory({
                     value={formData.firstName}
                     onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                     placeholder="e.g. Rahul"
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-100"
                   />
                 </div>
 
@@ -1712,7 +1648,7 @@ export default function LeadsDirectory({
                     value={formData.lastName}
                     onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                     placeholder="e.g. Sharma"
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-100"
                   />
                 </div>
 
@@ -1725,7 +1661,7 @@ export default function LeadsDirectory({
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     placeholder="rahul@acme.com"
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-100"
                   />
                 </div>
 
@@ -1745,7 +1681,7 @@ export default function LeadsDirectory({
                   <select
                     value={formData.assignedUserId}
                     onChange={(e) => setFormData({ ...formData, assignedUserId: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-100"
                   >
                     {salesPersons.map((sp) => (
                       <option key={sp.id} value={sp.id}>
@@ -1763,7 +1699,7 @@ export default function LeadsDirectory({
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                     placeholder="Mumbai"
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-100"
                   />
                 </div>
 
@@ -1775,7 +1711,7 @@ export default function LeadsDirectory({
                     value={formData.state}
                     onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                     placeholder="Maharashtra"
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-100"
                   />
                 </div>
 
@@ -1873,9 +1809,9 @@ export default function LeadsDirectory({
                     onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white"
                   >
-                    <option value="HOT">🔥 Hot (Immediate Requirement)</option>
-                    <option value="WARM">☀️ Warm (Exploring Options)</option>
-                    <option value="COLD">❄️ Cold (Long Term)</option>
+                    <option value="HOT">Hot (Immediate Requirement)</option>
+                    <option value="WARM">Warm (Exploring Options)</option>
+                    <option value="COLD">Cold (Long Term)</option>
                   </select>
                 </div>
 
@@ -1917,7 +1853,7 @@ export default function LeadsDirectory({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs flex items-center gap-1.5"
+                  className="px-5 py-2 text-xs font-semibold text-white bg-teal-500 hover:bg-teal-600 rounded-lg shadow-xs flex items-center gap-1.5"
                 >
                   {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{showAddModal ? 'Save & Qualify Lead' : 'Update Lead'}</span>

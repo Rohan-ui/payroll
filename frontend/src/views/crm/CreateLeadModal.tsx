@@ -60,7 +60,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ pipelines, onC
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+      <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-5">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
             <Building2 className="w-5 h-5 text-teal-600" />
@@ -156,9 +156,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ pipelines, onC
                 onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold"
               >
-                <option value="HOT">🔥 Hot (Needs immediate attention)</option>
-                <option value="WARM">⚡ Warm (Active evaluation)</option>
-                <option value="COLD">❄️ Cold (Nurture)</option>
+                <option value="HOT">Hot (Needs immediate attention)</option>
+                <option value="WARM">Warm (Active evaluation)</option>
+                <option value="COLD">Cold (Nurture)</option>
               </select>
             </div>
           </div>

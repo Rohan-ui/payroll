@@ -39,7 +39,7 @@ it('adds a stage to the chosen pipeline and lists each stage under its real pipe
   });
   const button = (text: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(text)) as HTMLButtonElement;
 
-  act(() => button('Pipeline Stages').click());
+  act(() => button('Pipeline stages').click());
   const row = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('New'));
   expect(row?.textContent).toContain('Sales');
   expect(row?.textContent).not.toContain('Main Pipeline');
@@ -95,7 +95,7 @@ it('edits a pipeline (name, code, default) and moves a stage to another pipeline
   const submit = () => act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
 
   // Pipelines: the Edit button is offered, and the form saves name, code and the default flag.
-  act(() => button('Pipelines (')?.click());
+  act(() => button('Pipelines')?.click());
   const salesRow = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('Sales'))!;
   act(() => (salesRow.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
   setValue(container.querySelector('input[placeholder="e.g. Enterprise Software Retainers"]') as HTMLInputElement, 'Enterprise sales', 'input');
@@ -105,7 +105,7 @@ it('edits a pipeline (name, code, default) and moves a stage to another pipeline
   expect(saves[0]).toMatchObject({ method: 'PUT', url: '/api/v1/crm/masters/pipelines', body: { id: 'p-sales', name: 'Enterprise sales', code: 'ENTERPRISE', is_default: 1 } });
 
   // Stages: the pipeline can be changed while editing.
-  act(() => button('Pipeline Stages')?.click());
+  act(() => button('Pipeline stages')?.click());
   const stageRow = [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('New'))!;
   act(() => (stageRow.querySelector('button[title="Edit"]') as HTMLButtonElement).click());
   const select = container.querySelector('#stage-pipeline') as HTMLSelectElement;
@@ -145,7 +145,7 @@ it('saves stages in the order they are dragged to, then refreshes the sales pipe
   const settle = () => act(async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
   await act(async () => root.render(<CRMMastersManager onRefreshParent={refreshSalesPipeline} />));
   await settle();
-  act(() => ([...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Pipeline Stages')) as HTMLButtonElement).click());
+  act(() => ([...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Pipeline stages')) as HTMLButtonElement).click());
 
   const drag = (row: Element, type: string) =>
     act(() => {

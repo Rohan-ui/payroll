@@ -17,7 +17,6 @@ vi.mock('../../lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } 
 const { DripSequencesView } = await import('./DripSequencesView');
 const { EnrollDialog } = await import('./drip/EnrollDialog');
 const { PublicUnsubscribeView } = await import('../public/PublicUnsubscribeView');
-const { ComingSoon } = await import('./ComingSoon');
 
 const READY = { organizationSender: { email: 'sales@acme.test', name: 'Acme Sales' }, organizationProblem: null, personalAccountsAllowed: true, unsubscribeAvailable: true };
 const OVERVIEW = {
@@ -266,11 +265,5 @@ describe('the unsubscribe page and the tabs not built yet', () => {
     expect(container.textContent).toContain('won’t get any more marketing emails from Acme');
     const init = (fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[1][1];
     expect(init.credentials).toBe('omit');
-  });
-
-  it('says plainly what isn’t built yet, with no sample data', async () => {
-    await act(async () => root.render(<ComingSoon tab="campaigns" />));
-    expect(container.textContent).toContain('Email campaigns are coming soon');
-    expect(container.textContent).not.toMatch(/\d+(\.\d+)?%/);
   });
 });

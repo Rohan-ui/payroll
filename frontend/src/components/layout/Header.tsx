@@ -1,49 +1,24 @@
 import React, { useState } from 'react';
-import { Menu, X, Bell, ChevronDown, Sparkles, Kanban, ListChecks, Mail, Clock, FileText, BarChart2, Settings2, Target, ShieldCheck, Sun, Moon, MessageSquare } from 'lucide-react';
+import { Menu, X, Bell, ChevronDown, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePayroll } from '../../context/PayrollContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Avatar } from '../ui/Avatar';
 import { cn } from '../../utils/cn';
-import type { AppView, CrmTab } from '../../types/payroll.types';
+import { currentNavigationId, sidebarTree } from './navigation';
 
-const CRM_SUB_ITEMS = [
-  { id: 'cold-funnel', label: 'Client Outreach',      view: 'crm' as AppView,    tab: 'cold-funnel' as CrmTab, icon: Sparkles, badge: '30D' },
-  { id: 'pipeline',    label: 'Sales Pipelines',      view: 'crm' as AppView,    tab: 'pipeline' as CrmTab,    icon: Kanban },
-  { id: 'leads',       label: 'Lead Management',      view: 'crm' as AppView,    tab: 'leads' as CrmTab,       icon: ListChecks },
-  { id: 'emails',      label: 'Email & Marketing',    view: 'emails' as AppView,                               icon: Mail,     badge: 'New' },
-  { id: 'activities',  label: 'Follow-ups & Meetings', view: 'crm' as AppView,    tab: 'activities' as CrmTab,  icon: Clock },
-  { id: 'proposals',   label: 'Quotations',           view: 'crm' as AppView,    tab: 'proposals' as CrmTab,   icon: FileText },
-  { id: 'whatsapp',    label: 'WhatsApp Templates',   view: 'crm' as AppView,    tab: 'whatsapp' as CrmTab,    icon: MessageSquare },
-  { id: 'reports',     label: 'Reports & Analytics',  view: 'crm' as AppView,    tab: 'reports' as CrmTab,     icon: BarChart2 },
-
-  { id: 'audit-trail', label: 'Audit Trail',          view: 'crm' as AppView,    tab: 'audit-trail' as CrmTab, icon: ShieldCheck },
-    { id: 'masters',     label: 'Masters',              view: 'crm' as AppView,    tab: 'masters' as CrmTab,     icon: Settings2 },
-];
 
 /** Mobile-only top bar. Hidden on md+ (desktop uses Sidebar). */
 export const Header: React.FC = () => {
-  const { user, logout, activeTenant } = useAuth();
+  const { user, logout, activeTenant, navigation } = useAuth();
   const { currentView, setCurrentView, crmTab, navigateTo } = usePayroll();
   const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [mobileCrmOpen, setMobileCrmOpen] = useState(true);
 
-  const navItems: { id: AppView; label: string }[] = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'people', label: 'People' },
-    { id: 'payroll', label: 'Payroll' },
-    { id: 'attendance', label: 'Attendance' },
-    { id: 'onboarding', label: 'Onboarding' },
-    { id: 'offboarding', label: 'Offboarding' },
-    { id: 'performance', label: 'Performance' },
-    { id: 'payslips', label: 'Payslips' },
-    { id: 'bookkeeping', label: 'Bookkeeping' },
-    { id: 'organization', label: 'Organization & Settings' },
-    { id: 'reports', label: 'Reports' },
-    { id: 'settings', label: 'Compliance' },
-    { id: 'help', label: 'Help' },
-  ];
+  // Only what the server says this member may open, as in the sidebar.
+  const items = sidebarTree(navigation);
+  const activeId = currentNavigationId(currentView, crmTab);
+  const [openGroup, setOpenGroup] = useState<string | null>(items.find((i) => i.children.some((c) => c.entry.id === activeId))?.entry.id ?? null);
 
   return (
     <>
@@ -157,119 +132,59 @@ export const Header: React.FC = () => {
               </button>
             </div>
 
-            {/* Nav items */}
-            <ul className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
-              <li>
-                <button
-                  onClick={() => { setCurrentView('dashboard'); setMenuOpen(false); }}
-                  className={cn(
-                    'w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-colors',
-                    currentView === 'dashboard'
-                      ? theme === 'dark' ? 'bg-teal-500/20 text-white font-bold' : 'bg-teal-50 text-teal-800 font-bold'
+            {/* The same items as the sidebar: only what the server says this member may open. */}
+            <nav aria-label="Main navigation" className="flex-1 overflow-y-auto px-3 py-3">
+              <ul className="space-y-1">
+                {items.map((item) => {
+                  const inGroup = item.children.some((child) => child.entry.id === activeId);
+                  const isActive = item.entry.id === activeId || inGroup;
+                  const expanded = openGroup === item.entry.id;
+                  const rowClass = (active: boolean) => cn(
+                    'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
+                    active
+                      ? theme === 'dark' ? 'bg-teal-500/20 text-white' : 'bg-teal-50 text-teal-900'
                       : theme === 'dark' ? 'text-slate-300 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-                  )}
-                >
-                  Dashboard
-                </button>
-              </li>
-
-              {/* CRM & Sales Expandable Group */}
-              <li className="space-y-1">
-                <button
-                  onClick={() => setMobileCrmOpen((prev) => !prev)}
-                  className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-medium transition-colors',
-                    (currentView === 'crm' || currentView === 'emails')
-                      ? theme === 'dark' ? 'bg-teal-500/20 text-teal-300 font-bold' : 'bg-teal-50 text-teal-800 font-bold'
-                      : theme === 'dark' ? 'text-slate-300 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <Target className="w-4 h-4 text-teal-400" />
-                    <span>CRM &amp; Sales</span>
-                  </div>
-                  <ChevronDown
-                    className={cn(
-                      'w-4 h-4 text-slate-400 transition-transform',
-                      mobileCrmOpen ? 'rotate-180 text-teal-400' : '',
-                    )}
-                  />
-                </button>
-
-                {mobileCrmOpen && (
-                  <ul
-                    className={cn(
-                      'pl-4 pr-1 py-1 space-y-0.5 border-l-2 ml-4',
-                      theme === 'dark' ? 'border-[#2B293E]' : 'border-slate-200',
-                    )}
-                  >
-                    {CRM_SUB_ITEMS.map((sub) => {
-                      const isSubActive =
-                        (sub.view === 'emails' && currentView === 'emails') ||
-                        (sub.view === 'crm' && currentView === 'crm' && crmTab === sub.tab);
-
-                      return (
-                        <li key={sub.id}>
-                          <button
-                            onClick={() => {
-                              navigateTo(sub.view, sub.tab);
-                              setMenuOpen(false);
-                            }}
-                            className={cn(
-                              'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors',
-                              isSubActive
-                                ? theme === 'dark'
-                                  ? 'bg-teal-500/25 text-white font-bold'
-                                  : 'bg-teal-100 text-teal-900 font-bold'
-                                : theme === 'dark'
-                                ? 'text-slate-400 hover:text-white hover:bg-white/5'
-                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100',
-                            )}
-                          >
-                            <div className="flex items-center gap-2">
-                              <sub.icon className="w-3.5 h-3.5" />
-                              <span>{sub.label}</span>
-                            </div>
-                            {sub.badge && (
-                              <span
-                                className={cn(
-                                  'text-[9px] px-1 py-0.2 rounded font-extrabold',
-                                  theme === 'dark'
-                                    ? 'bg-teal-500/20 text-teal-300'
-                                    : 'bg-teal-100 text-teal-800',
-                                )}
-                              >
-                                {sub.badge}
-                              </span>
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </li>
-
-              {/* Other modules */}
-              {navItems.filter((i) => i.id !== 'dashboard').map((item) => {
-                const isActive = currentView === item.id;
-                return (
-                  <li key={item.id}>
-                    <button
-                      onClick={() => { setCurrentView(item.id); setMenuOpen(false); }}
-                      className={cn(
-                        'w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150',
-                        isActive
-                          ? theme === 'dark' ? 'bg-teal-500/20 text-white font-bold' : 'bg-teal-50 text-teal-800 font-bold'
-                          : theme === 'dark' ? 'text-slate-300 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                  );
+                  if (item.children.length === 0) {
+                    return (
+                      <li key={item.entry.id}>
+                        <button type="button" aria-current={isActive ? 'page' : undefined} className={rowClass(isActive)}
+                          onClick={() => { if (item.presentation.view) navigateTo(item.presentation.view, item.presentation.tab); setMenuOpen(false); }}>
+                          <item.presentation.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          {item.entry.label}
+                        </button>
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={item.entry.id}>
+                      <button type="button" aria-expanded={expanded} className={cn(rowClass(isActive && !expanded), 'justify-between')}
+                        onClick={() => setOpenGroup(expanded ? null : item.entry.id)}>
+                        <span className="flex items-center gap-2"><item.presentation.icon className="h-4 w-4 shrink-0" aria-hidden="true" />{item.entry.label}</span>
+                        <ChevronDown className={cn('h-4 w-4 text-slate-400 transition-transform', expanded && 'rotate-180')} aria-hidden="true" />
+                      </button>
+                      {expanded && (
+                        <ul className={cn('ml-4 mt-1 space-y-0.5 border-l pl-3', theme === 'dark' ? 'border-[#2B293E]' : 'border-slate-200')}>
+                          {item.children.map((child) => {
+                            const childActive = child.entry.id === activeId;
+                            return (
+                              <li key={child.entry.id}>
+                                <button type="button" aria-current={childActive ? 'page' : undefined}
+                                  className={cn(rowClass(childActive), 'py-1.5 text-[13px]')}
+                                  onClick={() => { if (child.presentation.view) navigateTo(child.presentation.view, child.presentation.tab); setMenuOpen(false); }}>
+                                  <child.presentation.icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                  {child.entry.label}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       )}
-                    >
-                      {item.label}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
 
             {/* Footer */}
             <div

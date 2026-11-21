@@ -270,7 +270,7 @@ export default function WordDocumentEditor({
         </span>
 
         {showCategoryTag && (
-          <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-[10px] font-bold">
+          <span className="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-[10px] font-bold">
             {showCategoryTag}
           </span>
         )}
@@ -280,7 +280,7 @@ export default function WordDocumentEditor({
           onClick={() => setIsFullscreen(!isFullscreen)}
           className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs ${
             isFull
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
+              ? 'bg-teal-600 text-white hover:bg-teal-700'
               : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
           }`}
           title={isFull ? 'Exit Full Screen' : 'Open in Bigger Screen (Word Document Mode)'}
@@ -292,7 +292,7 @@ export default function WordDocumentEditor({
             </>
           ) : (
             <>
-              <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
+              <Maximize2 className="w-3.5 h-3.5 text-teal-600" />
               <span className="hidden sm:inline">Bigger Screen</span>
             </>
           )}
@@ -306,7 +306,7 @@ export default function WordDocumentEditor({
       {label && (
         <div className="flex items-center justify-between">
           <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-            <FileText className="w-3.5 h-3.5 text-blue-600" />
+            <FileText className="w-3.5 h-3.5 text-teal-600" />
             <span>{label}</span>
           </label>
           <span className="text-[10px] text-slate-400">
@@ -316,7 +316,7 @@ export default function WordDocumentEditor({
       )}
 
       {/* STANDARD INLINE EDITOR */}
-      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white focus-within:ring-2 focus-within:ring-teal-100 transition-all">
         {renderToolbar(false)}
 
         <div
@@ -337,13 +337,13 @@ export default function WordDocumentEditor({
           {/* Fullscreen Header */}
           <div className="bg-slate-900 px-6 py-3 border-b border-slate-800 flex items-center justify-between text-white">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md">
+              <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold shadow-md">
                 <FileText className="w-5 h-5" />
               </div>
               <div>
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <span>Voogyo Document Editor & Proposal Word Suite</span>
-                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded text-[10px] font-mono">
+                  <span className="px-2 py-0.5 bg-teal-500/20 text-teal-300 border border-teal-400/30 rounded text-[10px] font-mono">
                     Full Screen Mode
                   </span>
                 </h2>
@@ -357,7 +357,7 @@ export default function WordDocumentEditor({
               <button
                 type="button"
                 onClick={() => setIsFullscreen(false)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all"
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all"
               >
                 <Check className="w-4 h-4" />
                 <span>Save & Return to Proposal</span>
@@ -372,7 +372,7 @@ export default function WordDocumentEditor({
 
           {/* Fullscreen Canvas (Word Document Page Look) */}
           <div className="flex-1 overflow-y-auto p-8 bg-slate-200/80 flex justify-center">
-            <div className="w-full max-w-4xl bg-white shadow-2xl rounded-2xl border border-slate-300/80 p-12 min-h-[700px] flex flex-col my-auto">
+            <div className="w-full max-w-4xl bg-white shadow-2xl rounded-xl border border-slate-300/80 p-12 min-h-[700px] flex flex-col my-auto">
               <div
                 ref={fullscreenEditorRef}
                 contentEditable

@@ -109,7 +109,7 @@ export const DripSequencesView: React.FC = () => {
             <h2 id="drip-sequences-heading" className="text-sm font-bold text-slate-900 dark:text-slate-100">Sequences</h2>
             <label className="flex items-center gap-2 text-xs text-slate-600">
               Show
-              <select value={filter} onChange={(e) => setFilter(e.target.value as SequenceStatus | 'CURRENT')} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs dark:border-[#2B293E] dark:bg-[#1E1D2D]">
+              <select aria-label="But archived" value={filter} onChange={(e) => setFilter(e.target.value as SequenceStatus | 'CURRENT')} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs dark:border-[#2B293E] dark:bg-[#1E1D2D]">
                 <option value="CURRENT">All but archived</option>
                 <option value="ACTIVE">Active</option>
                 <option value="DRAFT">Drafts</option>

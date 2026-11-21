@@ -2,10 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  MessageSquare, Plus, RefreshCw, Send, CheckCircle2, AlertCircle,
-  FileText, Link2, ShieldCheck, Settings, Eye, Trash2, Edit3,
-  Search, ArrowRight, Sparkles, Filter, ExternalLink, Layers, Check, X,
-  Copy, RotateCcw, Clock, AlertTriangle, Shield
+  MessageSquare, Plus, RefreshCw, Send, CheckCircle2, FileText, ShieldCheck, Eye, Trash2, Edit3, Search, Layers, Check, X, Copy, RotateCcw, Clock, AlertTriangle, Shield,
 } from 'lucide-react';
 import {
   CrmMessageTemplate,
@@ -18,6 +15,7 @@ import {
 import { WhatsAppMappingWizardModal } from './WhatsAppMappingWizardModal';
 import { WhatsAppSendModal } from './WhatsAppSendModal';
 import { toast } from '../../../lib/toast';
+import { Button } from '../../../components/ui/Button';
 
 export default function WhatsAppWorkspaceView() {
   // Consolidated 3 Main Tabs: 'outreach' | 'templates' | 'settings'
@@ -306,91 +304,32 @@ export default function WhatsAppWorkspaceView() {
   return (
     <div className="space-y-6">
       
-      {/* Top Banner / Actions Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-md">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-white/10 backdrop-blur-xs">
-              <MessageSquare className="w-5 h-5 text-emerald-100" />
-            </span>
-            <h1 className="text-lg font-bold tracking-tight">
-              WhatsApp Business & Template Hub
-            </h1>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/20 uppercase tracking-wider">
-              {config?.provider || 'API Gateway'}
-            </span>
-          </div>
-          <p className="text-xs text-emerald-100/90 max-w-2xl">
-            Reliable WhatsApp automation. Map CRM placeholders, synchronize Meta-approved templates, dispatch dynamic template or direct text messages, and track real-time delivery via secure webhooks.
-          </p>
+      {/* The page title is the CRM header above; this is WhatsApp's own toolbar. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div role="tablist" aria-label="WhatsApp" className="flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-[#2B293E]">
+          {([
+            { id: 'outreach', label: 'Messages and delivery' },
+            { id: 'templates', label: `Template mappings (${mappings.length})` },
+            { id: 'settings', label: 'Gateway settings' },
+          ] as const).map((t) => (
+            <button key={t.id} type="button" role="tab" aria-selected={activeTab === t.id} onClick={() => setActiveTab(t.id)}
+              className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${activeTab === t.id ? 'border-teal-600 text-slate-900 dark:text-slate-100' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+              {t.label}
+              {t.id === 'settings' && !config?.is_configured && (
+                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">Set up needed</span>
+              )}
+            </button>
+          ))}
         </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowSendModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-white text-emerald-800 hover:bg-emerald-50 transition-colors shadow-sm"
-          >
-            <Send className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Quick Send</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setEditingMapping(null);
-              setShowWizardModal(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-950/40 hover:bg-emerald-950/60 text-white border border-emerald-400/30 transition-colors shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Template Mapping</span>
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {config?.provider && <span className="text-xs text-slate-500 dark:text-slate-400">Provider: {config.provider}</span>}
+          <Button variant="outline" size="sm" onClick={() => setShowSendModal(true)}>
+            <Send className="h-4 w-4" aria-hidden="true" /> Quick Send
+          </Button>
+          <Button size="sm" onClick={() => { setEditingMapping(null); setShowWizardModal(true); }}>
+            <Plus className="h-4 w-4" aria-hidden="true" /> New template mapping
+          </Button>
         </div>
-      </div>
-
-      {/* Main 3 Consolidated Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-[#2B293E] pb-3 text-xs overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('outreach')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold transition-all ${
-            activeTab === 'outreach'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#252339]'
-          }`}
-        >
-          <CheckCircle2 className="w-4 h-4" />
-          <span>Outbound Messenger & History</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('templates')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold transition-all ${
-            activeTab === 'templates'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#252339]'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Template Hub & Mappings ({mappings.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold transition-all ${
-            activeTab === 'settings'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#252339]'
-          }`}
-        >
-          <Settings className="w-4 h-4" />
-          <span>Gateway Settings & Webhooks</span>
-          {config?.is_configured ? (
-            <span className="w-2 h-2 rounded-full bg-emerald-400" title="Configured & Active" />
-          ) : (
-            <span className="w-2 h-2 rounded-full bg-amber-400" title="Configuration needed" />
-          )}
-        </button>
       </div>
 
       {/* ========================================================= */}
@@ -398,21 +337,21 @@ export default function WhatsAppWorkspaceView() {
       {/* ========================================================= */}
       {activeTab === 'outreach' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                <span>Outbound Message Logs</span>
+              <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <span>Sent messages</span>
                 <span className="text-xs font-normal text-slate-400">({logPagination.total} total)</span>
               </h2>
               <p className="text-xs text-slate-500">
-                Track delivery statuses (SENT → DELIVERED → READ), external provider message IDs (wamid), and variable audit trails.
+                Each message's delivery status as WhatsApp reports it: sent, delivered, read or failed.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                <input
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
+                <input aria-label="Search recipient phone"
                   type="text"
                   value={logSearchTerm}
                   onChange={(e) => setLogSearchTerm(e.target.value)}
@@ -421,7 +360,7 @@ export default function WhatsAppWorkspaceView() {
                 />
               </div>
 
-              <select
+              <select aria-label="Statuses"
                 value={logStatusFilter}
                 onChange={(e) => setLogStatusFilter(e.target.value)}
                 className="px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] text-slate-800 dark:text-slate-200 font-medium"
@@ -445,7 +384,7 @@ export default function WhatsAppWorkspaceView() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] overflow-hidden shadow-xs">
+          <div className="rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 dark:bg-[#252339] text-slate-500 font-bold border-b border-slate-200 dark:border-[#2B293E]">
@@ -454,7 +393,7 @@ export default function WhatsAppWorkspaceView() {
                     <th className="py-3 px-4">CRM Template</th>
                     <th className="py-3 px-4">WhatsApp Template</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Message ID (wamid)</th>
+                    <th className="hidden py-3 px-4 xl:table-cell">Message ID</th>
                     <th className="py-3 px-4">Dispatched At</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
@@ -474,7 +413,7 @@ export default function WhatsAppWorkspaceView() {
                           : log.status === 'DELIVERED'
                           ? 'bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400 border-teal-200 dark:border-teal-800'
                           : log.status === 'SENT'
-                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+                          ? 'bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400 border-teal-200 dark:border-teal-800'
                           : log.status === 'FAILED'
                           ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border-rose-200 dark:border-rose-800'
                           : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200 dark:border-amber-800';
@@ -495,7 +434,7 @@ export default function WhatsAppWorkspaceView() {
                               {log.status}
                             </span>
                           </td>
-                          <td className="py-3 px-4 font-mono text-slate-400 text-[11px] max-w-[140px] truncate" title={log.provider_message_id || ''}>
+                          <td className="hidden py-3 px-4 font-mono text-slate-400 text-[11px] max-w-[140px] truncate xl:table-cell" title={log.provider_message_id || ''}>
                             {log.provider_message_id || 'N/A'}
                           </td>
                           <td className="py-3 px-4 text-slate-500 text-[11px]">
@@ -653,7 +592,7 @@ export default function WhatsAppWorkspaceView() {
                   <span>Loading mappings...</span>
                 </div>
               ) : mappings.length === 0 ? (
-                <div className="py-16 text-center rounded-2xl border-2 border-dashed border-slate-200 dark:border-[#2B293E] p-8 space-y-3">
+                <div className="py-16 text-center rounded-xl border-2 border-dashed border-slate-200 dark:border-[#2B293E] p-8 space-y-3">
                   <div className="w-12 h-12 mx-auto rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center">
                     <Layers className="w-6 h-6" />
                   </div>
@@ -680,11 +619,11 @@ export default function WhatsAppWorkspaceView() {
                     return (
                       <div
                         key={m.id}
-                        className="rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] p-5 shadow-xs hover:border-emerald-300 dark:hover:border-emerald-800 transition-all flex flex-col justify-between space-y-4"
+                        className="rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] p-5 shadow-xs hover:border-emerald-300 dark:hover:border-emerald-800 transition-all flex flex-col justify-between space-y-4"
                       >
                         <div>
                           <div className="flex items-center justify-between mb-3">
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-900">
                               {crmTpl?.category || 'GENERAL'}
                             </span>
 
@@ -808,7 +747,7 @@ export default function WhatsAppWorkspaceView() {
                     return (
                       <div
                         key={`${tpl.name}-${tpl.language}`}
-                        className="p-4 rounded-2xl bg-white dark:bg-[#1E1C2E] border border-slate-200 dark:border-[#2B293E] shadow-xs flex flex-col justify-between space-y-3"
+                        className="p-4 rounded-xl bg-white dark:bg-[#1E1C2E] border border-slate-200 dark:border-[#2B293E] shadow-xs flex flex-col justify-between space-y-3"
                       >
                         <div className="space-y-2">
                           <div className="flex items-start justify-between gap-2">
@@ -820,7 +759,7 @@ export default function WhatsAppWorkspaceView() {
                                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400">
                                   {tpl.status || 'APPROVED'}
                                 </span>
-                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400">
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/50 text-teal-700 dark:text-teal-400">
                                   {tpl.category}
                                 </span>
                                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#252339] text-slate-600 dark:text-slate-300">
@@ -918,14 +857,14 @@ export default function WhatsAppWorkspaceView() {
                 {crmTemplates.map((tpl) => (
                   <div
                     key={tpl.id}
-                    className="p-4 rounded-2xl bg-white dark:bg-[#1E1C2E] border border-slate-200 dark:border-[#2B293E] shadow-xs flex flex-col justify-between space-y-3"
+                    className="p-4 rounded-xl bg-white dark:bg-[#1E1C2E] border border-slate-200 dark:border-[#2B293E] shadow-xs flex flex-col justify-between space-y-3"
                   >
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-bold text-xs text-slate-800 dark:text-slate-100">
                           {tpl.template_name}
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300">
                           {tpl.category}
                         </span>
                       </div>
@@ -1006,7 +945,7 @@ export default function WhatsAppWorkspaceView() {
           
           {/* Left Column: API Gateway Credentials */}
           <div className="lg:col-span-7 space-y-6">
-            <div className="p-6 rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] shadow-xs space-y-4">
+            <div className="p-6 rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] shadow-xs space-y-4">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-[#2B293E]">
                 <div>
                   <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
@@ -1143,7 +1082,7 @@ export default function WhatsAppWorkspaceView() {
 
           {/* Right Column: Webhook Setup Card */}
           <div className="lg:col-span-5 space-y-6">
-            <div className="p-6 rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] shadow-xs space-y-4">
+            <div className="p-6 rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1C2E] shadow-xs space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#2B293E]">
                 <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
                   <Shield className="w-4 h-4 text-emerald-600" />
@@ -1268,7 +1207,7 @@ export default function WhatsAppWorkspaceView() {
       {/* CRM TEMPLATE CREATE/EDIT MODAL */}
       {showCrmTemplateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] p-6 space-y-4 animate-in fade-in-50 zoom-in-95 duration-150">
+          <div className="relative w-full max-w-lg rounded-xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] p-6 space-y-4 animate-in fade-in-50 zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#2B293E] pb-3">
               <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100">
                 {editingCrmTemplate ? 'Edit CRM Template' : 'New CRM Template'}
@@ -1376,7 +1315,7 @@ export default function WhatsAppWorkspaceView() {
       {/* LOG INSPECTION MODAL */}
       {inspectingLog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] p-6 space-y-4 animate-in fade-in-50 zoom-in-95 duration-150">
+          <div className="relative w-full max-w-2xl rounded-xl bg-white dark:bg-[#1E1C2E] shadow-2xl border border-slate-200 dark:border-[#2B293E] p-6 space-y-4 animate-in fade-in-50 zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#2B293E] pb-3">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm text-slate-800 dark:text-slate-100">
@@ -1398,19 +1337,19 @@ export default function WhatsAppWorkspaceView() {
             <div className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-[#252339]/50 rounded-xl">
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Recipient</span>
+                  <span className="text-slate-400 block text-xs font-medium">Recipient</span>
                   <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{inspectingLog.recipient_phone}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Template</span>
+                  <span className="text-slate-400 block text-xs font-medium">Template</span>
                   <span className="font-mono text-emerald-600 dark:text-emerald-400">{inspectingLog.template_name}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Provider Message ID (wamid)</span>
+                  <span className="text-slate-400 block text-xs font-medium">Provider Message ID (wamid)</span>
                   <span className="font-mono text-slate-600 dark:text-slate-300 break-all">{inspectingLog.provider_message_id || 'N/A'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Dispatched At</span>
+                  <span className="text-slate-400 block text-xs font-medium">Dispatched At</span>
                   <span className="text-slate-600 dark:text-slate-300">{new Date(inspectingLog.created_at).toLocaleString()}</span>
                 </div>
               </div>

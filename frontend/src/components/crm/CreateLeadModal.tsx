@@ -228,20 +228,24 @@ export default function CreateLeadModal({
   return (
     <div
       onClick={onClose}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
       className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-y-auto"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-lead-title"
         onClick={(e) => e.stopPropagation()}
-        className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200/90 flex flex-col max-h-[92vh] overflow-hidden my-auto animate-in fade-in-50 zoom-in-95 duration-200"
+        className="bg-white w-full max-w-3xl rounded-xl shadow-2xl border border-slate-200/90 flex flex-col max-h-[92vh] overflow-hidden my-auto animate-in fade-in-50 zoom-in-95 duration-200"
       >
         {/* Sticky Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
+            <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center text-white shadow-sm shadow-teal-500/20">
               <UserPlus className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base sm:text-lg tracking-tight">
+              <h3 id="create-lead-title" className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
                 Add New Lead
               </h3>
               <p className="text-xs text-slate-500">
@@ -272,7 +276,7 @@ export default function CreateLeadModal({
           <div className="flex-1 overflow-y-auto p-6 space-y-6 text-slate-700">
             {/* Lead Origin Selector (Cards) */}
             <div className="space-y-3">
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              <label className="block text-xs font-medium text-slate-500">
                 Lead Origin & Type <span className="text-rose-500">*</span>
               </label>
 
@@ -289,20 +293,20 @@ export default function CreateLeadModal({
                   }}
                   className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative flex items-start gap-3 ${
                     !formData.isExistingClient
-                      ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/20 shadow-xs'
+                      ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-500/20 shadow-xs'
                       : 'bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
-                  <div className={`p-2 rounded-lg shrink-0 ${!formData.isExistingClient ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`}>
+                  <div className={`p-2 rounded-lg shrink-0 ${!formData.isExistingClient ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`}>
                     <Building2 className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className={`text-xs font-bold ${!formData.isExistingClient ? 'text-blue-950' : 'text-slate-800'}`}>
+                      <span className={`text-xs font-bold ${!formData.isExistingClient ? 'text-teal-950' : 'text-slate-800'}`}>
                         New Inbound Prospect
                       </span>
                       {!formData.isExistingClient && (
-                        <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">
+                        <span className="w-4 h-4 rounded-full bg-teal-600 text-white flex items-center justify-center text-[10px]">
                           <Check className="w-2.5 h-2.5" />
                         </span>
                       )}
@@ -358,7 +362,7 @@ export default function CreateLeadModal({
 
               {/* If Repeat Customer selected */}
               {formData.isExistingClient && (
-                <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50/80 to-teal-50/40 border border-emerald-200/90 space-y-3 animate-in fade-in-50 duration-150">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200/90 space-y-3 animate-in fade-in-50 duration-150">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
                       <span>Select Client / Account</span>
@@ -383,7 +387,7 @@ export default function CreateLeadModal({
                     ) : (
                       clients.map((c) => (
                         <option key={c.id} value={c.id}>
-                          🏢 {c.company_name} — {c.contact_person} ({c.city || 'India'})
+                          {c.company_name} — {c.contact_person} ({c.city || 'India'})
                         </option>
                       ))
                     )}
@@ -399,10 +403,10 @@ export default function CreateLeadModal({
             {/* Section 1: Organization & Primary Contact */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center">
+                <div className="w-6 h-6 rounded-md bg-teal-50 text-teal-600 flex items-center justify-center">
                   <Building2 className="w-3.5 h-3.5" />
                 </div>
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Organization & Primary Contact
                 </h4>
               </div>
@@ -410,7 +414,7 @@ export default function CreateLeadModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Company Name */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Company Name <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
@@ -421,14 +425,14 @@ export default function CreateLeadModal({
                       value={formData.companyName}
                       onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
                       placeholder="e.g. Acme FinTech Technologies Ltd."
-                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                     />
                   </div>
                 </div>
 
                 {/* Industry Sector */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Industry Sector <span className="text-rose-500">*</span>
                   </label>
                   <select
@@ -443,7 +447,7 @@ export default function CreateLeadModal({
                         cadenceIndustry: newInd
                       });
                     }}
-                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
                     <option value="">Not specified</option>
                     {industries.map((ind) => (
@@ -454,13 +458,13 @@ export default function CreateLeadModal({
 
                 {/* Sub-Industry Specialization */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Sub-Industry Specialization
                   </label>
                   <select
                     value={formData.sub_industry}
                     onChange={(e) => setFormData({ ...formData, sub_industry: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
                     <option value="">Not specified</option>
                     {getSubIndustries(formData.industry).map((sub) => (
@@ -471,7 +475,7 @@ export default function CreateLeadModal({
 
                 {/* Contact First Name */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     First Name <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
@@ -482,14 +486,14 @@ export default function CreateLeadModal({
                       value={formData.firstName}
                       onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                       placeholder="e.g. Rahul"
-                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                     />
                   </div>
                 </div>
 
                 {/* Contact Last Name */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Last Name
                   </label>
                   <div className="relative">
@@ -499,14 +503,14 @@ export default function CreateLeadModal({
                       value={formData.lastName}
                       onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                       placeholder="e.g. Sharma"
-                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                     />
                   </div>
                 </div>
 
                 {/* Designation */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Designation / Role
                   </label>
                   <div className="relative">
@@ -516,14 +520,14 @@ export default function CreateLeadModal({
                       value={formData.designation}
                       onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
                       placeholder="e.g. VP Engineering / Director"
-                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                     />
                   </div>
                 </div>
 
                 {/* Business Email */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Business Email <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
@@ -534,7 +538,7 @@ export default function CreateLeadModal({
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       placeholder="rahul@acmefintech.com"
-                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                      className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                     />
                   </div>
                 </div>
@@ -542,7 +546,7 @@ export default function CreateLeadModal({
                 {/* Phone & WhatsApp */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       Phone / Mobile
                     </label>
                     <PhoneInputWithCountryCode
@@ -559,7 +563,7 @@ export default function CreateLeadModal({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <label className="block text-xs font-medium text-emerald-700 mb-1 flex items-center gap-1">
                       <MessageSquare className="w-3 h-3 text-emerald-600" />
                       <span>WhatsApp Number</span>
                     </label>
@@ -575,24 +579,24 @@ export default function CreateLeadModal({
                 {/* LinkedIn URL & Website URL */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-blue-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                      <Globe className="w-3 h-3 text-blue-600" />
+                    <label className="block text-xs font-medium text-teal-700 mb-1 flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-teal-600" />
                       <span>LinkedIn Profile URL</span>
                     </label>
                     <div className="relative">
-                      <Globe className="w-4 h-4 text-blue-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <Globe className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                       <input
                         type="url"
                         value={formData.linkedinUrl}
                         onChange={(e) => setFormData({ ...formData, linkedinUrl: e.target.value })}
                         placeholder="https://linkedin.com/in/prospect"
-                        className="w-full pl-9 pr-3 py-2 text-xs bg-blue-50/30 border border-blue-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                        className="w-full pl-9 pr-3 py-2 text-xs bg-teal-50/30 border border-teal-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       Company Website URL
                     </label>
                     <div className="relative">
@@ -602,7 +606,7 @@ export default function CreateLeadModal({
                         value={formData.websiteUrl}
                         onChange={(e) => setFormData({ ...formData, websiteUrl: e.target.value })}
                         placeholder="https://company.com"
-                        className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                        className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                       />
                     </div>
                   </div>
@@ -611,7 +615,7 @@ export default function CreateLeadModal({
                 {/* City & State */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       City
                     </label>
                     <div className="relative">
@@ -621,12 +625,12 @@ export default function CreateLeadModal({
                         value={formData.city}
                         onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                         placeholder="Mumbai"
-                        className="w-full pl-8 pr-2.5 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                        className="w-full pl-8 pr-2.5 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       State
                     </label>
                     <div className="relative">
@@ -636,7 +640,7 @@ export default function CreateLeadModal({
                         value={formData.state}
                         onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                         placeholder="Maharashtra"
-                        className="w-full pl-8 pr-2.5 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                        className="w-full pl-8 pr-2.5 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                       />
                     </div>
                   </div>
@@ -650,7 +654,7 @@ export default function CreateLeadModal({
                 <div className="w-6 h-6 rounded-md bg-emerald-50 text-emerald-600 flex items-center justify-center">
                   <Briefcase className="w-3.5 h-3.5" />
                 </div>
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Deal & Commercials
                 </h4>
               </div>
@@ -658,7 +662,7 @@ export default function CreateLeadModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Primary Service */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Primary Service <span className="text-rose-500">*</span>
                   </label>
                   <select
@@ -671,7 +675,7 @@ export default function CreateLeadModal({
                         budgetAmount: sel?.default_rate ? Number(sel.default_rate) : formData.budgetAmount
                       });
                     }}
-                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
                     <option value="">Not specified</option>
                     {services.map((s) => (
@@ -684,7 +688,7 @@ export default function CreateLeadModal({
 
                 {/* Deal Budget */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Deal Budget (INR ₹) <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
@@ -695,20 +699,20 @@ export default function CreateLeadModal({
                       value={formData.budgetAmount}
                       onChange={(e) => setFormData({ ...formData, budgetAmount: Number(e.target.value) })}
                       placeholder="350000"
-                      className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-slate-900"
+                      className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-bold text-slate-900"
                     />
                   </div>
                 </div>
 
                 {/* Initial Stage */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Initial Pipeline Stage <span className="text-rose-500">*</span>
                   </label>
                   <select
                     value={formData.stageId}
                     onChange={(e) => setFormData({ ...formData, stageId: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
                     {stages.map((stg) => (
                       <option key={stg.id} value={stg.id}>{stg.name}</option>
@@ -718,13 +722,13 @@ export default function CreateLeadModal({
 
                 {/* Assignee (Salesperson) */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Assignee <span className="text-rose-500">*</span>
                   </label>
                   <select
                     value={formData.assignedUserId}
                     onChange={(e) => setFormData({ ...formData, assignedUserId: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
                     <option value="">Unassigned</option>
                     {salesPersons.map((sp) => (
@@ -737,13 +741,13 @@ export default function CreateLeadModal({
 
                 {/* Lead Source */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Lead Source <span className="text-rose-500">*</span>
                   </label>
                   <select
                     value={formData.sourceId}
                     onChange={(e) => setFormData({ ...formData, sourceId: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900 cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900 cursor-pointer"
                   >
                     <option value="">Not specified</option>
                     {sources.map((src) => (
@@ -760,7 +764,7 @@ export default function CreateLeadModal({
                 <div className="w-6 h-6 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center">
                   <Flame className="w-3.5 h-3.5" />
                 </div>
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Priority & Scope
                 </h4>
               </div>
@@ -768,7 +772,7 @@ export default function CreateLeadModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Temperature Segmented Buttons */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">
                     Deal Temperature
                   </label>
                   <div className="grid grid-cols-3 gap-2">
@@ -813,7 +817,7 @@ export default function CreateLeadModal({
 
                 {/* Urgency Segmented Buttons */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">
                     Closing Urgency
                   </label>
                   <div className="grid grid-cols-3 gap-2">
@@ -822,7 +826,7 @@ export default function CreateLeadModal({
                       onClick={() => setFormData({ ...formData, urgency: 'HIGH' })}
                       className={`py-2 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                         formData.urgency === 'HIGH'
-                          ? 'bg-blue-50 border-blue-300 text-blue-700 ring-2 ring-blue-200 shadow-xs'
+                          ? 'bg-teal-50 border-teal-300 text-teal-700 ring-2 ring-teal-200 shadow-xs'
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -833,7 +837,7 @@ export default function CreateLeadModal({
                       onClick={() => setFormData({ ...formData, urgency: 'MEDIUM' })}
                       className={`py-2 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                         formData.urgency === 'MEDIUM'
-                          ? 'bg-blue-50 border-blue-300 text-blue-700 ring-2 ring-blue-200 shadow-xs'
+                          ? 'bg-teal-50 border-teal-300 text-teal-700 ring-2 ring-teal-200 shadow-xs'
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -844,7 +848,7 @@ export default function CreateLeadModal({
                       onClick={() => setFormData({ ...formData, urgency: 'LOW' })}
                       className={`py-2 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                         formData.urgency === 'LOW'
-                          ? 'bg-blue-50 border-blue-300 text-blue-700 ring-2 ring-blue-200 shadow-xs'
+                          ? 'bg-teal-50 border-teal-300 text-teal-700 ring-2 ring-teal-200 shadow-xs'
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -856,7 +860,7 @@ export default function CreateLeadModal({
                 {/* RND Gold Funnel Cold Marketing Cadence Auto-Enroll Box */}
                 <div className={`sm:col-span-2 p-3.5 rounded-xl border transition-all ${
                   formData.enrollInCadence 
-                    ? 'bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-200 shadow-2xs' 
+                    ? 'bg-teal-50 border-teal-200 shadow-2xs' 
                     : 'bg-slate-50 border-slate-200'
                 }`}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -865,9 +869,9 @@ export default function CreateLeadModal({
                         type="checkbox"
                         checked={formData.enrollInCadence}
                         onChange={(e) => setFormData({ ...formData, enrollInCadence: e.target.checked })}
-                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                        className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
                       />
-                      <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                         Auto-enroll in 30-Day Multi-Channel Client Outreach Funnel
                       </span>
@@ -878,22 +882,22 @@ export default function CreateLeadModal({
                   </div>
 
                   {formData.enrollInCadence && (
-                    <div className="mt-3 pt-3 border-t border-indigo-100 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in">
+                    <div className="mt-3 pt-3 border-t border-teal-100 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in">
                       <div>
-                        <label className="block text-[10px] font-bold text-indigo-900 uppercase tracking-wider mb-1">
+                        <label className="block text-xs font-medium text-teal-900 mb-1">
                           Target Industry (Layer 2 Personalization):
                         </label>
                         <select
                           value={formData.cadenceIndustry}
                           onChange={(e) => setFormData({ ...formData, cadenceIndustry: e.target.value })}
-                          className="w-full px-2.5 py-1.5 text-xs bg-white border border-indigo-200 rounded-lg text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          className="w-full px-2.5 py-1.5 text-xs bg-white border border-teal-200 rounded-lg text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                         >
                           {industries.map((ind) => (
                             <option key={ind.id || ind.key} value={ind.name}>{ind.name}</option>
                           ))}
                         </select>
                       </div>
-                      <div className="text-[11px] text-indigo-800/80 flex items-center">
+                      <div className="text-[11px] text-teal-800/80 flex items-center">
                         ⚡ Day 1 Triple Launch (LinkedIn, Email, WhatsApp) will be scheduled automatically and show up on the BDE Pending Radar!
                       </div>
                     </div>
@@ -902,7 +906,7 @@ export default function CreateLeadModal({
 
                 {/* Requirement Brief */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
                     Requirement Brief & Scope Notes
                   </label>
                   <textarea
@@ -910,7 +914,7 @@ export default function CreateLeadModal({
                     value={formData.requirementBrief}
                     onChange={(e) => setFormData({ ...formData, requirementBrief: e.target.value })}
                     placeholder="Enter project specifications, tech stack requirements, deliverables, or client notes..."
-                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-900"
+                    className="w-full px-3 py-2 text-xs bg-slate-50/50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all font-medium text-slate-900"
                   />
                 </div>
               </div>
@@ -947,7 +951,7 @@ export default function CreateLeadModal({
               {showTaxDetails && (
                 <div className="p-4 pt-2 border-t border-slate-200/70 grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white animate-in fade-in-50 duration-150">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       GSTIN (15 Alphanumeric)
                     </label>
                     <input
@@ -956,11 +960,11 @@ export default function CreateLeadModal({
                       onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
                       placeholder="27AAAAA0000A1Z5"
                       maxLength={15}
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg font-mono uppercase focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg font-mono uppercase focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       PAN Number (10 Alphanumeric)
                     </label>
                     <input
@@ -969,7 +973,7 @@ export default function CreateLeadModal({
                       onChange={(e) => setFormData({ ...formData, panNumber: e.target.value.toUpperCase() })}
                       placeholder="ABCDE1234F"
                       maxLength={10}
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg font-mono uppercase focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg font-mono uppercase focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                     />
                   </div>
                 </div>
@@ -993,7 +997,7 @@ export default function CreateLeadModal({
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="px-5 py-2 text-xs font-bold text-white bg-teal-500 hover:bg-teal-600 rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 {submitting ? (
                   <>

@@ -1,10 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
-import { 
-  Users, Kanban, Clock, FileText, Settings2, Plus,
-  RefreshCw, TrendingUp, Trophy, AlertTriangle, Sparkles, Building2,
-  X, Check, CheckCircle2, UserCheck, ShieldAlert, ShieldCheck, ArrowRight, Video, Phone,
-  List, Calendar, Mail
-} from 'lucide-react';
+import { Plus, Trophy, X, UserCheck } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
 import { useAuth } from '../../context/AuthContext';
 import LeadsDirectory from '../../components/crm/LeadsDirectory';
@@ -23,44 +18,21 @@ import CrmAuditTrailView from '../../components/crm/CrmAuditTrailView';
 import WhatsAppWorkspaceView from './whatsapp/WhatsAppWorkspaceView';
 
 import { apiFetch } from '../../api/client';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { StatStrip } from '../../components/ui/StatStrip';
+import { Button } from '../../components/ui/Button';
 import { toast } from '../../lib/toast';
+/** Each CRM area's title and one line on what it is for. */
 const TAB_CONFIG: Record<string, { title: string; desc: string }> = {
-  'cold-funnel': {
-    title: 'Client Outreach',
-    desc: '30-Day Multi-Channel Outbound Marketing Funnel (WhatsApp, Email, LinkedIn, Phone).'
-  },
-  pipeline: {
-    title: 'Sales Pipelines',
-    desc: 'Real-time Kanban & list view, stage automation, and lead management.'
-  },
-  leads: {
-    title: 'Lead Management',
-    desc: 'Every lead in one table: search, filter and assign leads to your team.'
-  },
-  activities: {
-    title: 'Follow-ups & Meetings',
-    desc: 'Schedule, track, and log calls, follow-ups, and client meetings.'
-  },
-  proposals: {
-    title: 'Quotations',
-    desc: 'Generate, manage, and dispatch professional service quotations.'
-  },
-  reports: {
-    title: 'Reports & Analytics',
-    desc: 'Conversion velocity, pipeline analytics, and sales performance insights.'
-  },
-  masters: {
-    title: 'CRM Taxonomy & Workflow Masters',
-    desc: 'Configure sales pipelines, stage milestones, lead sources, and multi-tier industry tax records.'
-  },
-  'audit-trail': {
-    title: 'Audit Trail & Activity Center',
-    desc: 'Tamper-proof log of every employee activity, field update diff, connection, and session for accountability.'
-  },
-  whatsapp: {
-    title: 'WhatsApp Template Mapping & Dynamic Messaging',
-    desc: 'Connect internal CRM templates with WhatsApp-approved templates, map dynamic variables, and automate message delivery.'
-  }
+  'cold-funnel': { title: 'Client outreach', desc: 'A 30-day sequence of WhatsApp, email, LinkedIn and phone touchpoints for new leads.' },
+  pipeline: { title: 'Sales pipeline', desc: 'Open deals by stage, as a board or a list.' },
+  leads: { title: 'Leads', desc: 'Every lead in one table: search, filter and assign them to your team.' },
+  activities: { title: 'Follow-ups and meetings', desc: 'Calls, follow-ups and client meetings, scheduled and logged.' },
+  proposals: { title: 'Quotations', desc: 'Prepare, send and track quotations for your services.' },
+  reports: { title: 'Reports', desc: 'How leads move through the pipeline and how many are won.' },
+  masters: { title: 'CRM settings', desc: 'Pipelines and stages, lead sources, services, industries and outreach steps.' },
+  'audit-trail': { title: 'Audit trail', desc: 'Who changed what in the CRM, and when.' },
+  whatsapp: { title: 'WhatsApp templates', desc: 'Map CRM messages to approved WhatsApp templates and their variables.' },
 };
 
 type CrmTab = 'cold-funnel' | 'pipeline' | 'leads' | 'activities' | 'proposals' | 'reports'  | 'audit-trail' | 'masters' | 'whatsapp';
@@ -98,7 +70,6 @@ function CRMEnterpriseContent() {
   const [followups, setFollowups] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
   const [quotations, setQuotations] = useState<any[]>([]);
-  const [cadenceStats, setCadenceStats] = useState<any>(null);
 
   // Cross-submodule state ("Do Anything From Anywhere")
   const [selectedLead360Id, setSelectedLead360Id] = useState<string | null>(null);
@@ -201,24 +172,23 @@ function CRMEnterpriseContent() {
   };
 
   const getTopPlusTitle = () => {
-    if (activeTab === 'pipeline') return 'Add Lead';
-    if (activeTab === 'cold-funnel') return 'Add Cold Lead';
-    if (activeTab === 'activities') return 'Schedule Follow-up';
-    if (activeTab === 'proposals') return 'Create Proposal';
-    return 'Quick Add';
+    if (activeTab === 'pipeline') return 'Add lead';
+    if (activeTab === 'cold-funnel') return 'Add outreach lead';
+    if (activeTab === 'activities') return 'Schedule follow-up';
+    if (activeTab === 'proposals') return 'New quotation';
+    return 'Add';
   };
 
   const fetchCRMData = async () => {
     setLoading(true);
     try {
-      const [leadsRes, srvRes, fupRes, meetRes, quotesRes, authRes, cadenceRes] = await Promise.all([
+      const [leadsRes, srvRes, fupRes, meetRes, quotesRes, authRes] = await Promise.all([
         apiFetch('/api/v1/crm/leads?page=1&limit=50'),
         apiFetch('/api/v1/crm/masters/services'),
         apiFetch('/api/v1/crm/followups?page=1&limit=50'),
         apiFetch('/api/v1/crm/meetings?page=1&limit=50'),
         apiFetch('/api/v1/crm/quotations?page=1&limit=50'),
         apiFetch('/api/v1/auth/me'),
-        apiFetch('/api/v1/crm/cadence?page=1&limit=1')
       ]);
 
       const leadsJson = await leadsRes.json().catch(() => ({}));
@@ -227,7 +197,6 @@ function CRMEnterpriseContent() {
       const meetJson = await meetRes.json().catch(() => ({}));
       const quotesJson = await quotesRes.json().catch(() => ({}));
       const authJson = await authRes.json().catch(() => ({}));
-      const cadenceJson = await cadenceRes.json().catch(() => ({}));
 
       if (authJson.success && authJson.data?.tenant?.company_name) {
         setTenantName(authJson.data.tenant.company_name);
@@ -275,11 +244,6 @@ function CRMEnterpriseContent() {
         setQuotations(quotesJson);
       }
 
-      if (cadenceJson.success && cadenceJson.data?.stats) {
-        setCadenceStats(cadenceJson.data.stats);
-      } else if (cadenceJson.stats) {
-        setCadenceStats(cadenceJson.stats);
-      }
     } catch (err) {
       console.error('Failed to load CRM enterprise data', err);
     } finally {
@@ -437,11 +401,6 @@ function CRMEnterpriseContent() {
   };
 
   // Contextual Mini-Dashboard KPI Calculations
-  // 1. Cold Funnel KPIs
-  const totalCadenceEnrolled = cadenceStats?.totalEnrolled ?? leads.filter(l => l.temperature === 'COLD').length;
-  const cadenceActionDue = (cadenceStats?.dueTodayCount || 0) + (cadenceStats?.overdueCount || 0);
-  const cadenceActiveRunning = cadenceStats?.activeCount ?? leads.filter(l => l.temperature === 'COLD').length;
-  const cadenceGraduated = cadenceStats?.convertedCount ?? leads.filter(l => l.temperature === 'WON' || l.is_won).length;
 
   // 2. Pipeline KPIs
   const activeLeads = leads.filter(l => !l.is_won && l.temperature !== 'WON' && !l.is_lost && l.temperature !== 'LOST');
@@ -470,13 +429,7 @@ function CRMEnterpriseContent() {
   const acceptedQuotationsValue = acceptedQuotations.reduce((acc, q) => acc + Number(q.total_amount || q.grand_total || 0), 0);
   const inDiscussionQuotationsCount = quotations.filter(q => ['SENT', 'DRAFT', 'PENDING'].includes(q.status)).length;
 
-  // 5. Reports KPIs
-  const totalAllLeads = leads.length;
-  const winRatePercent = totalAllLeads > 0 ? Math.round((wonCount / totalAllLeads) * 100) : 0;
-  const avgDealSize = wonCount > 0 ? wonRevenue / wonCount : (totalAllLeads > 0 ? totalPipeline / totalAllLeads : 0);
 
-  // 6. Masters KPIs
-  const activeServicesCount = services.filter(s => s.is_active !== false).length;
 
   // Active unconverted leads for 1-Click Convert
   const unconvertedLeads = leads.filter(l => !l.is_won && l.temperature !== 'WON');
@@ -484,7 +437,7 @@ function CRMEnterpriseContent() {
   // Each CRM area is its own sidebar item; the server decides which ones this member may open.
   if (!canOpen(`crm.${activeTab}`)) {
     return (
-      <div role="status" className="max-w-xl mx-auto mt-10 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+      <div role="status" className="max-w-xl mx-auto mt-10 bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
         <h1 className="text-lg font-bold text-slate-900">You don't have access to this part of the CRM</h1>
         <p className="text-sm text-slate-500 mt-1">
           Your role doesn't include it. Choose another CRM item from the menu, or ask a workspace administrator for access.
@@ -494,236 +447,52 @@ function CRMEnterpriseContent() {
   }
 
   return (
-    <div className="space-y-5 relative p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
+    <div data-crm-surface className="relative mx-auto max-w-[1600px] space-y-5 p-4 sm:p-6 lg:p-8">
 
-      {/* Module Title & Top Controls Header */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-bold rounded-md border border-blue-200 uppercase tracking-wider">
-                CRM
-              </span>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                {activeTab === 'cold-funnel' ? 'Client Outreach' : (TAB_CONFIG[activeTab]?.title || 'Sales Pipelines')}
-              </h1>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {activeTab === 'cold-funnel' 
-                ? `${tenantName} 30-Day Multi-Channel Outbound Marketing Funnel (WhatsApp, Email, LinkedIn, Phone).`
-                : (TAB_CONFIG[activeTab]?.desc || 'Service-based CRM, 360° Lead Dossiers, Sales Pipelines')}
-            </p>
-          </div>
-
-          {/* Controls: Contextual Mini Dashboards and Actionable '+' Button */}
-          <div className="flex items-center gap-2.5 overflow-x-auto flex-wrap sm:flex-nowrap">
-            {activeTab === 'cold-funnel' && (
-              <>
-                <div className="px-3 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-blue-700 font-bold uppercase block">Total Outreach Leads</span>
-                  <span className="font-bold text-blue-900">{totalCadenceEnrolled}</span>
-                </div>
-
-                <div className={`px-3 py-1.5 rounded-xl text-xs border ${
-                  cadenceActionDue > 0 ? 'bg-amber-50/90 border-amber-300' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <span className={`text-[10px] font-bold uppercase block ${
-                    cadenceActionDue > 0 ? 'text-amber-700' : 'text-slate-400'
-                  }`}>
-                    Action Due / Overdue
-                  </span>
-                  <span className={`font-bold ${
-                    cadenceActionDue > 0 ? 'text-amber-900 flex items-center gap-1.5' : 'text-slate-900'
-                  }`}>
-                    {cadenceActionDue > 0 && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
-                    {cadenceActionDue} Touchpoints
-                  </span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-indigo-50/80 border border-indigo-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-indigo-700 font-bold uppercase block">In Active Cadence</span>
-                  <span className="font-bold text-indigo-900">{cadenceActiveRunning}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Graduated to Deal</span>
-                  <span className="font-bold text-emerald-900">{cadenceGraduated} Leads</span>
-                </div>
-              </>
-            )}
-
+      <PageHeader
+        breadcrumb={['CRM', TAB_CONFIG[activeTab]?.title ?? 'Sales pipeline']}
+        title={TAB_CONFIG[activeTab]?.title ?? 'Sales pipeline'}
+        description={TAB_CONFIG[activeTab]?.desc}
+        actions={(
+          <>
             {activeTab === 'pipeline' && (
-              <>
-                <button
-                  onClick={() => setGlobalDealWonModalOpen(true)}
-                  className="px-3 py-1.5 bg-amber-400 hover:bg-amber-500 text-slate-950 font-extrabold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
-                >
-                  <Trophy className="w-3.5 h-3.5" />
-                  <span>1-Click Deal Won</span>
-                </button>
-
-                <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Active Deals</span>
-                  <span className="font-bold text-slate-900">{activeDealsCount}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Pipeline Gross</span>
-                  <span className="font-bold text-slate-900">{formatCurrency(totalPipeline)}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-blue-700 font-bold uppercase block">Weighted Forecast</span>
-                  <span className="font-bold text-blue-900">{formatCurrency(weightedForecast)}</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setPipelineView('won')}
-                  title="See every won deal"
-                  className="px-3 py-1.5 bg-emerald-50/80 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-                >
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Deals Won · View</span>
-                  <span className="font-bold text-emerald-900">{wonCount} ({formatCurrency(wonRevenue)})</span>
-                </button>
-              </>
+              <Button variant="outline" onClick={() => setGlobalDealWonModalOpen(true)}>
+                <Trophy className="h-4 w-4" aria-hidden="true" /> Mark a deal won
+              </Button>
             )}
-
-            {activeTab === 'activities' && (
-              <>
-                <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Pending Follow-ups</span>
-                  <span className="font-bold text-slate-900">{pendingFollowupsCount}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-blue-700 font-bold uppercase block">Client Meetings</span>
-                  <span className="font-bold text-blue-900">{scheduledMeetingsCount}</span>
-                </div>
-
-                <div className={`px-3 py-1.5 rounded-xl text-xs border ${
-                  overdueFollowupsCount > 0 ? 'bg-amber-50/90 border-amber-300' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <span className={`text-[10px] font-bold uppercase block ${
-                    overdueFollowupsCount > 0 ? 'text-amber-700' : 'text-slate-400'
-                  }`}>
-                    Overdue Attention
-                  </span>
-                  <span className={`font-bold ${
-                    overdueFollowupsCount > 0 ? 'text-amber-900 flex items-center gap-1.5' : 'text-slate-900'
-                  }`}>
-                    {overdueFollowupsCount > 0 && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
-                    {overdueFollowupsCount}
-                  </span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Completed</span>
-                  <span className="font-bold text-emerald-900">{completedActivitiesCount}</span>
-                </div>
-              </>
-            )}
-
-            {activeTab === 'proposals' && (
-              <>
-                <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Quotes</span>
-                  <span className="font-bold text-slate-900">{totalQuotationsCount}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Quoted Value</span>
-                  <span className="font-bold text-slate-900">{formatCurrency(totalQuotationsValue)}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Accepted Proposals</span>
-                  <span className="font-bold text-emerald-900">{acceptedQuotationsCount} ({formatCurrency(acceptedQuotationsValue)})</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-blue-700 font-bold uppercase block">In Discussion / Sent</span>
-                  <span className="font-bold text-blue-900">{inDiscussionQuotationsCount}</span>
-                </div>
-              </>
-            )}
-
-            {activeTab === 'reports' && (
-              <>
-                <div className="px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Deal Win Rate</span>
-                  <span className="font-bold text-emerald-900">{winRatePercent}%</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-blue-700 font-bold uppercase block">Won Revenue</span>
-                  <span className="font-bold text-blue-900">{formatCurrency(wonRevenue)}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-indigo-50/80 border border-indigo-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-indigo-700 font-bold uppercase block">Avg Deal Size</span>
-                  <span className="font-bold text-indigo-950">{formatCurrency(avgDealSize)}</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Closed Deals</span>
-                  <span className="font-bold text-slate-900">{wonCount} of {totalAllLeads} Leads</span>
-                </div>
-              </>
-            )}
-
-            {activeTab === 'masters' && (
-              <>
-                <div className="px-3 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-blue-700 font-bold uppercase block">Active Services</span>
-                  <span className="font-bold text-blue-900">{activeServicesCount} R&D Services</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-purple-50/80 border border-purple-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-purple-700 font-bold uppercase block">Taxonomy Configured</span>
-                  <span className="font-bold text-purple-900">20 Ind · 120+ Sub</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Pipeline Stages</span>
-                  <span className="font-bold text-emerald-900">{stages.length} Active Stages</span>
-                </div>
-
-                <div className="px-3 py-1.5 bg-amber-50/80 border border-amber-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-amber-700 font-bold uppercase block">Outbound Cadence</span>
-                  <span className="font-bold text-amber-900">10-Touch 30D SOP</span>
-                </div>
-              </>
-            )}
-
-            {activeTab === 'audit-trail' && (
-              <>
-                <div className="px-3 py-1.5 bg-indigo-50/80 border border-indigo-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-indigo-700 font-bold uppercase block">Activity Tracking</span>
-                  <span className="font-bold text-indigo-900">100% Comprehensive</span>
-                </div>
-                <div className="px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase block">Accountability</span>
-                  <span className="font-bold text-emerald-900">Diffs & IP Enforced</span>
-                </div>
-              </>
-            )}
-
-            {/* Single Actionable '+' Button on Top */}
             {['pipeline', 'cold-funnel', 'proposals', 'activities'].includes(activeTab) && (
-              <button
-                type="button"
-                onClick={handleTopPlusAction}
-                className="w-9 h-9 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white flex items-center justify-center shadow-sm hover:shadow transition-all cursor-pointer shrink-0"
-                title={getTopPlusTitle()}
-                aria-label={getTopPlusTitle()}
-              >
-                <Plus className="w-5 h-5" />
-              </button>
+              <Button onClick={handleTopPlusAction}>
+                <Plus className="h-4 w-4" aria-hidden="true" /> {getTopPlusTitle()}
+              </Button>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        )}
+      />
+
+      {activeTab === 'pipeline' && (
+        <StatStrip label="Pipeline summary" stats={[
+          { label: 'Open deals', value: activeDealsCount },
+          { label: 'Pipeline value', value: formatCurrency(totalPipeline) },
+          { label: 'Weighted forecast', value: formatCurrency(weightedForecast), hint: 'By stage probability' },
+          { label: 'Won deals', value: wonCount, hint: formatCurrency(wonRevenue), onClick: () => setPipelineView('won'), actionLabel: `See the ${wonCount} won deals` },
+        ]} />
+      )}
+      {activeTab === 'activities' && (
+        <StatStrip label="Follow-ups summary" stats={[
+          { label: 'Pending follow-ups', value: pendingFollowupsCount },
+          { label: 'Overdue', value: overdueFollowupsCount, attention: overdueFollowupsCount > 0 },
+          { label: 'Scheduled meetings', value: scheduledMeetingsCount },
+          { label: 'Completed', value: completedActivitiesCount },
+        ]} />
+      )}
+      {activeTab === 'proposals' && (
+        <StatStrip label="Quotations summary" stats={[
+          { label: 'Quotations', value: totalQuotationsCount },
+          { label: 'Quoted value', value: formatCurrency(totalQuotationsValue) },
+          { label: 'Accepted', value: acceptedQuotationsCount, hint: formatCurrency(acceptedQuotationsValue) },
+          { label: 'Draft or sent', value: inDiscussionQuotationsCount },
+        ]} />
+      )}
 
       {/* SUB-MODULE: CLIENT OUTREACH & 30-DAY CADENCE */}
       {activeTab === 'cold-funnel' && (
@@ -761,6 +530,7 @@ function CRMEnterpriseContent() {
           viewMode={pipelineView}
           onViewModeChange={(m) => setPipelineView(m)}
           onLeadCreated={announceNewLead}
+          onOpenOutreach={() => handleTabChange('cold-funnel')}
         />
       )}
 
@@ -826,14 +596,7 @@ function CRMEnterpriseContent() {
 
       {/* SUB-MODULE 5: CRM ANALYTICS */}
       {activeTab === 'reports' && (
-        <CRMAnalytics
-          leads={leads}
-          stages={stages}
-          sources={sources}
-          onSelectStage={handleSelectStageFromAnalytics}
-          onSelectWon={handleSelectWonFromAnalytics}
-          onSelectLead360={(leadId) => setSelectedLead360Id(leadId)}
-        />
+        <CRMAnalytics onSelectStage={handleSelectStageFromAnalytics} onSelectWon={handleSelectWonFromAnalytics} />
       )}
 
       {/* LEAD MANAGEMENT: every lead in one server-paged table, with bulk assignment */}
@@ -881,10 +644,10 @@ function CRMEnterpriseContent() {
       {/* Central Reassign Assignee Modal */}
       {reassignLeadTarget && (
         <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
                   <UserCheck className="w-5 h-5" />
                 </div>
                 <div>
@@ -901,7 +664,7 @@ function CRMEnterpriseContent() {
             </div>
 
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-              <span className="text-[10px] text-slate-400 font-bold uppercase block">Lead Account</span>
+              <span className="text-xs text-slate-400 font-medium block">Lead Account</span>
               <span className="font-bold text-slate-900 text-sm">{reassignLeadTarget.company_name}</span>
               <span className="text-slate-500 block text-[11px] mt-0.5 font-mono">{reassignLeadTarget.lead_code}</span>
             </div>
@@ -911,11 +674,11 @@ function CRMEnterpriseContent() {
               <select
                 value={reassignSelectedUserId}
                 onChange={(e) => setReassignSelectedUserId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-100"
               >
                 {salesPersons.map((sp) => (
                   <option key={sp.id} value={sp.id}>
-                    👤 {sp.first_name} {sp.last_name} ({sp.designation || 'Sales'})
+                    {sp.first_name} {sp.last_name} ({sp.designation || 'Sales'})
                   </option>
                 ))}
               </select>
@@ -931,7 +694,7 @@ function CRMEnterpriseContent() {
               <button
                 onClick={handleConfirmReassign}
                 disabled={reassignLoading}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs"
+                className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs"
               >
                 <UserCheck className="w-3.5 h-3.5" />
                 <span>{reassignLoading ? 'Reassigning...' : 'Confirm Reassignment'}</span>
@@ -944,7 +707,7 @@ function CRMEnterpriseContent() {
       {/* Central 1-Click Convert Won Modal */}
       {globalDealWonModalOpen && (
         <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
