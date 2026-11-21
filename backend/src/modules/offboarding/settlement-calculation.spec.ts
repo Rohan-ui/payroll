@@ -8,6 +8,8 @@ const base: SettlementInputs = {
   notice: { shortfallDays: 0, decision: null },
   leave: [{ leaveTypeId: 'el', name: 'Earned leave', balanceDays: '10.5', encashable: true, asOf: '2025-08-31' }, { leaveTypeId: 'sl', name: 'Sick leave', balanceDays: '4', encashable: false, asOf: '2025-08-31' }],
   loans: [],
+  assetRecoveries: [],
+  assetsOut: 0,
   finalPayslip: { periodCode: '2025-08', gross: '60000', net: '52000' },
 };
 const line = (r: ReturnType<typeof calculateSettlement>, code: string) => r.lines.find((l) => l.code === code);
@@ -57,6 +59,14 @@ describe('full and final settlement calculation', () => {
     // 10500 encashment + 105000 gratuity − 5000 loan
     expect([totals.earnings.toFixed(2), totals.recoveries.toFixed(2), totals.net.toFixed(2)]).toEqual(['115500.00', '5000.00', '110500.00']);
     expect(calculateSettlement({ ...base, finalPayslip: null }, DEFAULT_SETTLEMENT_POLICY).problems.join(' ')).toMatch(/Finalize payroll for 2025-08/);
+  });
+
+  it('recovers lost or damaged assets, and waits for every asset to be returned', () => {
+    const r = calculateSettlement({ ...base, assetRecoveries: [{ assetId: 'a', name: 'Dell Latitude', tag: 'LT-7', status: 'LOST', amount: '45000.50' }] }, DEFAULT_SETTLEMENT_POLICY);
+    expect(line(r, 'ASSET_RECOVERY')).toMatchObject({ kind: 'RECOVERY', label: 'Asset recovery: Dell Latitude (LT-7)', countsInTotal: true });
+    expect(line(r, 'ASSET_RECOVERY')?.amount.toFixed(2)).toBe('45000.50');
+    expect(r.problems).toEqual([]);
+    expect(calculateSettlement({ ...base, assetsOut: 2 }, DEFAULT_SETTLEMENT_POLICY).problems.join(' ')).toMatch(/2 company assets are not returned/);
   });
 
   it('fills in whatever a workspace did not set from the defaults', () => {

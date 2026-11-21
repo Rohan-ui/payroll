@@ -11,6 +11,7 @@ import {
   calculateSettlement, CalculatedLine, MANUAL_COMPONENTS, settlementPolicy, SettlementInputs, SettlementPolicy, settlementTotals,
 } from './settlement-calculation';
 import { AdjustSettlementLineDto, ManualSettlementLineDto, SettlementPaymentDto, SettlementPolicyDto } from './dto/settlement.dto';
+import { OffboardingNotificationsService } from './offboarding-notifications.service';
 
 type Tx = Prisma.TransactionClient;
 type Actor = AuthenticatedTenantUser;
@@ -30,7 +31,7 @@ const LOAN_CODES = ['LOAN_RECOVERY', 'ADVANCE_RECOVERY'];
  */
 @Injectable()
 export class SettlementsService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly salary: SalaryAssignmentsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly salary: SalaryAssignmentsService, private readonly notifications: OffboardingNotificationsService) {}
 
   // ── Rules ───────────────────────────────────────────────────
 
@@ -174,6 +175,7 @@ export class SettlementsService {
     if (problems.length) throw new BadRequestException(`Resolve these first, then recalculate: ${problems.join(' ')}`);
     await this.transition(tenantId, id, ['DRAFT'], { settlement_status: 'PENDING_REVIEW', submitted_at: new Date(), submitted_by_tenant_member_id: actor.tenantMemberId });
     await this.log(tenantId, actor, 'SETTLEMENT_SUBMITTED', id, { new: { status: 'PENDING_REVIEW', net: row.net_amount.toFixed(2) } });
+    this.notifications.notify(tenantId, 'SETTLEMENT_PENDING_REVIEW', row.separation_id, { actor, key: id });
     return this.forSeparation(tenantId, row.separation_id);
   }
 
@@ -195,6 +197,7 @@ export class SettlementsService {
     await this.assertCurrent(tenantId, row);
     await this.transition(tenantId, id, ['PENDING_REVIEW'], { settlement_status: 'APPROVED', approved_at: new Date(), approved_by_tenant_member_id: actor.tenantMemberId });
     await this.log(tenantId, actor, 'SETTLEMENT_APPROVED', id, { new: { status: 'APPROVED', net: row.net_amount.toFixed(2) } });
+    this.notifications.notify(tenantId, 'SETTLEMENT_APPROVED', row.separation_id, { actor, key: id });
     return this.forSeparation(tenantId, row.separation_id);
   }
 
@@ -254,6 +257,7 @@ export class SettlementsService {
         }
       }
     });
+    this.notifications.notify(tenantId, 'SETTLEMENT_PAID', row.separation_id, { actor, key: id, detail: input.paymentDate });
     await this.log(tenantId, actor, 'SETTLEMENT_PAID', id, { new: { status: 'PAID', net: row.net_amount.toFixed(2), payment_date: input.paymentDate, mode: input.mode, reference: input.reference?.trim() || null } });
     return this.forSeparation(tenantId, row.separation_id);
   }
@@ -307,7 +311,7 @@ export class SettlementsService {
   private async gather(tenantId: string, s: Awaited<ReturnType<SettlementsService['separation']>>): Promise<SettlementInputs> {
     const lastDay = s.last_working_date;
     const employeeId = s.employee_id;
-    const [firstEmployment, monthly, policyAssignment, balances, loans, payslip] = await Promise.all([
+    const [firstEmployment, monthly, policyAssignment, balances, loans, payslip, assets] = await Promise.all([
       this.prisma.rndtechnosoft_employee_employments.findFirst({ where: { tenant_id: tenantId, employee_id: employeeId }, orderBy: { joining_date: 'asc' }, select: { joining_date: true } }),
       this.salary.monthlyOn(tenantId, employeeId, lastDay),
       this.prisma.rndtechnosoft_employee_leave_policy_assignments.findFirst({
@@ -325,6 +329,11 @@ export class SettlementsService {
         orderBy: { created_at: 'desc' },
         select: { gross_earnings: true, net_pay: true, rndtechnosoft_payroll_periods: { select: { period_code: true } } },
       }),
+      this.prisma.rndtechnosoft_employee_assets.findMany({
+        where: { tenant_id: tenantId, employee_id: employeeId, OR: [{ return_status: 'ISSUED' }, { separation_id: s.id, recovery_amount: { gt: 0 }, return_status: { in: ['LOST', 'RETURNED'] } }] },
+        orderBy: { assigned_date: 'asc' },
+        select: { id: true, asset_name: true, asset_tag: true, return_status: true, recovery_amount: true },
+      }),
     ]);
     const encashable = new Set((policyAssignment?.rndtechnosoft_leave_policies.rndtechnosoft_leave_policy_rules ?? []).filter((r) => r.encashment_allowed).map((r) => r.leave_type_id));
     const notice = noticeOf({ noticeDate: isoDate(s.notice_date), requiredDays: s.notice_period_days, requestedLastDay: isoDate(s.requested_last_working_date), lastDay: isoDate(lastDay) });
@@ -340,6 +349,10 @@ export class SettlementsService {
         outstanding: l.rndtechnosoft_loan_installments.reduce((t, i) => t.add(i.total_amount), D(0)).toFixed(2),
         installmentIds: l.rndtechnosoft_loan_installments.map((i) => i.id),
       })),
+      assetRecoveries: assets.filter((a) => a.return_status !== 'ISSUED' && a.recovery_amount).map((a) => ({
+        assetId: a.id, name: a.asset_name, tag: a.asset_tag, status: a.return_status, amount: (a.recovery_amount ?? D(0)).toFixed(2),
+      })),
+      assetsOut: assets.filter((a) => a.return_status === 'ISSUED').length,
       finalPayslip: payslip && { periodCode: payslip.rndtechnosoft_payroll_periods.period_code, gross: payslip.gross_earnings.toFixed(2), net: payslip.net_pay.toFixed(2) },
     };
   }

@@ -16,6 +16,8 @@ export interface OnboardingEmail {
   html: string;
   candidateId?: string;
   interviewId?: string;
+  /** The exit an offboarding email belongs to. */
+  separationId?: string;
   /**
    * The member whose action sends this email, from the session. When the
    * workspace allows personal accounts it goes from their own account;
@@ -78,6 +80,7 @@ export class OnboardingMailerService {
           recipient_email: recipient,
           candidate_id: email.candidateId ?? null,
           interview_id: email.interviewId ?? null,
+          separation_id: email.separationId ?? null,
           delivery_status: 'SENDING',
         },
       });
@@ -93,7 +96,7 @@ export class OnboardingMailerService {
             { delivery_status: 'SENDING', updated_at: { lt: new Date(Date.now() - STALE_CLAIM_MS) } },
           ],
         },
-        data: { delivery_status: 'SENDING', error_message: null, recipient_email: recipient, updated_at: new Date() },
+        data: { delivery_status: 'SENDING', error_message: null, recipient_email: recipient, attempt_count: { increment: 1 }, updated_at: new Date() },
       });
       const earlier = await this.prisma.rndtechnosoft_onboarding_notifications.findFirstOrThrow({
         where: { tenant_id: email.tenantId, idempotency_key: key },

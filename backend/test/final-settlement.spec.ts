@@ -8,6 +8,7 @@ import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
 import { PrismaService } from '@/prisma/prisma.service';
 import { defaultPolicyConfig } from '@/modules/payroll/policies/policy-config';
 import { hashPassword, PASSWORD_ALGORITHM_SCRYPT } from '@/common/security/password.util';
+import { OffboardingNotificationsService } from '@/modules/offboarding/offboarding-notifications.service';
 
 /**
  * Full and final settlement end to end: worked out from the real salary
@@ -146,6 +147,9 @@ describe('Full and final settlement', () => {
       await prisma.rndtechnosoft_final_settlements.deleteMany({ where: scope });
       await prisma.rndtechnosoft_separation_clearance_items.deleteMany({ where: scope });
       await prisma.rndtechnosoft_separation_date_changes.deleteMany({ where: scope });
+      await app.get(OffboardingNotificationsService).flush();
+      await prisma.rndtechnosoft_onboarding_notifications.deleteMany({ where: scope });
+      await prisma.rndtechnosoft_separation_comments.deleteMany({ where: scope });
       await prisma.rndtechnosoft_employee_separations.deleteMany({ where: scope });
       await prisma.rndtechnosoft_loan_repayments.deleteMany({ where: scope });
       await prisma.rndtechnosoft_loan_installments.deleteMany({ where: scope });

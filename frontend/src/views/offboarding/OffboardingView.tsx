@@ -2,23 +2,30 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { MyExitTab } from './MyExitTab';
 import { ExitsTab } from './ExitsTab';
+import { TeamExitsTab } from './TeamExitsTab';
+import { OffboardingReportsTab } from './OffboardingReportsTab';
+import { ASSET_PERMISSIONS, CLEARANCE_PERMISSIONS, MyChecklistTab } from './MyChecklistTab';
 
-type Tab = 'exits' | 'mine';
+type Tab = 'exits' | 'reports' | 'team' | 'checklist' | 'mine';
 
-const TABS: { id: Tab; label: string; permission: string }[] = [
+
+const TABS: { id: Tab; label: string; permission: string | string[] }[] = [
   { id: 'exits', label: 'Exits', permission: 'offboarding.view' },
+  { id: 'reports', label: 'Reports', permission: 'offboarding.view' },
+  { id: 'team', label: 'My team', permission: 'offboarding.team.view' },
+  { id: 'checklist', label: 'My checklist', permission: [...CLEARANCE_PERMISSIONS, ...ASSET_PERMISSIONS] },
   { id: 'mine', label: 'My resignation', permission: 'offboarding.my.view' },
 ];
 
-/** Offboarding: HR's exits and their checklists, and everyone's own resignation. */
+/** Offboarding: HR's exits and their checklists, a manager's team's exits, and everyone's own resignation. */
 export const OffboardingView: React.FC = () => {
   const { can } = useAuth();
-  const tabs = TABS.filter((t) => can(t.permission));
+  const tabs = TABS.filter((t) => (Array.isArray(t.permission) ? t.permission.some((p) => can(p)) : can(t.permission)));
   const [chosen, setChosen] = useState<Tab | null>(null);
   const tab = tabs.find((t) => t.id === chosen)?.id ?? tabs[0]?.id;
 
   if (!tab) return <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 dark:border-[#2B293E] dark:bg-[#181724]">You don’t have access to offboarding. Ask an administrator for an offboarding permission.</p>;
-  if (tabs.length === 1) return tab === 'mine' ? <MyExitTab /> : <ExitsTab />;
+  if (tabs.length === 1) return tab === 'mine' ? <MyExitTab /> : tab === 'team' ? <TeamExitsTab /> : tab === 'checklist' ? <MyChecklistTab /> : <ExitsTab />;
 
   return (
     <div className="space-y-4">
@@ -32,6 +39,9 @@ export const OffboardingView: React.FC = () => {
       </div>
       <div role="tabpanel" id="offboarding-panel" aria-labelledby={`offboarding-tab-${tab}`}>
         {tab === 'exits' && <ExitsTab />}
+        {tab === 'reports' && <OffboardingReportsTab />}
+        {tab === 'team' && <TeamExitsTab />}
+        {tab === 'checklist' && <MyChecklistTab />}
         {tab === 'mine' && <MyExitTab />}
       </div>
     </div>

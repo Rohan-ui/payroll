@@ -24,11 +24,29 @@ const detail = (blockers: string[]) => ({
   exitInterview: null, hasSignIn: true, today: '2026-12-14', blockers, warnings: [],
   notice: { requiredDays: 30, servedDays: 14, requestedLastDay: '2026-12-14', contractualLastDay: '2026-12-30', lastDay: '2026-12-14', shortfallDays: 16, decision: null, decisionReason: null, decidedBy: null, decidedAt: null },
   dateChanges: [], directReports: [{ id: 'r1', code: 'E-9', name: 'Ravi Kumar' }],
+  managerComments: [{ id: 'c1', kind: 'HANDOVER', body: 'Billing service goes to Asha.', author: 'Mona Shah', createdAt: '2026-12-01T10:00:00.000Z' }],
+  managerFeedback: null, canSeeConfidential: granted.has('offboarding.interview.confidential'), interviewBooking: null,
   obligations: { outstanding: '5000.00', loans: [{ id: 'l1', number: 'L-1', type: 'LOAN', principal: '10000.00', installment: '5000.00', outstanding: '5000.00', installmentsLeft: 1, dueAfterLastDay: '5000.00', installmentsAfterLastDay: 1 }] },
-  checklist: [{ id: 'i1', team: 'IT', title: 'Laptop and accessories returned', status: blockers.length ? 'PENDING' : 'CLEARED', note: null, clearedBy: null, clearedAt: null }],
+  checklist: [
+    { id: 'i1', team: 'IT', title: 'Laptop and accessories returned', description: null, isRequired: true, dueDate: '2026-12-14', hasOwnDueDate: false, assignedTo: { id: 'm9', name: 'Ivan Rao' },
+      status: blockers.length ? 'PENDING' : 'CLEARED', note: null, waiverReason: null, clearedBy: null, clearedAt: null, canClear: granted.has('offboarding.clearance.update'), canWaive: granted.has('offboarding.clearance.update') },
+    { id: 'i2', team: 'IT', title: 'Wiki badge removed', description: 'From the team page', isRequired: false, dueDate: '2026-12-10', hasOwnDueDate: true, assignedTo: null,
+      status: 'PENDING', note: null, waiverReason: null, clearedBy: null, clearedAt: null, canClear: granted.has('offboarding.clearance.update'), canWaive: granted.has('offboarding.clearance.update') },
+  ],
+});
+
+const teamExit = (comments: unknown[], itemStatus = 'PENDING') => ({
+  id: 's1', type: 'RESIGNATION', status: 'IN_PROGRESS', lastWorkingDate: '2026-12-14', noticeDate: '2026-10-15', employee: { name: 'Sneha Patil', code: 'NTS004', department: 'Engineering', designation: 'Engineer' },
+  checklistProgress: { done: 0, total: 2 }, canComment: true, comments, managerFeedback: null, canGiveFeedback: true,
+  checklist: [
+    { id: 'm1', team: 'MANAGER', title: 'Work handed over', status: itemStatus, note: null, clearedAt: null, canUpdate: true },
+    { id: 'f1', team: 'FINANCE', title: 'Advances settled', status: 'PENDING', note: null, clearedAt: null, canUpdate: false },
+  ],
 });
 
 let calls: { method: string; path: string; body: unknown }[];
+let itemsLeft: string[];
+let assetCollected: boolean;
 let resigned: boolean;
 let blockers: string[];
 let container: HTMLDivElement;
@@ -37,6 +55,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 beforeEach(() => {
   calls = [];
+  itemsLeft = ['x1', 'x2'];
+  assetCollected = false;
   resigned = false;
   blockers = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -51,6 +71,59 @@ beforeEach(() => {
       return json({ success: true, data: [{ id: 's1', employee: person, type: 'RESIGNATION', status: 'IN_PROGRESS', isSelfService: true, noticeDate: '2026-10-15', lastWorkingDate: '2026-12-14', checklist: { done: 0, total: 6 } }], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
     }
     if (path === '/offboarding/separations/s1') return json({ success: true, data: detail(blockers) });
+    if (path === '/offboarding/separations/s1/notifications') {
+      return json({ success: true, data: [{ id: 'n1', event: 'RESIGNATION_ACCEPTED', channel: 'EMAIL', recipient: 'mona@example.com', status: 'NOT_SENT', error: 'The workspace has no active SMTP account.', attempts: 2, sentAt: null, createdAt: '2026-12-01T10:00:00.000Z', updatedAt: '2026-12-02T10:00:00.000Z' }] });
+    }
+    if (path === '/offboarding/separations/s1/checklist/i2' && method === 'PUT') return json({ success: true, data: detail(blockers) });
+    const leaverAsset = { id: 'as1', category: 'LAPTOP', team: 'IT', name: 'Dell Latitude', tag: 'LT-7', assignedDate: '2025-02-01', returnDueDate: null, status: 'ISSUED', returnDate: null, condition: null, recoveryAmount: null, remarks: null, assignedBy: 'Ivan', returnRecordedBy: null, returnRecordedAt: null, canManage: true, employeeId: 'e1', separationId: 's1', lastWorkingDate: '2026-12-14', employee: { name: 'Sneha Patil', code: 'NTS004' } };
+    if (path === '/offboarding/checklist/assets') return json({ success: true, data: assetCollected ? [] : [leaverAsset] });
+    if (path === '/offboarding/checklist/assets/as1/return') { assetCollected = true; return json({ success: true, data: [] }); }
+    if (path === '/offboarding/separations/s1/assets') return json({ success: true, data: { employeeId: 'e1', items: [leaverAsset], canAssign: { IT: false, ADMIN: false }, employeeActive: true } });
+    const reasons = [{ code: 'CAREER_GROWTH', label: 'Career growth', active: true }, { code: 'RELOCATION', label: 'Relocation', active: false }, { code: 'COMPENSATION', label: 'Pay', active: true }];
+    if (path === '/offboarding/reports') {
+      const type = new URL(`http://x${url.replace(/^.*\/api\/v1/, '')}`).searchParams.get('type');
+      return json({ success: true, data: {
+        range: { from: '2026-01-01', to: '2027-03-31', groupBy: 'month' }, today: '2026-12-01',
+        summary: { total: type ? 1 : 5, pendingResignations: 1, accepted: 3, upcomingLastDays: 2, pastLastDay: 1, completed: 1, cancelled: 0, pendingChecklistItems: 7 },
+        trend: [{ period: '2026-11', value: 2 }, { period: '2026-12', value: 3 }],
+        byDepartment: [{ label: 'Engineering', value: 3 }, { label: 'Sales', value: 2 }], byDesignation: [], byType: [{ label: 'Voluntary resignation', value: 4 }, { label: 'Termination', value: 1 }],
+        byReason: [{ label: 'Career growth', value: 2 }, { label: 'Interview not recorded', value: 3 }],
+        settlements: granted.has('offboarding.settlement.view') ? { pending: 2, notStarted: 1, inReview: 1, approvedUnpaid: 1, approvedUnpaidAmount: '45000.00', paid: 1, totalPaid: '120000.00', totalRecoveries: '5000.00' } : null,
+        upcoming: [{ id: 's1', lastWorkingDate: '2026-11-28', type: 'RESIGNATION', employee: { name: 'Sneha Patil', code: 'NTS004' }, department: 'Engineering', location: 'Pune', manager: 'Mona Shah' }],
+        options: { departments: [{ id: 'd1', name: 'Engineering' }], locations: [{ id: 'b1', name: 'Pune' }], managers: [{ id: 'e9', name: 'Mona Shah' }] },
+      } });
+    }
+    if (path === '/offboarding/exit-reasons' && method === 'GET') return json({ success: true, data: reasons });
+    if (path === '/offboarding/exit-reasons' && method === 'PUT') return json({ success: true, data: JSON.parse(String(init?.body)).reasons });
+    if (path === '/offboarding/separations/s1/exit-interview/schedule') {
+      const body = JSON.parse(String(init?.body));
+      return json({ success: true, data: { ...detail(blockers), interviewBooking: { at: body.scheduledAt, location: body.location ?? null, interviewer: { id: 'm2', name: 'Priya Nair' } } } });
+    }
+    if (path === '/offboarding/interviewers') return json({ success: true, data: [{ id: 'm2', name: 'Priya Nair' }] });
+    if (path === '/offboarding/separations/s1/exit-interview') {
+      const body = JSON.parse(String(init?.body));
+      return json({ success: true, data: { ...detail(blockers), canSeeConfidential: granted.has('offboarding.interview.confidential'), exitInterview: {
+        date: body.interviewDate, conductedBy: { id: 'm2', name: 'Priya Nair' }, primaryReason: body.primaryReason, secondaryReason: body.secondaryReason ?? null, employeeFeedback: body.employeeFeedback,
+        ratings: { workplace: body.workplaceRating ?? null, compensation: body.compensationRating ?? null, growth: body.growthRating ?? null }, rehireEligible: body.rehireEligible ?? null, rehireRemarks: null, recordedBy: 'Priya Nair', confidentialNotes: body.confidentialNotes,
+      } } });
+    }
+    if (path === '/offboarding/team/s1/feedback') return json({ success: true, data: { ...teamExit([]), canGiveFeedback: true, managerFeedback: { text: JSON.parse(String(init?.body)).feedback, at: '2026-12-01T10:00:00.000Z' } } });
+    if (path === '/offboarding/checklist/mine') {
+      return json({ success: true, data: itemsLeft.map((id) => ({ id, separationId: 's1', team: 'IT', title: id === 'x1' ? 'Laptop returned' : 'Access removed', description: null, isRequired: true, dueDate: '2026-12-14', lastWorkingDate: '2026-12-14', assignedTo: null, isMine: id === 'x1', employee: { name: 'Sneha Patil', code: 'NTS004' } })) });
+    }
+    if (path.startsWith('/offboarding/checklist/items/')) {
+      itemsLeft = itemsLeft.filter((i) => i !== path.split('/').pop());
+      return json({ success: true, data: itemsLeft.map((id) => ({ id, separationId: 's1', team: 'IT', title: 'Access removed', description: null, isRequired: true, dueDate: '2026-12-14', lastWorkingDate: '2026-12-14', assignedTo: null, isMine: false, employee: { name: 'Sneha Patil', code: 'NTS004' } })) });
+    }
+    if (path === '/offboarding/checklist-template' && method === 'GET') return json({ success: true, data: [] });
+    if (path === '/offboarding/checklist-template' && method === 'PUT') return json({ success: true, data: JSON.parse(String(init?.body)).items });
+    if (path === '/offboarding/team') return json({ success: true, data: [{ ...teamExit([]), pendingManagerItems: 1 }] });
+    if (path === '/offboarding/team/s1') return json({ success: true, data: teamExit([]) });
+    if (path === '/offboarding/team/s1/comments') {
+      const body = JSON.parse(String(init?.body));
+      return json({ success: true, data: teamExit([{ id: 'c1', kind: body.kind, body: body.body, author: 'Mona Shah', createdAt: '2026-12-01T10:00:00.000Z', isMine: true }]) }, 201);
+    }
+    if (path === '/offboarding/team/s1/checklist/m1') return json({ success: true, data: teamExit([], JSON.parse(String(init?.body)).status) });
     if (path === '/offboarding/separations/s1/notice-decision') return json({ success: true, data: { ...detail(blockers), notice: { ...detail(blockers).notice, decision: 'RECOVER', decidedBy: 'Priya Nair' } } });
     return json({ message: 'Not stubbed' }, 404);
   }));
@@ -94,6 +167,199 @@ describe('an employee', () => {
   });
 });
 
+describe('Manager', () => {
+  const STAFF = ['offboarding.my.view', 'offboarding.team.view'];
+
+  it('lists their team’s exits and leaves a handover note', async () => {
+    granted = new Set(STAFF);
+    await render(<OffboardingView />);
+    expect(container.querySelector('[role="tablist"]')?.textContent).toBe('My teamMy resignation');
+    await click(button(/^My team$/));
+    expect(container.textContent).toContain('1 open');
+    await click(button(/^Sneha Patil$/));
+    expect(container.textContent).toContain('Your handover items');
+    expect(container.textContent).not.toContain('Higher studies');
+    const note = container.querySelector('textarea[id$="-body"]') as HTMLTextAreaElement;
+    await type(note, 'Billing service goes to Asha.');
+    await click(button(/Add handover note/));
+    expect(calls.find((c) => c.path === '/offboarding/team/s1/comments')).toMatchObject({ method: 'POST', body: { kind: 'HANDOVER', body: 'Billing service goes to Asha.' } });
+    expect(container.textContent).toContain('Billing service goes to Asha.');
+  });
+
+  it('clears only their own checklist items', async () => {
+    granted = new Set(STAFF);
+    await render(<OffboardingView />);
+    await click(button(/^My team$/));
+    await click(button(/^Sneha Patil$/));
+    const labelled = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    expect(labelled('Clear: Advances settled')).toBeNull();
+    await click(labelled('Clear: Work handed over') as HTMLButtonElement);
+    expect(calls.find((c) => c.path === '/offboarding/team/s1/checklist/m1')).toMatchObject({ method: 'PUT', body: { status: 'CLEARED' } });
+    expect(labelled('Reopen: Work handed over')).not.toBeNull();
+  });
+});
+
+describe('Checklist owners', () => {
+  it('lists the items their team owns and clears or waives them with a reason', async () => {
+    granted = new Set(['offboarding.my.view', 'offboarding.clearance.it']);
+    await render(<OffboardingView />);
+    expect(container.querySelector('[role="tablist"]')?.textContent).toBe('My checklistMy resignation');
+    await click(button(/^My checklist$/));
+    expect(container.textContent).toContain('Laptop returned');
+    expect(container.textContent).toContain('given to you');
+    const labelled = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    await click(labelled('Clear: Laptop returned for Sneha Patil') as HTMLButtonElement);
+    expect(calls.find((c) => c.path === '/offboarding/checklist/items/x1')).toMatchObject({ method: 'PUT', body: { status: 'CLEARED' } });
+    expect(container.textContent).not.toContain('Laptop returned');
+
+    await click(labelled('Waive: Access removed for Sneha Patil') as HTMLButtonElement);
+    expect(button(/^Waive item$/).disabled).toBe(true);
+    await type(document.querySelector('[role="dialog"] textarea') as HTMLTextAreaElement, 'Never had access');
+    await click(button(/^Waive item$/));
+    expect(calls.find((c) => c.path === '/offboarding/checklist/items/x2')).toMatchObject({ body: { status: 'WAIVED', waiverReason: 'Never had access' } });
+    expect(container.textContent).toContain('Nothing to clear');
+  });
+});
+
+describe('Asset collectors', () => {
+  it('lists assets still with people who are leaving and records what came back', async () => {
+    granted = new Set(['offboarding.my.view', 'assets.view', 'assets.it.manage']);
+    await render(<OffboardingView />);
+    await click(button(/^My checklist$/));
+    expect(container.textContent).toContain('Assets to collect');
+    expect(container.textContent).toContain('Laptop · Dell Latitude · LT-7');
+    expect(container.textContent).not.toContain('Exit-checklist items your team owns');
+    await click(document.querySelector<HTMLButtonElement>('button[aria-label="Record return: Dell Latitude from Sneha Patil"]') as HTMLButtonElement);
+    expect(document.body.textContent).toContain('From Sneha Patil.');
+    await click(button(/^Record$/));
+    expect(calls.find((c) => c.path === '/offboarding/checklist/assets/as1/return')).toMatchObject({ method: 'PUT', body: { status: 'RETURNED', condition: 'GOOD' } });
+    expect(container.textContent).toContain('Nothing to collect');
+  });
+});
+
+describe('Reports', () => {
+  const HR = ['offboarding.my.view', 'offboarding.view', 'offboarding.manage'];
+
+  it('shows where exits stand, why and where people leave, and who leaves soon; settlement money only with access', async () => {
+    granted = new Set(HR);
+    await render(<OffboardingView />);
+    await click(button(/^Reports$/));
+    expect(container.textContent).toContain('Awaiting acceptance1');
+    expect(container.textContent).toContain('1 past their last day');
+    expect(container.textContent).toContain('Open checklist items7');
+    expect(container.textContent).toContain('Voluntary resignation');
+    expect(container.textContent).toContain('80%');
+    expect(container.textContent).toContain('Past, not completed');
+    expect(container.textContent).not.toContain('Full and final settlements');
+    expect(container.querySelector('table.sr-only caption')?.textContent).toBe('Exits by month');
+
+    const type = [...container.querySelectorAll('label')].find((l) => l.textContent === 'Exit type') as HTMLLabelElement;
+    const select = document.getElementById(type.htmlFor) as HTMLSelectElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    await act(async () => { setter?.call(select, 'TERMINATION'); select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await settle();
+    expect(calls.some((c) => c.path === '/offboarding/reports' && c.method === 'GET')).toBe(true);
+    expect(container.textContent).toContain('All exits1');
+    expect(button(/^Clear filters$/)).toBeDefined();
+  });
+
+  it('adds settlement figures for those who may see settlements', async () => {
+    granted = new Set([...HR, 'offboarding.settlement.view']);
+    await render(<OffboardingView />);
+    await click(button(/^Reports$/));
+    expect(container.textContent).toContain('Full and final settlements');
+    expect(container.textContent).toMatch(/Total paid out.*1,20,000/);
+  });
+});
+
+describe('Exit interview', () => {
+  const HR = ['offboarding.my.view', 'offboarding.view', 'offboarding.manage', 'offboarding.clearance.update', 'offboarding.complete'];
+  const select = async (el: HTMLSelectElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    await act(async () => { setter?.call(el, value); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  };
+  const byLabel = <T extends HTMLElement>(text: string) => {
+    const label = [...document.querySelectorAll('[role="dialog"] label')].find((l) => l.textContent?.startsWith(text)) as HTMLLabelElement;
+    return document.getElementById(label.htmlFor) as T;
+  };
+
+  it('records reasons from the workspace list, ratings and rehire, without confidential notes for HR who may not see them', async () => {
+    granted = new Set(HR);
+    await render(<OffboardingView />);
+    await click(button(/^Sneha Patil$/));
+    await click(button(/^Record exit interview$/));
+    const primary = byLabel<HTMLSelectElement>('Main reason');
+    expect([...primary.options].map((o) => o.textContent)).toEqual(['Choose…', 'Career growth', 'Pay']);
+    expect(document.body.textContent).not.toContain('Confidential notes');
+    expect(button(/^Save$/).disabled).toBe(true);
+    await select(primary, 'CAREER_GROWTH');
+    await select(byLabel<HTMLSelectElement>('Other reason'), 'COMPENSATION');
+    await select(byLabel<HTMLSelectElement>('Compensation'), '2');
+    await select(byLabel<HTMLSelectElement>('Would you hire'), 'yes');
+    await type(byLabel<HTMLTextAreaElement>('What the employee said'), 'Wants to lead a team.');
+    await click(button(/^Save$/));
+    const sent = calls.find((c) => c.path === '/offboarding/separations/s1/exit-interview');
+    expect(sent).toMatchObject({ method: 'PUT', body: { primaryReason: 'CAREER_GROWTH', secondaryReason: 'COMPENSATION', compensationRating: 2, rehireEligible: true, employeeFeedback: 'Wants to lead a team.' } });
+    expect(sent?.body).not.toHaveProperty('confidentialNotes');
+    expect(container.textContent).toContain('Career growth · also Pay');
+    expect(container.textContent).toContain('2 of 5');
+    expect(container.textContent).toContain('Eligible for rehire');
+  });
+
+  it('lets HR with the permission write confidential notes, shown only to them', async () => {
+    granted = new Set([...HR, 'offboarding.interview.confidential']);
+    await render(<OffboardingView />);
+    await click(button(/^Sneha Patil$/));
+    await click(button(/^Record exit interview$/));
+    await select(byLabel<HTMLSelectElement>('Main reason'), 'CAREER_GROWTH');
+    await type(byLabel<HTMLTextAreaElement>('What the employee said'), 'Wants to lead a team.');
+    await type(byLabel<HTMLTextAreaElement>('Confidential notes'), 'Counter-offer declined.');
+    await click(button(/^Save$/));
+    expect(calls.find((c) => c.path === '/offboarding/separations/s1/exit-interview')?.body).toMatchObject({ confidentialNotes: 'Counter-offer declined.' });
+    expect(container.textContent).toContain('Confidential: HR only');
+    expect(container.textContent).toContain('Counter-offer declined.');
+  });
+
+  it('books the interview in advance for a time still to come, with a room or link', async () => {
+    granted = new Set(HR);
+    await render(<OffboardingView />);
+    await click(button(/^Sneha Patil$/));
+    await click(button(/^Book interview$/));
+    const when = byLabel<HTMLInputElement>('Date and time');
+    await type(when, '2020-01-01T10:00');
+    expect(button(/^Book$/).disabled).toBe(true);
+    expect(document.body.textContent).toContain('Choose a time still to come.');
+    await type(when, '2099-03-10T15:30');
+    await type(byLabel<HTMLInputElement>('Room or meeting link'), 'Room 4B');
+    await click(button(/^Book$/));
+    const sent = calls.find((c) => c.path === '/offboarding/separations/s1/exit-interview/schedule');
+    expect(sent?.body).toMatchObject({ scheduledAt: new Date('2099-03-10T15:30').toISOString(), location: 'Room 4B' });
+    expect(container.textContent).toMatch(/Booked for .* with Priya Nair, Room 4B/);
+    expect(button(/^Reschedule$/)).toBeDefined();
+  });
+
+  it('lets HR rename and switch off exit reasons, and add their own', async () => {
+    granted = new Set(HR);
+    await render(<OffboardingView />);
+    await click(button(/^Exit reasons$/));
+    await type(document.querySelector('[role="dialog"] input[id$="-new"]') as HTMLInputElement, 'Long commute');
+    await click(button(/^Add$/));
+    await click(button(/^Save$/));
+    expect(calls.find((c) => c.path === '/offboarding/exit-reasons' && c.method === 'PUT')?.body).toMatchObject({ reasons: [{ code: 'CAREER_GROWTH' }, { code: 'RELOCATION', active: false }, { code: 'COMPENSATION', label: 'Pay' }, { label: 'Long commute', active: true }] });
+  });
+
+  it('takes the manager’s feedback from My team', async () => {
+    granted = new Set(['offboarding.my.view', 'offboarding.team.view']);
+    await render(<OffboardingView />);
+    await click(button(/^My team$/));
+    await click(button(/^Sneha Patil$/));
+    await type(container.querySelector('textarea[id$="-feedback"]') as HTMLTextAreaElement, 'Dependable; billing needs an owner.');
+    await click(button(/^Save feedback$/));
+    expect(calls.find((c) => c.path === '/offboarding/team/s1/feedback')).toMatchObject({ method: 'PUT', body: { feedback: 'Dependable; billing needs an owner.' } });
+    expect(button(/^Update feedback$/)).toBeDefined();
+  });
+});
+
 describe('HR', () => {
   const HR = ['offboarding.my.view', 'offboarding.view', 'offboarding.manage', 'offboarding.clearance.update', 'offboarding.complete'];
 
@@ -101,7 +367,7 @@ describe('HR', () => {
     granted = new Set(HR);
     blockers = ['The last working day, 2026-12-14, hasn’t come yet.'];
     await render(<OffboardingView />);
-    expect(container.querySelector('[role="tablist"]')?.textContent).toBe('ExitsMy resignation');
+    expect(container.querySelector('[role="tablist"]')?.textContent).toBe('ExitsReportsMy checklistMy resignation');
     expect(container.textContent).toContain('Serving notice');
     await click(button(/^Sneha Patil$/));
     expect(button(/Complete exit/).disabled).toBe(true);
@@ -132,10 +398,49 @@ describe('HR', () => {
     expect(container.textContent).toContain('To be recovered');
   });
 
-  it('shows only the exits list to someone who can view exits but not resign', async () => {
+  it('shows each item’s owner, due date and whether it’s optional, and waives with a reason', async () => {
+    granted = new Set(HR);
+    blockers = ['1 required checklist item is still open.'];
+    await render(<OffboardingView />);
+    await click(button(/^Sneha Patil$/));
+    expect(container.textContent).toContain('(last day) · with Ivan Rao');
+    expect(container.textContent).toContain('Wiki badge removed(optional)');
+    expect(container.textContent).toContain('From the team page');
+    expect(container.textContent).toMatch(/Overdue · was due/);
+    const labelled = (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    await click(labelled('Waive: Wiki badge removed') as HTMLButtonElement);
+    await type(document.querySelector('[role="dialog"] textarea') as HTMLTextAreaElement, 'Not on the wiki');
+    await click(button(/^Waive item$/));
+    expect(calls.find((c) => c.path === '/offboarding/separations/s1/checklist/i2')).toMatchObject({ method: 'PUT', body: { status: 'WAIVED', waiverReason: 'Not on the wiki' } });
+  });
+
+  it('adds the workspace’s own items to every new exit', async () => {
+    granted = new Set(HR);
+    await render(<OffboardingView />);
+    await click(button(/^Checklist$/));
+    await type(document.querySelector('[role="dialog"] input:not([type])') as HTMLInputElement, 'Return the parking pass');
+    await click(button(/^Add$/));
+    expect(document.body.textContent).toContain('Return the parking pass');
+    await click(button(/^Save$/));
+    expect(calls.find((c) => c.path === '/offboarding/checklist-template' && c.method === 'PUT')).toMatchObject({ body: { items: [{ team: 'IT', title: 'Return the parking pass', isRequired: true, description: null }] } });
+  });
+
+  it('shows the manager’s handover notes and every email the exit sent, with why one didn’t go out', async () => {
+    granted = new Set(HR);
+    await render(<OffboardingView />);
+    await click(button(/^Sneha Patil$/));
+    expect(container.textContent).toContain('From the manager');
+    expect(container.textContent).toContain('Billing service goes to Asha.');
+    expect(container.textContent).toContain('Resignation accepted → mona@example.com');
+    expect(container.textContent).toContain('Not sent');
+    expect(container.textContent).toContain('tried 2 times');
+    expect(container.textContent).toContain('no active SMTP account');
+  });
+
+  it('shows only the exits list and reports to someone who can view exits but not resign', async () => {
     granted = new Set(['offboarding.view']);
     await render(<OffboardingView />);
-    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.querySelector('[role="tablist"]')?.textContent).toBe('ExitsReports');
     expect(button(/Start an exit/)).toBeUndefined();
     await click(button(/^Sneha Patil$/));
     expect(button(/Complete exit/)).toBeUndefined();

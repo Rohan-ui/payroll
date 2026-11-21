@@ -16,12 +16,14 @@ import { AttendanceTab } from './employee/AttendanceTab';
 import { LeaveTab } from './employee/LeaveTab';
 import { ActivityTab } from './employee/ActivityTab';
 import { DocumentsTab } from './employee/DocumentsTab';
+import { AssetsPanel } from './employee/AssetsPanel';
+import { assetsApi } from '../api/assets.api';
 import { takeProfileEditRequest } from './employee/profile-intent';
 import { ReportingManagerCard } from './employee/ReportingManagerCard';
 import { SignInCard } from './employee/SignInCard';
 import { CosecMappingCard } from './employee/CosecMappingCard';
 
-export type ProfileTab = 'overview' | 'personal' | 'employment' | 'reporting' | 'documents' | 'pay' | 'attendance' | 'leave' | 'activity';
+export type ProfileTab = 'overview' | 'personal' | 'employment' | 'reporting' | 'documents' | 'assets' | 'pay' | 'attendance' | 'leave' | 'activity';
 
 /**
  * One employee's workspace: everything HR keeps about them, each part read
@@ -50,6 +52,8 @@ export const EmployeeDetailView: React.FC<{ initialTab?: ProfileTab }> = ({ init
       .catch((e) => live && setError(errorText(e)));
     return () => { live = false; };
   }, [selectedEmployeeId, reload]);
+
+  const loadAssets = useCallback(() => assetsApi.list(selectedEmployeeId ?? ''), [selectedEmployeeId]);
 
   const saved = useCallback((next: EmployeeProfile) => {
     setProfile(next);
@@ -90,6 +94,7 @@ export const EmployeeDetailView: React.FC<{ initialTab?: ProfileTab }> = ({ init
     { id: 'employment', label: 'Employment', shown: true },
     { id: 'reporting', label: 'Reporting', shown: true },
     { id: 'documents', label: 'Documents', shown: true },
+    { id: 'assets', label: 'Assets', shown: can('assets.view') },
     { id: 'pay', label: 'Pay', shown: can('salary.view') || profile.canSeeBankAccount || (can('payroll.view') && can('salary.view')) },
     { id: 'attendance', label: 'Attendance', shown: can('attendance.view') },
     { id: 'leave', label: 'Leave', shown: can('leave.view') },
@@ -202,6 +207,7 @@ export const EmployeeDetailView: React.FC<{ initialTab?: ProfileTab }> = ({ init
             </Section>
           </div>
         )}
+        {active === 'assets' && <AssetsPanel employeeId={profile.id} load={loadAssets} onChanged={() => setActivityKey((n) => n + 1)} />}
         {active === 'documents' && <DocumentsTab employeeId={profile.id} employeeName={profile.personal.fullName} onChanged={() => setActivityKey((n) => n + 1)} />}
         {active === 'pay' && <PayTab profile={profile} onSaved={saved} onOpenPayslips={() => setCurrentView('payslips')} />}
         {active === 'attendance' && <AttendanceTab employeeId={profile.id} />}
