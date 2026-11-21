@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  Sparkles, Clock, Send, CheckCircle2, AlertCircle, Calendar, ArrowRight, Copy, Check, PhoneCall, MessageSquare, Mail, Users, Filter, Search, RefreshCw, Building2, ChevronRight, ChevronLeft, X, Flame, Phone, Layers, CheckSquare, Kanban, List, Trophy, DollarSign, Download, Upload, Loader2, Eye,
+  Sparkles, Clock, Send, CheckCircle2, AlertCircle, Calendar, Copy, Check, PhoneCall, MessageSquare, Mail, Search, RefreshCw, Building2, ChevronRight, ChevronLeft, X, Flame, Phone, Kanban, List, Trophy, DollarSign, Download, Upload, Loader2, Eye,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { 
@@ -46,6 +46,12 @@ interface SLeadCadenceCenterProps {
   /** Receives the server's answer after a lead is converted into an opportunity. */
   onLeadConverted?: (result: any) => void;
 }
+
+/** A channel code as people say it. */
+const CHANNEL_NAMES: Record<string, string> = { WHATSAPP: 'WhatsApp', EMAIL: 'Email', LINKEDIN: 'LinkedIn', PHONE: 'Phone' };
+
+/** The field style of the outreach filters. */
+const SEL = 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-[#2B293E] dark:bg-[#1E1D2D] dark:text-slate-100';
 
 export default function SLeadCadenceCenter({
   onSelectLead360,
@@ -721,181 +727,53 @@ export default function SLeadCadenceCenter({
 
       {/* Main Radar Card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        {/* When: what is due on a day (overdue first), and whose leads */}
-        <div className="p-4 border-b border-slate-200 flex flex-wrap items-center gap-3 bg-white">
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-            <span>Due</span>
-            <select aria-label="Due" value={due} onChange={(e) => setDue(e.target.value as DueFilter)}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
+        {/* All the filters in one bar that wraps; counts sit in the options instead of rows of chips. */}
+        <div className="space-y-2 border-b border-slate-200 p-3 dark:border-[#2B293E]">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[12rem] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input type="search" aria-label="Search outreach leads" placeholder="Search company, contact, phone or email"
+                value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`w-full pl-9 ${SEL}`} />
+            </div>
+            <select aria-label="Due" value={due} onChange={(e) => setDue(e.target.value as DueFilter)} className={SEL}>
               {DUE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-          </label>
-          {due === 'DATE' && (
-            <input type="date" aria-label="Due date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
-          )}
-          <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200" role="group" aria-label="Whose leads">
-            {[{ value: false, label: 'All leads' }, { value: true, label: 'My leads' }].map((option) => (
-              <button key={option.label} type="button" aria-pressed={mine === option.value} onClick={() => setMine(option.value)}
-                className={`px-3 py-1 rounded-lg text-xs font-bold ${mine === option.value ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-slate-500" role="status">
-            {radarData?.schedule?.due
-              ? `Showing touchpoints due ${radarData.schedule.due.from === radarData.schedule.due.to ? shortDate(radarData.schedule.due.from) : `${shortDate(radarData.schedule.due.from)} – ${shortDate(radarData.schedule.due.to)}`}${radarData.schedule.due.withOverdue ? ', with overdue ones first' : ''}.`
-              : radarData?.schedule ? 'Showing every lead, soonest due first.' : ''}
-          </p>
-        </div>
-
-        {/* Global Search & Industry Filter Bar (Applies to both Kanban & List) */}
-        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              aria-label="Search outreach leads"
-              placeholder="Search company, contact person, phone, email..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            />
-          </div>
-
-          <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 font-medium">Industry Layer:</span>
-              <select
-                aria-label="Industry"
-                value={selectedIndustry}
-                onChange={(e) => { setSelectedIndustry(e.target.value); setSelectedSubIndustry('ALL'); }}
-                className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-              >
-                <option value="ALL">All Industries</option>
-                {tenantIndustries.map((ind) => (
-                  <option key={ind.key} value={ind.key}>{ind.name}</option>
-                ))}
+            {due === 'DATE' && <input type="date" aria-label="Due date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={SEL} />}
+            <select aria-label="Industry" value={selectedIndustry} onChange={(e) => { setSelectedIndustry(e.target.value); setSelectedSubIndustry('ALL'); }} className={`${SEL} max-w-[14rem]`}>
+              <option value="ALL">All industries ({radarData?.facets?.enrolledCount ?? 0})</option>
+              {tenantIndustries.map((ind) => <option key={ind.key} value={ind.key}>{ind.name} ({radarData?.facets?.industryCounts?.[ind.key] ?? 0})</option>)}
+            </select>
+            {selectedIndustry !== 'ALL' && availableSubIndustries.length > 0 && (
+              <select aria-label="Sub-industry" value={selectedSubIndustry} onChange={(e) => setSelectedSubIndustry(e.target.value)} className={`${SEL} max-w-[14rem]`}>
+                <option value="ALL">All sub-industries</option>
+                {availableSubIndustries.map((sub) => {
+                  const count = radarData?.facets?.subIndustryCounts?.[sub.key] ?? 0;
+                  return <option key={sub.key} value={sub.key}>{sub.name}{count ? ` (${count})` : ''}</option>;
+                })}
               </select>
-            </div>
-
-            {/* Channel Filters */}
-            <div className="flex items-center gap-1 text-xs">
-              <span className="text-slate-400 mr-1 font-medium">Channel:</span>
-              {(['ALL', 'WHATSAPP', 'EMAIL', 'LINKEDIN', 'PHONE'] as const).map((ch) => (
-                <button
-                  key={ch}
-                  onClick={() => setChannelFilter(ch)}
-                  className={`px-2 py-1 rounded-lg font-medium transition-all ${
-                    channelFilter === ch
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100 dark:hover:bg-white/5'
-                  }`}
-                >
-                  {ch === 'ALL' ? 'All' : ch === 'WHATSAPP' ? 'WA' : ch === 'EMAIL' ? 'EM' : ch === 'LINKEDIN' ? 'LI' : 'PH'}
+            )}
+            <select aria-label="Channel" value={channelFilter} onChange={(e) => setChannelFilter(e.target.value as typeof channelFilter)} className={SEL}>
+              <option value="ALL">All channels</option>
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="EMAIL">Email</option>
+              <option value="LINKEDIN">LinkedIn</option>
+              <option value="PHONE">Phone</option>
+            </select>
+            <div role="group" aria-label="Whose leads" className="inline-flex rounded-lg bg-slate-100 p-1 dark:bg-white/5">
+              {[{ value: false, label: 'All leads' }, { value: true, label: 'My leads' }].map((option) => (
+                <button key={option.label} type="button" aria-pressed={mine === option.value} onClick={() => setMine(option.value)}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${mine === option.value ? 'bg-white text-slate-900 shadow-sm dark:bg-[#181724] dark:text-slate-100' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                  {option.label}
                 </button>
               ))}
             </div>
           </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400" role="status">
+            {radarData?.schedule?.due
+              ? `Showing touchpoints due ${radarData.schedule.due.from === radarData.schedule.due.to ? shortDate(radarData.schedule.due.from) : `${shortDate(radarData.schedule.due.from)} – ${shortDate(radarData.schedule.due.to)}`}, with overdue ones first.`
+              : radarData?.schedule ? 'Showing every lead, soonest due first.' : ''}
+          </p>
         </div>
-
-        {/* Industry Segregation Quick Bar */}
-        <div className="px-4 py-2.5 bg-white border-b border-slate-200/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar shadow-2xs">
-          <span className="text-xs font-medium text-slate-500 whitespace-nowrap flex items-center gap-1.5 mr-1">
-            <Layers className="w-3.5 h-3.5 text-teal-600" />
-            <span>Industry Sector:</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedIndustry('ALL');
-              setSelectedSubIndustry('ALL');
-            }}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-              selectedIndustry === 'ALL'
-                ? 'bg-teal-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:hover:bg-white/5'
-            }`}
-          >
-            <span>All Industries</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${selectedIndustry === 'ALL' ? 'bg-teal-800 text-teal-100' : 'bg-white text-slate-600'}`}>
-              {radarData?.facets?.enrolledCount ?? 0}
-            </span>
-          </button>
-          {tenantIndustries.map((ind) => {
-            const count = radarData?.facets?.industryCounts?.[ind.key] ?? 0;
-            return (
-              <button
-                key={ind.key}
-                type="button"
-                onClick={() => {
-                  setSelectedIndustry(ind.key);
-                  setSelectedSubIndustry('ALL');
-                }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                  selectedIndustry === ind.key
-                    ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:hover:bg-white/5'
-                }`}
-              >
-                <span>{ind.name}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  selectedIndustry === ind.key 
-                    ? 'bg-teal-800 text-teal-100' 
-                    : count > 0 
-                      ? 'bg-teal-100 text-teal-700 font-semibold' 
-                      : 'bg-white text-slate-400'
-                }`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Secondary Sub-Industry Filter Bar (Cascades from Selected Industry) */}
-        {selectedIndustry !== 'ALL' && availableSubIndustries.length > 0 && (
-          <div className="px-4 py-2 bg-teal-50/50 border-b border-teal-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar animate-in fade-in duration-150">
-            <span className="text-xs font-medium text-teal-800 whitespace-nowrap flex items-center gap-1 mr-1">
-              <span>Sub-Industry:</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedSubIndustry('ALL')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                selectedSubIndustry === 'ALL'
-                  ? 'bg-teal-600 text-white shadow-xs font-bold'
-                  : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200 dark:hover:bg-teal-950/30'
-              }`}
-            >
-              <span>All Sub-Industries</span>
-            </button>
-            {availableSubIndustries.map((sub) => {
-              const count = radarData?.facets?.subIndustryCounts?.[sub.key] ?? 0;
-              return (
-                <button
-                  key={sub.key}
-                  type="button"
-                  onClick={() => setSelectedSubIndustry(sub.key)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    selectedSubIndustry === sub.key
-                      ? 'bg-teal-600 text-white shadow-xs font-bold'
-                      : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200 dark:hover:bg-teal-950/30'
-                  }`}
-                >
-                  <span>{sub.name}</span>
-                  {count > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      selectedSubIndustry === sub.key ? 'bg-teal-800 text-teal-100' : 'bg-teal-100 text-teal-700'
-                    }`}>
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         {/* ------------------------------------------------------------- */}
         {/* VIEW 1: INTERACTIVE 30-DAY MULTI-COLUMN FUNNEL KANBAN         */}
@@ -951,67 +829,20 @@ export default function SLeadCadenceCenter({
           /* VIEW 2: BDE ACTION RADAR & CATEGORIZED LIST VIEW              */
           /* ------------------------------------------------------------- */
           <div>
-            {/* Sub-Queue Tabs */}
-            <div className="p-3 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto bg-slate-50/60 text-xs font-semibold">
-              <button
-                onClick={() => setSelectedQueueTab('ACTION_RADAR')}
-                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                  selectedQueueTab === 'ACTION_RADAR'
-                    ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
-                }`}
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>Due & Overdue ({stats.overdueCount + stats.dueTodayCount})</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedQueueTab('ALL_ACTIVE')}
-                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                  selectedQueueTab === 'ALL_ACTIVE'
-                    ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>All Active ({stats.activeCount})</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedQueueTab('BRANCHED')}
-                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                  selectedQueueTab === 'BRANCHED'
-                    ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
-                }`}
-              >
-                <Flame className="w-3.5 h-3.5" />
-                <span>Replied & Branched ({stats.branchedCount})</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedQueueTab('CONVERTED')}
-                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                  selectedQueueTab === 'CONVERTED'
-                    ? 'bg-emerald-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
-                }`}
-              >
-                <Trophy className="w-3.5 h-3.5 text-amber-300" />
-                <span>Converted to Deals ({stats.convertedCount})</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedQueueTab('COMPLETED')}
-                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                  selectedQueueTab === 'COMPLETED'
-                    ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
-                }`}
-              >
-                <CheckSquare className="w-3.5 h-3.5" />
-                <span>Completed ({stats.completedCount})</span>
-              </button>
+            <div role="tablist" aria-label="Outreach queues" className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 dark:border-[#2B293E]">
+              {([
+                ['ACTION_RADAR', 'Due and overdue', stats.overdueCount + stats.dueTodayCount],
+                ['ALL_ACTIVE', 'Active', stats.activeCount],
+                ['BRANCHED', 'Replied', stats.branchedCount],
+                ['CONVERTED', 'Moved to pipeline', stats.convertedCount],
+                ['COMPLETED', 'Completed', stats.completedCount],
+              ] as const).map(([queue, label, count]) => (
+                <button key={queue} type="button" role="tab" aria-selected={selectedQueueTab === queue} onClick={() => setSelectedQueueTab(queue)}
+                  className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${selectedQueueTab === queue ? 'border-teal-600 text-slate-900 dark:text-slate-100' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                  {label}
+                  <span className="rounded-full bg-slate-100 px-1.5 text-xs tabular-nums text-slate-600 dark:bg-white/10 dark:text-slate-300">{count}</span>
+                </button>
+              ))}
             </div>
 
             {/* Lead Table / List */}
@@ -1031,7 +862,7 @@ export default function SLeadCadenceCenter({
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 dark:divide-[#2B293E]">
                 {displayedLeads.map((item: any) => {
                   const currentStep = item.currentStep;
                   const dueStatus = currentStep?.dueStatus;
@@ -1039,195 +870,57 @@ export default function SLeadCadenceCenter({
                   const isDueToday = dueStatus === 'DUE_TODAY';
                   const isConverted = item.cadence?.status === 'CONVERTED' || item.cadence?.convertedToOpportunity;
 
+                  const whatsapp = generateWhatsAppUrl(item.whatsapp_number || item.phone, '');
+                  const contactLink = 'rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100';
+                  const when = dueText(currentStep);
+                  const status = isConverted ? null
+                    : isOverdue ? { text: when?.text ?? 'Overdue', tone: 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300' }
+                      : isDueToday ? { text: 'Due today', tone: 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200' }
+                        : when ? { text: when.text, tone: 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300' } : null;
+                  const channels = (currentStep?.channels || []).map((ch: string) => CHANNEL_NAMES[ch] ?? ch).join(', ');
                   return (
-                    <div 
-                      key={item.id} 
-                      className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4 dark:hover:bg-white/5"
-                    >
-                      {/* Left: Lead Identity */}
-                      <div className="flex items-start gap-3 min-w-[280px]">
-                        <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 font-semibold text-sm flex-shrink-0">
-                          {item.company_name?.charAt(0) || 'L'}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span 
-                              onClick={() => onSelectLead360(item.id)}
-                              className="font-bold text-slate-900 text-sm hover:text-teal-600 cursor-pointer transition-colors"
-                            >
-                              {item.company_name}
-                            </span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                              {item.lead_code}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-md font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                              {getIndustryLabel(item.industry || item.cadence?.industry)}
-                            </span>
-                            {(item.sub_industry || item.subIndustry) && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-md font-medium bg-teal-50 text-teal-700 border border-teal-200">
-                                {getSubIndustryLabel(item.industry || item.cadence?.industry, item.sub_industry || item.subIndustry)}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="text-xs text-slate-600 mt-0.5 flex items-center gap-2">
-                            <span className="font-medium text-slate-800">{item.first_name} {item.last_name}</span>
-                            {item.designation && <span className="text-slate-400">({item.designation})</span>}
-                            {item.city && <span className="text-slate-400">• {item.city}</span>}
-                          </div>
-
-                          {/* Contact quick links */}
-                          <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                            {generateWhatsAppUrl(item.whatsapp_number || item.phone, '') ? (
-                              <a
-                                href={generateWhatsAppUrl(item.whatsapp_number || item.phone, '')}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center gap-1 text-emerald-600 hover:text-emerald-700 font-medium"
-                              >
-                                <MessageSquare className="w-3 h-3" />
-                                <span>{item.whatsapp_number || item.phone}</span>
-                              </a>
-                            ) : item.whatsapp_number || item.phone ? (
-                              <span className="flex items-center gap-1" title="Invalid WhatsApp number.">
-                                <MessageSquare className="w-3 h-3" />
-                                <span>{item.whatsapp_number || item.phone}</span>
-                              </span>
-                            ) : null}
-
-                            {item.email && (
-                              <a
-                                href={`mailto:${item.email}`}
-                                className="flex items-center gap-1 text-teal-600 hover:text-teal-700"
-                              >
-                                <Mail className="w-3 h-3" />
-                                <span>{item.email}</span>
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Middle: Cadence Progress & Current Touchpoint */}
-                      <div className="flex-1 max-w-xl">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {isConverted ? (
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                              <Trophy className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Converted to Sales Opportunity • Deal Value: ₹{Number(item.budget_amount || 0).toLocaleString('en-IN')}</span>
-                            </span>
-                          ) : (
-                            <>
-                              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200 flex items-center gap-1">
-                                <Sparkles className="w-3 h-3 text-amber-500" />
-                                <span>Day {currentStep?.dayNumber}: {currentStep?.title}</span>
-                              </span>
-
-                              {isOverdue && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3 text-rose-500" />
-                                  <span>{dueText(currentStep)?.text ?? 'Overdue'}</span>
-                                </span>
-                              )}
-
-                              {isDueToday && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-amber-500" />
-                                  <span>Due today</span>
-                                </span>
-                              )}
-
-                              {!isOverdue && !isDueToday && dueText(currentStep) && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-50 text-slate-700 border border-slate-200 flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-slate-400" />
-                                  <span>{dueText(currentStep)!.text}</span>
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </div>
-
-                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-                          <span>Goal: <strong className="text-slate-700">{currentStep?.goal}</strong></span>
-                          <span>•</span>
-                          <span>Channels:</span>
-                          {(currentStep?.channels || []).map((ch: string) => (
-                            <span
-                              key={ch}
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                ch === 'WHATSAPP' 
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : ch === 'EMAIL'
-                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                    : ch === 'LINKEDIN'
-                                      ? 'bg-teal-50 text-teal-700 border-teal-200'
-                                      : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}
-                            >
-                              {ch === 'WHATSAPP' && '💬 WhatsApp'}
-                              {ch === 'EMAIL' && '✉️ Email'}
-                              {ch === 'LINKEDIN' && '🟢 LinkedIn'}
-                              {ch === 'PHONE' && '📞 Phone Call'}
-                            </span>
-                          ))}
-                        </div>
-
-                        {/* If branched, show customer feedback */}
-                        {item.cadence?.branchReply && (
-                          <div className="mt-2 text-xs bg-amber-50 border border-amber-200 p-2 rounded-lg text-amber-900">
-                            <span className="font-bold">⚡ Replied: </span>
-                            {item.cadence.branchReply.leadFeedback}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Right: Actions */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {!isConverted ? (
-                          <>
-                            {item.currentStep?.channelActions?.EMAIL?.status === 'SENT' && (
-                              <span className="px-2 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-[11px] font-bold">✓ Day {item.currentStep.dayNumber} email sent</span>
-                            )}
-                            <button
-                              onClick={() => handleOpenActionModal(item)}
-                              className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all hover:shadow-md"
-                            >
-                              <Send className="w-3.5 h-3.5" />
-                              <span>Execute Touchpoint</span>
-                            </button>
-                            {item.cadence?.status === 'ACTIVE' && (
-                              <button type="button" onClick={() => setRescheduling(item)}
-                                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:hover:bg-white/5">
-                                Reschedule
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => handleOpenConvertModal(item)}
-                              className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all hover:shadow-md"
-                              title="Convert to Sales Opportunity"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                              <span>Convert to Opp</span>
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            onClick={() => onNavigateToPipeline && onNavigateToPipeline()}
-                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all"
-                          >
-                            <Trophy className="w-3.5 h-3.5 text-amber-300" />
-                            <span>View in Pipeline</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => onSelectLead360(item.id)}
-                          className="p-2 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold transition-all dark:hover:bg-white/5"
-                          title="View 360 Profile"
-                        >
-                          <ArrowRight className="w-4 h-4" />
+                    <div key={item.id} className="grid gap-3 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-white/5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] lg:items-center">
+                      <div className="min-w-0">
+                        <button type="button" onClick={() => onSelectLead360(item.id)}
+                          className="max-w-full truncate text-left text-sm font-semibold text-slate-900 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-slate-100 dark:hover:text-teal-300">
+                          {item.company_name}
                         </button>
+                        <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                          {[`${item.first_name || ''} ${item.last_name || ''}`.trim(), item.designation, item.city, getIndustryLabel(item.industry || item.cadence?.industry)].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+
+                      <div className="min-w-0">
+                        {isConverted ? (
+                          <p className="text-sm text-emerald-700 dark:text-emerald-300">Moved to the pipeline{item.budget_amount ? ` · ₹${Number(item.budget_amount).toLocaleString('en-IN')}` : ''}</p>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="truncate text-sm text-slate-800 dark:text-slate-200">Day {currentStep?.dayNumber}: {currentStep?.title}</span>
+                              {status && <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${status.tone}`}>{status.text}</span>}
+                            </div>
+                            {channels && <p className="truncate text-xs text-slate-500 dark:text-slate-400">{channels}{item.currentStep?.channelActions?.EMAIL?.status === 'SENT' ? ' · email sent' : ''}</p>}
+                          </>
+                        )}
+                        {item.cadence?.branchReply && <p className="mt-0.5 truncate text-xs text-amber-800 dark:text-amber-300">Replied: {item.cadence.branchReply.leadFeedback}</p>}
+                      </div>
+
+                      <div className="flex items-center gap-1 lg:justify-end">
+                        {whatsapp && <a href={whatsapp} target="_blank" rel="noreferrer" className={contactLink} aria-label={`WhatsApp ${item.company_name}`}><MessageSquare className="h-4 w-4" aria-hidden="true" /></a>}
+                        {item.email && <a href={`mailto:${item.email}`} className={contactLink} aria-label={`Email ${item.company_name}`}><Mail className="h-4 w-4" aria-hidden="true" /></a>}
+                        {item.phone && <a href={`tel:${item.phone}`} className={contactLink} aria-label={`Call ${item.company_name}`}><Phone className="h-4 w-4" aria-hidden="true" /></a>}
+                        {!isConverted ? (
+                          <Button size="sm" className="ml-2" onClick={() => handleOpenActionModal(item)} aria-label={`Do the current step for ${item.company_name}`}>
+                            <Send className="h-3.5 w-3.5" aria-hidden="true" /> Do step
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" className="ml-2" onClick={() => onNavigateToPipeline && onNavigateToPipeline()}>View in pipeline</Button>
+                        )}
+                        <OverflowMenu label={`More for ${item.company_name}`} items={[
+                          { label: 'Open lead', icon: Eye, onSelect: () => onSelectLead360(item.id) },
+                          ...(!isConverted ? [{ label: 'Convert to opportunity', icon: Trophy, onSelect: () => handleOpenConvertModal(item) }] : []),
+                          ...(item.cadence?.status === 'ACTIVE' && !isConverted ? [{ label: 'Reschedule', icon: Calendar, onSelect: () => setRescheduling(item) }] : []),
+                        ]} />
                       </div>
                     </div>
                   );

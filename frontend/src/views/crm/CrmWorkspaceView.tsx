@@ -447,7 +447,7 @@ function CRMEnterpriseContent() {
   }
 
   return (
-    <div data-crm-surface className="relative mx-auto max-w-[1600px] space-y-5 p-4 sm:p-6 lg:p-8">
+    <div data-dark-safe className="relative mx-auto max-w-[1600px] space-y-5 p-4 sm:p-6 lg:p-8">
 
       <PageHeader
         breadcrumb={['CRM', TAB_CONFIG[activeTab]?.title ?? 'Sales pipeline']}

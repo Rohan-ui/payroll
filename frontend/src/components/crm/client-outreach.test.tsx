@@ -69,7 +69,11 @@ it('fetches 50 per page, resets filters to page one and searches on the server',
   await flush();
   expect(latestRequest().get('page')).toBe('1');
   expect(latestRequest().get('industry')).toBe('manufacturing');
-  act(() => [...container.querySelectorAll('button')].find(b => b.textContent?.includes('Engineering Wire'))!.click());
+  act(() => {
+    const sub = container.querySelector<HTMLSelectElement>('select[aria-label="Sub-industry"]')!;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sub, 'engineering_wire');
+    sub.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await flush();
   expect(latestRequest().get('subIndustry')).toBe('engineering_wire');
   act(() => {

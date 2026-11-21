@@ -550,7 +550,7 @@ export const EmailMarketingView: React.FC = () => {
 
   return (
     <div
-      data-crm-surface
+      data-dark-safe
       className={
         activeTab === 'hub'
           ? 'space-y-5 pb-12 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-5 lg:space-y-0 lg:pb-0'

@@ -113,6 +113,20 @@ describe('People directory', () => {
     expect(document.body.textContent).not.toContain('Filtered by');
   });
 
+  it('keeps the less used filters behind More filters', async () => {
+    await render();
+    const labelTexts = () => [...container.querySelectorAll('section[aria-label="Search and filters"] label')].map((l) => l.textContent?.trim());
+    expect(labelTexts()).toEqual(expect.arrayContaining(['Search', 'Department', 'Employment status']));
+    expect(labelTexts()).not.toContain('Designation');
+    const more = [...container.querySelectorAll('button')].find((b) => b.textContent?.startsWith('More filters')) as HTMLButtonElement;
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => more.click());
+    expect(labelTexts()).toEqual(expect.arrayContaining(['Designation', 'Employment type', 'Work location', 'Joined from', 'Joined to']));
+    const fewer = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Fewer filters') as HTMLButtonElement;
+    await act(async () => fewer.click());
+    expect(labelTexts()).not.toContain('Designation');
+  });
+
   it('sorts on the server and flips direction on a second click', async () => {
     await render();
     await click(button('Joining date'));
