@@ -8,6 +8,7 @@ import WordDocumentEditor from './WordDocumentEditor';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
+import { pageWindow } from '../../lib/pageWindow';
 import { dealWonMessage } from './pipelineBoard';
 import QuotationBuilder from './QuotationBuilder';
 import { QuotationPdfViewer } from './QuotationPdfViewer';
@@ -392,7 +393,7 @@ export default function QuotationsManager({
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <nav className="flex flex-wrap items-center gap-1" aria-label="Pages">
             <button
               onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
               disabled={currentPage === 1}
@@ -402,10 +403,15 @@ export default function QuotationsManager({
               <span>Prev</span>
             </button>
 
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            {pageWindow(currentPage, totalPages).map((p, i) => p === null ? (
+              <span key={`gap-${i}`} className="w-5 text-center text-slate-400" aria-hidden="true">…</span>
+            ) : (
               <button
                 key={p}
+                type="button"
                 onClick={() => setCurrentPage(p)}
+                aria-label={`Page ${p}`}
+                aria-current={currentPage === p ? 'page' : undefined}
                 className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
                   currentPage === p
                     ? 'bg-teal-600 text-white shadow-xs'
@@ -424,7 +430,7 @@ export default function QuotationsManager({
               <span>Next</span>
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
-          </div>
+          </nav>
         </div>
       </div>
 
