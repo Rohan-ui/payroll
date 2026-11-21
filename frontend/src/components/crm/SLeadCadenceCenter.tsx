@@ -789,7 +789,7 @@ export default function SLeadCadenceCenter({
                   className={`px-2 py-1 rounded-lg font-medium transition-all ${
                     channelFilter === ch
                       ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100 dark:hover:bg-white/5'
                   }`}
                 >
                   {ch === 'ALL' ? 'All' : ch === 'WHATSAPP' ? 'WA' : ch === 'EMAIL' ? 'EM' : ch === 'LINKEDIN' ? 'LI' : 'PH'}
@@ -814,7 +814,7 @@ export default function SLeadCadenceCenter({
             className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
               selectedIndustry === 'ALL'
                 ? 'bg-teal-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:hover:bg-white/5'
             }`}
           >
             <span>All Industries</span>
@@ -835,7 +835,7 @@ export default function SLeadCadenceCenter({
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                   selectedIndustry === ind.key
                     ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:hover:bg-white/5'
                 }`}
               >
                 <span>{ind.name}</span>
@@ -865,7 +865,7 @@ export default function SLeadCadenceCenter({
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                 selectedSubIndustry === 'ALL'
                   ? 'bg-teal-600 text-white shadow-xs font-bold'
-                  : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200'
+                  : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200 dark:hover:bg-teal-950/30'
               }`}
             >
               <span>All Sub-Industries</span>
@@ -880,7 +880,7 @@ export default function SLeadCadenceCenter({
                   className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                     selectedSubIndustry === sub.key
                       ? 'bg-teal-600 text-white shadow-xs font-bold'
-                      : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200'
+                      : 'bg-white text-slate-700 hover:bg-teal-100 border border-teal-200 dark:hover:bg-teal-950/30'
                   }`}
                 >
                   <span>{sub.name}</span>
@@ -958,7 +958,7 @@ export default function SLeadCadenceCenter({
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'ACTION_RADAR'
                     ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
                 }`}
               >
                 <Clock className="w-3.5 h-3.5" />
@@ -970,7 +970,7 @@ export default function SLeadCadenceCenter({
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'ALL_ACTIVE'
                     ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
@@ -982,7 +982,7 @@ export default function SLeadCadenceCenter({
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'BRANCHED'
                     ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
                 }`}
               >
                 <Flame className="w-3.5 h-3.5" />
@@ -994,7 +994,7 @@ export default function SLeadCadenceCenter({
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'CONVERTED'
                     ? 'bg-emerald-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
                 }`}
               >
                 <Trophy className="w-3.5 h-3.5 text-amber-300" />
@@ -1006,7 +1006,7 @@ export default function SLeadCadenceCenter({
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   selectedQueueTab === 'COMPLETED'
                     ? 'bg-teal-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white dark:hover:bg-white/5'
                 }`}
               >
                 <CheckSquare className="w-3.5 h-3.5" />
@@ -1042,7 +1042,7 @@ export default function SLeadCadenceCenter({
                   return (
                     <div 
                       key={item.id} 
-                      className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                      className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4 dark:hover:bg-white/5"
                     >
                       {/* Left: Lead Identity */}
                       <div className="flex items-start gap-3 min-w-[280px]">
@@ -1197,7 +1197,7 @@ export default function SLeadCadenceCenter({
                             </button>
                             {item.cadence?.status === 'ACTIVE' && (
                               <button type="button" onClick={() => setRescheduling(item)}
-                                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
+                                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:hover:bg-white/5">
                                 Reschedule
                               </button>
                             )}
@@ -1223,7 +1223,7 @@ export default function SLeadCadenceCenter({
 
                         <button
                           onClick={() => onSelectLead360(item.id)}
-                          className="p-2 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold transition-all"
+                          className="p-2 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold transition-all dark:hover:bg-white/5"
                           title="View 360 Profile"
                         >
                           <ArrowRight className="w-4 h-4" />
@@ -1244,13 +1244,13 @@ export default function SLeadCadenceCenter({
             <div className="flex items-center gap-3">
               <button type="button" aria-label="Previous page" title="Previous page" disabled={loading || currentPage === 1}
                 onClick={() => setPageSelection({ key: filterKey, page: currentPage - 1 })}
-                className="rounded border border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-40">
+                className="rounded border border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-40 dark:hover:bg-white/5">
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <span>Page {currentPage} of {Math.max(1, radarData?.pagination?.totalPages ?? 1)}</span>
               <button type="button" aria-label="Next page" title="Next page" disabled={loading || !radarData?.pagination?.hasMore}
                 onClick={() => setPageSelection({ key: filterKey, page: currentPage + 1 })}
-                className="rounded border border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-40">
+                className="rounded border border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-40 dark:hover:bg-white/5">
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
@@ -1288,7 +1288,7 @@ export default function SLeadCadenceCenter({
 
               <button
                 onClick={() => setSelectedLeadForAction(null)}
-                className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors dark:hover:bg-white/5"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1423,7 +1423,7 @@ export default function SLeadCadenceCenter({
                         className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
                           phoneDisposition === 'ANSWERED'
                             ? 'bg-emerald-600 text-white'
-                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 dark:hover:bg-white/5'
                         }`}
                       >
                         Call Answered
@@ -1433,7 +1433,7 @@ export default function SLeadCadenceCenter({
                         className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
                           phoneDisposition === 'MISSED'
                             ? 'bg-rose-600 text-white'
-                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 dark:hover:bg-white/5'
                         }`}
                       >
                         Missed / Busy
@@ -1504,7 +1504,7 @@ export default function SLeadCadenceCenter({
                       className={`p-2.5 rounded-xl border text-left transition-all ${
                         selectedBranchKey === key
                           ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                          : 'bg-white border-slate-200 text-slate-700 hover:border-amber-300 hover:bg-amber-50/40'
+                          : 'bg-white border-slate-200 text-slate-700 hover:border-amber-300 hover:bg-amber-50/40 dark:hover:bg-amber-950/30'
                       }`}
                     >
                       <div className="font-bold text-xs flex items-center justify-between">
@@ -1578,7 +1578,7 @@ export default function SLeadCadenceCenter({
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
               <button
                 onClick={() => setSelectedLeadForAction(null)}
-                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold transition-colors"
+                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold transition-colors dark:hover:bg-white/5"
               >
                 Close
               </button>
@@ -1630,7 +1630,7 @@ export default function SLeadCadenceCenter({
               </div>
               <button
                 onClick={() => setSelectedLeadForConvert(null)}
-                className="p-1.5 hover:bg-white/20 rounded-lg text-white/80 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-white/20 rounded-lg text-white/80 hover:text-white transition-colors dark:hover:bg-white/5"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1705,7 +1705,7 @@ export default function SLeadCadenceCenter({
                       className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                         leadTemperature === 'HOT'
                           ? 'bg-rose-500 text-white shadow-xs'
-                          : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                          : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 dark:hover:bg-white/5'
                       }`}
                     >
                       <Flame className="w-3.5 h-3.5" />
@@ -1717,7 +1717,7 @@ export default function SLeadCadenceCenter({
                       className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                         leadTemperature === 'WARM'
                           ? 'bg-amber-500 text-white shadow-xs'
-                          : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                          : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 dark:hover:bg-white/5'
                       }`}
                     >
                       <Sparkles className="w-3.5 h-3.5" />
@@ -1754,7 +1754,7 @@ export default function SLeadCadenceCenter({
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
               <button
                 onClick={() => setSelectedLeadForConvert(null)}
-                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold transition-colors"
+                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold transition-colors dark:hover:bg-white/5"
               >
                 Cancel
               </button>
