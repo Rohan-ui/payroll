@@ -15,6 +15,7 @@ import {
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Avatar } from '../components/ui/Avatar';
+import { OverflowMenu } from '../components/ui/OverflowMenu';
 import { mapBackendEmployeeToUi } from '../utils/employee-mapper.util';
 import { saveFile } from '../utils/download';
 import { requestProfileEdit } from './employee/profile-intent';
@@ -260,7 +261,7 @@ export const EmployeesView: React.FC = () => {
           </button>
         </div>
       );
-      case 'email': return employee.workEmail ? <span className="break-all">{employee.workEmail}</span> : <Empty />;
+      case 'email': return employee.workEmail ? <span className="block max-w-[14rem] truncate" title={employee.workEmail}>{employee.workEmail}</span> : <Empty />;
       case 'phone': return employee.workMobile || <Empty />;
       case 'department': return job?.department || <Empty />;
       case 'designation': return job?.designation || <Empty />;
@@ -454,9 +455,11 @@ export const EmployeesView: React.FC = () => {
                 <tr key={employee.id} className="hover:bg-slate-50 dark:hover:bg-white/5">
                   {columns.map((c) => <td key={c.key} className="px-3 py-2.5 align-middle">{cell(employee, c.key)}</td>)}
                   <td className="px-3 py-2.5 text-right">
-                    <div className="inline-flex gap-1">
-                      <IconAction label={`View ${fullName(employee)}`} onClick={() => open(employee, 'view')} icon={Eye} />
-                      {can('people.update') && <IconAction label={`Edit ${fullName(employee)}`} onClick={() => open(employee, 'edit')} icon={Pencil} />}
+                    <div className="inline-flex justify-end">
+                      <OverflowMenu label={`Actions for ${fullName(employee)}`} items={[
+                        { label: 'View details', icon: Eye, onSelect: () => open(employee, 'view') },
+                        ...(can('people.update') ? [{ label: 'Edit details', icon: Pencil, onSelect: () => open(employee, 'edit') }] : []),
+                      ]} />
                     </div>
                   </td>
                 </tr>
@@ -491,13 +494,6 @@ export const EmployeesView: React.FC = () => {
 };
 
 const Empty: React.FC = () => <span className="text-slate-400" aria-label="Not recorded">—</span>;
-
-const IconAction: React.FC<{ label: string; onClick: () => void; icon: React.ElementType }> = ({ label, onClick, icon: Icon }) => (
-  <button type="button" onClick={onClick} aria-label={label} title={label}
-    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:hover:bg-white/10 dark:hover:text-white">
-    <Icon className="h-4 w-4" aria-hidden="true" />
-  </button>
-);
 
 const FilterSelect: React.FC<{
   id: string;

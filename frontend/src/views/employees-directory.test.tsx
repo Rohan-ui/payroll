@@ -175,7 +175,8 @@ describe('People directory', () => {
 
   it('opens Edit on the employee’s Personal tab with the form ready', async () => {
     await render();
-    await click(button('Edit Asha Rao'));
+    await click(button('Actions for Asha Rao'));
+    await click(button('Edit details'));
     expect(navigation.setCurrentView).toHaveBeenCalledWith('employee-detail');
     expect(new URLSearchParams(window.location.search).get('profile')).toBe('edit-personal');
     window.history.replaceState(null, '', window.location.pathname);
@@ -186,8 +187,9 @@ describe('People directory', () => {
     await render();
     expect(button('Add employee')).toBeUndefined();
     expect(button('Export')).toBeUndefined();
-    expect(button('Edit Asha Rao')).toBeUndefined();
-    expect(button('View Asha Rao')).toBeDefined();
+    await click(button('Actions for Asha Rao'));
+    expect(button('Edit details')).toBeUndefined();
+    expect(button('View details')).toBeDefined();
   });
 
   it('says when the list fails and retries', async () => {
