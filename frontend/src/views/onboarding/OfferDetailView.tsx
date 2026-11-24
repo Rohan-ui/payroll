@@ -376,6 +376,7 @@ export const OfferDetailView: React.FC<Props> = ({ offerId, meta, onBack, onEdit
                 <History className="w-4 h-4 text-teal-600" aria-hidden="true" />
                 Audit Trail & Offer Timeline
               </h2>
+              <div tabIndex={0} role="region" aria-label="Offer timeline events" className="max-h-[28rem] overflow-y-auto pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
               <ol className="space-y-3 relative border-l-2 border-slate-100 dark:border-[#2B293E] ml-2">
                 {offer.timeline.map((event) => (
                   <li key={event.id} className="ml-4 text-xs">
@@ -389,6 +390,7 @@ export const OfferDetailView: React.FC<Props> = ({ offerId, meta, onBack, onEdit
                   </li>
                 ))}
               </ol>
+              </div>
             </section>
           )}
         </div>

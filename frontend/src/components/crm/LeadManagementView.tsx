@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronsUpDown, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Eye, Pencil, Search } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Dialog } from '../ui/Dialog';
+import { OverflowMenu } from '../ui/OverflowMenu';
+import { pageWindow } from '../../lib/pageWindow';
 import { useAuth } from '../../context/AuthContext';
 import { EnrollDialog } from '../../views/emails/drip/EnrollDialog';
 import { toast } from '../../lib/toast';
@@ -36,6 +38,7 @@ const STATUS_LABEL: Record<LeadStatus, { label: string; variant: 'info' | 'succe
 };
 const fieldClass = 'w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-teal-500';
 const actionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#2B293E] hover:bg-slate-50 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50';
+const pagerClass = 'inline-flex h-8 items-center rounded-lg border border-slate-200 text-xs font-semibold tabular-nums text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-[#2B293E] dark:text-slate-300 dark:hover:bg-white/5';
 const dangerActionClass = 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-300 text-red-700 bg-white hover:bg-red-50 dark:bg-transparent dark:text-red-300 dark:border-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50';
 const primaryClass = 'px-4 py-2 text-sm font-semibold rounded-xl bg-teal-500 hover:bg-teal-600 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50';
 const date = (iso: string) => new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
@@ -155,18 +158,12 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          {/* The page title is the CRM header above; this says how many leads the filters give. */}
-          <p className="text-sm text-slate-500 dark:text-slate-400" role="status">{loading && rows === null ? 'Loading leads…' : `${plural(total, 'lead')}${filtered ? ' match these filters' : seesAll ? ' in this workspace' : ' assigned to you'}`}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2">
-        <div className="relative lg:col-span-2">
+      <section aria-label="Search and filters" className="rounded-xl border border-slate-200 bg-white p-3 dark:border-[#2B293E] dark:bg-[#181724]">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[16rem] flex-1">
           <label htmlFor={`${ids}-search`} className="sr-only">Search leads</label>
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-          <input id={`${ids}-search`} value={searchText} onChange={(e) => setSearchText(e.target.value)} maxLength={160} placeholder="Search name, company, email or phone" className={`${fieldClass} pl-9`} />
+          <input id={`${ids}-search`} type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)} maxLength={160} placeholder="Search name, company, email or phone" className={`${fieldClass} h-9 pl-9`} />
         </div>
         {seesAll && (
           <Filter id={`${ids}-assignee`} label="Assignee" value={query.assigneeId ?? ''} onChange={(v) => changeQuery({ assigneeId: v })}>
@@ -193,12 +190,18 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
           <option value="">All sources</option>
           {filters.sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </Filter>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 dark:border-[#2B293E]">
+        {/* The page title is the CRM header above; this says how many leads the filters give. */}
+        <p className="text-xs text-slate-500 dark:text-slate-400" role="status">{loading && rows === null ? 'Loading leads…' : `${plural(total, 'lead')}${filtered ? ' match these filters' : seesAll ? ' in this workspace' : ' assigned to you'}`}</p>
         {filtered && (
-          <button type="button" onClick={() => { setSearchText(''); changeQuery({ ...EMPTY_QUERY, sort: query.sort, direction: query.direction }); }} className={`${actionClass} lg:col-start-6`}>
+          <button type="button" onClick={() => { setSearchText(''); changeQuery({ ...EMPTY_QUERY, sort: query.sort, direction: query.direction }); }}
+            className="rounded text-xs font-semibold text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300">
             Clear filters
           </button>
         )}
       </div>
+      </section>
 
       {canSelect && selected.size > 0 && (
         <div role="region" aria-label="Selected leads" className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-teal-200 bg-teal-50 dark:bg-teal-950/40 dark:border-teal-900">
@@ -227,8 +230,9 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
           <p className="mt-1 text-sm text-slate-500">{filtered ? 'Change or clear the filters to see more leads.' : 'Leads added in Sales Pipelines or Client Outreach appear here.'}</p>
         </div>
       ) : (
-        <div className={`rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] overflow-x-auto ${loading ? 'opacity-60' : ''}`} aria-busy={loading}>
-          <table className="w-full min-w-[1100px] text-left text-sm">
+        <div className={`rounded-xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] ${loading ? 'opacity-60' : ''}`} aria-busy={loading}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] text-left text-sm">
             <caption className="sr-only">Leads</caption>
             <thead className="bg-slate-50 dark:bg-white/5 text-[11px] text-slate-500 tracking-wide">
               <tr>
@@ -245,15 +249,14 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
                 )}
                 {sortHeader('lead_name', 'Lead')}
                 {sortHeader('company_name', 'Company')}
-                <th scope="col" className="py-3 px-3 font-bold uppercase">Email</th>
-                <th scope="col" className="py-3 px-3 font-bold uppercase">Phone</th>
+                <th scope="col" className="py-3 px-3 font-bold uppercase">Contact</th>
                 <th scope="col" className="py-3 px-3 font-bold uppercase">Source</th>
                 {sortHeader('stage', 'Stage')}
                 <th scope="col" className="py-3 px-3 font-bold uppercase">Assignee</th>
                 <th scope="col" className="py-3 px-3 font-bold uppercase">Status</th>
                 {sortHeader('created_at', 'Created')}
                 {sortHeader('updated_at', 'Updated')}
-                <th scope="col" className="py-3 px-3 font-bold uppercase text-right">Actions</th>
+                <th scope="col" className="py-3 px-3 font-bold uppercase text-right"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-[#2B293E]">
@@ -269,8 +272,10 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
                     <span className="block text-[11px] text-slate-500">{lead.leadCode}</span>
                   </td>
                   <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 max-w-[200px] break-words">{lead.companyName}</td>
-                  <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 break-all">{lead.email}</td>
-                  <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">{lead.phone ?? '—'}</td>
+                  <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                    <span className="block max-w-[14rem] truncate" title={lead.email}>{lead.email}</span>
+                    <span className="block whitespace-nowrap text-[11px] text-slate-500">{lead.phone ?? 'No phone'}</span>
+                  </td>
                   <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{lead.source?.name ?? '—'}</td>
                   <td className="py-2.5 px-3">
                     <span className="inline-flex items-center gap-1.5 text-slate-800 dark:text-slate-200">
@@ -283,34 +288,53 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
                   <td className="py-2.5 px-3"><Badge variant={STATUS_LABEL[lead.status].variant} size="sm">{STATUS_LABEL[lead.status].label}</Badge></td>
                   <td className="py-2.5 px-3 whitespace-nowrap text-slate-600 dark:text-slate-400">{date(lead.createdAt)}</td>
                   <td className="py-2.5 px-3 whitespace-nowrap text-slate-600 dark:text-slate-400">{date(lead.updatedAt)}</td>
-                  <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                    <button type="button" onClick={() => onOpenLead(lead.id)} className={actionClass} aria-label={`View ${lead.name}`}>View</button>{' '}
-                    {canAssign && <button type="button" onClick={() => onEditLead(lead.id)} className={actionClass} aria-label={`Edit ${lead.name}`}>Edit</button>}
+                  <td className="py-2.5 px-3 text-right">
+                    <div className="inline-flex justify-end">
+                      <OverflowMenu label={`Actions for ${lead.name}`} items={[
+                        { label: 'View details', icon: Eye, onSelect: () => onOpenLead(lead.id) },
+                        ...(canAssign ? [{ label: 'Edit details', icon: Pencil, onSelect: () => onEditLead(lead.id) }] : []),
+                      ]} />
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      )}
-
-      {rows && rows.length > 0 && (
-        <nav aria-label="Pages" className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
-          <div className="flex flex-wrap items-center gap-3">
-            <span>Page {query.page} of {totalPages}</span>
+        <nav aria-label="Pages" className="flex flex-col gap-3 border-t border-slate-200 px-3 py-2.5 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between dark:border-[#2B293E] dark:text-slate-400">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="tabular-nums">
+              Showing {(query.page - 1) * query.limit + 1}–{Math.min(query.page * query.limit, total)} of {total}
+              {' '}· Page {query.page} of {totalPages}
+            </span>
             <label htmlFor={`${ids}-page-size`} className="flex items-center gap-2">
-              <span>Leads per page</span>
+              <span>Per page</span>
               <select id={`${ids}-page-size`} value={query.limit} onChange={(e) => changeQuery({ limit: Number(e.target.value) })}
-                className="h-8 px-2 text-sm rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#1E1D2D] focus:outline-none focus:ring-2 focus:ring-teal-500">
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-[#2B293E] dark:bg-[#1E1D2D] dark:text-slate-200">
                 {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
               </select>
             </label>
           </div>
-          <div className="flex gap-2">
-            <button type="button" disabled={query.page <= 1 || loading} onClick={() => changePage(query.page - 1)} className={actionClass}>Previous</button>
-            <button type="button" disabled={query.page >= totalPages || loading} onClick={() => changePage(query.page + 1)} className={actionClass}>Next</button>
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={query.page <= 1 || loading} onClick={() => changePage(query.page - 1)} className={`${pagerClass} gap-1 px-2.5`}>
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />Previous
+            </button>
+            <span className="hidden items-center gap-1 sm:flex">
+              {pageWindow(query.page, totalPages).map((p, i) => p === null ? (
+                <span key={`gap-${i}`} className="w-5 text-center text-slate-400" aria-hidden="true">…</span>
+              ) : (
+                <button key={p} type="button" disabled={loading} onClick={() => changePage(p)} aria-label={`Page ${p}`} aria-current={p === query.page ? 'page' : undefined}
+                  className={p === query.page ? `${pagerClass} w-8 justify-center border-teal-500 bg-teal-500 text-white hover:bg-teal-500 dark:border-teal-500 dark:bg-teal-500 dark:hover:bg-teal-500` : `${pagerClass} w-8 justify-center`}>
+                  {p}
+                </button>
+              ))}
+            </span>
+            <button type="button" disabled={query.page >= totalPages || loading} onClick={() => changePage(query.page + 1)} className={`${pagerClass} gap-1 px-2.5`}>
+              Next<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
           </div>
         </nav>
+        </div>
       )}
 
       {dialog === 'assign' && <AssignDialog selected={[...selected.values()]} assignees={assignees} onClose={() => setDialog(null)} onDone={afterAssign} />}
@@ -321,10 +345,16 @@ export const LeadManagementView: React.FC<Props> = ({ onOpenLead, onEditLead, on
   );
 };
 
+/** A filter select; one that is set is outlined in teal so active filters stand out. */
 const Filter: React.FC<{ id: string; label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }> = ({ id, label, value, onChange, children }) => (
-  <div>
+  <div className="w-full sm:w-auto">
     <label htmlFor={id} className="sr-only">{label}</label>
-    <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={fieldClass}>{children}</select>
+    <select id={id} value={value} onChange={(e) => onChange(e.target.value)}
+      className={`h-9 w-full rounded-lg border px-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 sm:w-auto sm:min-w-[9.5rem] ${value
+        ? 'border-teal-500 bg-teal-50 font-medium text-teal-900 dark:border-teal-600 dark:bg-teal-950/40 dark:text-teal-100'
+        : 'border-slate-200 bg-white text-slate-700 dark:border-[#2B293E] dark:bg-[#1E1D2D] dark:text-slate-200'}`}>
+      {children}
+    </select>
   </div>
 );
 

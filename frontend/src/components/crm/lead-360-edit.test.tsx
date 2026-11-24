@@ -50,7 +50,7 @@ afterEach(() => {
 const settle = () => act(async () => { for (let i = 0; i < 20; i += 1) await Promise.resolve(); });
 const setValue = (el: HTMLInputElement, value: string) =>
   act(() => { Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set?.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); });
-const editForm = () => [...document.querySelectorAll('form')].find((f) => f.textContent?.includes('Save Dossier Changes')) as HTMLFormElement;
+const editForm = () => [...document.querySelectorAll('form')].find((f) => f.textContent?.includes('Save changes')) as HTMLFormElement;
 const submit = (form: HTMLFormElement) => act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
 const updates = () => calls.filter((c) => c.method === 'PUT');
 
@@ -58,7 +58,7 @@ describe('Lead 360 edit', () => {
   it('sends only the changed phone number, not the untouched stored fields', async () => {
     await act(async () => root.render(<Lead360Drawer leadId="l1" onClose={() => undefined} onRefreshParent={() => undefined} startEditing />));
     await settle();
-    const phone = editForm().querySelector('input[placeholder="+91 98201 44892"]') as HTMLInputElement;
+    const phone = editForm().querySelector('#lead-edit-phone') as HTMLInputElement;
     expect(phone.value).toBe('+91 98200 00000');
     expect(phone.maxLength).toBe(32);
 
@@ -69,14 +69,20 @@ describe('Lead 360 edit', () => {
     expect(updates()).toEqual([{ url: '/api/v1/crm/leads/l1', method: 'PUT', body: { phone: '+91 99999 11111' } }]);
   });
 
-  it('closes without a request when nothing changed', async () => {
-    await act(async () => root.render(<Lead360Drawer leadId="l1" onClose={() => undefined} onRefreshParent={() => undefined} startEditing />));
+  it('opens only the edit drawer from Edit, and closes everything without a request when nothing changed', async () => {
+    const onClose = vi.fn();
+    await act(async () => root.render(<Lead360Drawer leadId="l1" onClose={onClose} onRefreshParent={() => undefined} startEditing />));
     await settle();
+    // The class, not only the attribute: a display class would override [hidden].
+    expect((document.querySelector('[aria-label^="Lead:"]') as HTMLElement).classList).toContain('hidden');
+    expect((document.querySelector('[aria-label^="Lead:"]') as HTMLElement).classList).not.toContain('flex');
+    expect(onClose).not.toHaveBeenCalled();
     await submit(editForm());
     await settle();
 
     expect(updates()).toEqual([]);
     expect(editForm()).toBeUndefined();
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('never fills a missing title or brief with an invented person', async () => {

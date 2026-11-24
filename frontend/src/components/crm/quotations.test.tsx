@@ -229,13 +229,13 @@ describe('Quotations', () => {
 
   it('edits only draft quotations, with their lines loaded', async () => {
     await render();
-    const menuOf = (number: string) => [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes(number))!.querySelector('button[title="Actions"]') as HTMLButtonElement;
+    const menuOf = (number: string) => [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes(number))!.querySelector('button[aria-label^="Actions for"]') as HTMLButtonElement;
     act(() => menuOf('QT-2026-000002').click());
-    expect(button('Edit Quotation')).toBeUndefined();
+    expect(button('Edit quotation')).toBeUndefined();
     act(() => menuOf('QT-2026-000002').click());
 
     act(() => menuOf('QT-2026-000001').click());
-    act(() => button('Edit Quotation')?.click());
+    act(() => button('Edit quotation')?.click());
     expect(container.querySelector('h3')?.textContent).toBe('Edit quotation QT-2026-000001');
     expect((byLabel('Service or description *') as HTMLInputElement).value).toBe('Audit and report');
     expect(container.querySelector('[data-quotation-total]')?.textContent).toBe('₹886.77');

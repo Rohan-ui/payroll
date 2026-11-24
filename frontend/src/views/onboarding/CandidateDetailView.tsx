@@ -436,7 +436,7 @@ export const CandidateDetailView: React.FC<Props> = ({ candidateId, meta, onBack
               <button type="submit" disabled={!note.trim() || savingNote} className={actionClass}>{savingNote ? 'Saving…' : 'Add note'}</button>
             </form>
           )}
-          <ol className="mt-4 space-y-3">
+          <ol tabIndex={0} aria-label="Timeline events" className="mt-4 max-h-[28rem] space-y-3 overflow-y-auto pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
             {candidate.timeline.map((event) => (
               <li key={event.id} className="pl-3 border-l-2 border-slate-200 dark:border-[#2B293E]">
                 <p className="text-sm text-slate-900 dark:text-slate-100">
