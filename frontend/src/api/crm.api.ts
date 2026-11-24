@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, apiFetch } from './client';
 import {
   CrmPipeline,
   CrmLead,
@@ -14,15 +14,26 @@ import {
 
 /** CRM report figures from the server; amounts are rupee decimal strings. */
 export interface CrmReportSummary {
-  totals: { openCount: number; openValue: string; weightedForecast: string; wonCount: number; wonValue: string; lostCount: number; winRate: number | null; averageWon: string | null };
+  totals: { totalLeads?: number; newThisMonth?: number; newLastMonth?: number; averageDaysToWin?: number | null; openCount: number; openValue: string; weightedForecast: string; wonCount: number; wonValue: string; lostCount: number; winRate: number | null; averageWon: string | null };
   stages: { id: string; name: string; color: string; pipelineId: string; pipelineName: string; count: number; value: string }[];
   sources: { name: string; leads: number; won: number; value: string }[];
   assignees: { name: string; open: number; openValue: string; won: number }[];
-  wonByMonth: { month: string; won: number; value: string }[];
+  wonByMonth: { month: string; won: number; value: string; created?: number }[];
 }
 
 export const crmApi = {
   reportSummary: async () => apiClient.get<{ success: boolean; data: CrmReportSummary }>('/crm/reports/summary'),
+
+  /** The reports page as an Excel workbook, fetched with the session (a plain link carries no sign-in). */
+  exportReport: async (): Promise<{ blob: Blob; filename: string }> => {
+    const response = await apiFetch('/api/v1/crm/reports/export', { cache: 'no-store', feedback: { success: false, error: false } });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.message || 'The report could not be exported. Try again.');
+    }
+    const name = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('content-disposition') ?? '')?.[1];
+    return { blob: await response.blob(), filename: name ? decodeURIComponent(name) : 'crm-report.xlsx' };
+  },
 
   // Pipelines & Stages
   getPipelines: async () => {

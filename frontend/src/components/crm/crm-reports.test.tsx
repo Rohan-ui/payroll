@@ -75,4 +75,57 @@ describe('CRM reports', () => {
     await settle();
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('could not be loaded');
   });
+
+  it('explains the figures in words worked out from them, and exports the workbook', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return String(url).includes('/reports/export')
+        ? new Response(new Blob(['xlsx']), { status: 200, headers: { 'Content-Disposition': "attachment; filename*=UTF-8''crm-report-2026-11-24.xlsx" } })
+        : reply();
+    }));
+    const created = vi.fn(() => 'blob:report');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() }));
+    await act(async () => root.render(<CRMAnalytics />));
+    await settle();
+    const notes = container.querySelector('section[aria-labelledby$="-notes"]')?.textContent ?? '';
+    expect(notes).toContain('67% of open deals (2 of 3) are in “New”');
+    expect(notes).toContain('50% of closed deals were won (1 of 2)');
+    expect(notes).toContain('Most leads with a known source come from Website');
+    const exportButton = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Export Excel')) as HTMLButtonElement;
+    await act(async () => exportButton.click());
+    await settle();
+    expect(urls.at(-1)).toContain('/api/v1/crm/reports/export');
+    expect(created).toHaveBeenCalled();
+  });
+
+  it('says plainly when no deal was won this year instead of drawing empty axes', async () => {
+    await act(async () => root.render(<CRMAnalytics />));
+    await settle();
+    expect(container.textContent).not.toContain('No deals won in the last 12 months');
+    act(() => root.unmount());
+    root = createRoot(container);
+    reply = () => json({ success: true, data: { ...SUMMARY, wonByMonth: SUMMARY.wonByMonth.map((m) => ({ ...m, won: 0, value: '0.00' })) } });
+    await act(async () => root.render(<CRMAnalytics />));
+    await settle();
+    expect(container.textContent).toContain('No deals won in the last 12 months');
+  });
+
+  it('explains each figure, compares new leads with last month, and charts leads added beside wins', async () => {
+    reply = () => json({ success: true, data: {
+      ...SUMMARY,
+      totals: { ...SUMMARY.totals, totalLeads: 4, newThisMonth: 1, newLastMonth: 3, averageDaysToWin: 12 },
+      wonByMonth: SUMMARY.wonByMonth.map((m, i) => ({ ...m, created: i === 10 ? 3 : i === 11 ? 1 : 0 })),
+    } });
+    await act(async () => root.render(<CRMAnalytics />));
+    await settle();
+    const summary = container.querySelector('section[aria-label="Sales summary"]')?.textContent ?? '';
+    expect(summary).toContain('Leads4');
+    expect(summary).toContain('1 new this month, 2 fewer than last month');
+    expect(summary).toContain('Days to win12');
+    expect(summary).toContain('Weighted forecast₹60,000');
+    expect(container.textContent).toContain('New leads are down this month: 1 so far against 3 last month.');
+    expect(container.textContent).toContain('4 leads added · 1 deal won');
+    expect(container.querySelector('table.sr-only')?.textContent).toContain('Leads added');
+  });
 });
