@@ -20,6 +20,8 @@ import { toast } from '../../lib/toast';
 import { useAuth } from '../../context/AuthContext';
 import { dealWonMessage, isInOutreach, readRememberedPipeline, rememberPipeline, resolveBoardPipeline } from './pipelineBoard';
 import { OverflowMenu } from '../ui/OverflowMenu';
+import { Dialog } from '../ui/Dialog';
+import { Button } from '../ui/Button';
 
 /** Asks the board to show one lead: select its pipeline, clear filters, and highlight the card. */
 export interface BoardFocusRequest {
@@ -92,9 +94,14 @@ export default function PipelineKanban({
   const [selectedOrigin, setSelectedOrigin] = useState<'ALL' | 'EXISTING' | 'NEW'>('ALL');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('ALL');
   const [selectedSubIndustry, setSelectedSubIndustry] = useState<string>('ALL');
+  // As on the list: leads still in the 30-day outreach cadence are shown, marked, and can be hidden.
+  const [includeOutreach, setIncludeOutreach] = useState(true);
+  // An outreach lead dropped on a stage: it becomes an opportunity only once confirmed.
+  const [convertDrop, setConvertDrop] = useState<{ lead: any; stageId: string } | null>(null);
+  const [converting, setConverting] = useState(false);
   const leadPage = useCrmLeadPage({ pipelineId: selectedPipelineId, assignedUserId: selectedSalesPerson,
     origin: selectedOrigin, industry: selectedIndustry, subIndustry: selectedSubIndustry, stageId: initialFilterStageId ?? '',
-    excludeOutreach: 'true' }, initialLeads, serverPaged);
+    excludeOutreach: includeOutreach ? '' : 'true' }, initialLeads, serverPaged);
   const focusedLead = initialLeads.find(lead => lead.id === highlightedLeadId);
   const leads = focusedLead && !leadPage.leads.some(lead => lead.id === focusedLead.id)
     ? [focusedLead, ...leadPage.leads] : leadPage.leads;
@@ -282,13 +289,12 @@ export default function PipelineKanban({
     };
   };
 
-  // Leads still in the 30-day outreach cadence are worked in Client Outreach, not on the board;
-  // the link above the board says how many there are.
-  const outreachCount = leads.filter(isInOutreach).length;
+  // How many leads in outreach this page shows, or (when hidden) how many the server left out.
+  const outreachCount = includeOutreach ? leads.filter(isInOutreach).length : (leadPage.outreachCount ?? leads.filter(isInOutreach).length);
 
   // Filter leads by pipeline, sales person, origin and industry
   const pipelineLeads = leads.filter(l => {
-    if (isInOutreach(l)) return false;
+    if (!includeOutreach && isInOutreach(l)) return false;
 
     const matchesPipe = !l.pipeline_id || l.pipeline_id === selectedPipelineId;
     const matchesSales = selectedSalesPerson === 'ALL' || l.assigned_user_id === selectedSalesPerson;
@@ -334,7 +340,13 @@ export default function PipelineKanban({
     if (!leadId) return;
 
     const lead = leads.find(l => l.id === leadId);
-    if (lead && lead.stage_id === targetStageId) return;
+    if (lead && lead.stage_id === targetStageId) { setDraggedLeadId(null); return; }
+    // Moving a lead still in outreach onto the board makes it a deal: confirm, then convert it.
+    if (lead && isInOutreach(lead)) {
+      setConvertDrop({ lead, stageId: targetStageId });
+      setDraggedLeadId(null);
+      return;
+    }
 
     try {
       // Leads are updated with PUT; the move is announced only once it is saved.
@@ -345,11 +357,44 @@ export default function PipelineKanban({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stageId: targetStageId }),
       });
-      if (res.ok) onRefresh();
+      if (res.ok) {
+        void leadPage.reload();
+        onRefresh();
+      }
     } catch {
       // Reported by the API client.
     } finally {
       setDraggedLeadId(null);
+    }
+  };
+
+  /** Converts the dropped outreach lead into an opportunity in the stage it was dropped on. */
+  const confirmConvertDrop = async () => {
+    if (!convertDrop || converting) return;
+    setConverting(true);
+    try {
+      const stage = stages.find(s => s.id === convertDrop.stageId);
+      const res = await apiFetch('/api/v1/crm/cadence', {
+        feedback: { success: `${convertDrop.lead.company_name} is now an opportunity in ${stage?.name ?? 'the new stage'}` },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'CONVERT_OPPORTUNITY',
+          leadId: convertDrop.lead.id,
+          pipelineId: selectedPipelineId,
+          stageId: convertDrop.stageId,
+          ...(convertDrop.lead.temperature === 'HOT' || convertDrop.lead.temperature === 'WARM' ? { temperature: convertDrop.lead.temperature } : {}),
+        }),
+      });
+      if (res.ok) {
+        setConvertDrop(null);
+        void leadPage.reload();
+        onRefresh();
+      }
+    } catch {
+      // Reported by the API client; the dialog stays open to try again.
+    } finally {
+      setConverting(false);
     }
   };
 
@@ -507,19 +552,41 @@ export default function PipelineKanban({
       )}
 
       {outreachCount > 0 && (
-        <p className="text-xs text-slate-600">
-          <button
-            type="button"
-            onClick={onOpenOutreach}
-            className="inline-flex items-center gap-1 font-semibold text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
-          >
-            {outreachCount} lead{outreachCount === 1 ? '' : 's'} in outreach
-            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-            Client Outreach
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+          <span>
+            {includeOutreach
+              ? `${outreachCount} lead${outreachCount === 1 ? '' : 's'} on this page ${outreachCount === 1 ? 'is' : 'are'} still in the 30-day outreach cadence, marked “In outreach”.`
+              : `${outreachCount} lead${outreachCount === 1 ? '' : 's'} still in the 30-day outreach cadence ${outreachCount === 1 ? 'is' : 'are'} hidden.`}
+          </span>
+          <button type="button" onClick={() => setIncludeOutreach(!includeOutreach)} aria-pressed={!includeOutreach}
+            className="rounded font-semibold underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
+            {includeOutreach ? 'Hide them' : 'Show them'}
           </button>
-          <span className="text-slate-400"> · not shown on the board until they move into the pipeline</span>
-        </p>
+          {onOpenOutreach && (
+            <button type="button" onClick={onOpenOutreach}
+              className="inline-flex items-center gap-1 rounded font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
+              {outreachCount} lead{outreachCount === 1 ? '' : 's'} in outreach <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" /> Client Outreach
+            </button>
+          )}
+        </div>
       )}
+
+      {convertDrop && (() => {
+        const stage = stages.find(st => st.id === convertDrop.stageId);
+        const day = outreachDay(convertDrop.lead);
+        return (
+          <Dialog size="sm" title={`Move ${convertDrop.lead.company_name} to ${stage?.name ?? 'this stage'} as an opportunity?`}
+            onClose={() => !converting && setConvertDrop(null)}
+            footer={<>
+              <Button variant="outline" size="sm" onClick={() => setConvertDrop(null)} disabled={converting}>Cancel</Button>
+              <Button size="sm" onClick={confirmConvertDrop} loading={converting}>{converting ? 'Converting…' : 'Convert and move'}</Button>
+            </>}>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              This lead is still in the 30-day outreach cadence{day ? ` (Day ${day})` : ''}. Moving it ends the cadence and makes it a deal in this stage. Its outreach history stays on the lead.
+            </p>
+          </Dialog>
+        );
+      })()}
 
       {/* DRAGGABLE KANBAN BOARD */}
       <div className="flex items-start gap-3 overflow-x-auto pb-4">
@@ -616,6 +683,12 @@ export default function PipelineKanban({
                         </button>
                         <OverflowMenu label={`Actions for ${lead.company_name}`} items={menu} />
                       </div>
+
+                      {isInOutreach(lead) && (
+                        <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                          In outreach{outreachDay(lead) ? ` · Day ${outreachDay(lead)}` : ''}
+                        </span>
+                      )}
 
                       <div className="flex items-baseline justify-between gap-2 text-xs">
                         <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">{lead.first_name} {lead.last_name || ''}</span>
@@ -1036,4 +1109,14 @@ export default function PipelineKanban({
       )}
     </div>
   );
+}
+
+/** The outreach cadence day a lead is on, when the cadence records one. */
+function outreachDay(lead: { custom_attributes?: unknown }): number | null {
+  let attributes = lead.custom_attributes;
+  if (typeof attributes === 'string') {
+    try { attributes = JSON.parse(attributes); } catch { return null; }
+  }
+  const day = (attributes as { cadence?: { currentDay?: unknown } } | null)?.cadence?.currentDay;
+  return typeof day === 'number' && day > 0 ? day : null;
 }

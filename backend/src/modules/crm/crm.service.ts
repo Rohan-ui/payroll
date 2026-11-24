@@ -315,14 +315,17 @@ export class CrmService {
     if (query.origin === 'EXISTING') conditions.push({ OR: [{ is_existing_client: true }, { client_id: { not: null } }] });
     if (query.origin === 'NEW') conditions.push({ AND: [{ OR: [{ is_existing_client: false }, { is_existing_client: null }] }, { client_id: null }] });
     if (query.service && query.service !== 'ALL') where.primary_service = query.service;
-    if (query.excludeOutreach) conditions.push({ OR: [
+    // Only the leads this member may see; an assignee filter narrows within them.
+    if (!visibility.all) conditions.push(visibleLeads(visibility));
+    // Kept apart so the leads it leaves out can be counted too.
+    const notInOutreach: Prisma.rndtechnosoft_crm_leadsWhereInput = { OR: [
       { custom_attributes: { equals: Prisma.DbNull } },
       { custom_attributes: { path: ['cadence'], equals: Prisma.AnyNull } },
       { custom_attributes: { path: ['cadence', 'status'], equals: 'CONVERTED' } },
       { custom_attributes: { path: ['cadence', 'convertedToOpportunity'], equals: true } },
-    ] });
-    // Only the leads this member may see; an assignee filter narrows within them.
-    if (!visibility.all) conditions.push(visibleLeads(visibility));
+    ] };
+    const withOutreach = [...conditions];
+    if (query.excludeOutreach) conditions.push(notInOutreach);
     if (conditions.length) where.AND = conditions;
 
     if (query.search) {
@@ -340,7 +343,7 @@ export class CrmService {
       ];
     }
 
-    const [rawLeads, total, stages, pipelines, sources, members, clients] = await Promise.all([
+    const [rawLeads, total, totalWithOutreach, stages, pipelines, sources, members, clients] = await Promise.all([
       this.prisma.rndtechnosoft_crm_leads.findMany({
         where,
         // Newest first, so a lead just added is always on the first page.
@@ -349,6 +352,8 @@ export class CrmService {
         include: LEAD_LIST_INCLUDE,
       }),
       this.prisma.rndtechnosoft_crm_leads.count({ where }),
+      // The same filters and search with the outreach leads still in, to say how many the board leaves out.
+      query.excludeOutreach ? this.prisma.rndtechnosoft_crm_leads.count({ where: { ...where, AND: withOutreach } }) : Promise.resolve(null),
       this.prisma.rndtechnosoft_crm_stages.findMany({
         where: { tenant_id: tenantId },
         orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
@@ -389,6 +394,8 @@ export class CrmService {
 
     return {
       leads: mappedLeads,
+      // Leads matching the filters but still in the outreach cadence, so left off this list.
+      ...(totalWithOutreach === null ? {} : { outreachCount: totalWithOutreach - total }),
       pagination: this.pageMeta(total, page, limit, mappedLeads.length),
       stages,
       pipelines,
@@ -683,29 +690,32 @@ export class CrmService {
 
     const targetStageId = data.stageId || data.stage_id;
     if (targetStageId && targetStageId !== existing.stage_id) {
-      updateData.stage_id = targetStageId;
-      updateData.stage_entered_at = new Date();
-
       const stageInfo = await this.prisma.rndtechnosoft_crm_stages.findFirst({
         where: { tenant_id: tenantId, id: targetStageId },
       });
-      if (stageInfo) {
-        if (stageInfo.is_won) {
-          updateData.is_won = true;
-          updateData.temperature = 'WON';
-          updateData.closed_at = new Date();
-        } else if (stageInfo.is_lost) {
-          updateData.is_lost = true;
-          updateData.temperature = 'LOST';
-          updateData.closed_at = new Date();
-        }
+      // A stage of another workspace, or of a pipeline the lead is not in, is refused rather than stored.
+      if (!stageInfo) throw new BadRequestException('That stage no longer exists. Reload the board and try again.');
+      if (stageInfo.pipeline_id !== (updateData.pipeline_id ?? existing.pipeline_id)) {
+        throw new BadRequestException('That stage belongs to another pipeline. Choose a stage of the lead’s pipeline.');
+      }
+      updateData.stage_id = targetStageId;
+      updateData.stage_entered_at = new Date();
+
+      if (stageInfo.is_won) {
+        updateData.is_won = true;
+        updateData.temperature = 'WON';
+        updateData.closed_at = new Date();
+      } else if (stageInfo.is_lost) {
+        updateData.is_lost = true;
+        updateData.temperature = 'LOST';
+        updateData.closed_at = new Date();
       }
 
       await this.logActivity(
         tenantId,
         id,
         'STAGE_CHANGE',
-        `Stage updated to ${stageInfo?.name || targetStageId}`,
+        `Stage updated to ${stageInfo.name}`,
         `Moved stage from ${existing.stage_id} to ${targetStageId}`,
         memberId,
       );

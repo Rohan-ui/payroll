@@ -146,7 +146,7 @@ export default function CRMAnalytics({ onSelectStage, onSelectWon }: CRMAnalytic
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className={sub}>
-          Every lead you can see in the sales pipelines{loadedAt ? `, as of ${loadedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}. Outreach leads count once they move to a sales pipeline.
+          Every lead you can see in the sales pipelines{loadedAt ? `, as of ${loadedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}. Leads still in the 30-day outreach cadence count as deals once they are converted to an opportunity.
         </p>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={load} disabled={loading} aria-label="Refresh reports">

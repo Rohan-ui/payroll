@@ -101,7 +101,8 @@ describe('Sales Pipelines board', () => {
     await settle();
     expect(requests[requests.length - 1].get('page')).toBe('1');
     expect(requests[requests.length - 1].get('pipelineId')).toBe('p-main');
-    expect(requests[requests.length - 1].get('excludeOutreach')).toBe('true');
+    // Outreach leads are shown by default, as on the list.
+    expect(requests[requests.length - 1].has('excludeOutreach')).toBe(false);
     expect(shows('Main Lead Co')).toBe(true);
   });
   it('shows the default pipeline and its leads when the data arrives after the board opened', () => {
@@ -142,14 +143,51 @@ describe('Sales Pipelines board', () => {
     expect(shows('Main Lead Co')).toBe(true);
   });
 
-  it('keeps outreach leads off the board and links to them instead', () => {
+  it('shows outreach leads marked, as the list does, and can hide them with a link to Client Outreach', () => {
     const onOpenOutreach = vi.fn();
     board({ leads: [IN_SALES, COLD], pipelines: PIPELINES, stages: STAGES, onOpenOutreach });
+    expect(shows('Cold Lead Co')).toBe(true);
+    expect(container.querySelector('[data-lead-card]')?.parentElement?.textContent).toContain('In outreach');
+    const hide = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Hide them') as HTMLButtonElement;
+    act(() => hide.click());
     expect(shows('Cold Lead Co')).toBe(false);
+    expect(shows('Sales Lead Co')).toBe(true);
+    expect(container.textContent).toContain('1 lead still in the 30-day outreach cadence is hidden.');
     const link = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('1 lead in outreach'));
     expect(link?.textContent).toContain('Client Outreach');
     act(() => link?.click());
     expect(onOpenOutreach).toHaveBeenCalled();
+  });
+
+  it('moves a lead by drag and drop, and converts an outreach lead only after confirming', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null });
+      return new Response(JSON.stringify({ success: true, data: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+    const onRefresh = vi.fn();
+    const stages = [...STAGES, { id: 's-proposal', pipeline_id: 'p-sales', name: 'Proposal', sort_order: 1, color: '#16a34a', stage_probability: 40, sla_duration_hours: 48 }];
+    board({ leads: [IN_SALES, COLD], pipelines: PIPELINES, stages, onRefresh });
+    const column = () => [...container.querySelectorAll<HTMLElement>('div.w-72')].find((d) => d.textContent?.includes('Proposal')) as HTMLElement;
+    const drop = async (leadId: string) => {
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: { getData: () => leadId } });
+      await act(async () => { column().dispatchEvent(event); for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
+    };
+
+    await drop('l1');
+    expect(calls.at(-1)).toMatchObject({ url: '/api/v1/crm/leads/l1', method: 'PUT', body: { stageId: 's-proposal' } });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    await drop('l3');
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain('Move Cold Lead Co to Proposal as an opportunity?');
+    expect(calls.filter((c) => c.url.includes('/crm/cadence'))).toEqual([]);
+    const confirm = [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Convert and move') as HTMLButtonElement;
+    await act(async () => { confirm.click(); for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
+    expect(calls.at(-1)).toMatchObject({ url: '/api/v1/crm/cadence', method: 'POST', body: { action: 'CONVERT_OPPORTUNITY', leadId: 'l3', pipelineId: 'p-sales', stageId: 's-proposal' } });
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('"Show on board" selects the lead\'s pipeline, highlights its card once, and clears filters', () => {

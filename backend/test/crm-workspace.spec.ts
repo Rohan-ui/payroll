@@ -183,6 +183,16 @@ describe('CRM & Sales in a tenant workspace', () => {
         phone: '+91 98765 43210',
       });
       expect((await asA('get', '/crm/leads/export')).status).toBe(200);
+
+      // A board move takes only a stage of this workspace in the lead's own pipeline.
+      const other = await asA('post', '/crm/pipelines', { name: 'Other', code: `other_${SUFFIX}` });
+      const otherStage = await asA('post', '/crm/masters/stages', { pipeline_id: other.body.data.id, name: 'Elsewhere', sort_order: 1 });
+      const wrongPipeline = await asA('put', `/crm/leads/${ids.lead}`, { stageId: otherStage.body.data.id });
+      expect([wrongPipeline.status, wrongPipeline.body.message]).toEqual([400, 'That stage belongs to another pipeline. Choose a stage of the lead’s pipeline.']);
+      expect((await asA('put', `/crm/leads/${ids.lead}`, { stageId: randomUUID() })).status).toBe(400);
+      expect((await prisma.rndtechnosoft_crm_leads.findUniqueOrThrow({ where: { id: ids.lead } })).stage_id).toBe(ids.stage);
+      await prisma.rndtechnosoft_crm_stages.delete({ where: { id: otherStage.body.data.id } });
+      await prisma.rndtechnosoft_crm_pipelines.delete({ where: { id: other.body.data.id } });
     });
 
     it('records activities, follow-ups and meetings (Follow-ups & Meetings)', async () => {
