@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Trash2, RefreshCw, Trophy, ChevronRight, MoreVertical, ChevronLeft, Eye, Calendar, Users, Edit3,
+  Trash2, RefreshCw, Trophy, ChevronRight, ChevronLeft, Eye, Calendar, Users, Edit3,
 } from 'lucide-react';
-import WordDocumentEditor from './WordDocumentEditor';
 
 import { apiFetch } from '../../api/client';
 import { toast } from '../../lib/toast';
@@ -13,6 +12,8 @@ import { dealWonMessage } from './pipelineBoard';
 import QuotationBuilder from './QuotationBuilder';
 import { QuotationPdfViewer } from './QuotationPdfViewer';
 import { Button } from '../ui/Button';
+import { Dialog } from '../ui/Dialog';
+import { OverflowMenu } from '../ui/OverflowMenu';
 interface QuotationsManagerProps {
   leads: any[];
   services: any[];
@@ -46,9 +47,6 @@ export default function QuotationsManager({
   const [pageSize, setPageSize] = useState(50);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-
-  // Three-dot action menu
-  const [openActionId, setOpenActionId] = useState<string | null>(null);
 
   // Modals & previews
   const [selectedQuoteForPreview, setSelectedQuoteForPreview] = useState<any>(null);
@@ -158,7 +156,6 @@ export default function QuotationsManager({
 
   // Pagination
   const startIndex = (currentPage - 1) * pageSize;
-  const paginatedQuotes = quotations;
 
   if (builder) {
     return (
@@ -178,260 +175,125 @@ export default function QuotationsManager({
     );
   }
 
-  return (
-    <div className="space-y-4 relative">
+  const dateText = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+  const first = totalItems === 0 ? 0 : startIndex + 1;
+  const last = Math.min(startIndex + pageSize, totalItems);
 
+  return (
+    <div className="space-y-3">
       {/* The page title and "New quotation" are in the CRM header above. */}
       <h2 className="sr-only">Quotations</h2>
-      <div className="flex justify-end">
-        <Button variant="ghost" size="sm" onClick={fetchQuotationsAndTemplates} aria-label="Refresh quotations">
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
-        </Button>
-      </div>
 
-      {/* Proposals List Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto min-h-[300px]">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-500">
-                <th className="py-3 px-4">Quote #</th>
-                <th className="py-3 px-4">Company / lead</th>
-                <th className="hidden py-3 px-4 md:table-cell">Valid until</th>
-                <th className="hidden py-3 px-4 xl:table-cell">Tax type</th>
-                <th className="hidden py-3 px-4 text-right lg:table-cell">Subtotal</th>
-                <th className="hidden py-3 px-4 text-right lg:table-cell">GST</th>
-                <th className="py-3 px-4 text-right">Total</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Action</th>
+      <div className={`rounded-xl border border-slate-200 bg-white dark:border-[#2B293E] dark:bg-[#181724] ${loading ? 'opacity-70' : ''}`} aria-busy={loading}>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-[#2B293E]">
+          <p className="text-xs text-slate-500 dark:text-slate-400" role="status">
+            {loading && quotations.length === 0 ? 'Loading quotations…' : `${totalItems} quotation${totalItems === 1 ? '' : 's'}`}
+          </p>
+          <Button variant="ghost" size="sm" onClick={fetchQuotationsAndTemplates} aria-label="Refresh quotations">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
+          </Button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <caption className="sr-only">Quotations</caption>
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-white/5 dark:text-slate-400">
+              <tr>
+                <th scope="col" className="px-4 py-2.5 font-semibold">Quotation</th>
+                <th scope="col" className="px-4 py-2.5 font-semibold">Client</th>
+                <th scope="col" className="hidden px-4 py-2.5 font-semibold md:table-cell">Valid until</th>
+                <th scope="col" className="hidden px-4 py-2.5 text-right font-semibold lg:table-cell">Subtotal</th>
+                <th scope="col" className="hidden px-4 py-2.5 text-right font-semibold lg:table-cell">GST</th>
+                <th scope="col" className="px-4 py-2.5 text-right font-semibold">Total</th>
+                <th scope="col" className="px-4 py-2.5 font-semibold">Status</th>
+                <th scope="col" className="w-12 px-4 py-2.5"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {paginatedQuotes.map((q) => (
-                <tr key={q.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="py-3.5 px-4 font-mono font-semibold text-teal-700 dark:text-teal-300">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedQuoteForPreview(q)}
-                      className="hover:text-teal-900 hover:underline inline-flex items-center gap-1.5"
-                      title={`View quotation ${q.quotation_number} as a PDF`}
-                    >
-                      <span>{q.quotation_number}</span>
-                      <Eye className="w-3 h-3 text-teal-500 opacity-60" aria-hidden="true" />
+            <tbody className="divide-y divide-slate-100 dark:divide-[#2B293E]">
+              {quotations.map((q) => (
+                <tr key={q.id} className="hover:bg-slate-50 dark:hover:bg-white/5">
+                  <td className="px-4 py-3">
+                    <button type="button" onClick={() => setSelectedQuoteForPreview(q)} title={`View quotation ${q.quotation_number} as a PDF`}
+                      className="rounded font-mono text-xs font-semibold text-teal-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:text-teal-300">
+                      {q.quotation_number}
                     </button>
-                  </td>
-
-                  <td className="py-3.5 px-4">
-                    <span className="font-bold text-slate-900 block">{q.lead_company_name || '—'}</span>
-                    <span className="text-[11px] text-slate-400">{q.contact_person}</span>
-                  </td>
-
-                  <td className="hidden py-3.5 px-4 text-slate-700 font-medium whitespace-nowrap md:table-cell">
-                    {q.valid_until ? new Date(q.valid_until).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                  </td>
-
-                  <td className="hidden py-3.5 px-4 xl:table-cell">
-                    <span className="text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded">
+                    <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
                       {q.tax_mode === 'INTER_STATE' ? 'IGST (18%)' : 'CGST+SGST (9%+9%)'}
                     </span>
                   </td>
-
-                  <td className="hidden py-3.5 px-4 text-right tabular-nums text-slate-700 lg:table-cell">
-                    {formatCurrency(q.subtotal)}
+                  <td className="px-4 py-3">
+                    <span className="block max-w-[16rem] truncate font-medium text-slate-900 dark:text-slate-100" title={q.lead_company_name || undefined}>{q.lead_company_name || '—'}</span>
+                    {q.contact_person && <span className="block max-w-[16rem] truncate text-xs text-slate-500 dark:text-slate-400">{q.contact_person}</span>}
                   </td>
-
-                  <td className="hidden py-3.5 px-4 text-right tabular-nums text-slate-500 lg:table-cell">
-                    {formatCurrency(q.total_tax)}
-                  </td>
-
-                  <td className="py-3.5 px-4 text-right font-semibold tabular-nums text-slate-900">
-                    {formatCurrency(q.total_amount)}
-                  </td>
-
-                  <td className="py-3.5 px-4">
-                    <select
-                      value={q.status}
-                      onChange={(e) => handleUpdateStatus(q.id, e.target.value)}
-                      className={`text-[10px] font-bold px-2 py-1 rounded border ${
-                        q.status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        q.status === 'SENT' ? 'bg-teal-50 text-teal-700 border-teal-200' :
-                        q.status === 'REJECTED' ? 'bg-red-50 text-red-700 border-red-200' :
-                        'bg-slate-100 text-slate-700 border-slate-200'
-                      }`}
-                    >
-                      <option value="DRAFT">DRAFT</option>
-                      <option value="SENT">SENT</option>
-                      <option value="ACCEPTED">ACCEPTED</option>
-                      <option value="REJECTED">REJECTED</option>
+                  <td className="hidden whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300 md:table-cell">{dateText(q.valid_until)}</td>
+                  <td className="hidden whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600 dark:text-slate-300 lg:table-cell">{formatCurrency(q.subtotal)}</td>
+                  <td className="hidden whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-500 dark:text-slate-400 lg:table-cell">{formatCurrency(q.total_tax)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">{formatCurrency(q.total_amount)}</td>
+                  <td className="px-4 py-3">
+                    <label htmlFor={`quote-status-${q.id}`} className="sr-only">Status of {q.quotation_number}</label>
+                    <select id={`quote-status-${q.id}`} value={q.status} onChange={(e) => handleUpdateStatus(q.id, e.target.value)}
+                      className={`h-8 rounded-full border px-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 ${STATUS_STYLE[q.status as QuoteStatus] ?? STATUS_STYLE.DRAFT}`}>
+                      {(Object.keys(STATUS_NAMES) as QuoteStatus[]).map((s) => <option key={s} value={s}>{STATUS_NAMES[s]}</option>)}
                     </select>
                   </td>
-
-                  {/* THREE-DOT ACTIONS MENU */}
-                  <td className="py-3.5 px-4 text-right relative">
-                    <button
-                      onClick={() => setOpenActionId(openActionId === q.id ? null : q.id)}
-                      className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
-                      title="Actions"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-
-                    {openActionId === q.id && (
-                      <div className="absolute right-4 top-10 z-40 bg-white w-48 rounded-xl shadow-xl border border-slate-200 py-1.5 text-left text-xs animate-in fade-in-50 duration-150">
-                        {/* Only drafts can be edited: a sent quotation keeps the amounts it was issued with. */}
-                        {q.status === 'DRAFT' && (
-                          <button
-                            onClick={() => { setOpenActionId(null); setBuilder({ leadId: q.lead_id, quotation: q }); }}
-                            className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-teal-600" />
-                            <span>Edit Quotation</span>
-                          </button>
-                        )}
-
-                        {/* View Preview */}
-                        <button
-                          onClick={() => { setOpenActionId(null); setSelectedQuoteForPreview(q); }}
-                          className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-slate-600" />
-                          <span>View PDF</span>
-                        </button>
-
-                        {/* View Lead 360 */}
-                        {onSelectLead360 && q.lead_id && (
-                          <button
-                            onClick={() => {
-                              setOpenActionId(null);
-                              onSelectLead360(q.lead_id);
-                            }}
-                            className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                          >
-                            <Users className="w-3.5 h-3.5 text-teal-600" />
-                            <span>View Lead 360°</span>
-                          </button>
-                        )}
-
-                        {/* Schedule Meeting */}
-                        {onScheduleMeeting && q.lead_id && (
-                          <button
-                            onClick={() => {
-                              setOpenActionId(null);
-                              onScheduleMeeting(q.lead_id);
-                            }}
-                            className="w-full px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                          >
-                            <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Schedule Meeting</span>
-                          </button>
-                        )}
-
-                        {/* Won & Convert */}
-                        {q.status !== 'ACCEPTED' && (
-                          <button
-                            onClick={() => {
-                              setOpenActionId(null);
-                              setDealWonConfirmQuote(q);
-                            }}
-                            className="w-full px-3 py-2 text-amber-700 hover:bg-amber-50 flex items-center gap-2 font-semibold"
-                          >
-                            <Trophy className="w-3.5 h-3.5 text-amber-600" />
-                            <span>Mark Won & Convert</span>
-                          </button>
-                        )}
-
-                        <div className="border-t border-slate-100 my-1" />
-
-                        {/* Delete */}
-                        <button
-                          onClick={() => {
-                            setOpenActionId(null);
-                            setDeleteConfirmQuote(q);
-                          }}
-                          className="w-full px-3 py-2 text-red-600 hover:bg-red-50 flex items-center gap-2 font-semibold"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Delete Proposal</span>
-                        </button>
-                      </div>
-                    )}
+                  <td className="px-4 py-3 text-right">
+                    <div className="inline-flex justify-end">
+                      <OverflowMenu label={`Actions for quotation ${q.quotation_number}`} items={[
+                        // Only drafts can be edited: a sent quotation keeps the amounts it was issued with.
+                        ...(q.status === 'DRAFT' ? [{ label: 'Edit quotation', icon: Edit3, onSelect: () => setBuilder({ leadId: q.lead_id, quotation: q }) }] : []),
+                        { label: 'View PDF', icon: Eye, onSelect: () => setSelectedQuoteForPreview(q) },
+                        ...(onSelectLead360 && q.lead_id ? [{ label: 'Open lead', icon: Users, onSelect: () => onSelectLead360(q.lead_id) }] : []),
+                        ...(onScheduleMeeting && q.lead_id ? [{ label: 'Schedule meeting', icon: Calendar, onSelect: () => onScheduleMeeting(q.lead_id) }] : []),
+                        ...(q.status !== 'ACCEPTED' ? [{ label: 'Accept and mark won', icon: Trophy, onSelect: () => setDealWonConfirmQuote(q) }] : []),
+                        { label: 'Delete quotation', icon: Trash2, danger: true, onSelect: () => setDeleteConfirmQuote(q) },
+                      ]} />
+                    </div>
                   </td>
                 </tr>
               ))}
-
-              {paginatedQuotes.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
-                    No quotations yet. Click "Create Quotation" to build a GST quotation for a lead.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
 
-        {/* PAGINATION CONTROLS */}
-        <div className="p-3.5 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span>
-              Showing <strong className="text-slate-900">{totalItems === 0 ? 0 : startIndex + 1}</strong> to{' '}
-              <strong className="text-slate-900">{Math.min(startIndex + pageSize, totalItems)}</strong> of{' '}
-              <strong className="text-slate-900">{totalItems}</strong> quotations
-            </span>
-
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <span>Per page:</span>
-              <select
-                value={pageSize}
-                onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
-                className="px-2 py-1 bg-white border border-slate-200 rounded text-xs focus:outline-none"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-              </select>
-            </div>
+        {!loading && quotations.length === 0 && (
+          <div className="px-4 py-12 text-center">
+            <p className="font-semibold text-slate-800 dark:text-slate-200">No quotations yet</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Choose “New quotation” above to build a GST quotation for a lead.</p>
           </div>
+        )}
 
-          <nav className="flex flex-wrap items-center gap-1" aria-label="Pages">
-            <button
-              onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
-              disabled={currentPage === 1}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-1"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span>Prev</span>
-            </button>
-
-            {pageWindow(currentPage, totalPages).map((p, i) => p === null ? (
-              <span key={`gap-${i}`} className="w-5 text-center text-slate-400" aria-hidden="true">…</span>
-            ) : (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setCurrentPage(p)}
-                aria-label={`Page ${p}`}
-                aria-current={currentPage === p ? 'page' : undefined}
-                className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
-                  currentPage === p
-                    ? 'bg-teal-600 text-white shadow-xs'
-                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                {p}
+        {totalItems > 0 && (
+          <nav aria-label="Pages" className="flex flex-col gap-3 border-t border-slate-200 px-4 py-2.5 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between dark:border-[#2B293E] dark:text-slate-400">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="tabular-nums">Showing {first}–{last} of {totalItems} · Page {currentPage} of {totalPages}</span>
+              <label className="flex items-center gap-2">
+                <span>Per page</span>
+                <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-[#2B293E] dark:bg-[#1E1D2D] dark:text-slate-200">
+                  {[10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="flex items-center gap-1">
+              <button type="button" disabled={currentPage <= 1 || loading} onClick={() => setCurrentPage(currentPage - 1)} className={`${PAGER} gap-1 px-2.5`}>
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />Previous
               </button>
-            ))}
-
-            <button
-              onClick={() => setCurrentPage(Math.min(currentPage + 1, totalPages))}
-              disabled={currentPage >= totalPages}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-1"
-            >
-              <span>Next</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+              <span className="hidden items-center gap-1 sm:flex">
+                {pageWindow(currentPage, totalPages).map((p, i) => p === null ? (
+                  <span key={`gap-${i}`} className="w-5 text-center text-slate-400" aria-hidden="true">…</span>
+                ) : (
+                  <button key={p} type="button" disabled={loading} onClick={() => setCurrentPage(p)} aria-label={`Page ${p}`} aria-current={p === currentPage ? 'page' : undefined}
+                    className={`${PAGER} w-8 justify-center ${p === currentPage ? 'border-teal-500 bg-teal-500 text-white hover:bg-teal-500 dark:border-teal-500 dark:bg-teal-500 dark:text-white dark:hover:bg-teal-500' : ''}`}>
+                    {p}
+                  </button>
+                ))}
+              </span>
+              <button type="button" disabled={currentPage >= totalPages || loading} onClick={() => setCurrentPage(currentPage + 1)} className={`${PAGER} gap-1 px-2.5`}>
+                Next<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
           </nav>
-        </div>
+        )}
       </div>
 
       {/* VIEW: the quotation as its PDF */}
@@ -444,82 +306,39 @@ export default function QuotationsManager({
         />
       )}
 
-      {/* CUSTOM IN-APP DELETE MODAL */}
       {deleteConfirmQuote && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Delete Quotation</h3>
-                <p className="text-xs text-slate-500">Proposal #{deleteConfirmQuote.quotation_number}</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
-              Are you sure you want to permanently delete quotation <strong className="text-slate-900">"{deleteConfirmQuote.quotation_number}"</strong> for {deleteConfirmQuote.company_name}?
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeleteConfirmQuote(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs"
-              >
-                Yes, Delete Proposal
-              </button>
-            </div>
-          </div>
-        </div>
+        <Dialog size="sm" title={`Delete quotation ${deleteConfirmQuote.quotation_number}?`} onClose={() => setDeleteConfirmQuote(null)}
+          footer={<>
+            <Button variant="outline" size="sm" onClick={() => setDeleteConfirmQuote(null)}>Cancel</Button>
+            <Button variant="danger" size="sm" onClick={handleConfirmDelete}>Delete quotation</Button>
+          </>}>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            The quotation{deleteConfirmQuote.lead_company_name ? ` for ${deleteConfirmQuote.lead_company_name}` : ''} ({formatCurrency(deleteConfirmQuote.total_amount)}) is removed for good. The lead stays as it is.
+          </p>
+        </Dialog>
       )}
 
-      {/* CUSTOM IN-APP DEAL WON CONFIRMATION MODAL */}
       {dealWonConfirmQuote && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
-                <Trophy className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Accept Proposal & Deal WON</h3>
-                <p className="text-xs text-slate-500">Marks the deal won and creates or links its client</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
-              Accept quotation <strong className="text-slate-900">"{dealWonConfirmQuote.quotation_number}"</strong> for {dealWonConfirmQuote.lead_company_name} ({formatCurrency(dealWonConfirmQuote.total_amount)}), mark the deal won, and create its client account (or link the existing one)?
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setDealWonConfirmQuote(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmConvertWon}
-                className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs flex items-center gap-1.5"
-              >
-                <Trophy className="w-3.5 h-3.5" />
-                <span>Confirm Won & Convert</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <Dialog size="sm" title={`Accept ${dealWonConfirmQuote.quotation_number} and mark the deal won?`} onClose={() => setDealWonConfirmQuote(null)}
+          footer={<>
+            <Button variant="outline" size="sm" onClick={() => setDealWonConfirmQuote(null)}>Cancel</Button>
+            <Button size="sm" onClick={handleConfirmConvertWon}>Accept and mark won</Button>
+          </>}>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            The quotation{dealWonConfirmQuote.lead_company_name ? ` for ${dealWonConfirmQuote.lead_company_name}` : ''} ({formatCurrency(dealWonConfirmQuote.total_amount)}) is marked accepted, the deal is marked won, and its client account is created or linked to the existing one.
+          </p>
+        </Dialog>
       )}
     </div>
   );
 }
+
+type QuoteStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED';
+const STATUS_NAMES: Record<QuoteStatus, string> = { DRAFT: 'Draft', SENT: 'Sent', ACCEPTED: 'Accepted', REJECTED: 'Rejected' };
+const STATUS_STYLE: Record<QuoteStatus, string> = {
+  DRAFT: 'border-slate-200 bg-slate-50 text-slate-700 dark:border-[#2B293E] dark:bg-white/5 dark:text-slate-200',
+  SENT: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200',
+  ACCEPTED: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200',
+  REJECTED: 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200',
+};
+const PAGER = 'inline-flex h-8 items-center rounded-lg border border-slate-200 text-xs font-semibold tabular-nums text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-[#2B293E] dark:text-slate-300 dark:hover:bg-white/5';
