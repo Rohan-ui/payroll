@@ -10,11 +10,16 @@ import { LeadVisibility } from './lead-visibility';
 const TREND_MONTHS = 12;
 
 type Money = Prisma.Decimal | string | number | null;
+
+/** A lead that has left the outreach cadence, or was never in it (same rule as the board's excludeOutreach). */
+export const NOT_IN_OUTREACH = Prisma.sql`(l.custom_attributes->'cadence' IS NULL OR jsonb_typeof(l.custom_attributes->'cadence') = 'null'
+            OR l.custom_attributes->'cadence'->>'status' = 'CONVERTED' OR l.custom_attributes->'cadence'->>'convertedToOpportunity' = 'true')`;
 const amount = (v: Money) => new Prisma.Decimal(v ?? 0).toFixed(2);
 
 /**
  * CRM reports, worked out on the server from every lead in the workspace's
- * sales pipelines (outreach pipelines are not deals yet), as the member may
+ * sales pipelines (outreach pipelines and leads still in the outreach cadence
+ * are not deals yet), as the member may
  * see them: everyone's with leads.view_all, otherwise their own. Amounts are
  * decimal strings in rupees. The weighted forecast uses the stage's
  * probability, else the lead's own, else 20%, as the CRM always has.
@@ -83,7 +88,8 @@ export class CrmReportsService {
     // Leads in the workspace's sales pipelines that this member may see.
     const leads = Prisma.sql`rndtechnosoft_crm_leads l
       JOIN rndtechnosoft_crm_pipelines p ON p.tenant_id = l.tenant_id AND p.id = l.pipeline_id AND p.pipeline_kind = 'SALES'`;
-    const mine = Prisma.sql`l.tenant_id = ${tenantId}::uuid ${seen}`;
+    // Leads still working through the outreach cadence are not deals yet, as on the pipeline board.
+    const mine = Prisma.sql`l.tenant_id = ${tenantId}::uuid ${seen} AND ${NOT_IN_OUTREACH}`;
 
     const [totals, stages, sources, assignees, trend, created] = await Promise.all([
       this.prisma.$queryRaw<{ open_count: number; open_value: Money; weighted: Money; won_count: number; won_value: Money; lost_count: number; total: number; new_this_month: number; new_last_month: number; avg_days_to_win: number | null }[]>(Prisma.sql`
@@ -107,7 +113,7 @@ export class CrmReportsService {
                count(l.id)::int AS count, coalesce(sum(l.budget_amount), 0) AS value
         FROM rndtechnosoft_crm_stages s
         JOIN rndtechnosoft_crm_pipelines p ON p.tenant_id = s.tenant_id AND p.id = s.pipeline_id AND p.pipeline_kind = 'SALES' AND p.is_active
-        LEFT JOIN rndtechnosoft_crm_leads l ON l.tenant_id = s.tenant_id AND l.stage_id = s.id AND NOT l.is_won AND NOT l.is_lost ${seen}
+        LEFT JOIN rndtechnosoft_crm_leads l ON l.tenant_id = s.tenant_id AND l.stage_id = s.id AND NOT l.is_won AND NOT l.is_lost ${seen} AND ${NOT_IN_OUTREACH}
         WHERE s.tenant_id = ${tenantId}::uuid
         GROUP BY s.id, s.name, s.color, s.sort_order, p.id, p.name, p.sort_order
         ORDER BY p.sort_order, p.name, s.sort_order, s.name`),

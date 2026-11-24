@@ -138,7 +138,8 @@ describe('adding a lead', () => {
     expect(shown.map((t) => t.message)).toEqual(['Lead LD-2026-100002 created and enrolled in Client Outreach']);
     expect(shown[0].actions?.map((a) => a.label)).toEqual(['Open lead', 'Show in Outreach']);
     expect(container.textContent).toContain('1 lead in outreach');
-    expect(container.querySelector('[data-lead-card="new-2"]')).toBeNull();
+    // Shown on the board as on the list, marked as still in outreach.
+    expect(container.querySelector('[data-lead-card="new-2"]')?.textContent).toContain('In outreach');
 
     const listButton = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'List') as HTMLButtonElement;
     act(() => listButton.click());

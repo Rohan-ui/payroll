@@ -106,6 +106,8 @@ describe('CRM reports', () => {
     await lead(owner.token, 'Won Owner', { budget_amount: '200000', is_won: true, closed_at: new Date() });
     await lead(owner.token, 'Lost Owner', { budget_amount: '10000', is_lost: true, closed_at: new Date() });
     await lead(other.token, 'Other Workspace', { budget_amount: '999999' });
+    // Still working through the outreach cadence in a sales pipeline: not a deal yet, as on the board.
+    await lead(owner.token, 'Still In Outreach', { budget_amount: '777777', custom_attributes: { cadence: { status: 'ACTIVE', currentDay: 3 } } });
   });
 
   afterAll(async () => {

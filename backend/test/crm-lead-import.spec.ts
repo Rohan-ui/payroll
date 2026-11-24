@@ -276,6 +276,8 @@ describe('CRM lead import', () => {
       const boardEmails = board.body.data.leads.map((l: { email: string }) => l.email);
       expect(boardEmails).not.toContain(email('asha'));
       expect(boardEmails).not.toContain(email('bala'));
+      // The board says how many it leaves out, so an empty board is explained.
+      expect(board.body.data.outreachCount).toBe(2);
       const cadence = await call('get', '/crm/cadence', ravi.token);
       expect(cadence.status).toBe(200);
       expect(cadence.body.data.stats.activeCount).toBe(2);

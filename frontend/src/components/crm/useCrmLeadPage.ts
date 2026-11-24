@@ -15,7 +15,7 @@ export function useCrmLeadPage<T>(filters: Record<string, string>, fallback: T[]
   const page = selection.key === filterKey ? selection.page : 1;
   const setPage = (next: number) => setSelection({ key: filterKey, page: next });
   useEffect(() => { setSelection(current => current.key === filterKey ? current : { key: filterKey, page: 1 }); }, [filterKey]);
-  const [result, setResult] = useState<{ items: T[]; total: number; totalPages: number } | null>(null);
+  const [result, setResult] = useState<{ items: T[]; total: number; totalPages: number; outreachCount: number | null } | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const version = useRef(0);
@@ -31,7 +31,7 @@ export function useCrmLeadPage<T>(filters: Record<string, string>, fallback: T[]
       if (!res.ok || !json.success || !Array.isArray(json.data?.leads)) throw new Error(typeof json.message === 'string' ? json.message : 'Could not load leads. Try again.');
       const total = json.data.pagination?.total ?? json.data.leads.length;
       const totalPages = Math.max(1, Math.ceil(total / limit));
-      setResult({ items: json.data.leads, total, totalPages });
+      setResult({ items: json.data.leads, total, totalPages, outreachCount: typeof json.data.outreachCount === 'number' ? json.data.outreachCount : null });
       if (page > totalPages) setSelection({ key: filterKey, page: totalPages });
     } catch (error) {
       if (request === version.current) setError(error instanceof Error ? error.message : 'Could not load leads. Try again.');
@@ -44,5 +44,5 @@ export function useCrmLeadPage<T>(filters: Record<string, string>, fallback: T[]
     return () => { version.current++; };
   }, [reload, fallback]);
   return { leads: enabled ? result?.items ?? fallback : fallback, total: result?.total ?? fallback.length,
-    totalPages: result?.totalPages ?? 1, loading, error, page, setPage, reload };
+    totalPages: result?.totalPages ?? 1, outreachCount: result?.outreachCount ?? null, loading, error, page, setPage, reload };
 }

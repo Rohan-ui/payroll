@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AccessService } from '@/common/access/access.service';
 import { leadVisibility } from '@/modules/crm/lead-visibility';
+import { NOT_IN_OUTREACH } from '@/modules/crm/crm-reports.service';
 
 type Money = Prisma.Decimal | string | number | null;
 const amount = (v: Money) => new Prisma.Decimal(v ?? 0).toFixed(2);
@@ -110,7 +111,7 @@ export class ReportsOverviewService {
     return { inProgress: row.in_progress, leavingIn30Days: row.leaving_soon, completedThisYear: row.completed_year };
   }
 
-  /** Sales pipelines only, as the member may see them. */
+  /** Sales pipelines only, leads still in outreach left out, as the member may see them. */
   private async sales(tenantId: string, visibility: ReturnType<typeof leadVisibility>) {
     const mine = visibility.all ? Prisma.empty : Prisma.sql`AND l.assigned_tenant_member_id = ${visibility.memberId}::uuid`;
     const [row] = await this.prisma.$queryRaw<{ leads: number; open: number; open_value: Money; won_month: number; won_month_value: Money }[]>`
@@ -121,7 +122,7 @@ export class ReportsOverviewService {
              coalesce(sum(l.budget_amount) FILTER (WHERE l.is_won AND l.closed_at >= date_trunc('month', now())), 0) AS won_month_value
       FROM rndtechnosoft_crm_leads l
       JOIN rndtechnosoft_crm_pipelines p ON p.tenant_id = l.tenant_id AND p.id = l.pipeline_id AND p.pipeline_kind = 'SALES'
-      WHERE l.tenant_id = ${tenantId}::uuid ${mine}`;
+      WHERE l.tenant_id = ${tenantId}::uuid ${mine} AND ${NOT_IN_OUTREACH}`;
     return { leads: row.leads, openDeals: row.open, openValue: amount(row.open_value), wonThisMonth: row.won_month, wonThisMonthValue: amount(row.won_month_value) };
   }
 }
