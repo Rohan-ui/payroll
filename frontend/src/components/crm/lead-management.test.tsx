@@ -152,8 +152,9 @@ describe('Lead Management table', () => {
     granted = new Set(['leads.view']);
     await render();
     expect(container.querySelector('input[type=checkbox]')).toBeNull();
-    expect(button('Edit')).toBeUndefined();
-    expect(button('View')).toBeDefined();
+    act(() => (container.querySelector('button[aria-label="Actions for Asha"]') as HTMLButtonElement).click());
+    expect(button('Edit details')).toBeUndefined();
+    expect(button('View details')).toBeDefined();
   });
 });
 

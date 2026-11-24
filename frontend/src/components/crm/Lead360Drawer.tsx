@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  X, Sparkles, Building2, Phone, Mail, Calendar, Clock, CheckCircle2, FileText, Trophy, Plus, RefreshCw, MessageSquare, Video, ShieldCheck, Send, Check, ExternalLink, Copy, Globe, Flame, Target, Edit3, Save, History,
+  X, Sparkles, Building2, Phone, Mail, Calendar, Clock, CheckCircle2, FileText, Trophy, Plus, RefreshCw, MessageSquare, Video, ShieldCheck, Send, Check, ExternalLink, Copy, Globe, Flame, Target, Edit3, History,
 } from 'lucide-react';
 import { 
   CadenceStep,
@@ -29,6 +29,8 @@ import { LeadHistory } from './LeadHistory';
 import { OutreachEmailComposer } from './OutreachEmailComposer';
 import { ConvertDestination } from './ConvertDestination';
 import { useAuth } from '../../context/AuthContext';
+import { Button } from '../ui/Button';
+import { fieldClass, labelClass } from '../../views/payroll/payroll-format';
 import { whatsAppApi } from '../../api/whatsapp.api';
 import { WhatsAppSendModal } from '../../views/crm/whatsapp/WhatsAppSendModal';
 import { LeadSequencesPanel } from '../../views/emails/drip/LeadSequencesPanel';
@@ -385,6 +387,12 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
     openEditModal();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startEditing, data]);
+  // Opened only to edit: closing or saving the edit closes everything, never revealing the details panel.
+  const editShown = useRef(false);
+  useEffect(() => {
+    if (showEditLeadModal) editShown.current = true;
+    else if (startEditing && editShown.current) onClose();
+  }, [startEditing, showEditLeadModal, onClose]);
 
   if (!leadId) return null;
 
@@ -540,8 +548,14 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
 
   return (
     // !mt-0: the page wrapper spaces its children with space-y, whose top margin would push this full-screen layer down.
-    <div className="fixed inset-0 !mt-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
-      <div role="dialog" aria-modal="true" aria-label={lead?.company_name ? `Lead: ${lead.company_name}` : 'Lead'} className="bg-white dark:bg-[#12111A] w-full max-w-4xl h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-[#262438] animate-in slide-in-from-right duration-200">
+    <div className={`fixed inset-0 !mt-0 z-50 flex justify-end ${startEditing ? '' : 'bg-slate-900/60 backdrop-blur-xs'}`}>
+      {startEditing && !showEditLeadModal && (
+        <div className="h-full w-full max-w-xl bg-white shadow-2xl dark:bg-[#171622]" aria-busy="true">
+          <span className="sr-only" role="status">Loading the lead…</span>
+          <div className="m-5 h-40 rounded-xl bg-slate-100 animate-pulse motion-reduce:animate-none dark:bg-white/5" />
+        </div>
+      )}
+      <div role="dialog" aria-modal="true" aria-label={lead?.company_name ? `Lead: ${lead.company_name}` : 'Lead'} hidden={startEditing} className={`${startEditing ? 'hidden' : 'flex'} bg-white dark:bg-[#12111A] w-full max-w-4xl h-full shadow-2xl flex-col border-l border-slate-200 dark:border-[#262438] animate-in slide-in-from-right duration-200`}>
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-[#262438] bg-slate-50 dark:bg-[#171622] flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -2045,252 +2059,71 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
         </div>
       </div>
 
-      {/* QUICK EDIT LEAD 360 PROFILE MODAL */}
+      {/* EDIT LEAD: a side drawer over the lead, so the details stay in context */}
       {showEditLeadModal && (
-        <div className="fixed inset-0 z-70 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-[#171622] max-w-2xl w-full rounded-xl shadow-2xl border border-slate-200 dark:border-[#2e2c43] overflow-hidden my-8 animate-in zoom-in-95">
-            <div className="p-5 bg-teal-600 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white">
-                  <Edit3 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-white">Edit Lead 360° Profile & Contact Details</h3>
-                  <p className="text-[11px] text-teal-100">Update company credentials, key contact person, tax info, and deal scope.</p>
-                </div>
+        <div className="fixed inset-0 !mt-0 z-70 bg-slate-950/50 flex justify-end" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setShowEditLeadModal(false); } }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="lead-edit-title" className="bg-white dark:bg-[#171622] w-full max-w-xl h-full flex flex-col shadow-2xl border-l border-slate-200 dark:border-[#2e2c43] animate-in slide-in-from-right duration-200 motion-reduce:animate-none">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-[#2e2c43] flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 id="lead-edit-title" className="font-semibold text-base text-slate-900 dark:text-white">Edit lead</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{lead?.company_name ? `${lead.company_name} · ` : ''}Company, contact, tax details and deal scope.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowEditLeadModal(false)}
-                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+                aria-label="Close edit lead"
+                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveLeadEdit} className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Company / Organization *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editFormData.companyName}
-                    onChange={(e) => setEditFormData({ ...editFormData, companyName: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="e.g. Nexus Quantum Labs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Official Website URL</label>
-                  <input
-                    type="text"
-                    value={editFormData.websiteUrl}
-                    onChange={(e) => setEditFormData({ ...editFormData, websiteUrl: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="e.g. https://nexusquantum.io"
-                  />
-                </div>
+            <form onSubmit={handleSaveLeadEdit} className="flex flex-1 min-h-0 flex-col">
+              <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+                <EditSection title="Company">
+                  <EditField id="company" label="Company name" required value={editFormData.companyName} onChange={(v) => setEditFormData({ ...editFormData, companyName: v })} wide />
+                  <EditField id="website" label="Website" type="url" placeholder="https://" value={editFormData.websiteUrl} onChange={(v) => setEditFormData({ ...editFormData, websiteUrl: v })} />
+                  <EditField id="service" label="Primary service" value={editFormData.primaryService} onChange={(v) => setEditFormData({ ...editFormData, primaryService: v })} />
+                </EditSection>
+
+                <EditSection title="Contact person">
+                  <EditField id="first-name" label="First name" required value={editFormData.firstName} onChange={(v) => setEditFormData({ ...editFormData, firstName: v })} />
+                  <EditField id="last-name" label="Last name" value={editFormData.lastName} onChange={(v) => setEditFormData({ ...editFormData, lastName: v })} />
+                  <EditField id="designation" label="Designation" value={editFormData.designation} onChange={(v) => setEditFormData({ ...editFormData, designation: v })} wide />
+                  <EditField id="email" label="Work email" type="email" required value={editFormData.email} onChange={(v) => setEditFormData({ ...editFormData, email: v })} wide />
+                  <EditField id="phone" label="Phone" type="tel" required maxLength={32} value={editFormData.phone} onChange={(v) => setEditFormData({ ...editFormData, phone: v })} />
+                  <EditField id="whatsapp" label="WhatsApp" type="tel" maxLength={32} value={editFormData.whatsappNumber} onChange={(v) => setEditFormData({ ...editFormData, whatsappNumber: v })} />
+                  <EditField id="linkedin" label="LinkedIn profile" type="url" placeholder="https://linkedin.com/in/" value={editFormData.linkedinUrl} onChange={(v) => setEditFormData({ ...editFormData, linkedinUrl: v })} wide />
+                </EditSection>
+
+                <EditSection title="Address">
+                  <EditField id="address" label="Street address" value={editFormData.address} onChange={(v) => setEditFormData({ ...editFormData, address: v })} wide />
+                  <EditField id="city" label="City" value={editFormData.city} onChange={(v) => setEditFormData({ ...editFormData, city: v })} />
+                  <EditField id="state" label="State" value={editFormData.state} onChange={(v) => setEditFormData({ ...editFormData, state: v })} />
+                  <EditField id="postal-code" label="PIN code" inputMode="numeric" value={editFormData.postalCode} onChange={(v) => setEditFormData({ ...editFormData, postalCode: v })} />
+                </EditSection>
+
+                <EditSection title="Deal and tax">
+                  <div>
+                    <label htmlFor="lead-edit-budget" className={labelClass}>Budget (₹)</label>
+                    <input id="lead-edit-budget" type="number" min={0} inputMode="numeric" value={editFormData.budgetAmount}
+                      onChange={(e) => setEditFormData({ ...editFormData, budgetAmount: Number(e.target.value) || 0 })}
+                      className={`${fieldClass} tabular-nums`} />
+                  </div>
+                  <EditField id="gstin" label="GSTIN" maxLength={15} value={editFormData.gstin} onChange={(v) => setEditFormData({ ...editFormData, gstin: v })} mono />
+                  <EditField id="pan" label="PAN" maxLength={10} value={editFormData.pan} onChange={(v) => setEditFormData({ ...editFormData, pan: v })} mono />
+                  <div className="sm:col-span-2">
+                    <label htmlFor="lead-edit-brief" className={labelClass}>Requirements</label>
+                    <textarea id="lead-edit-brief" rows={3} value={editFormData.requirementBrief}
+                      onChange={(e) => setEditFormData({ ...editFormData, requirementBrief: e.target.value })}
+                      className={fieldClass} placeholder="Scope, timeline, current setup" />
+                  </div>
+                </EditSection>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">First Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editFormData.firstName}
-                    onChange={(e) => setEditFormData({ ...editFormData, firstName: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="Aditya"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Last Name</label>
-                  <input
-                    type="text"
-                    value={editFormData.lastName}
-                    onChange={(e) => setEditFormData({ ...editFormData, lastName: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="Kulkarni"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Designation / Role</label>
-                  <input
-                    type="text"
-                    value={editFormData.designation}
-                    onChange={(e) => setEditFormData({ ...editFormData, designation: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="Founder & Chief Technology Officer"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Work Email *</label>
-                  <input
-                    type="email"
-                    required
-                    value={editFormData.email}
-                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="aditya@nexusquantum.io"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Phone Number *</label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={32}
-                    value={editFormData.phone}
-                    onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="+91 98201 44892"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">WhatsApp Number</label>
-                  <input
-                    type="text"
-                    maxLength={32}
-                    value={editFormData.whatsappNumber}
-                    onChange={(e) => setEditFormData({ ...editFormData, whatsappNumber: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="+91 98201 44892"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">LinkedIn Profile</label>
-                  <input
-                    type="text"
-                    value={editFormData.linkedinUrl}
-                    onChange={(e) => setEditFormData({ ...editFormData, linkedinUrl: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="https://linkedin.com/in/..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Primary Service / Scope</label>
-                  <input
-                    type="text"
-                    value={editFormData.primaryService}
-                    onChange={(e) => setEditFormData({ ...editFormData, primaryService: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="e.g. Enterprise Cloud & ERP Modernization"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">City</label>
-                  <input
-                    type="text"
-                    value={editFormData.city}
-                    onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="Bengaluru"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">State</label>
-                  <input
-                    type="text"
-                    value={editFormData.state}
-                    onChange={(e) => setEditFormData({ ...editFormData, state: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="Karnataka"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">PIN / Postal Code</label>
-                  <input
-                    type="text"
-                    value={editFormData.postalCode}
-                    onChange={(e) => setEditFormData({ ...editFormData, postalCode: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                    placeholder="560103"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Corporate Address</label>
-                <input
-                  type="text"
-                  value={editFormData.address}
-                  onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                  placeholder="e.g. 402, Outer Ring Road, Bellandur, Bengaluru"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Budget (₹ INR)</label>
-                  <input
-                    type="number"
-                    value={editFormData.budgetAmount}
-                    onChange={(e) => setEditFormData({ ...editFormData, budgetAmount: Number(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none font-mono"
-                    placeholder="750000"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">GSTIN Number</label>
-                  <input
-                    type="text"
-                    value={editFormData.gstin}
-                    onChange={(e) => setEditFormData({ ...editFormData, gstin: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none font-mono"
-                    placeholder="29AABCN1234F1Z5"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">PAN Number</label>
-                  <input
-                    type="text"
-                    value={editFormData.pan}
-                    onChange={(e) => setEditFormData({ ...editFormData, pan: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none font-mono"
-                    placeholder="AABCN1234F"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Requirements Brief</label>
-                <textarea
-                  rows={2}
-                  value={editFormData.requirementBrief}
-                  onChange={(e) => setEditFormData({ ...editFormData, requirementBrief: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-[#11101a] border border-slate-200 dark:border-[#2e2c43] text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:outline-none"
-                  placeholder="Notes on scope, timeline, current tech stack..."
-                />
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 dark:border-[#2e2c43] flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowEditLeadModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingLeadEdit}
-                  className="px-5 py-2 text-xs font-bold text-white bg-teal-500 hover:bg-teal-600 rounded-xl shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
-                >
-                  {savingLeadEdit ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  <span>{savingLeadEdit ? 'Saving Changes...' : 'Save Dossier Changes'}</span>
-                </button>
+              <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-[#2e2c43]">
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowEditLeadModal(false)}>Cancel</Button>
+                <Button type="submit" size="sm" loading={savingLeadEdit}>{savingLeadEdit ? 'Saving…' : 'Save changes'}</Button>
               </div>
             </form>
           </div>
@@ -2505,6 +2338,33 @@ export default function Lead360Drawer({ leadId, onClose, onRefreshParent, pipeli
         }}
       />
 
+    </div>
+  );
+}
+
+/** A titled group of the edit form's fields, two columns from small screens up. */
+function EditSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <fieldset>
+      <legend className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</legend>
+      <div className="grid grid-cols-1 gap-x-3 gap-y-3.5 sm:grid-cols-2">{children}</div>
+    </fieldset>
+  );
+}
+
+/** One labelled text field of the edit form; `wide` spans both columns. */
+function EditField({ id, label, value, onChange, required, wide, mono, type = 'text', ...rest }: {
+  id: string; label: string; value: string; onChange: (value: string) => void;
+  required?: boolean; wide?: boolean; mono?: boolean; type?: string;
+  placeholder?: string; maxLength?: number; inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+}) {
+  return (
+    <div className={wide ? 'sm:col-span-2' : undefined}>
+      <label htmlFor={`lead-edit-${id}`} className={labelClass}>
+        {label}{required ? <span className="text-red-600 dark:text-red-400" aria-hidden="true"> *</span> : <span className="font-normal text-slate-400"> (optional)</span>}
+      </label>
+      <input id={`lead-edit-${id}`} type={type} required={required} value={value ?? ''} onChange={(e) => onChange(e.target.value)}
+        className={`${fieldClass}${mono ? ' font-mono' : ''}`} {...rest} />
     </div>
   );
 }
