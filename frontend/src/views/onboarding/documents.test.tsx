@@ -160,7 +160,8 @@ describe('documents on the candidate page', () => {
     await settle();
     expect(container.textContent).toContain('0 of 2 required verified · 1 to verify');
     expect(container.textContent).toContain('Upload link sent');
-    expect(container.textContent).toContain('pan-v2.pdf · 244 KB · uploaded by The candidate');
+    expect(container.textContent).toContain('pan-v2.pdf');
+    expect(container.textContent).toContain('244 KB · uploaded by The candidate');
     expect(container.textContent).toContain('Earlier uploads (1)');
     expect(container.textContent).toContain('(Rejected: Blurred)');
     expect(byAria('Verify PAN card')).not.toBeNull();
