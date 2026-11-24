@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { FileText, FolderOpen } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Dialog } from '../../components/ui/Dialog';
 import { useAuth } from '../../context/AuthContext';
@@ -177,11 +178,19 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
   };
 
   const section = (body: React.ReactNode, actions?: React.ReactNode) => (
-    <section aria-labelledby={`${ids}-documents`} className="p-4 rounded-2xl border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724]">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id={`${ids}-documents`} className="text-sm font-bold text-slate-900 dark:text-slate-100">
-          Documents
-        </h2>
+    <section aria-labelledby={`${ids}-documents`} className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-[#2B293E] dark:bg-[#181724]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-500/10 text-teal-700 dark:text-teal-300" aria-hidden="true">
+            <FolderOpen className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <h2 id={`${ids}-documents`} className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Documents from the candidate
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">What {candidateName} must provide before joining, and whether each one has been checked.</p>
+          </div>
+        </div>
         {actions}
       </div>
       {body}
@@ -218,15 +227,19 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
     <>
       {section(
         <>
-          {hasRequests && (documents.completion ? <Completion completion={documents.completion} toReview={counts.toReview} /> : (
-            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{counts.verified} of {counts.required} required verified{counts.toReview > 0 ? ` · ${counts.toReview} to verify` : ''}</p>
-          ))}
-          {documents.canSendLink && hasRequests && (
-            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+          {hasRequests && (
+          <div className="mt-4 rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-white/5">
+          {documents.completion ? <Completion completion={documents.completion} toReview={counts.toReview} /> : (
+            <p className="text-xs text-slate-600 dark:text-slate-400">{counts.verified} of {counts.required} required verified{counts.toReview > 0 ? ` · ${counts.toReview} to verify` : ''}</p>
+          )}
+          {documents.canSendLink && (
+            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400">
               {link.sentAt
                 ? `Upload link sent ${formatDateTime(link.sentAt)}${link.expiresAt ? `; it works until ${formatDate(link.expiresAt.slice(0, 10))}` : ''}.`
                 : 'The candidate has not been sent an upload link yet.'}
             </p>
+          )}
+          </div>
           )}
           {notice && (
             <div
@@ -243,12 +256,12 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
           )}
 
           {!hasRequests ? (
-            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              No documents asked for yet.{' '}
-              {canManage ? 'Ask for what the candidate must provide before joining, such as their PAN card, Aadhaar card and certificates.' : ''}
-            </p>
+            <div className="mt-4 rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center dark:border-[#2B293E]">
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-200">No documents asked for yet</p>
+              {canManage && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Use “Ask for documents” or apply a checklist to request what the candidate must provide, such as their PAN card, Aadhaar card and certificates.</p>}
+            </div>
           ) : (
-            <ul className="mt-3 space-y-3" aria-label="Candidate document requirements">
+            <ul className="mt-4 space-y-3" aria-label="Candidate document requirements">
               {documents.requests.map((request) => {
                 const isSlotted = Array.isArray(request.slots) && request.slots.length > 0;
                 const minFiles = request.minFiles ?? 1;
@@ -296,37 +309,26 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                 // Single File Mode (PAN Card, single upload documents)
                 if (isSingleFile) {
                   return (
-                    <li key={request.id} className="p-3 rounded-xl border border-slate-200 dark:border-[#2B293E]">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm text-slate-900 dark:text-slate-100 break-words">
-                            {request.label} <span className="font-normal text-xs text-slate-500">{request.isRequired ? 'Required' : 'Optional'}</span>
-                          </p>
-                          {shown ? (
-                            <p className="text-xs text-slate-600 dark:text-slate-400 break-all">
-                              {shown.filename} · {formatBytes(shown.sizeBytes)} · uploaded by {shown.uploadedBy ?? 'a former member'} on {formatDateTime(shown.uploadedAt)}
-                              {shown.version > 1 ? ` · version ${shown.version}` : ''}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-slate-500">Nothing uploaded yet.</p>
-                          )}
-                          {shown?.reviewStatus === 'VERIFIED' && shown.reviewedBy && shown.reviewedAt && (
-                            <p className="text-xs text-slate-500">
-                              Verified by {shown.reviewedBy} on {formatDateTime(shown.reviewedAt)}
-                            </p>
-                          )}
-                          {request.state === 'REJECTED' && latest?.rejectionReason && (
-                            <p className="mt-1 text-xs text-red-700 dark:text-red-300">
-                              Rejected{latest.reviewedBy ? ` by ${latest.reviewedBy}` : ''}: {latest.rejectionReason}
-                            </p>
-                          )}
-                        </div>
-                        <Badge variant={STATE_VARIANT[request.state]} size="sm">
-                          {DOCUMENT_STATE_LABELS[request.state]}
-                        </Badge>
-                      </div>
+                    <li key={request.id} className="rounded-xl border border-slate-200 p-4 dark:border-[#2B293E]">
+                      <RequestHeader label={request.label} isRequired={request.isRequired}
+                        badge={<Badge variant={STATE_VARIANT[request.state]} size="sm">{DOCUMENT_STATE_LABELS[request.state]}</Badge>} />
+                      {shown ? (
+                        <FileLine file={shown} uploader={shown.uploadedBy ?? 'a former member'} />
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-xs text-slate-500 dark:border-[#2B293E] dark:text-slate-400">Nothing uploaded yet.</p>
+                      )}
+                      {shown?.reviewStatus === 'VERIFIED' && shown.reviewedBy && shown.reviewedAt && (
+                        <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
+                          Verified by {shown.reviewedBy} on {formatDateTime(shown.reviewedAt)}
+                        </p>
+                      )}
+                      {request.state === 'REJECTED' && latest?.rejectionReason && (
+                        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          <span className="font-semibold">Rejected{latest.reviewedBy ? ` by ${latest.reviewedBy}` : ''}:</span> {latest.rejectionReason}
+                        </p>
+                      )}
 
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      <div className="mt-3 flex flex-wrap justify-end gap-2">
                         {shown && (
                           <button
                             type="button"
@@ -428,38 +430,27 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
 
                 // Multi-file or Slotted Document Requirement Mode
                 return (
-                  <li key={request.id} className="p-3.5 rounded-xl border border-slate-200 dark:border-[#2B293E] bg-slate-50/30 dark:bg-[#1E1D2D]/30 space-y-3">
+                  <li key={request.id} className="rounded-xl border border-slate-200 p-4 dark:border-[#2B293E] space-y-3">
                     {/* Header */}
-                    <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 dark:border-[#2B293E] pb-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-sm text-slate-900 dark:text-slate-100 break-words">{request.label}</p>
-                          <span
-                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                              request.isRequired
-                                ? 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300'
-                                : 'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-white/5 dark:text-slate-400'
-                            }`}
-                          >
-                            {request.isRequired ? 'Required' : 'Optional'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        <RequestHeader label={request.label} isRequired={request.isRequired} />
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                           {isSlotted
-                            ? `Slots: ${request.slots?.join(' + ')}`
+                            ? `Parts: ${request.slots?.join(' and ')}`
                             : minFiles === maxFiles
                             ? `${minFiles} file${minFiles > 1 ? 's' : ''}`
                             : `Between ${minFiles} and ${maxFiles} files`}
                           {' · '}
                           <span className="font-medium text-slate-700 dark:text-slate-300">
                             {isSlotted
-                              ? `${request.slotsStatus?.filter((s) => s.isUploaded).length ?? 0} of ${request.slots?.length ?? 2} slots uploaded`
+                              ? `${request.slotsStatus?.filter((s) => s.isUploaded).length ?? 0} of ${request.slots?.length ?? 2} parts uploaded`
                               : `${activeFiles.length} of ${maxFiles} uploaded`}
                           </span>
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge variant={STATE_VARIANT[request.state]} size="sm">
                           {DOCUMENT_STATE_LABELS[request.state]}
                         </Badge>
@@ -478,7 +469,7 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                             className={primaryClass}
                             title="Verify and approve the entire document requirement"
                           >
-                            {busy === `verify-req-${request.id}` ? 'Verifying…' : 'Verify Document'}
+                            {busy === `verify-req-${request.id}` ? 'Verifying…' : 'Verify all'}
                           </button>
                         )}
                         {canRejectWhole && (
@@ -489,7 +480,7 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                             className={dangerClass}
                             title="Reject the entire document requirement with feedback"
                           >
-                            Reject Document
+                            Reject all
                           </button>
                         )}
                       </div>
@@ -498,8 +489,8 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                     {/* Slotted Breakdown (e.g. Aadhaar Front/Back) */}
                     {isSlotted && request.slotsStatus && (
                       <div className="space-y-2">
-                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-                          Upload Slots ({request.slotsStatus.filter((s) => s.isUploaded).length} of {request.slots?.length ?? 2})
+                        <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                          Parts uploaded ({request.slotsStatus.filter((s) => s.isUploaded).length} of {request.slots?.length ?? 2})
                         </p>
                         <div className="grid gap-2 sm:grid-cols-2">
                           {request.slotsStatus.map((slot) => {
@@ -520,21 +511,19 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                               >
                                 <div>
                                   <div className="flex items-center justify-between gap-1">
-                                    <span className="font-semibold text-xs text-slate-900 dark:text-slate-100">{slot.slotName}</span>
+                                    <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{slot.slotName}</span>
                                     {file ? (
                                       <Badge variant={FILE_VARIANT[file.reviewStatus]} size="sm">
                                         {FILE_REVIEW_LABELS[file.reviewStatus]}
                                       </Badge>
                                     ) : (
-                                      <span className="px-2 py-0.5 rounded-full border text-[10px] font-semibold bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">
-                                        Missing
-                                      </span>
+                                      <Badge variant="warning" size="sm">Missing</Badge>
                                     )}
                                   </div>
 
                                   {file ? (
                                     <div className="mt-2 text-xs space-y-1">
-                                      <p className="font-mono text-slate-800 dark:text-slate-200 break-all">{file.filename}</p>
+                                      <p className="truncate font-medium text-slate-800 dark:text-slate-200" title={file.filename}>{file.filename}</p>
                                       <p className="text-slate-500 text-[11px]">
                                         {formatBytes(file.sizeBytes)} · uploaded by {file.uploadedBy ?? 'candidate'} on {formatDateTime(file.uploadedAt)}
                                         {file.version > 1 ? ` · version ${file.version}` : ''}
@@ -652,14 +641,14 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                       <div className="space-y-2">
                         {activeFiles.length > 0 ? (
                           <div className="space-y-1.5">
-                            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-                              Active Files ({activeFiles.length} of {maxFiles})
+                            <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                              Files ({activeFiles.length} of {maxFiles})
                             </p>
                             <ul className="divide-y divide-slate-100 dark:divide-[#2B293E] rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#181724] overflow-hidden">
                               {activeFiles.map((file) => (
                                 <li key={file.id} className="p-3 flex flex-wrap items-center justify-between gap-2">
                                   <div className="min-w-0 pr-2">
-                                    <p className="font-semibold text-xs text-slate-900 dark:text-slate-100 break-all">{file.filename}</p>
+                                    <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100" title={file.filename}>{file.filename}</p>
                                     <p className="text-[11px] text-slate-500">
                                       {formatBytes(file.sizeBytes)} · uploaded by {file.uploadedBy ?? 'candidate'} on {formatDateTime(file.uploadedAt)}
                                       {file.version > 1 ? ` · version ${file.version}` : ''}
@@ -823,7 +812,7 @@ export const CandidateDocuments: React.FC<Props> = ({ candidateId, candidateName
                     )}
 
                     {canManage && request.files.length === 0 && (
-                      <div className="pt-1">
+                      <div className="flex justify-end pt-1">
                         <button
                           type="button"
                           disabled={busy !== null}
@@ -1273,7 +1262,7 @@ const JOINING_STATUSES: CandidateStatus[] = ['OFFER_ACCEPTED', 'DOCUMENT_COLLECT
 const Completion: React.FC<{ completion: NonNullable<Documents['completion']>; toReview: number }> = ({ completion, toReview }) => {
   const tone = completion.status === 'DOCUMENTS_COMPLETED' || completion.status === 'COMPLETED' ? 'success' : completion.status === 'DOCUMENTS_PENDING' ? 'warning' : 'info';
   return (
-    <div className="mt-2 space-y-1.5">
+    <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
         <Badge variant={tone} size="sm">{ONBOARDING_STATUS_LABELS[completion.status]}</Badge>
         <span>{completion.verified} of {completion.required} required verified</span>
@@ -1362,3 +1351,29 @@ const ImageViewer: React.FC<{ url: string; file: DocumentFile; title: string; de
     </Dialog>
   );
 };
+
+/** A requirement's name with whether it is required, the same on every kind of request. */
+const RequestHeader: React.FC<{ label: string; isRequired: boolean; badge?: React.ReactNode }> = ({ label, isRequired, badge }) => (
+  <div className="flex flex-wrap items-start justify-between gap-2">
+    <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+      <span className="break-words">{label}</span>
+      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${isRequired ? 'bg-slate-900/5 text-slate-700 dark:bg-white/10 dark:text-slate-200' : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'}`}>
+        {isRequired ? 'Required' : 'Optional'}
+      </span>
+    </p>
+    {badge}
+  </div>
+);
+
+/** The uploaded file of a single-file request: name, size, who uploaded it and when. */
+const FileLine: React.FC<{ file: DocumentFile; uploader: string }> = ({ file, uploader }) => (
+  <div className="mt-3 flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-white/5">
+    <FileText className="h-5 w-5 shrink-0 text-slate-400" aria-hidden="true" />
+    <div className="min-w-0">
+      <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200" title={file.filename}>{file.filename}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        {formatBytes(file.sizeBytes)} · uploaded by {uploader} on {formatDateTime(file.uploadedAt)}{file.version > 1 ? ` · version ${file.version}` : ''}
+      </p>
+    </div>
+  </div>
+);

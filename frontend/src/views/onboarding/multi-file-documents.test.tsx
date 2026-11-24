@@ -250,11 +250,11 @@ describe('Multi-File & Slotted Document Verification in CandidateDocuments', () 
     expect(container.textContent).toContain('Aadhaar Card');
     expect(container.textContent).toContain('Front Side');
     expect(container.textContent).toContain('Back Side');
-    expect(container.textContent).toContain('Upload Slots (2 of 2)');
+    expect(container.textContent).toContain('Parts uploaded (2 of 2)');
     expect(byAria('Verify Aadhaar Card Front Side')).not.toBeNull();
     expect(byAria('Verify Aadhaar Card Back Side')).not.toBeNull();
-    expect(button('Verify Document')).toBeDefined();
-    expect(button('Reject Document')).toBeDefined();
+    expect(button('Verify all')).toBeDefined();
+    expect(button('Reject all')).toBeDefined();
   });
 
   it('downloads a slot file through the session, never through a bare link', async () => {
@@ -308,7 +308,7 @@ describe('Multi-File & Slotted Document Verification in CandidateDocuments', () 
     await act(async () => root.render(<CandidateDocuments candidateId="c1" candidateName="Harshit Dhodi" onChanged={() => undefined} />));
     await settle();
 
-    const verifyDocBtn = button('Verify Document');
+    const verifyDocBtn = button('Verify all');
     expect(verifyDocBtn).toBeDefined();
 
     await act(async () => verifyDocBtn?.click());
@@ -323,7 +323,7 @@ describe('Multi-File & Slotted Document Verification in CandidateDocuments', () 
     await act(async () => root.render(<CandidateDocuments candidateId="c1" candidateName="Harshit Dhodi" onChanged={() => undefined} />));
     await settle();
 
-    const rejectDocBtn = button('Reject Document');
+    const rejectDocBtn = button('Reject all');
     expect(rejectDocBtn).toBeDefined();
 
     act(() => rejectDocBtn?.click());
