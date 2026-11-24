@@ -31,6 +31,7 @@ import { TenancyModule } from './modules/tenancy/tenancy.module';
 import { EmailModule } from './modules/email/email.module';
 import { GmailModule } from './modules/gmail/gmail.module';
 import { MailModule } from './modules/mail/mail.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { MailModule } from './modules/mail/mail.module';
     EmailModule,
     GmailModule,
     MailModule,
+    ReportsModule,
     TenantsModule,
     AuthModule,
     EmployeesModule,

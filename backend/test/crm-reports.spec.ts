@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { jest } from '@jest/globals';
 import request from 'supertest';
+import * as ExcelJS from 'exceljs';
 import { randomUUID } from 'crypto';
 import { AppModule } from '@/app.module';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
@@ -134,6 +135,7 @@ describe('CRM reports', () => {
     const r = await call('/crm/reports/summary', owner.token);
     expect([r.status, r.body.message]).toEqual([200, undefined]);
     expect(r.body.data.totals).toEqual({
+      totalLeads: 4, newThisMonth: 4, newLastMonth: 0, averageDaysToWin: 0,
       openCount: 2, openValue: '150000.00', weightedForecast: '60000.00',
       wonCount: 1, wonValue: '200000.00', lostCount: 1, winRate: 50, averageWon: '200000.00',
     });
@@ -141,7 +143,7 @@ describe('CRM reports', () => {
     expect(r.body.data.sources).toEqual([{ name: 'No source', leads: 4, won: 1, value: '360000.00' }]);
     expect(r.body.data.assignees).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Sana Seller', open: 1, openValue: '100000.00', won: 0 })]));
     expect(r.body.data.wonByMonth).toHaveLength(12);
-    expect(r.body.data.wonByMonth[11]).toMatchObject({ won: 1, value: '200000.00' });
+    expect(r.body.data.wonByMonth[11]).toMatchObject({ won: 1, value: '200000.00', created: 4 });
   });
 
   it('gives a member who sees only their own leads only their own figures, and nothing to someone without reports', async () => {
@@ -150,5 +152,21 @@ describe('CRM reports', () => {
     expect(mine.stages[0]).toMatchObject({ count: 1, value: '100000.00' });
     expect((await call('/crm/reports/summary', staff.token)).status).toBe(403);
     expect((await call('/crm/reports/summary', other.token)).body.data.totals).toMatchObject({ openCount: 1, openValue: '999999.00' });
+  });
+
+  it('exports the same figures as a workbook, the member’s own only, and audits it', async () => {
+    const binary = (res: request.Response, done: (err: Error | null, body: Buffer) => void) => { const chunks: Buffer[] = []; res.on('data', (c: Buffer) => chunks.push(c)); res.on('end', () => done(null, Buffer.concat(chunks))); };
+    const r = await call('/crm/reports/export', seller.token).buffer(true).parse(binary);
+    expect(r.status).toBe(200);
+    expect(r.headers['content-disposition']).toContain('crm-report-');
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(r.body as unknown as ArrayBuffer);
+    expect(book.worksheets.map((w) => w.name)).toEqual(['Summary', 'Open deals by stage', 'By source', 'By assignee', 'By month']);
+    const summary = book.getWorksheet('Summary');
+    expect(summary?.getRow(2).values).toEqual([undefined, 'Leads', 1]);
+    expect(summary?.getRow(6).values).toEqual([undefined, 'Open deals', 1]);
+    expect(summary?.getRow(7).values).toEqual([undefined, 'Open pipeline value (₹)', 100000]);
+    expect((await call('/crm/reports/export', staff.token)).status).toBe(403);
+    expect(await prisma.rndtechnosoft_audit_logs.count({ where: { tenant_id: owner.tenantId, action_code: 'CRM_REPORT_EXPORTED' } })).toBe(1);
   });
 });

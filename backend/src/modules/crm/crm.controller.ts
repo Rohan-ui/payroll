@@ -159,6 +159,15 @@ export class CrmController {
     return { success: true, data: await this.reports.summary(tenantId, await this.visibility(tenantId, actor)) };
   }
 
+  /** The reports page's figures as an Excel workbook. */
+  @Get('reports/export')
+  @RequirePermissions('analytics.view')
+  @Header('Cache-Control', 'private, no-store')
+  async exportReport(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser) {
+    const bytes = await this.reports.exportSummary(tenantId, await this.visibility(tenantId, actor), actor);
+    return fileResponse(bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `crm-report-${new Date().toISOString().slice(0, 10)}.xlsx`, '1');
+  }
+
   @Get('leads')
   @RequirePermissions('leads.view')
   async getLeads(
