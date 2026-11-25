@@ -1,0 +1,15 @@
+info:
+  name: Sync users
+  type: http
+  seq: 1
+  description: ⚠ WRITES DATA to the workspace. Imports COSEC users as employees. Needs attendance.sync + people.create + people.update. Do not run against real data without checking first.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/sync-users'
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+settings:
+  encodeUrl: true

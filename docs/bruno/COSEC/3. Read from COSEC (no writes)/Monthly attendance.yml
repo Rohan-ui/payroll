@@ -1,0 +1,27 @@
+info:
+  name: Monthly attendance
+  type: http
+  seq: 2
+  description: 'range: all | organization | department | branch. rangeId is required when range is not all.'
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/attendance-monthly?month={{month}}&range=all&rangeId=&page=1&limit=25'
+  params:
+  - name: month
+    value: '{{month}}'
+    type: query
+  - name: range
+    value: all
+    type: query
+  - name: rangeId
+    value: ''
+    type: query
+  - name: page
+    value: '1'
+    type: query
+  - name: limit
+    value: '25'
+    type: query
+  auth: inherit
+settings:
+  encodeUrl: true

@@ -1,0 +1,9 @@
+info:
+  name: 1. Connection settings
+  type: folder
+  seq: 2
+
+request:
+  auth:
+    type: bearer
+    token: FYRJupCuvtiZi5RT2qyjoMpfJVX6KOBVqoU3OO9bp7k

@@ -1,0 +1,809 @@
+{
+  "info": {
+    "name": "Voogyo – COSEC integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Run '0. Auth / Login' first; it saves {{token}}. Fill email, password and the COSEC variables in the collection's Variables tab. Requests marked ⚠ change workspace data."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000/api/v1"
+    },
+    {
+      "key": "email",
+      "value": ""
+    },
+    {
+      "key": "password",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "month",
+      "value": "2026-11"
+    },
+    {
+      "key": "startDate",
+      "value": "2026-11-01"
+    },
+    {
+      "key": "endDate",
+      "value": "2026-11-25"
+    },
+    {
+      "key": "employeeId",
+      "value": ""
+    },
+    {
+      "key": "cosecId",
+      "value": ""
+    },
+    {
+      "key": "cosecBaseUrl",
+      "value": ""
+    },
+    {
+      "key": "cosecUsername",
+      "value": ""
+    },
+    {
+      "key": "cosecPassword",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Auth",
+      "item": [
+        {
+          "name": "Login (saves token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Signs in and stores the session token in {{token}} for every other request.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('signed in', () => pm.expect(body.token, 'token').to.be.a('string'));",
+                  "if (body.token) pm.collectionVariables.set('token', body.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Connection settings",
+      "item": [
+        {
+          "name": "Get config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "config"
+              ]
+            },
+            "description": "Saved COSEC settings, password masked. Needs attendance.integration.view."
+          }
+        },
+        {
+          "name": "Save config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "config"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Saves COSEC connection settings. Needs attendance.integration.update.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"baseUrl\": \"{{cosecBaseUrl}}\",\n  \"username\": \"{{cosecUsername}}\",\n  \"password\": \"{{cosecPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Test connection (saved settings)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/test-connection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "test-connection"
+              ]
+            },
+            "description": "Tests the saved settings.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Test connection (before saving)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/test-connection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "test-connection"
+              ]
+            },
+            "description": "Tests the typed settings. Leave password empty to reuse the saved one.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"baseUrl\": \"{{cosecBaseUrl}}\",\n  \"username\": \"{{cosecUsername}}\",\n  \"password\": \"{{cosecPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Auto sync",
+      "item": [
+        {
+          "name": "Sync status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/sync-status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "sync-status"
+              ]
+            },
+            "description": "Whether the every-minute sync is on and how its last run went."
+          }
+        },
+        {
+          "name": "Turn auto sync on/off",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/auto-sync",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "auto-sync"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Switches the every-minute sync. Needs attendance.integration.update.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Read from COSEC (no writes)",
+      "item": [
+        {
+          "name": "Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/users?page=1&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Active COSEC users. limit max 100."
+          }
+        },
+        {
+          "name": "Monthly attendance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/attendance-monthly?month={{month}}&range=all&rangeId=&page=1&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "attendance-monthly"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{month}}"
+                },
+                {
+                  "key": "range",
+                  "value": "all"
+                },
+                {
+                  "key": "rangeId",
+                  "value": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "range: all | organization | department | branch. rangeId is required when range is not all."
+          }
+        },
+        {
+          "name": "Daily attendance (punches)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/attendance-daily?startDate={{startDate}}&endDate={{endDate}}&range=all&rangeId=&page=1&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "attendance-daily"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{startDate}}"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{endDate}}"
+                },
+                {
+                  "key": "range",
+                  "value": "all"
+                },
+                {
+                  "key": "rangeId",
+                  "value": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Daily attendance with punch in/out times."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Refresh into HRMS attendance",
+      "item": [
+        {
+          "name": "Refresh month (whole workspace)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/refresh-month",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "refresh-month"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Writes changed days only; finalized or corrected days are left alone.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"month\": \"{{month}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Refresh one employee's month",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/refresh-employee",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "refresh-employee"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. employeeId is the employee id or Employee Code.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeId\": \"{{employeeId}}\",\n  \"month\": \"{{month}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Full sync (heavy writes)",
+      "item": [
+        {
+          "name": "Sync users",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/sync-users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "sync-users"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Imports COSEC users as employees. Needs attendance.sync + people.create + people.update. Do not run against real data without checking first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Sync daily attendance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/sync-daily-attendance?startDate={{startDate}}&endDate={{endDate}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "sync-daily-attendance"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{startDate}}"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{endDate}}"
+                }
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Imports daily attendance and punches.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Sync monthly attendance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/sync-attendance?month={{month}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "sync-attendance"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{month}}"
+                }
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Imports the month's attendance summary.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Sync all",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/sync-all?month={{month}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "sync-all"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{month}}"
+                }
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Users + daily attendance and punches + monthly summary.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Employee mappings",
+      "item": [
+        {
+          "name": "Look up COSEC id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/mappings/lookup/{{cosecId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "mappings",
+                "lookup",
+                "{{cosecId}}"
+              ]
+            },
+            "description": "Checks the id against live COSEC users and existing mappings."
+          }
+        },
+        {
+          "name": "Get employee mapping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/mappings/{{employeeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "mappings",
+                "{{employeeId}}"
+              ]
+            },
+            "description": "Mapping status for one employee. Needs people.view."
+          }
+        },
+        {
+          "name": "Set employee mapping",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/mappings/{{employeeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "mappings",
+                "{{employeeId}}"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Links an employee to a COSEC id. Needs people.update.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cosecEmployeeId\": \"{{cosecId}}\",\n  \"notes\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Remove employee mapping",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/mappings/{{employeeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "mappings",
+                "{{employeeId}}"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Removes the employee's COSEC link."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Reconciliation",
+      "item": [
+        {
+          "name": "Reconciliation summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "reconciliation"
+              ]
+            },
+            "description": "Mapped, unmapped and unmatched counts."
+          }
+        },
+        {
+          "name": "Run reconciliation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/external-api/cosec/reconcile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "external-api",
+                "cosec",
+                "reconcile"
+              ]
+            },
+            "description": "⚠ WRITES DATA to the workspace. Auto-matches HRMS employees to COSEC users. Needs attendance.integration.update.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+info:
+  name: Get employee mapping
+  type: http
+  seq: 2
+  description: Mapping status for one employee. Needs people.view.
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/mappings/{{employeeId}}'
+  auth: inherit
+settings:
+  encodeUrl: true

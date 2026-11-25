@@ -483,6 +483,69 @@ describe('Workspace role-based access control', () => {
       expect(escalate.status).toBe(403);
       expect(allowed.status).toBe(200);
     });
+
+    it('grants or removes several permissions at once, all or nothing', async () => {
+      const bulk = (permissionKeys: string[], granted: boolean, actor = roleLead) =>
+        api().put(`${API}/tenant/roles/${salesRoleId}/permissions/bulk`).set(as(actor)).send({ permissionKeys, granted });
+      const keysOf = async () => (await prisma.rndtechnosoft_role_permissions.findMany({
+        where: { tenant_id: tenantId, role_id: salesRoleId },
+        select: { rndtechnosoft_permissions: { select: { permission_code: true } } },
+      })).map((g) => g.rndtechnosoft_permissions.permission_code);
+
+      // One key the caller lacks refuses the whole change.
+      const escalate = await bulk(['leads.view', 'leads.delete'], true);
+      expect(escalate.status).toBe(403);
+      expect(await keysOf()).not.toContain('leads.delete');
+
+      const removed = await bulk(['leads.view', 'leads.create'], false);
+      expect(removed.status).toBe(200);
+      expect(await keysOf()).not.toEqual(expect.arrayContaining(['leads.view']));
+      expect(removed.body.data.permissions).not.toContain('leads.create');
+
+      const granted = await bulk(['leads.view', 'leads.create'], true);
+      expect(granted.status).toBe(200);
+      expect(await keysOf()).toEqual(expect.arrayContaining(['leads.view', 'leads.create']));
+
+      expect((await bulk(['not.a.permission'], true)).status).toBe(400);
+    });
+  });
+
+  describe('team members are HRMS employees', () => {
+    it('lists active employees without a sign-in and links the one a new member is created for', async () => {
+      const created = await api()
+        .post(`${API}/employees`)
+        .set(as(owner))
+        .send({ employeeCode: `RBAC-TM-${Date.now()}`, firstName: 'Linked', joiningDate: '2026-01-01' });
+      expect(created.status).toBe(201);
+      const employeeId: string = created.body.id ?? created.body.data?.id;
+
+      const before = await api().get(`${API}/users`).set(as(owner));
+      expect(before.body.data.employeesWithoutSignIn.map((e: { id: string }) => e.id)).toContain(employeeId);
+
+      const email = `rbac-linked-${randomUUID()}@rbac.test`;
+      userEmails.push(email);
+      const added = await api()
+        .post(`${API}/users`)
+        .set(as(owner))
+        .send({ email, first_name: 'Linked', role_id: salesRoleId, employee_id: employeeId });
+      expect(added.status).toBe(201);
+
+      const employeeRow = await prisma.rndtechnosoft_employees.findUnique({ where: { id: employeeId }, select: { user_id: true } });
+      expect(employeeRow?.user_id).toBe(added.body.data.id);
+      const after = await api().get(`${API}/users`).set(as(owner));
+      expect(after.body.data.employeesWithoutSignIn.map((e: { id: string }) => e.id)).not.toContain(employeeId);
+      expect(after.body.data.users.find((u: { email: string }) => u.email === email)?.employee_id).toBe(employeeId);
+
+      // The same employee cannot be given a second sign-in; nothing is created.
+      const secondEmail = `rbac-linked-${randomUUID()}@rbac.test`;
+      userEmails.push(secondEmail);
+      const again = await api()
+        .post(`${API}/users`)
+        .set(as(owner))
+        .send({ email: secondEmail, first_name: 'Again', role_id: salesRoleId, employee_id: employeeId });
+      expect(again.status).toBe(409);
+      expect(await prisma.rndtechnosoft_users.findUnique({ where: { email: secondEmail } })).toBeNull();
+    });
   });
 
   describe('CRM masters', () => {
@@ -506,6 +569,38 @@ describe('Workspace role-based access control', () => {
         ['PUT /crm/masters/quotation-categories', 404],
         ['POST /crm/masters/quotation-categories', 404],
       ]);
+    });
+  });
+
+  describe('marking a month', () => {
+    it('fills only days with no attendance, up to today, and never overwrites a recorded day', async () => {
+      const created = await api()
+        .post(`${API}/employees`)
+        .set(as(owner))
+        .send({ employeeCode: `RBAC-BULK-${Date.now()}`, firstName: 'Bulk', joiningDate: '2026-01-01' });
+      expect(created.status).toBe(201);
+      const employeeId: string = created.body.id ?? created.body.data?.id;
+
+      const recorded = await api()
+        .post(`${API}/attendance/records`)
+        .set(as(owner))
+        .send({ employeeId, attendanceDate: '2026-08-04', attendanceStatus: 'ABSENT' });
+      expect(recorded.status).toBe(201);
+
+      const marked = await api().post(`${API}/attendance/bulk-mark`).set(as(owner)).send({ month: '2026-08', defaultStatus: 'PRESENT', employeeIds: [employeeId] });
+      expect(marked.status).toBe(201);
+
+      const rows = await prisma.rndtechnosoft_attendance_records.findMany({ where: { tenant_id: tenantId, employee_id: employeeId } });
+      const byDate = new Map(rows.map((r) => [r.attendance_date.toISOString().slice(0, 10), r.attendance_status]));
+      expect(byDate.get('2026-08-04')).toBe('ABSENT');
+      expect(byDate.get('2026-08-05')).toBe('PRESENT');
+      expect(byDate.get('2026-08-02')).toBe('WEEKEND');
+      expect(rows.length).toBe(31);
+
+      // A month still to come gets nothing.
+      const future = await api().post(`${API}/attendance/bulk-mark`).set(as(owner)).send({ month: '2099-01', defaultStatus: 'PRESENT', employeeIds: [employeeId] });
+      expect(future.status).toBe(201);
+      expect(await prisma.rndtechnosoft_attendance_records.count({ where: { tenant_id: tenantId, employee_id: employeeId, attendance_date: { gte: new Date('2099-01-01') } } })).toBe(0);
     });
   });
 

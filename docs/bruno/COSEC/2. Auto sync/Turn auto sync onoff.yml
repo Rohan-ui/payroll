@@ -1,0 +1,17 @@
+info:
+  name: Turn auto sync on/off
+  type: http
+  seq: 2
+  description: ⚠ WRITES DATA to the workspace. Switches the every-minute sync. Needs attendance.integration.update.
+http:
+  method: PUT
+  url: '{{baseUrl}}/external-api/cosec/auto-sync'
+  body:
+    type: json
+    data: |-
+      {
+        "enabled": false
+      }
+  auth: inherit
+settings:
+  encodeUrl: true

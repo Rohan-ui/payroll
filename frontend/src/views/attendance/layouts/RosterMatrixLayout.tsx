@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import { cn } from '../../../utils/cn';
+import { LeaveBalances } from '../shared/LeaveBalances';
 import { Avatar } from '../../../components/ui/Avatar';
 import { StatusPill } from '../shared/StatusPill';
 import { MonthCalendar } from '../shared/MonthCalendar';
@@ -81,7 +82,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
   // 1. EMPLOYEE DETAIL VIEW (Roster Matrix Style: Left Profile/Stats + Right 3 Tabs)
   // -------------------------------------------------------------
   if (isDetailView && employeeMonthData) {
-    const { employee, month, workingDays, attendancePct, payableDays, totalWorkedHours, stats, leaveBalances, days } = employeeMonthData;
+    const { employee, month, workingDays, attendancePct, payableDays, totalWorkedHours, stats, days } = employeeMonthData;
     const targetDateForModal = modalDate || selectedDate;
     const selectedDayRecord = days.find((d) => d.date === targetDateForModal) || days[0];
 
@@ -139,7 +140,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400">Average Check-in</span>
-                  <span className="font-semibold text-slate-700 font-mono">{stats.avgCheckInTime}</span>
+                  <span className="font-semibold text-slate-700 font-mono">{stats.avgCheckInTime ?? '—'}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400">Overtime Logged</span>
@@ -147,60 +148,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                 </div>
               </div>
 
-              {/* Leave Balance Bars */}
-              <div className="border-t border-slate-100 pt-3 space-y-3">
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  Leave Balances
-                </h4>
-
-                {/* Casual Leave */}
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-600 font-medium">Casual Leave (CL)</span>
-                    <span className="text-slate-500 font-mono">
-                      {leaveBalances.casual.remaining} / {leaveBalances.casual.total} left
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      style={{ width: `${(leaveBalances.casual.remaining / leaveBalances.casual.total) * 100}%` }}
-                      className="h-full bg-teal-500 rounded-full"
-                    />
-                  </div>
-                </div>
-
-                {/* Sick Leave */}
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-600 font-medium">Sick Leave (SL)</span>
-                    <span className="text-slate-500 font-mono">
-                      {leaveBalances.sick.remaining} / {leaveBalances.sick.total} left
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      style={{ width: `${(leaveBalances.sick.remaining / leaveBalances.sick.total) * 100}%` }}
-                      className="h-full bg-amber-500 rounded-full"
-                    />
-                  </div>
-                </div>
-
-                {/* Earned Leave */}
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-600 font-medium">Earned Leave (EL)</span>
-                    <span className="text-slate-500 font-mono">
-                      {leaveBalances.earned.remaining} / {leaveBalances.earned.total} left
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      style={{ width: `${(leaveBalances.earned.remaining / leaveBalances.earned.total) * 100}%` }}
-                      className="h-full bg-emerald-500 rounded-full"
-                    />
-                  </div>
-                </div>
-              </div>
+              <LeaveBalances employeeId={employee.id} />
             </div>
           </div>
 
@@ -451,10 +399,10 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
             <thead className="bg-slate-100 border-b border-slate-200 sticky top-0 z-20">
               <tr>
                 {/* Sticky Name column */}
-                <th className="py-2.5 px-3 min-w-[200px] sticky left-0 bg-slate-100 z-30 font-bold text-slate-700 border-r border-slate-200">
+                <th scope="col" className="py-2.5 px-3 min-w-[200px] sticky left-0 bg-slate-100 z-30 font-bold text-slate-700 border-r border-slate-200">
                   Staff Member
                 </th>
-                <th className="py-2.5 px-2 text-center min-w-[50px] font-bold text-slate-700 border-r border-slate-200">
+                <th scope="col" className="py-2.5 px-2 text-center min-w-[50px] font-bold text-slate-700 border-r border-slate-200">
                   Month %
                 </th>
                 {/* Days columns */}

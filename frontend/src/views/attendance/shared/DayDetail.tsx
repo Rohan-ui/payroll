@@ -73,7 +73,7 @@ export const DayDetail: React.FC<DayDetailProps> = ({
       return (
         <div className={cn('bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-400', className)}>
           <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-          <p className="text-xs font-medium">Select any date on the calendar to view full day details</p>
+          <p className="text-xs font-medium">Pick a day on the calendar to see its punches and hours</p>
         </div>
       );
     }
@@ -362,7 +362,7 @@ export const DayDetail: React.FC<DayDetailProps> = ({
             <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs space-y-2">
               <div className="flex items-center gap-1.5 font-semibold text-slate-800">
                 <Building className="w-3.5 h-3.5 text-slate-500" />
-                <span>Assigned Shift Configuration</span>
+                <span>Shift</span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-slate-600">
                 <div>
@@ -435,19 +435,13 @@ export const DayDetail: React.FC<DayDetailProps> = ({
           <div className="p-5 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-3">
             <div className="flex items-center gap-2 text-emerald-900 font-semibold text-sm">
               <FileText className="w-4 h-4 text-emerald-600" />
-              <span>Official Leave Record</span>
+              <span>Leave</span>
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <span className="text-slate-400 block text-[11px]">Leave Category</span>
                 <span className="font-semibold text-slate-800">
-                  {dayRecord.leaveType || (dayRecord.status === 'PAID_LEAVE' ? 'Earned Leave (EL)' : 'Unpaid / LOP')}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Approval Status</span>
-                <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Approved
+                  {dayRecord.leaveType || (dayRecord.status === 'PAID_LEAVE' ? 'Paid leave' : 'Unpaid leave (loss of pay)')}
                 </span>
               </div>
               <div>
@@ -455,10 +449,6 @@ export const DayDetail: React.FC<DayDetailProps> = ({
                 <span className="font-semibold text-slate-800">
                   {dayRecord.status === 'PAID_LEAVE' ? '1.0 Day (Full Pay)' : '0.0 Day (LOP)'}
                 </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Approver</span>
-                <span className="font-medium text-slate-700">HR Administrator</span>
               </div>
             </div>
           </div>

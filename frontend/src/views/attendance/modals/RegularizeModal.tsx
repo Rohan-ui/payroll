@@ -79,7 +79,7 @@ export const RegularizeModal: React.FC<RegularizeModalProps> = ({
   // Initialize form when opened or record changes
   useEffect(() => {
     if (isOpen) {
-      setStatus(dayRecord?.status || 'PRESENT');
+      setStatus(dayRecord?.status && dayRecord.status !== 'FUTURE' ? dayRecord.status : 'PRESENT');
       setInTime(parseTimeToHHmm(dayRecord?.firstCheckInAt, '09:30'));
       setOutTime(parseTimeToHHmm(dayRecord?.lastCheckOutAt, '18:30'));
       setBreakMinutes(dayRecord?.shift?.breakMinutes || 60);

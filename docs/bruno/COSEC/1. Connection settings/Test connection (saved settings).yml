@@ -1,0 +1,15 @@
+info:
+  name: Test connection (saved settings)
+  type: http
+  seq: 3
+  description: Tests the saved settings.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/test-connection'
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+settings:
+  encodeUrl: true

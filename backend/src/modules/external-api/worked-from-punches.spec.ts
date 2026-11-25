@@ -1,4 +1,4 @@
-import { workedFromPunches } from './external-api.service';
+import { dayStatus, workedFromPunches } from './external-api.service';
 
 const at = (time: string) => new Date(`2026-10-10T${time}+05:30`);
 
@@ -19,5 +19,13 @@ describe('worked time from punches', () => {
       { punch_at: at('12:00:00'), punch_type: 'CHECK_OUT' },
       { punch_at: at('13:00:00'), punch_type: 'CHECK_IN' },
     ])).toBe(180);
+  });
+});
+
+describe('day status', () => {
+  it("is COSEC's, except a day still open today", () => {
+    expect(dayStatus({ status: 'ABSENT', isCurrentlyInside: true, date: '2026-11-25' }, '2026-11-25')).toBe('PRESENT');
+    expect(dayStatus({ status: 'ABSENT', isCurrentlyInside: true, date: '2026-11-24' }, '2026-11-25')).toBe('ABSENT');
+    expect(dayStatus({ status: 'HALF_DAY', isCurrentlyInside: false, date: '2026-11-25' }, '2026-11-25')).toBe('HALF_DAY');
   });
 });

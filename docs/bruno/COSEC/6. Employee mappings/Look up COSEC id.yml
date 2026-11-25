@@ -1,0 +1,11 @@
+info:
+  name: Look up COSEC id
+  type: http
+  seq: 1
+  description: Checks the id against live COSEC users and existing mappings.
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/mappings/lookup/{{cosecId}}'
+  auth: inherit
+settings:
+  encodeUrl: true

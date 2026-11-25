@@ -1,0 +1,11 @@
+info:
+  name: Reconciliation summary
+  type: http
+  seq: 1
+  description: Mapped, unmapped and unmatched counts.
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/reconciliation'
+  auth: inherit
+settings:
+  encodeUrl: true

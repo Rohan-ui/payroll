@@ -1,0 +1,30 @@
+info:
+  name: Daily attendance (punches)
+  type: http
+  seq: 3
+  description: Daily attendance with punch in/out times.
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/attendance-daily?startDate={{startDate}}&endDate={{endDate}}&range=all&rangeId=&page=1&limit=25'
+  params:
+  - name: startDate
+    value: '{{startDate}}'
+    type: query
+  - name: endDate
+    value: '{{endDate}}'
+    type: query
+  - name: range
+    value: all
+    type: query
+  - name: rangeId
+    value: ''
+    type: query
+  - name: page
+    value: '1'
+    type: query
+  - name: limit
+    value: '25'
+    type: query
+  auth: inherit
+settings:
+  encodeUrl: true

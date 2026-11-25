@@ -29,7 +29,7 @@ import {
   TestWhatsAppSettingsDto,
   UpdateOrganizationProfileDto,
 } from './dto/organization-settings.dto';
-import { CreateRoleDto, SetRolePermissionDto, UpdateRoleDto } from './dto/access-management.dto';
+import { CreateRoleDto, SetRolePermissionDto, SetRolePermissionsBulkDto, UpdateRoleDto } from './dto/access-management.dto';
 import {
   CreateEmploymentTypeDto,
   ListEmploymentTypesQueryDto,
@@ -174,6 +174,17 @@ export class TenantsController {
     @Body() body: SetRolePermissionDto,
   ) {
     return this.rolesService.setRolePermission(tenantId, roleId, body, actor);
+  }
+
+  @Put('roles/:roleId/permissions/bulk')
+  @RequirePermissions('roles.update')
+  async setRolePermissions(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: AuthenticatedTenantUser,
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+    @Body() body: SetRolePermissionsBulkDto,
+  ) {
+    return this.rolesService.setRolePermissions(tenantId, roleId, body, actor);
   }
 
   // ── Employment types ────────────────────────────────────────

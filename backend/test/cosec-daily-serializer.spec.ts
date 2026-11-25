@@ -81,3 +81,21 @@ describe('parseCosecClock', () => {
     expect(parseCosecClock(input)).toBe(expected);
   });
 });
+
+describe('day status follows COSEC first/second half', () => {
+  const statusOf = (firsthalf: string, secondhalf: string, punches: Record<string, string> = {}) =>
+    serializeCosecDailyAttendance([{ userid: 'X', processdate: '24/11/2026', firsthalf, secondhalf, ...punches }])[0].status;
+
+  it.each([
+    ['PR', 'PR', 'PRESENT'],
+    ['PR', 'AB', 'HALF_DAY'],
+    ['AB', 'PR', 'HALF_DAY'],
+    ['AB', 'AB', 'ABSENT'], // Rohan Sawant 24/11: 12 punches, 03:36 worked
+    ['AB', 'IN', 'ABSENT'], // Rishi Pethani 24/11: punches but COSEC counts no half
+    ['', '', 'ABSENT'],
+    ['WO', 'WO', 'WEEK_OFF'],
+    ['PH', 'PH', 'HOLIDAY'],
+  ])('%p / %p → %p', (first, second, expected) => {
+    expect(statusOf(first, second, { punch1_time: '09:04:40', punch2_time: '18:47:19' })).toBe(expected);
+  });
+});

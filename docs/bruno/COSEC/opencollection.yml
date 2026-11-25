@@ -1,0 +1,48 @@
+opencollection: 1.0.0
+
+info:
+  name: Voogyo – COSEC integration
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ""
+      port: ""
+      auth:
+        username: ""
+        password: ""
+      bypassProxy: ""
+
+request:
+  auth:
+    type: bearer
+    token: "{{token}}"
+  variables:
+    - name: email
+      value: ravishah@rndtechnosoft.com
+    - name: password
+      value: "12345678"
+    - name: baseUrl
+      value: http://localhost:4000/api/v1
+    - name: month
+      value: 2026-11
+    - name: startDate
+      value: 2026-11-01
+    - name: endDate
+      value: 2026-11-25
+    - name: employeeId
+      value: ""
+    - name: cosecId
+      value: ""
+    - name: cosecBaseUrl
+      value: http://103.83.155.90:83/COSEC
+    - name: cosecUsername
+      value: sa
+    - name: cosecPassword
+      value: 123niket
+bundled: false
+extensions:
+  bruno:
+    presets:
+      defaultEnvironment: Local

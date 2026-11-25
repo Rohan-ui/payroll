@@ -1,0 +1,19 @@
+info:
+  name: Sync all
+  type: http
+  seq: 4
+  description: ⚠ WRITES DATA to the workspace. Users + daily attendance and punches + monthly summary.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/sync-all?month={{month}}'
+  params:
+  - name: month
+    value: '{{month}}'
+    type: query
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+settings:
+  encodeUrl: true

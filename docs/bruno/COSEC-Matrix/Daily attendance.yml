@@ -1,0 +1,14 @@
+info:
+  name: Daily attendance
+  type: http
+  seq: 3
+  description: Daily punches for everyone, with the same fields the app reads. dateRange is ddmmyyyy-ddmmyyyy.
+http:
+  method: GET
+  url: '{{cosecBaseUrl}}/attendance-daily?action=get;date-range={{dateRange}};range=all;field-name=userid,username,processdate,punch1_date,punch1_time,punch2_date,punch2_time,punch3_date,punch3_time,punch4_date,punch4_time,punch5_date,punch5_time,punch6_date,punch6_time,punch7_date,punch7_time,punch8_date,punch8_time,punch9_date,punch9_time,punch10_date,punch10_time,punch11_date,punch11_time,punch12_date,punch12_time,outpunch_time,firsthalf,secondhalf,worktime_hhmm,shiftstart,shiftend,scheduleshift,workingshift;format=json'
+  headers:
+  - name: Accept
+    value: application/json
+  auth: inherit
+settings:
+  encodeUrl: false

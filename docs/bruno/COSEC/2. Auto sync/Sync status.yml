@@ -1,0 +1,11 @@
+info:
+  name: Sync status
+  type: http
+  seq: 1
+  description: Whether the every-minute sync is on and how its last run went.
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/sync-status'
+  auth: inherit
+settings:
+  encodeUrl: true

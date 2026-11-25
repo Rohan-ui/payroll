@@ -21,14 +21,14 @@ export const LogTable: React.FC<LogTableProps> = ({ days = [], onSelectDay, clas
         <table className="w-full text-left text-xs border-collapse">
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-semibold text-[11px] sticky top-0 z-10">
             <tr>
-              <th className="py-2.5 px-3">Date</th>
-              <th className="py-2.5 px-2">Day</th>
-              <th className="py-2.5 px-3">Status</th>
-              <th className="py-2.5 px-3">Check In</th>
-              <th className="py-2.5 px-3">Check Out</th>
-              <th className="py-2.5 px-3 text-right">Worked</th>
-              <th className="py-2.5 px-3">Late By</th>
-              <th className="py-2.5 px-3">Source</th>
+              <th scope="col" className="py-2.5 px-3">Date</th>
+              <th scope="col" className="py-2.5 px-2">Day</th>
+              <th scope="col" className="py-2.5 px-3">Status</th>
+              <th scope="col" className="py-2.5 px-3">Check In</th>
+              <th scope="col" className="py-2.5 px-3">Check Out</th>
+              <th scope="col" className="py-2.5 px-3 text-right">Worked</th>
+              <th scope="col" className="py-2.5 px-3">Late By</th>
+              <th scope="col" className="py-2.5 px-3">Source</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">

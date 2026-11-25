@@ -22,6 +22,7 @@ import {
   Check,
 } from 'lucide-react';
 import { usePayroll } from '../../context/PayrollContext';
+import { useAuth } from '../../context/AuthContext';
 import { cn } from '../../utils/cn';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -55,26 +56,39 @@ interface LayoutOption {
 const LAYOUT_OPTIONS: LayoutOption[] = [
   {
     id: 'command',
-    title: 'Command Center',
-    shortDesc: 'Hero rings, department cards & real-time staff status table',
+    title: 'Today',
+    shortDesc: 'Who is in, late or absent on the chosen day',
     icon: <Layers className="w-4 h-4" />,
   },
   {
     id: 'boards',
-    title: 'Department Boards',
-    shortDesc: 'Donut cards, 7-day sparklines & employee cards with 14-day trends',
+    title: 'By department',
+    shortDesc: 'Each department’s attendance and recent trend',
     icon: <LayoutGrid className="w-4 h-4" />,
   },
   {
     id: 'matrix',
-    title: 'Roster Matrix',
-    shortDesc: 'Monthly matrix grouped by department, status glyphs & timelines',
+    title: 'Monthly roster',
+    shortDesc: 'Every employee’s month at a glance',
     icon: <Grid3X3 className="w-4 h-4" />,
   },
 ];
 
+const LEGEND = [
+  { dot: 'bg-teal-500', label: 'Present', glyph: '✓' },
+  { dot: 'bg-amber-400', label: 'Half day', glyph: '½' },
+  { dot: 'bg-red-400', label: 'Absent', glyph: '×' },
+  { dot: 'bg-emerald-500', label: 'Leave', glyph: 'L' },
+  { dot: 'bg-purple-400', label: 'Holiday', glyph: 'H' },
+  { dot: 'bg-slate-300', label: 'Weekly off', glyph: 'W' },
+];
+
 export const AttendanceModule: React.FC = () => {
   const { setCurrentView, setSelectedEmployeeId, selectedEmployeeId } = usePayroll();
+  const { can } = useAuth();
+  const canRecord = can('attendance.create');
+  const canBulkMark = can('attendance.adjust');
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   // -------------------------------------------------------------
   // 1. URL Query Parameter & LocalStorage Sync
@@ -135,10 +149,10 @@ export const AttendanceModule: React.FC = () => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(fromUrlDate) && fromUrlDate !== selectedDate) {
       setSelectedDate(fromUrlDate);
     }
-    const fromUrlEmp = getInitialParam('employeeId', '');
-    const targetEmp = fromUrlEmp || selectedEmployeeId || null;
-    if (targetEmp && targetEmp !== activeEmployeeId) {
-      setActiveEmployeeId(targetEmp);
+    // Only an employee opened from elsewhere (e.g. Employee detail). The URL's employeeId is read
+    // once at mount; re-reading it here would reopen the employee just closed, before the URL updates.
+    if (selectedEmployeeId && selectedEmployeeId !== activeEmployeeId) {
+      setActiveEmployeeId(selectedEmployeeId);
     }
   }, [selectedEmployeeId]);
 
@@ -306,6 +320,18 @@ export const AttendanceModule: React.FC = () => {
     });
   }, [selectedDate]);
 
+  const todayStr = getTodayStr();
+  const isToday = selectedDate === todayStr;
+  const monthLabel = new Date(`${monthStr}-01T00:00:00.000Z`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+  // Esc closes the bulk dialog
+  useEffect(() => {
+    if (!isBulkModalOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !isBulking) setIsBulkModalOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isBulkModalOpen, isBulking]);
+
   // Check if selected date is weekly off or holiday
   const dateSpecial = useMemo(() => {
     const d = new Date(`${selectedDate}T00:00:00.000Z`);
@@ -330,310 +356,251 @@ export const AttendanceModule: React.FC = () => {
         defaultStatus: bulkStatus,
       });
       setIsBulkModalOpen(false);
-      setBannerMessage(`Month ${monthStr} successfully initialized with default ${bulkStatus}.`);
+      setBannerMessage(`Working days in ${monthLabel} without a record were marked ${bulkStatus.replace('_', ' ').toLowerCase()}.`);
       setRefreshTrigger((c) => c + 1);
       setTimeout(() => setBannerMessage(null), 4000);
-    } catch (err: any) {
-      alert(`Bulk initialization error: ${err?.message || 'Failed'}`);
+    } catch (err: unknown) {
+      setBulkError(err instanceof Error && err.message ? err.message : 'Could not mark the month. Nothing was changed; try again.');
     } finally {
       setIsBulking(false);
     }
   };
 
+  const employeeName = employeeMonthData?.employee.fullName;
+  const closeEmployee = () => {
+    setActiveEmployeeId(null);
+    setSelectedEmployeeId(null);
+  };
+
   return (
-    <div className="space-y-5 max-w-[1600px] mx-auto">
-      {/* ------------------------------------------------------------- */}
-      {/* 1. SHARED HEADER & ACTIONS                                     */}
-      {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#2B293E] pb-4">
-        <div>
-          {/* Breadcrumbs */}
+    <div className="space-y-4 max-w-[1600px] mx-auto">
+      {/* 1. HEADER */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div className="min-w-0">
           {activeEmployeeId ? (
-            <>
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveEmployeeId(null);
-                  setSelectedEmployeeId(null);
-                }}
-                className="hover:text-teal-700 dark:hover:text-teal-400 font-medium flex items-center gap-1 cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Back to Attendance
-              </button>
-              <span>›</span>
-              <span>{employeeMonthData?.employee.departmentName || 'Department'}</span>
-              <span>›</span>
-              <span className="font-bold text-slate-800 dark:text-white">{employeeMonthData?.employee.fullName}</span>
-            </div>
-            <CosecRefreshNote state={cosecRefresh} />
-            </>
+            <nav aria-label="Breadcrumb" className="mb-1">
+              <ol className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                <li>
+                  <button type="button" onClick={closeEmployee} className="inline-flex items-center gap-1 font-semibold text-teal-700 dark:text-teal-400 hover:underline cursor-pointer">
+                    <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" /> Attendance
+                  </button>
+                </li>
+                {employeeMonthData?.employee.departmentName && (
+                  <><li aria-hidden="true">/</li><li>{employeeMonthData.employee.departmentName}</li></>
+                )}
+              </ol>
+            </nav>
           ) : (
-            <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                Attendance & Shifts
-              </h1>
-
-            </div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-0.5">HRMS</p>
           )}
-          {!activeEmployeeId && (
-            <div className="mb-1"><CosecRefreshNote state={cosecRefresh} /></div>
-          )}
-
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Unified staff attendance, biometric punch reconciliation, loss-of-pay tracking, and monthly rosters
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight break-words">
+            {activeEmployeeId ? employeeName || 'Employee attendance' : 'Attendance'}
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            {activeEmployeeId
+              ? `${employeeMonthData?.employee.employeeCode ? `${employeeMonthData.employee.employeeCode} · ` : ''}Month view, punches and corrections`
+              : LAYOUT_OPTIONS.find((o) => o.id === activeLayout)?.shortDesc}
           </p>
+          <div className="mt-1"><CosecRefreshNote state={cosecRefresh} /></div>
         </div>
 
-        {/* Header Right Actions */}
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setRefreshTrigger((c) => c + 1)}
-            title="Refresh attendance records"
+            disabled={isLoading}
+            aria-label="Refresh attendance"
+            title="Refresh attendance"
             className="flex items-center gap-1.5"
           >
-            <RefreshCw className={cn('w-3.5 h-3.5', isLoading && 'animate-spin')} />
-            Refresh
+            <RefreshCw className={cn('w-3.5 h-3.5', isLoading && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsBulkModalOpen(true)}
-            className="flex items-center gap-1.5"
-          >
-            <CalendarDays className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-            Bulk Mark Month
-          </Button>
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setCurrentView('clock-in')}
-            className="flex items-center gap-1.5 shadow-xs"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            Clock In / Record Time
-          </Button>
+          {canBulkMark && !activeEmployeeId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setBulkError(null); setIsBulkModalOpen(true); }}
+              className="flex items-center gap-1.5"
+            >
+              <CalendarDays className="w-3.5 h-3.5" aria-hidden="true" />
+              Mark month
+            </Button>
+          )}
+          {canRecord && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setCurrentView('clock-in')}
+              className="flex items-center gap-1.5"
+            >
+              <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
+              Record punch
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Success banner if any */}
       {bannerMessage && (
-        <div className="p-3 bg-mint-100 dark:bg-emerald-950/60 border border-teal-200 dark:border-emerald-800/60 rounded-lg text-xs font-semibold text-emerald-900 dark:text-emerald-300 flex items-center gap-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-teal-600 dark:text-teal-400 flex-shrink-0" />
-          <span>{bannerMessage}</span>
-        </div>
-      )}
-
-      {/* ------------------------------------------------------------- */}
-      {/* 2. LAYOUT SWITCHER (Segmented Tablist with Descriptions)        */}
-      {/* ------------------------------------------------------------- */}
-      <div className="bg-white dark:bg-[#181724] rounded-xl border border-slate-200 dark:border-[#2B293E] p-2 shadow-2xs">
-        <div
-          role="tablist"
-          aria-label="Attendance Layout Styles"
-          className="grid grid-cols-1 md:grid-cols-3 gap-2"
-        >
-          {LAYOUT_OPTIONS.map((opt) => {
-            const isActive = activeLayout === opt.id;
-
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setActiveLayout(opt.id)}
-                className={cn(
-                  'p-3 rounded-lg border text-left transition-all flex items-start gap-3 cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500',
-                  isActive
-                    ? 'bg-gradient-to-r from-teal-50 to-teal-50/40 dark:from-teal-950/50 dark:to-teal-950/30 border-teal-500 shadow-2xs'
-                    : 'bg-white dark:bg-[#181724] border-transparent hover:bg-slate-50 dark:hover:bg-[#1E1D2D] hover:border-slate-200 dark:hover:border-[#2B293E]',
-                )}
-              >
-                <span
-                  className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
-                    isActive ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-[#252336] text-slate-500 dark:text-slate-400',
-                  )}
-                >
-                  {opt.icon}
-                </span>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={cn('text-xs font-bold', isActive ? 'text-teal-900 dark:text-teal-200' : 'text-slate-800 dark:text-slate-200')}>
-                      {opt.title}
-                    </span>
-                    {isActive && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-ping" />
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
-                    {opt.shortDesc}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. DATE BAR & STATUS LEGEND                                    */}
-      {/* ------------------------------------------------------------- */}
-      <div className="bg-white dark:bg-[#181724] rounded-xl border border-slate-200 dark:border-[#2B293E] p-3.5 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-        {/* Date Stepper & Picker */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-lg border border-slate-200 dark:border-[#2B293E] bg-slate-50 dark:bg-[#15141F] p-0.5">
-            <button
-              type="button"
-              onClick={handlePrevDay}
-              title="Previous Day"
-              className="p-1.5 rounded-md hover:bg-white dark:hover:bg-[#181724] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className="bg-transparent border-0 text-xs font-mono font-semibold text-slate-800 dark:text-white px-2 py-1 focus:outline-none cursor-pointer"
-            />
-            <button
-              type="button"
-              onClick={handleNextDay}
-              title="Next Day"
-              className="p-1.5 rounded-md hover:bg-white dark:hover:bg-[#181724] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Formatted Date & Quick Today */}
-          <span className="text-xs font-bold text-slate-800 dark:text-white hidden sm:inline">
-            {formattedSelectedDate}
-          </span>
-          <button
-            type="button"
-            onClick={() => setSelectedDate(getTodayStr())}
-            className="text-[11px] px-2.5 py-1 rounded bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/60 font-semibold transition-colors cursor-pointer"
-          >
-            Today (Live)
+        <div role="status" className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 rounded-xl text-sm text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" aria-hidden="true" />
+          <span className="flex-1">{bannerMessage}</span>
+          <button type="button" onClick={() => setBannerMessage(null)} aria-label="Dismiss" className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer">
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
-
-        {/* Status Legend */}
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 font-medium">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-teal-500" />
-            <span>Present (✓)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-            <span>Half Day (½)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
-            <span>Absent (×)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <span>Leave (L)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-purple-400" />
-            <span>Holiday (H)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />
-            <span>Weekly Off (W)</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Slim Non-Working Banner if selected date is Holiday or Weekly Off */}
-      {dateSpecial.isOff && (
-        <div className="p-3 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 flex items-center justify-between gap-3 text-xs animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <Info className="w-4 h-4 text-purple-600 flex-shrink-0" />
-            <span className="font-semibold">
-              {dateSpecial.isHoliday
-                ? `Official Public Holiday: ${dateSpecial.holidayName || 'National Holiday'}`
-                : 'Scheduled Weekly Off (Sunday)'}
-            </span>
-            <span className="text-purple-600 hidden sm:inline">
-              — Standard paid non-working day under Indian payroll regulations (no divide-by-zero).
-            </span>
-          </div>
-          <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-mono font-bold">
-            Attendance Rate: –
-          </span>
-        </div>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* 4. SHARED FILTERS (Search & Department Chips)                  */}
-      {/* ------------------------------------------------------------- */}
-      {!activeEmployeeId && (
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          {/* Search Box */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by staff name, employee code, or role..."
-              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 rounded-lg border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-            />
-            {searchQuery && (
+      {/* 2. TOOLBAR: view, date, search, departments */}
+      <div className="bg-white dark:bg-[#181724] rounded-xl border border-slate-200 dark:border-[#2B293E] shadow-2xs divide-y divide-slate-100 dark:divide-[#2B293E]">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 p-3">
+          {/* View switcher */}
+          {!activeEmployeeId && (
+            <div role="tablist" aria-label="Attendance view" className="inline-flex w-full sm:w-auto rounded-lg bg-slate-100 dark:bg-[#15141F] p-1">
+              {LAYOUT_OPTIONS.map((opt) => {
+                const isActive = activeLayout === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    title={opt.shortDesc}
+                    onClick={() => setActiveLayout(opt.id)}
+                    className={cn(
+                      'flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500',
+                      isActive
+                        ? 'bg-white dark:bg-[#252336] text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white',
+                    )}
+                  >
+                    <span aria-hidden="true" className={isActive ? 'text-teal-600 dark:text-teal-400' : ''}>{opt.icon}</span>
+                    {opt.title}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Date stepper */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center rounded-lg border border-slate-200 dark:border-[#2B293E] bg-white dark:bg-[#15141F]">
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                onClick={handlePrevDay}
+                aria-label="Previous day"
+                className="p-2 rounded-l-lg hover:bg-slate-50 dark:hover:bg-[#1E1D2D] text-slate-600 dark:text-slate-400 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               >
-                <X className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+              </button>
+              <label className="sr-only" htmlFor="attendance-date">Date</label>
+              <input
+                id="attendance-date"
+                type="date"
+                value={selectedDate}
+                max={todayStr}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                className="bg-transparent border-x border-slate-200 dark:border-[#2B293E] text-sm font-semibold text-slate-800 dark:text-white px-2 py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 cursor-pointer"
+              />
+              <button
+                type="button"
+                onClick={handleNextDay}
+                disabled={selectedDate >= todayStr}
+                aria-label="Next day"
+                className="p-2 rounded-r-lg hover:bg-slate-50 dark:hover:bg-[#1E1D2D] text-slate-600 dark:text-slate-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              >
+                <ChevronRight className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 hidden md:inline">{formattedSelectedDate}</span>
+            {isToday ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 dark:text-teal-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-500" aria-hidden="true" /> Today
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayStr)}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/50 font-semibold cursor-pointer"
+              >
+                Go to today
               </button>
             )}
           </div>
+        </div>
 
-          {/* Department Filter Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-thin">
-            <button
-              type="button"
-              onClick={() => setSelectedDeptId(undefined)}
-              className={cn(
-                'px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex-shrink-0',
-                !selectedDeptId
-                  ? 'bg-teal-600 text-white font-semibold shadow-2xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+        {!activeEmployeeId && (
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3 p-3">
+            <div className="relative flex-1 min-w-0 lg:max-w-sm">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search name, employee code or role"
+                aria-label="Search employees"
+                className="w-full pl-9 pr-8 py-2 text-sm bg-slate-50 dark:bg-[#15141F] rounded-lg border border-slate-200 dark:border-[#2B293E] focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
               )}
-            >
-              All Departments
-            </button>
+            </div>
 
-            {summaryData?.departments.map((d) => (
-              <button
-                key={d.departmentId}
-                type="button"
-                onClick={() => setSelectedDeptId(selectedDeptId === d.departmentId ? undefined : d.departmentId)}
-                className={cn(
-                  'px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex-shrink-0 flex items-center gap-1.5',
-                  selectedDeptId === d.departmentId
-                    ? 'bg-teal-600 text-white font-semibold shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                )}
-              >
-                <span>{d.departmentName}</span>
-                <span className={cn('text-[10px] px-1 rounded-full font-mono', selectedDeptId === d.departmentId ? 'bg-teal-700 text-teal-100' : 'bg-slate-200 text-slate-500')}>
-                  {d.headcount}
-                </span>
-              </button>
-            ))}
+            <div role="group" aria-label="Department" className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 min-w-0">
+              {[{ departmentId: undefined as string | undefined, departmentName: 'All departments', headcount: summaryData?.departments.reduce((n, d) => n + d.headcount, 0) }, ...(summaryData?.departments ?? [])].map((d) => {
+                const active = selectedDeptId === d.departmentId;
+                return (
+                  <button
+                    key={d.departmentId ?? 'all'}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setSelectedDeptId(d.departmentId && selectedDeptId === d.departmentId ? undefined : d.departmentId)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500',
+                      active
+                        ? 'bg-teal-600 border-teal-600 text-white'
+                        : 'bg-white dark:bg-[#15141F] border-slate-200 dark:border-[#2B293E] text-slate-600 dark:text-slate-300 hover:border-slate-300',
+                    )}
+                  >
+                    {d.departmentName}
+                    {d.headcount !== undefined && (
+                      <span className={cn('tabular-nums', active ? 'text-teal-100' : 'text-slate-400')}>{d.headcount}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+        )}
+
+        {/* Legend */}
+        <ul aria-label="Status key" className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2 text-[11px] text-slate-600 dark:text-slate-400">
+          {LEGEND.map((item) => (
+            <li key={item.label} className="flex items-center gap-1.5">
+              <span className={cn('w-2.5 h-2.5 rounded-full', item.dot)} aria-hidden="true" />
+              {item.label} <span className="text-slate-400 font-mono" aria-hidden="true">{item.glyph}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {dateSpecial.isOff && (
+        <div role="note" className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 text-purple-900 dark:text-purple-200 flex items-center gap-2 text-sm">
+          <Info className="w-4 h-4 text-purple-600 flex-shrink-0" aria-hidden="true" />
+          <span>
+            <span className="font-semibold">
+              {dateSpecial.isHoliday ? `Holiday: ${dateSpecial.holidayName || 'Public holiday'}` : 'Weekly off'}
+            </span>
+            <span className="text-purple-700 dark:text-purple-300"> — a paid non-working day, so no one is marked absent.</span>
+          </span>
         </div>
       )}
 
@@ -641,7 +608,7 @@ export const AttendanceModule: React.FC = () => {
       {/* 5. ACTIVE LAYOUT PRESENTATION (Command Center | Boards | Matrix) */}
       {/* ------------------------------------------------------------- */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 flex items-center justify-between gap-3">
+        <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
             <span>{error}</span>
@@ -732,54 +699,48 @@ export const AttendanceModule: React.FC = () => {
       {/* 6. BULK MARK MONTH MODAL                                      */}
       {/* ------------------------------------------------------------- */}
       {isBulkModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setIsBulkModalOpen(false)} />
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-900/50" aria-hidden="true" onClick={() => !isBulking && setIsBulkModalOpen(false)} />
           <div className="flex min-h-full items-center justify-center p-4">
-            <div className="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl p-6 sm:w-full sm:max-w-md space-y-4 animate-in zoom-in-95">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-sm font-bold text-slate-900">
-                  Bulk Mark Month • {monthStr}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setIsBulkModalOpen(false)}
-                  className="p-1 rounded text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
+            <div role="dialog" aria-modal="true" aria-labelledby="bulk-mark-title" aria-describedby="bulk-mark-desc" className="relative rounded-2xl bg-white dark:bg-[#181724] text-left shadow-2xl p-6 w-full sm:max-w-md space-y-4 border border-slate-200 dark:border-[#2B293E]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 id="bulk-mark-title" className="text-base font-bold text-slate-900 dark:text-white">Mark {monthLabel}</h2>
+                  <p id="bulk-mark-desc" className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    Fills every working day in {monthLabel} that has no attendance yet, for all employees. Days already recorded, synced from the device, or locked by payroll are left as they are.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setIsBulkModalOpen(false)} disabled={isBulking} aria-label="Close" className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer">
+                  <X className="w-4 h-4" aria-hidden="true" />
                 </button>
               </div>
 
-              <p className="text-xs text-slate-500">
-                Initialize standard working days for all staff across this month with a baseline attendance status.
-              </p>
-
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-700 block">
-                  Default Attendance Status
-                </label>
+              <div className="space-y-1.5">
+                <label htmlFor="bulk-status" className="text-sm font-semibold text-slate-700 dark:text-slate-200 block">Mark those days as</label>
                 <select
+                  id="bulk-status"
+                  autoFocus
                   value={bulkStatus}
                   onChange={(e) => setBulkStatus(e.target.value as AttendanceStatus)}
-                  className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  className="w-full text-sm p-2.5 rounded-lg border border-slate-300 dark:border-[#2B293E] dark:bg-[#15141F] focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 >
-                  <option value="PRESENT">Present (Full Day Attended)</option>
-                  <option value="HALF_DAY">Half Day</option>
-                  <option value="PAID_LEAVE">Paid Leave</option>
-                  <option value="ABSENT">Absent (Unapproved)</option>
+                  <option value="PRESENT">Present</option>
+                  <option value="HALF_DAY">Half day</option>
+                  <option value="PAID_LEAVE">Paid leave</option>
+                  <option value="ABSENT">Absent (loss of pay)</option>
                 </select>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <Button variant="outline" size="sm" onClick={() => setIsBulkModalOpen(false)}>
+              {bulkError && (
+                <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{bulkError}</p>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-[#2B293E]">
+                <Button variant="outline" size="sm" onClick={() => setIsBulkModalOpen(false)} disabled={isBulking}>
                   Cancel
                 </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleBulkMarkMonth}
-                  disabled={isBulking}
-                >
-                  {isBulking ? 'Applying...' : 'Apply Baseline Attendance'}
+                <Button variant="primary" size="sm" onClick={handleBulkMarkMonth} disabled={isBulking}>
+                  {isBulking ? 'Marking…' : `Mark ${monthLabel}`}
                 </Button>
               </div>
             </div>
