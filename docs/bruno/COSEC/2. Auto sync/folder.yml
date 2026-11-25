@@ -1,0 +1,9 @@
+info:
+  name: 2. Auto sync
+  type: folder
+  seq: 3
+
+request:
+  auth:
+    type: bearer
+    token: FYRJupCuvtiZi5RT2qyjoMpfJVX6KOBVqoU3OO9bp7k

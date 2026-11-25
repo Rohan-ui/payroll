@@ -1,0 +1,17 @@
+info:
+  name: Test connection (before saving)
+  type: http
+  seq: 4
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/test-connection'
+  body:
+    type: json
+    data: "{\n  \"baseUrl\": \"{{cosecBaseUrl}}\",\n  \"username\": \"{{cosecUsername}}\",\n  \"password\": \"{{cosecPassword}}\"\n}"
+  auth: inherit
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true

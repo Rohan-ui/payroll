@@ -63,7 +63,7 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
   // 1. EMPLOYEE DETAIL VIEW (Command Center Style)
   // -------------------------------------------------------------
   if (isDetailView && employeeMonthData) {
-    const { employee, month, workingDays, attendancePct, payableDays, totalWorkedHours, stats, leaveBalances, days } = employeeMonthData;
+    const { employee, month, workingDays, attendancePct, payableDays, totalWorkedHours, stats, days } = employeeMonthData;
     const selectedDayRecord = days.find((d) => d.date === selectedDate) || days[0];
 
     // Stepper navigation for day
@@ -150,16 +150,16 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
             <span className="text-xl font-bold text-amber-600 font-mono mt-1 block">
               {stats.lateMarks}
             </span>
-            <span className="text-[10px] text-slate-400">Grace &gt;15 min</span>
+            <span className="text-[10px] text-slate-400">Days checked in after shift start</span>
           </div>
 
           {/* Avg Check-In */}
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
             <span className="text-[11px] font-medium text-slate-400 block">Avg Check-In</span>
             <span className="text-base font-bold text-slate-800 font-mono mt-1.5 block">
-              {stats.avgCheckInTime}
+              {stats.avgCheckInTime ?? '—'}
             </span>
-            <span className="text-[10px] text-slate-400">Shift start 9:30 AM</span>
+            <span className="text-[10px] text-slate-400">This month</span>
           </div>
 
           {/* Overtime */}
@@ -225,7 +225,7 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
                 <span className="font-bold text-slate-800 uppercase tracking-wider">
                   Daily Worked Hours vs 8h Target
                 </span>
-                <span className="text-[11px] text-teal-700 font-medium">Click a bar to inspect day</span>
+                <span className="text-[11px] text-teal-700 font-medium">Pick a bar to see that day</span>
               </div>
 
               <div className="relative h-24 pt-4 flex items-end gap-1 select-none">
@@ -328,13 +328,13 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold text-[11px] uppercase">
               <tr>
-                <th className="py-3 px-4">Employee</th>
-                <th className="py-3 px-3">Department</th>
-                <th className="py-3 px-3">Status Today</th>
-                <th className="py-3 px-3">Check In / Out</th>
-                <th className="py-3 px-4">Month Attendance Strip</th>
-                <th className="py-3 px-4 text-right">Month %</th>
-                <th className="py-3 px-3 text-center">Action</th>
+                <th scope="col" className="py-3 px-4">Employee</th>
+                <th scope="col" className="py-3 px-3">Department</th>
+                <th scope="col" className="py-3 px-3">Status</th>
+                <th scope="col" className="py-3 px-3">Check In / Out</th>
+                <th scope="col" className="py-3 px-4">This month</th>
+                <th scope="col" className="py-3 px-4 text-right">Month %</th>
+                <th scope="col" className="py-3 px-3 text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -350,7 +350,7 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-400">
                     <AlertCircle className="w-6 h-6 text-slate-300 mx-auto mb-2" />
-                    <p className="text-sm font-medium">No employee records match the active criteria.</p>
+                    <p className="text-sm font-medium">No employees match this search or department. Clear the search or pick “All departments”.</p>
                   </td>
                 </tr>
               ) : (

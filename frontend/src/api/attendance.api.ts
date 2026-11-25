@@ -9,6 +9,9 @@ export type AttendanceStatus =
   | 'HOLIDAY'
   | 'WEEKEND';
 
+/** A month cell's status; FUTURE is a day that has not come yet and has no record. */
+export type MonthDayStatus = AttendanceStatus | 'FUTURE';
+
 export interface BackendAttendancePunch {
   id: string;
   punch_at: string;
@@ -395,7 +398,7 @@ export interface EmployeeDayItem {
   monthDays: Array<{
     day: number;
     date: string;
-    status: AttendanceStatus;
+    status: MonthDayStatus;
     workedMinutes: number;
     isLate: boolean;
   }>;
@@ -417,7 +420,7 @@ export interface EmployeeDayListResponse {
 export interface MatrixDayCell {
   day: number;
   date: string;
-  status: AttendanceStatus;
+  status: MonthDayStatus;
   glyph: string;
   inTime: string | null;
   outTime: string | null;
@@ -476,7 +479,7 @@ export interface EmployeeMonthDayRecord {
   date: string;
   day: number;
   weekday: string;
-  status: AttendanceStatus;
+  status: MonthDayStatus;
   glyph: string;
   firstCheckInAt: string | null;
   lastCheckOutAt: string | null;
@@ -532,14 +535,10 @@ export interface EmployeeMonthResponse {
     halfDays: number;
     leaveDays: number;
     lateMarks: number;
-    avgCheckInTime: string;
+    /** Null when there were no check-ins this month. */
+    avgCheckInTime: string | null;
     overtimeHours: number;
     bestStreakDays: number;
-  };
-  leaveBalances: {
-    casual: { total: number; used: number; remaining: number };
-    sick: { total: number; used: number; remaining: number };
-    earned: { total: number; used: number; remaining: number };
   };
   days: EmployeeMonthDayRecord[];
 }

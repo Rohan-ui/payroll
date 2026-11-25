@@ -11,7 +11,7 @@ import { AuditService } from '@/modules/audit/audit.service';
 import { AccessService } from '@/common/access/access.service';
 import { ADMIN_ROLE_CODE, PermissionKey, groupPermissionCatalog, isPermissionKey } from '@/common/access/access-catalog';
 import { AuthenticatedTenantUser } from '@/common/interfaces/authenticated-user.interface';
-import { CreateRoleDto, SetRolePermissionDto, UpdateRoleDto } from './dto/access-management.dto';
+import { CreateRoleDto, SetRolePermissionDto, SetRolePermissionsBulkDto, UpdateRoleDto } from './dto/access-management.dto';
 
 export interface AssignableRole {
   id: string;
@@ -254,6 +254,68 @@ export class TenantRolesService {
       message: input.granted
         ? `"${role.role_name}" can now: ${permission.permission_name.toLowerCase()}.`
         : `"${role.role_name}" can no longer: ${permission.permission_name.toLowerCase()}.`,
+    };
+  }
+
+  /**
+   * Grant or remove several permissions in one change. All or nothing: the
+   * caller must hold every one of them, the same rule as a single change.
+   */
+  async setRolePermissions(
+    tenantId: string,
+    roleId: string,
+    input: SetRolePermissionsBulkDto,
+    actor: AuthenticatedTenantUser,
+  ) {
+    const keys = [...new Set(input.permissionKeys)];
+    if (!keys.every(isPermissionKey)) {
+      throw new BadRequestException('Unknown permission.');
+    }
+    const role = await this.findActiveRole(tenantId, roleId);
+    if (role.role_code === ADMIN_ROLE_CODE) {
+      throw new BadRequestException('Administrators always hold every permission; their access cannot be edited.');
+    }
+    await this.accessService.assertHoldsAll(
+      tenantId,
+      actor.tenantMemberId,
+      keys,
+      'You can only grant or remove permissions you hold yourself.',
+    );
+
+    const permissions = await this.prisma.rndtechnosoft_permissions.findMany({
+      where: { permission_code: { in: keys } },
+      select: { id: true },
+    });
+    if (permissions.length !== keys.length) {
+      throw new InternalServerErrorException('The permission catalog is not installed.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (input.granted) {
+        await tx.rndtechnosoft_role_permissions.createMany({
+          data: permissions.map((p) => ({ id: randomUUID(), tenant_id: tenantId, role_id: role.id, permission_id: p.id })),
+          skipDuplicates: true,
+        });
+      } else {
+        await tx.rndtechnosoft_role_permissions.deleteMany({
+          where: { tenant_id: tenantId, role_id: role.id, permission_id: { in: permissions.map((p) => p.id) } },
+        });
+      }
+    });
+
+    await this.auditService.log({
+      ...this.auditActor(tenantId, actor),
+      actionCode: input.granted ? 'ROLE_PERMISSION_GRANTED' : 'ROLE_PERMISSION_REVOKED',
+      entityType: 'ROLE',
+      entityId: role.id,
+      metadata: { role: role.role_code, permissions: keys },
+    });
+
+    const count = `${keys.length} permission${keys.length === 1 ? '' : 's'}`;
+    return {
+      success: true,
+      message: input.granted ? `Granted ${count} to "${role.role_name}".` : `Removed ${count} from "${role.role_name}".`,
+      data: { permissions: await this.getRolePermissionKeys(tenantId, role.id) },
     };
   }
 

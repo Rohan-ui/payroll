@@ -1,0 +1,18 @@
+info:
+  name: Users
+  type: http
+  seq: 1
+  description: Active COSEC users. limit max 100.
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/users?page=1&limit=25'
+  params:
+  - name: page
+    value: '1'
+    type: query
+  - name: limit
+    value: '25'
+    type: query
+  auth: inherit
+settings:
+  encodeUrl: true

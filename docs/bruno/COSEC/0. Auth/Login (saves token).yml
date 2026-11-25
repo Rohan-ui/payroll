@@ -1,0 +1,30 @@
+info:
+  name: Login (saves token)
+  type: http
+  seq: 1
+http:
+  method: POST
+  url: '{{baseUrl}}/auth/login'
+  body:
+    type: json
+    data: "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+runtime:
+  variables:
+  - name: baseUrl
+    value: http://localhost:4000/api/v1
+  - name: email
+    value: ravishah@rndtechnosoft.com
+  - name: password
+    value: '12345678'
+  scripts:
+  - type: after-response
+    code: |-
+      if (res.status === 200 && res.body.token) {
+        bru.setVar('token', res.body.token);
+      }
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true

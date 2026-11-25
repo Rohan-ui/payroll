@@ -1,0 +1,17 @@
+info:
+  name: Refresh month (whole workspace)
+  type: http
+  seq: 1
+  description: ⚠ WRITES DATA to the workspace. Writes changed days only; finalized or corrected days are left alone.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/refresh-month'
+  body:
+    type: json
+    data: |-
+      {
+        "month": "{{month}}"
+      }
+  auth: inherit
+settings:
+  encodeUrl: true

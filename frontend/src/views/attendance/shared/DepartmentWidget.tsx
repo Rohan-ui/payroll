@@ -356,7 +356,7 @@ export const DepartmentWidget: React.FC<DepartmentWidgetProps> = ({
             Department Attendance Leaderboard
           </h4>
         </div>
-        <span className="text-[11px] text-slate-400">Click to filter matrix</span>
+        <span className="text-[11px] text-slate-400">Pick a department to filter</span>
       </div>
 
       <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1 scrollbar-thin">

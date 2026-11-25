@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { EmailPolicyPanel } from './settings/EmailPolicyPanel';
 import { 
   Users, UserPlus, Search, ShieldCheck, Mail,
   Building2, Edit3, Trash2, CheckCircle2, X, RefreshCw,
   Check, AlertCircle, Layers,
   Plus, Eye, EyeOff, Cpu, HardDrive,
-  MessageSquare, Server, Globe, Save, Smartphone, Radio, Copy, FileText, Briefcase, FileCheck
+  MessageSquare, Server, Globe, Save, Smartphone, Radio, Copy, FileText, Briefcase, FileCheck, ChevronDown, Loader2, Lock
 } from 'lucide-react';
 
 import LeadIntegrationsCenter from '@/components/crm/LeadIntegrationsCenter';
@@ -111,6 +111,21 @@ interface TeamMember {
   role_name: string | null;
   membership_status: 'ACTIVE' | 'SUSPENDED';
   is_active: boolean;
+  employee_code: string | null;
+  employee_status: string | null;
+}
+
+/** Active in the workspace and, when linked to an employee, an active employee. */
+const isActiveMember = (u: TeamMember) => u.is_active && (u.employee_status === null || u.employee_status === 'ACTIVE');
+
+/** An active HRMS employee who has no sign-in yet. */
+interface EmployeeWithoutSignIn {
+  id: string;
+  employee_code: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
 }
 
 interface RoleOption {
@@ -169,6 +184,15 @@ interface ApiEnvelope<T> {
 }
 
 /** Reads an API response, treating both HTTP errors and `{ success: false }` as failures. */
+/** A checkbox that also shows "some selected" (indeterminate), for select-all controls. */
+function TriStateCheckbox({ checked, indeterminate, ...rest }: React.InputHTMLAttributes<HTMLInputElement> & { indeterminate: boolean }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <input ref={ref} type="checkbox" checked={checked} aria-checked={indeterminate ? 'mixed' : checked} {...rest} />;
+}
+
 async function readResponse<T>(response: Response): Promise<{ ok: boolean; data?: T; message?: string }> {
   let body: ApiEnvelope<T> = {};
   try {
@@ -224,7 +248,15 @@ const EMPTY_WHATSAPP: WhatsAppForm = {
   isActive: true,
 };
 
-const EMPTY_MEMBER_FORM = { first_name: '', last_name: '', email: '', phone: '', role_id: '', is_active: true };
+const EMPTY_MEMBER_FORM = { first_name: '', last_name: '', email: '', phone: '', role_id: '', is_active: true, employee_id: '' };
+
+/** Sections grouped by the job the admin is doing, in sidebar order. */
+const TAB_GROUPS: { label: string; tabs: SettingsTab[] }[] = [
+  { label: 'Workspace', tabs: ['organization', 'modules', 'employment-types'] },
+  { label: 'People & access', tabs: ['users', 'roles'] },
+  { label: 'Hiring & documents', tabs: ['documents', 'document-types', 'onboarding-workflow'] },
+  { label: 'CRM', tabs: ['integrations', 'industries'] },
+];
 
 const TAB_ORDER: SettingsTab[] = [
   'organization',
@@ -287,9 +319,18 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
   });
   const currentTab: SettingsTab | null = visibleTabs.includes(activeTab) ? activeTab : visibleTabs[0] ?? null;
 
+  useEffect(() => {
+    if (!currentTab) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === currentTab) return;
+    url.searchParams.set('tab', currentTab);
+    window.history.replaceState(window.history.state, '', url);
+  }, [currentTab]);
+
   // Data
   const [users, setUsers] = useState<TeamMember[]>([]);
   const [roleOptions, setRoleOptions] = useState<AssignableRoleOption[]>([]);
+  const [employeesWithoutSignIn, setEmployeesWithoutSignIn] = useState<EmployeeWithoutSignIn[]>([]);
   const [roles, setRoles] = useState<TenantRole[]>([]);
   const [permissionCatalog, setPermissionCatalog] = useState<PermissionSection[]>([]);
   const [modulesData, setModulesData] = useState<ModulesPayload | null>(null);
@@ -318,9 +359,15 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
   // Team filters
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'INACTIVE' | 'ALL'>('ACTIVE');
 
   // Roles
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [permissionSearch, setPermissionSearch] = useState('');
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [showGrantedOnly, setShowGrantedOnly] = useState(false);
   const [showAddRoleModal, setShowAddRoleModal] = useState(false);
   const [newRoleData, setNewRoleData] = useState({ name: '', code: '', description: '' });
   const [deleteConfirmRole, setDeleteConfirmRole] = useState<TenantRole | null>(null);
@@ -426,9 +473,10 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
         ? load<SettingsPayload>('settings', '/api/v1/tenant/settings', applySettings, 'Could not load organization settings.')
         : Promise.resolve(),
       canViewUsers
-        ? load<{ users: TeamMember[]; roles: AssignableRoleOption[] }>('users', '/api/v1/users', (data) => {
+        ? load<{ users: TeamMember[]; roles: AssignableRoleOption[]; employeesWithoutSignIn?: EmployeeWithoutSignIn[] }>('users', '/api/v1/users', (data) => {
             setUsers(data.users);
             setRoleOptions(data.roles);
+            setEmployeesWithoutSignIn(data.employeesWithoutSignIn ?? []);
           }, 'Could not load team members.')
         : Promise.resolve(),
       canViewRoles
@@ -589,9 +637,19 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
   };
 
   // Team members
-  const handleOpenAdd = () => {
+  const handleOpenAdd = (employee?: EmployeeWithoutSignIn) => {
     const assignable = roleOptions.filter((r) => r.assignable);
-    setFormData({ ...EMPTY_MEMBER_FORM, role_id: assignable.find((r) => !r.is_admin)?.id ?? assignable[0]?.id ?? '' });
+    setFormData({
+      ...EMPTY_MEMBER_FORM,
+      ...(employee && {
+        employee_id: employee.id,
+        first_name: employee.first_name,
+        last_name: employee.last_name,
+        email: employee.email ?? '',
+        phone: employee.phone ?? '',
+      }),
+      role_id: assignable.find((r) => !r.is_admin)?.id ?? assignable[0]?.id ?? '',
+    });
     setFormError(null);
     setShowAddModal(true);
   };
@@ -605,6 +663,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
       phone: member.phone ?? '',
       role_id: member.role_id ?? '',
       is_active: member.membership_status === 'ACTIVE',
+      employee_id: '',
     });
     setFormError(null);
     setShowEditModal(true);
@@ -621,6 +680,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
         last_name: formData.last_name,
         phone: formData.phone,
         role_id: formData.role_id,
+        ...(formData.employee_id ? { employee_id: formData.employee_id } : {}),
       });
       const created = result.data as { email?: string; temporaryPassword?: string | null } | undefined;
       if (result.ok) {
@@ -712,6 +772,29 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
     }
   };
 
+  /** Grant or remove many permissions in one request; only keys this member holds and that would change. */
+  const handleBulkPermissions = async (role: TenantRole, keys: string[], granted: boolean) => {
+    const changing = keys.filter((key) => can(key) && role.permissions.includes(key) !== granted);
+    if (changing.length === 0) return;
+    setPendingPermission('__bulk__');
+    try {
+      const result = await send(`/api/v1/tenant/roles/${role.id}/permissions/bulk`, 'PUT', { permissionKeys: changing, granted });
+      const updated = (result.data as { permissions?: string[] } | undefined)?.permissions;
+      if (result.ok) {
+        setRoles((prev) => prev.map((r) => (r.id === role.id
+          ? { ...r, permissions: updated ?? (granted ? [...new Set([...r.permissions, ...changing])] : r.permissions.filter((k) => !changing.includes(k))) }
+          : r)));
+        showToast(result.message || 'Permissions updated.');
+      } else {
+        showToast(result.message || 'Could not update these permissions.', 'error');
+      }
+    } catch {
+      showToast('Could not reach the server. The permissions were not changed.', 'error');
+    } finally {
+      setPendingPermission(null);
+    }
+  };
+
   const handleCreateRole = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -787,7 +870,8 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
     const matchesSearch =
       `${u.first_name} ${u.last_name}`.toLowerCase().includes(query) || u.email.toLowerCase().includes(query);
     const matchesRole = roleFilter === 'ALL' || u.role_code === roleFilter;
-    return matchesSearch && matchesRole;
+    const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'ACTIVE') === isActiveMember(u);
+    return matchesSearch && matchesRole && matchesStatus;
   });
 
   const seatsUsed = modulesData?.tenant.seats_used ?? users.length;
@@ -828,18 +912,21 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
   // Which roles this member may hand out is decided by the server (GET /users).
   const assignableRoles = roleOptions.filter((r) => r.assignable);
 
-  const TAB_META: Record<SettingsTab, { label: string; icon: React.ReactNode }> = {
-    organization: { label: 'Organization & Settings', icon: <Building2 className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" /> },
-    users: { label: `Team Members (${users.length})`, icon: <Users className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
-    roles: { label: `Roles & Permissions (${roles.length})`, icon: <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" /> },
-    modules: { label: 'Modules & Apps', icon: <Layers className="w-3.5 h-3.5" aria-hidden="true" /> },
-    documents: { label: 'Documents & letterheads', icon: <FileText className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
-    'employment-types': { label: 'Employment Types', icon: <Briefcase className="w-3.5 h-3.5 text-amber-600" aria-hidden="true" /> },
-    'document-types': { label: 'Candidate Document Types', icon: <FileCheck className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
-    'onboarding-workflow': { label: 'Onboarding Workflow Builder', icon: <Layers className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" /> },
-    integrations: { label: 'Lead Channels & APIs', icon: <Radio className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" /> },
-    industries: { label: 'Industry Taxonomy', icon: <Layers className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" /> },
+  const TAB_META: Record<SettingsTab, { label: string; description: string; count?: number; icon: React.ReactNode }> = {
+    organization: { label: 'Organization', description: 'Company profile, email (SMTP) and WhatsApp settings for this workspace.', icon: <Building2 className="w-4 h-4" aria-hidden="true" /> },
+    modules: { label: 'Modules & apps', description: 'Switch business modules on or off and see usage against your plan.', icon: <Layers className="w-4 h-4" aria-hidden="true" /> },
+    'employment-types': { label: 'Employment types', description: 'Kinds of employment you hire for, such as full-time, contract or intern.', icon: <Briefcase className="w-4 h-4" aria-hidden="true" /> },
+    users: { label: 'Team members', description: 'People who can sign in to this workspace, and the role each one has.', count: users.filter(isActiveMember).length, icon: <Users className="w-4 h-4" aria-hidden="true" /> },
+    roles: { label: 'Roles & permissions', description: 'What each role may see and do. Changes apply on the member’s next request.', count: roles.length, icon: <ShieldCheck className="w-4 h-4" aria-hidden="true" /> },
+    documents: { label: 'Documents & letterheads', description: 'Letterheads and HR document templates used for offers and letters.', icon: <FileText className="w-4 h-4" aria-hidden="true" /> },
+    'document-types': { label: 'Candidate document types', description: 'Documents candidates are asked to upload during onboarding.', icon: <FileCheck className="w-4 h-4" aria-hidden="true" /> },
+    'onboarding-workflow': { label: 'Onboarding workflow', description: 'The steps a new hire goes through, from offer to first day.', icon: <Layers className="w-4 h-4" aria-hidden="true" /> },
+    integrations: { label: 'Lead channels & APIs', description: 'Where CRM leads come from, and the API keys that send them.', icon: <Radio className="w-4 h-4" aria-hidden="true" /> },
+    industries: { label: 'Industry taxonomy', description: 'Industries used to classify CRM leads and accounts.', icon: <Layers className="w-4 h-4" aria-hidden="true" /> },
   };
+  const navGroups = TAB_GROUPS
+    .map((group) => ({ ...group, tabs: group.tabs.filter((tab) => visibleTabs.includes(tab)) }))
+    .filter((group) => group.tabs.length > 0);
 
   const inputClass =
     'w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500';
@@ -917,33 +1004,25 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
       )}
 
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            {orgProfile.company_name && (
-              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-800 text-[11px] font-bold rounded-md border border-indigo-200 uppercase tracking-wider truncate max-w-[16rem]">
-                {orgProfile.company_name}
-              </span>
-            )}
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              {currentTab === 'organization' ? 'Organization & Tenant Settings' : 'Organization & Access Control'}
-            </h1>
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {currentTab === 'organization'
-              ? 'Company profile, outbound SMTP email and WhatsApp Business API settings for this workspace'
-              : 'Team members, roles and permissions, and the modules switched on for this workspace'}
+          <p className="text-xs font-semibold text-slate-500 truncate">
+            Settings{orgProfile.company_name ? ` · ${orgProfile.company_name}` : ''}
           </p>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight mt-0.5">
+            {currentTab ? TAB_META[currentTab].label : 'Settings'}
+          </h1>
+          {currentTab && <p className="text-sm text-slate-500 mt-1 max-w-2xl">{TAB_META[currentTab].description}</p>}
         </div>
 
         <div className="flex items-center gap-2">
           {currentTab === 'users' && canCreateUsers && (
             <button
-              onClick={handleOpenAdd}
+              onClick={() => handleOpenAdd()}
               className="px-4 py-2 bg-[#00B7A7] hover:bg-[#009E90] text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <UserPlus className="w-4 h-4" aria-hidden="true" />
-              <span>Add Team Member</span>
+              <span>Add member</span>
             </button>
           )}
 
@@ -956,7 +1035,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
               className="px-4 py-2 bg-[#00B7A7] hover:bg-[#009E90] text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" aria-hidden="true" />
-              <span>Create Custom Role</span>
+              <span>New role</span>
             </button>
           )}
 
@@ -971,83 +1050,91 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
         </div>
       </div>
 
-      {/* Tab Selector & Seat Summary */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div role="tablist" aria-label="Settings sections" className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl w-fit flex-wrap">
-          {visibleTabs.map((tab) => (
-            <button
-              key={tab}
-              role="tab"
-              aria-selected={currentTab === tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-2 ${
-                currentTab === tab ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {TAB_META[tab].icon}
-              <span>{TAB_META[tab].label}</span>
-            </button>
-          ))}
+      <div className="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6 lg:items-start">
+        {/* Section navigation: a picker on small screens, a grouped sidebar from lg up */}
+        <div className="lg:hidden mb-4">
+          <label htmlFor="settings-section" className="block text-xs font-bold text-slate-700 mb-1">Section</label>
+          <select
+            id="settings-section"
+            value={currentTab ?? ''}
+            onChange={(e) => setActiveTab(e.target.value as SettingsTab)}
+            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#00B7A7]/30 focus:border-[#00B7A7]"
+          >
+            {navGroups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.tabs.map((tab) => (
+                  <option key={tab} value={tab}>{TAB_META[tab].label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         </div>
 
-        {(canViewModules || canViewUsers) && (
-          <div className="flex items-center gap-3 px-3.5 py-2 bg-white rounded-xl border border-slate-200 shadow-xs text-xs">
-            <div>
-              <span className="text-[10px] text-slate-400 font-bold uppercase block">Seats</span>
-              <span className="font-bold text-slate-900">
-                {maxSeats !== null ? `${seatsUsed} of ${maxSeats} seats used` : `${seatsUsed} members · no seat limit set`}
-              </span>
+        <nav aria-label="Settings sections" className="hidden lg:block sticky top-4 bg-white rounded-2xl border border-slate-200 shadow-xs p-2">
+          {navGroups.map((group) => (
+            <div key={group.label} className="py-1.5 first:pt-0.5 last:pb-0.5">
+              <p className="px-2.5 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">{group.label}</p>
+              <ul className="space-y-0.5">
+                {group.tabs.map((tab) => {
+                  const isCurrent = currentTab === tab;
+                  const meta = TAB_META[tab];
+                  return (
+                    <li key={tab}>
+                      <button
+                        type="button"
+                        aria-current={isCurrent ? 'page' : undefined}
+                        onClick={() => setActiveTab(tab)}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-left transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B7A7]/40 ${
+                          isCurrent ? 'bg-teal-50 text-teal-900 font-semibold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                      >
+                        <span className={isCurrent ? 'text-[#00897D]' : 'text-slate-400'}>{meta.icon}</span>
+                        <span className="flex-1 min-w-0 truncate">{meta.label}</span>
+                        {meta.count !== undefined && (
+                          <span className={`text-[11px] font-semibold tabular-nums px-1.5 rounded-md ${isCurrent ? 'bg-white text-teal-800' : 'bg-slate-100 text-slate-500'}`}>
+                            {meta.count}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
-            {maxSeats !== null && (
-              <div className="w-20 h-2 bg-slate-100 rounded-full overflow-hidden" aria-hidden="true">
-                <div className="h-full bg-[#00B7A7] rounded-full" style={{ width: `${seatPercentage}%` }} />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+          ))}
+        </nav>
 
+        <div className="min-w-0 space-y-6">
       {/* TAB 0: ORGANIZATION & TENANT SETTINGS */}
       {currentTab === 'organization' && (
         <div className="space-y-6">
           {errorBanner(loadErrors.settings)}
 
           {workspace && (
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-xl border border-indigo-900/40">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <section aria-label="Workspace summary" className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-indigo-400/20 text-indigo-300 border border-indigo-400/30 flex items-center gap-1.5">
-                      <Building2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      Workspace
-                    </span>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/10 text-slate-200 font-mono break-all">
-                      ID: {workspace.id}
-                    </span>
-                  </div>
-                  <h2 className="text-2xl font-black tracking-tight text-white break-words">
-                    {orgProfile.company_name || workspace.legal_name}
-                  </h2>
-                  <p className="text-slate-300 text-xs sm:text-sm mt-1">Legal entity: {workspace.legal_name}</p>
+                  <dt className="text-xs font-semibold text-slate-500">Company</dt>
+                  <dd className="font-bold text-slate-900 break-words">{orgProfile.company_name || workspace.legal_name}</dd>
                 </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="px-3.5 py-2 bg-white/10 rounded-xl border border-white/10 text-xs">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Workspace address</span>
-                    <span className="font-bold text-indigo-300 font-mono">{workspace.subdomain}.voogyo.com</span>
-                  </div>
-                  <div className="px-3.5 py-2 bg-white/10 rounded-xl border border-white/10 text-xs">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Currency & timezone</span>
-                    <span className="font-bold text-amber-300 font-mono">
-                      {orgProfile.currency} • {orgProfile.timezone}
-                    </span>
-                  </div>
+                <div className="min-w-0">
+                  <dt className="text-xs font-semibold text-slate-500">Legal entity</dt>
+                  <dd className="text-slate-800 break-words">{workspace.legal_name}</dd>
                 </div>
-              </div>
-            </div>
+                <div className="min-w-0">
+                  <dt className="text-xs font-semibold text-slate-500">Workspace address</dt>
+                  <dd className="font-mono text-slate-800 break-all">{workspace.subdomain}.voogyo.com</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs font-semibold text-slate-500">Currency &amp; timezone</dt>
+                  <dd className="text-slate-800">{orgProfile.currency} · {orgProfile.timezone}</dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-[11px] text-slate-400 font-mono break-all">Workspace ID {workspace.id}</p>
+            </section>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {/* SECTION 1: ORGANIZATION PROFILE */}
             <section aria-labelledby="org-profile-heading" className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -1821,9 +1908,9 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
         <div className="space-y-4">
           {errorBanner(loadErrors.users)}
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-            <div className="flex items-center gap-3 flex-1 max-w-md">
-              <div className="relative flex-1">
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+              <div className="relative flex-1 min-w-[14rem]">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
                 <input
                   type="search"
@@ -1834,6 +1921,17 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00B7A7]/20 focus:border-[#00B7A7]"
                 />
               </div>
+
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                aria-label="Filter by status"
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#00B7A7]/20 focus:border-[#00B7A7]"
+              >
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+                <option value="ALL">All statuses</option>
+              </select>
 
               <select
                 value={roleFilter}
@@ -1848,249 +1946,576 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
               </select>
             </div>
 
-            <div className="text-xs text-slate-500 font-medium">
-              Showing {filteredUsers.length} of {users.length} members
+            <div className="flex items-center gap-4 text-xs text-slate-500 shrink-0">
+              <span aria-live="polite">Showing {filteredUsers.length} of {users.length}</span>
+              {maxSeats !== null ? (
+                <span className="flex items-center gap-2" title="Signed-in members count against your plan's seats">
+                  <span className="font-semibold text-slate-700">{seatsUsed}/{maxSeats} seats</span>
+                  <span className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden" aria-hidden="true">
+                    <span className={`block h-full rounded-full ${seatPercentage >= 90 ? 'bg-amber-500' : 'bg-[#00B7A7]'}`} style={{ width: `${seatPercentage}%` }} />
+                  </span>
+                </span>
+              ) : (
+                <span>No seat limit</span>
+              )}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <caption className="sr-only">Team members of this workspace</caption>
-                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th scope="col" className="py-3 px-4">Member</th>
-                    <th scope="col" className="py-3 px-4">Role</th>
-                    <th scope="col" className="py-3 px-4">Email</th>
-                    <th scope="col" className="py-3 px-4">Phone</th>
-                    <th scope="col" className="py-3 px-4">Access</th>
-                    {(canUpdateUsers || canDeleteUsers) && <th scope="col" className="py-3 px-4 text-right">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loading && users.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="text-center py-10 text-slate-400">Loading team members…</td>
-                    </tr>
-                  ) : filteredUsers.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="text-center py-10 text-slate-500">
-                        {users.length === 0
-                          ? 'No team members yet. Add people so they can sign in to this workspace.'
-                          : 'No team members match your search.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredUsers.map((u) => {
-                      const initials = `${u.first_name[0] || ''}${u.last_name ? u.last_name[0] : ''}`.toUpperCase();
-                      const isSelf = u.email === user?.email;
-                      return (
-                        <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-teal-50 text-teal-800 border border-teal-200 font-bold flex items-center justify-center text-xs shrink-0" aria-hidden="true">
-                                {initials}
-                              </div>
-                              <span className="font-bold text-slate-900 text-sm break-words">
-                                {u.first_name} {u.last_name}
-                                {isSelf && <span className="ml-1.5 text-[10px] font-semibold text-slate-400">(you)</span>}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
-                              {u.role_name || 'No role'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 font-mono text-slate-600 break-all">{u.email}</td>
-                          <td className="py-3 px-4 text-slate-600">{u.phone || '—'}</td>
-                          <td className="py-3 px-4">
-                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                              u.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${u.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} aria-hidden="true" />
-                              <span>{u.is_active ? 'Active' : 'Suspended'}</span>
-                            </span>
-                          </td>
-                          {(canUpdateUsers || canDeleteUsers) && (
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                {canUpdateUsers && (
-                                  <button
-                                    onClick={() => handleOpenEdit(u)}
-                                    className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
-                                    aria-label={`Edit ${u.first_name} ${u.last_name}`}
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                                {canDeleteUsers && !isSelf && (
-                                  <button
-                                    onClick={() => setDeleteConfirmUser(u)}
-                                    className="p-1.5 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-600 transition-colors"
-                                    aria-label={`Remove ${u.first_name} ${u.last_name} from this workspace`}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })
+          {(() => {
+            const nameOf = (u: TeamMember) => `${u.first_name} ${u.last_name}`.trim();
+            const initialsOf = (first: string, last: string) => `${first[0] || ''}${last ? last[0] : ''}`.toUpperCase() || '?';
+            const statusBadge = (u: TeamMember) => {
+              const active = isActiveMember(u);
+              const label = !u.is_active ? 'Suspended' : active ? 'Active' : 'Inactive employee';
+              return (
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                  active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : !u.is_active ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-emerald-500' : !u.is_active ? 'bg-amber-500' : 'bg-slate-400'}`} aria-hidden="true" />
+                  {label}
+                </span>
+              );
+            };
+            const actions = (u: TeamMember) => {
+              const isSelf = u.email === user?.email;
+              return (
+                <div className="flex items-center justify-end gap-1">
+                  {canUpdateUsers && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(u)}
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B7A7]/40"
+                      aria-label={`Edit ${nameOf(u)}`}
+                      title="Edit"
+                    >
+                      <Edit3 className="w-4 h-4" aria-hidden="true" />
+                    </button>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                  {canDeleteUsers && !isSelf && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmUser(u)}
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                      aria-label={`Remove ${nameOf(u)} from this workspace`}
+                      title="Remove from workspace"
+                    >
+                      <Trash2 className="w-4 h-4" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              );
+            };
+            const identity = (u: TeamMember) => {
+              const isSelf = u.email === user?.email;
+              return (
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-teal-50 text-teal-800 border border-teal-200 font-bold flex items-center justify-center text-xs shrink-0" aria-hidden="true">
+                    {initialsOf(u.first_name, u.last_name)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900 text-sm break-words">
+                      {nameOf(u)}
+                      {isSelf && <span className="ml-1.5 text-[11px] font-medium text-slate-400">(you)</span>}
+                    </p>
+                    <p className="text-xs text-slate-500 break-all">{u.email}</p>
+                  </div>
+                </div>
+              );
+            };
+            const emptyText = users.length === 0
+              ? 'No team members yet. Add people, or give an employee access below, so they can sign in.'
+              : 'No team members match these filters.';
+
+            return (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                {loading && users.length === 0 ? (
+                  <ul className="divide-y divide-slate-100" aria-busy="true" aria-label="Loading team members">
+                    {[0, 1, 2].map((i) => (
+                      <li key={i} className="flex items-center gap-3 px-4 py-3.5">
+                        <span className="w-9 h-9 rounded-full bg-slate-100 animate-pulse motion-reduce:animate-none" />
+                        <span className="flex-1 space-y-1.5">
+                          <span className="block h-3 w-40 rounded bg-slate-100 animate-pulse motion-reduce:animate-none" />
+                          <span className="block h-2.5 w-56 rounded bg-slate-100 animate-pulse motion-reduce:animate-none" />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="px-4 py-10 text-center">
+                    <Users className="w-8 h-8 text-slate-300 mx-auto" aria-hidden="true" />
+                    <p className="text-sm text-slate-600 mt-2">{emptyText}</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Cards on small screens */}
+                    <ul className="md:hidden divide-y divide-slate-100">
+                      {filteredUsers.map((u) => (
+                        <li key={u.id} className="px-4 py-3 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            {identity(u)}
+                            {(canUpdateUsers || canDeleteUsers) && actions(u)}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 pl-12">
+                            <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700">{u.role_name || 'No role'}</span>
+                            {statusBadge(u)}
+                            {u.employee_code && <span className="text-[11px] text-slate-500">Emp. {u.employee_code}</span>}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+
+                    {/* Table from md up */}
+                    <table className="hidden md:table w-full text-left text-sm">
+                      <caption className="sr-only">Team members of this workspace</caption>
+                      <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th scope="col" className="py-2.5 px-4">Member</th>
+                          <th scope="col" className="py-2.5 px-4">Role</th>
+                          <th scope="col" className="py-2.5 px-4 hidden xl:table-cell">Employee</th>
+                          <th scope="col" className="py-2.5 px-4 hidden 2xl:table-cell">Phone</th>
+                          <th scope="col" className="py-2.5 px-4">Status</th>
+                          {(canUpdateUsers || canDeleteUsers) && <th scope="col" className="py-2.5 px-4 text-right"><span className="sr-only">Actions</span></th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredUsers.map((u) => (
+                          <tr key={u.id} className={`hover:bg-slate-50/60 transition-colors ${isActiveMember(u) ? '' : 'opacity-75'}`}>
+                            <td className="py-3 px-4 max-w-[22rem]">{identity(u)}</td>
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 whitespace-nowrap">{u.role_name || 'No role'}</span>
+                            </td>
+                            <td className="py-3 px-4 hidden xl:table-cell text-xs text-slate-600 font-mono">{u.employee_code || <span className="text-slate-400 font-sans">Not linked</span>}</td>
+                            <td className="py-3 px-4 hidden 2xl:table-cell text-xs text-slate-600">{u.phone || '—'}</td>
+                            <td className="py-3 px-4">{statusBadge(u)}</td>
+                            {(canUpdateUsers || canDeleteUsers) && <td className="py-2 px-3">{actions(u)}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
+          {canCreateUsers && employeesWithoutSignIn.length > 0 && (() => {
+            const term = employeeSearch.trim().toLowerCase();
+            const shown = employeesWithoutSignIn.filter((emp) =>
+              !term || `${emp.first_name} ${emp.last_name} ${emp.employee_code} ${emp.email ?? ''}`.toLowerCase().includes(term));
+            return (
+              <section aria-labelledby="employees-without-sign-in" className="bg-white rounded-xl border border-slate-200 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 border-b border-slate-200">
+                  <div className="min-w-0">
+                    <h2 id="employees-without-sign-in" className="text-sm font-bold text-slate-900">
+                      Employees without sign-in <span className="text-slate-400 font-semibold">({employeesWithoutSignIn.length})</span>
+                    </h2>
+                    <p className="text-xs text-slate-500">Active HRMS employees who can’t use the portal yet. Give access and choose their role.</p>
+                  </div>
+                  <div className="relative sm:w-64">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={employeeSearch}
+                      onChange={(e) => setEmployeeSearch(e.target.value)}
+                      placeholder="Find an employee"
+                      aria-label="Search employees without sign-in"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00B7A7]/20 focus:border-[#00B7A7]"
+                    />
+                  </div>
+                </div>
+                {shown.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-sm text-slate-500">No employees match “{employeeSearch}”.</p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+                    {shown.map((emp) => (
+                      <li key={emp.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center text-[11px] shrink-0" aria-hidden="true">
+                            {`${emp.first_name[0] || ''}${emp.last_name ? emp.last_name[0] : ''}`.toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 break-words">
+                              {emp.first_name} {emp.last_name}
+                              <span className="ml-1.5 text-xs font-mono font-normal text-slate-500">{emp.employee_code}</span>
+                            </p>
+                            <p className={`text-xs break-all ${emp.email ? 'text-slate-500' : 'text-amber-700'}`}>
+                              {emp.email || 'No work email: you’ll enter one when giving access'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdd(emp)}
+                          className="shrink-0 px-3 py-2 rounded-lg border border-teal-200 text-xs font-bold text-teal-800 hover:bg-teal-50 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B7A7]/40"
+                        >
+                          Give access<span className="sr-only"> to {emp.first_name} {emp.last_name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })()}
         </div>
       )}
 
       {/* TAB 2: ROLES & PERMISSIONS */}
-      {currentTab === 'roles' && (
+      {currentTab === 'roles' && (() => {
+        const totalPermissions = permissionCatalog.reduce((n, sec) => n + sec.groups.reduce((m, g) => m + g.permissions.length, 0), 0);
+        const term = permissionSearch.trim().toLowerCase();
+        const isGranted = (key: string) => Boolean(selectedRole?.is_admin || selectedRole?.permissions.includes(key));
+        // Filtered view of the catalog; empty groups and sections drop out.
+        const visibleSections = permissionCatalog
+          .map((section) => ({
+            ...section,
+            groups: section.groups
+              .map((group) => ({
+                ...group,
+                permissions: group.permissions.filter((p) =>
+                  (!term || p.name.toLowerCase().includes(term) || p.key.toLowerCase().includes(term) || group.group.toLowerCase().includes(term) || section.section.toLowerCase().includes(term))
+                  && (!showGrantedOnly || isGranted(p.key))),
+              }))
+              .filter((group) => group.permissions.length > 0),
+          }))
+          .filter((section) => section.groups.length > 0);
+        const roleBadge = (r: TenantRole) =>
+          r.is_admin ? 'Admin' : r.is_system ? 'Built-in' : 'Custom';
+
+        return (
         <div className="space-y-4">
           {errorBanner(loadErrors.roles)}
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Workspace roles</h2>
-                {canCreateRoles && (
-                  <button
-                    onClick={() => {
-                      setFormError(null);
-                      setShowAddRoleModal(true);
-                    }}
-                    className="text-xs font-bold text-[#00B7A7] hover:underline cursor-pointer"
-                  >
-                    + New role
-                  </button>
-                )}
-              </div>
-
-              <ul className="bg-white rounded-2xl border border-slate-200 shadow-xs p-2 space-y-1">
-                {roles.map((r) => {
-                  const isSelected = selectedRole?.id === r.id;
-                  return (
-                    <li key={r.id}>
-                      <button
-                        onClick={() => setSelectedRoleId(r.id)}
-                        aria-pressed={isSelected}
-                        className={`w-full text-left p-3 rounded-xl text-xs transition-colors flex items-center justify-between cursor-pointer ${
-                          isSelected ? 'bg-[#00B7A7] text-white font-bold shadow-xs' : 'hover:bg-slate-50 text-slate-700 font-medium'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="break-words">{r.name}</span>
-                            {(r.is_admin || r.is_system) && (
-                              <span className={`text-[9px] px-1.5 rounded font-mono ${isSelected ? 'bg-[#009E90] text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                {r.is_admin ? 'Admin' : 'Built-in'}
-                              </span>
-                            )}
-                          </div>
-                          <span className={`text-[10px] block mt-0.5 ${isSelected ? 'text-teal-100' : 'text-slate-400'}`}>
-                            {r.users_count} {r.users_count === 1 ? 'member' : 'members'}
-                          </span>
-                        </div>
-                        {isSelected && <Check className="w-4 h-4 text-white shrink-0" aria-hidden="true" />}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+          <div className="xl:grid xl:grid-cols-[17rem_minmax(0,1fr)] xl:gap-6 xl:items-start space-y-4 xl:space-y-0">
+            {/* Role picker: a select below xl, a list from xl up */}
+            <div className="xl:hidden">
+              <label htmlFor="role-picker" className="block text-xs font-bold text-slate-700 mb-1">Role</label>
+              <select
+                id="role-picker"
+                value={selectedRole?.id ?? ''}
+                onChange={(e) => setSelectedRoleId(e.target.value)}
+                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#00B7A7]/30 focus:border-[#00B7A7]"
+              >
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name} · {r.users_count} {r.users_count === 1 ? 'member' : 'members'}</option>
+                ))}
+              </select>
             </div>
 
-            <div className="lg:col-span-3 space-y-4">
+            <section aria-labelledby="roles-list-heading" className="hidden xl:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden xl:sticky xl:top-4">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                <h2 id="roles-list-heading" className="text-sm font-bold text-slate-900">Roles <span className="text-slate-400 font-semibold">({roles.length})</span></h2>
+              </div>
+              {roles.length === 0 ? (
+                <p className="px-4 py-6 text-xs text-slate-500">{loading ? 'Loading roles…' : 'No roles yet.'}</p>
+              ) : (
+                <ul className="p-2 space-y-0.5 max-h-[70vh] overflow-y-auto">
+                  {roles.map((r) => {
+                    const isSelected = selectedRole?.id === r.id;
+                    return (
+                      <li key={r.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRoleId(r.id)}
+                          aria-current={isSelected ? 'true' : undefined}
+                          className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer border focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B7A7]/40 ${
+                            isSelected ? 'bg-teal-50 border-teal-200' : 'border-transparent hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="flex items-center justify-between gap-2">
+                            <span className={`text-sm truncate ${isSelected ? 'font-bold text-teal-900' : 'font-semibold text-slate-800'}`}>{r.name}</span>
+                            <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+                              r.is_admin ? 'bg-indigo-50 text-indigo-700' : r.is_system ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'
+                            }`}>{roleBadge(r)}</span>
+                          </span>
+                          <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+                            <Users className="w-3 h-3" aria-hidden="true" />
+                            {r.users_count} {r.users_count === 1 ? 'member' : 'members'}
+                            <span aria-hidden="true">·</span>
+                            {r.is_admin ? 'All' : r.permissions.length} permissions
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+
+            <div className="min-w-0 space-y-4">
               {selectedRole ? (
                 <>
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-start justify-between gap-3 flex-wrap">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-slate-900 text-sm">{selectedRole.name} — permissions</h3>
-                        <span className="text-xs text-slate-400 font-mono">({selectedRole.code})</span>
+                  {/* Role summary */}
+                  <section aria-labelledby="role-title" className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 id="role-title" className="font-bold text-slate-900 text-base break-words">{selectedRole.name}</h2>
+                          <span className="text-[11px] text-slate-500 font-mono bg-slate-50 border border-slate-200 rounded px-1.5">{selectedRole.code}</span>
+                          <span className="text-[11px] font-semibold text-slate-600">{roleBadge(selectedRole)} role</span>
+                        </div>
+                        {selectedRole.description && <p className="text-sm text-slate-600 mt-1">{selectedRole.description}</p>}
                       </div>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {selectedRole.is_admin
-                          ? 'Administrators hold every permission. This cannot be changed.'
-                          : canUpdateRoles
-                            ? 'Each change is saved and enforced immediately for everyone with this role.'
-                            : 'You can view this role’s permissions but not change them.'}
-                      </p>
+                      {canDeleteRoles && !selectedRole.is_system && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmRole(selectedRole)}
+                          disabled={selectedRole.users_count > 0}
+                          aria-describedby={selectedRole.users_count > 0 ? 'role-delete-hint' : undefined}
+                          className="px-3 py-2 rounded-lg text-xs font-bold border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                          Delete role
+                        </button>
+                      )}
                     </div>
-                    {canDeleteRoles && !selectedRole.is_system && (
-                      <button
-                        onClick={() => setDeleteConfirmRole(selectedRole)}
-                        disabled={selectedRole.users_count > 0}
-                        title={selectedRole.users_count > 0 ? 'Give its members another role before deleting it' : undefined}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        Delete role
-                      </button>
+
+                    <dl className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <dt className="text-[11px] font-semibold text-slate-500">Members</dt>
+                        <dd className="font-bold text-slate-900 tabular-nums">{selectedRole.users_count}</dd>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <dt className="text-[11px] font-semibold text-slate-500">Permissions granted</dt>
+                        <dd className="font-bold text-slate-900 tabular-nums">
+                          {selectedRole.is_admin ? 'All' : `${selectedRole.permissions.length}${totalPermissions ? ` of ${totalPermissions}` : ''}`}
+                        </dd>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 px-3 py-2 col-span-2 sm:col-span-1">
+                        <dt className="text-[11px] font-semibold text-slate-500">Editing</dt>
+                        <dd className="font-semibold text-slate-800">
+                          {selectedRole.is_admin ? 'Locked' : canUpdateRoles ? 'Saved on each change' : 'View only'}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    {selectedRole.users_count > 0 && canDeleteRoles && !selectedRole.is_system && (
+                      <p id="role-delete-hint" className="mt-3 text-xs text-slate-500">Move its members to another role before deleting it.</p>
                     )}
-                  </div>
+                    {selectedRole.is_admin && (
+                      <p className="mt-3 flex items-start gap-2 text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
+                        <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                        Administrators always hold every permission, so the workspace can never lock itself out.
+                      </p>
+                    )}
+                  </section>
 
                   {permissionCatalog.length === 0 ? (
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200 text-xs text-slate-500">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 text-sm text-slate-500">
                       {canViewPermissions ? 'Loading the permission list…' : 'You can see roles but not the permission list.'}
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {permissionCatalog.map((section) => {
-                        const keys = section.groups.flatMap((group) => group.permissions.map((p) => p.key));
-                        const grantedCount = keys.filter((key) => selectedRole.permissions.includes(key)).length;
+                    <>
+                      {(() => {
+                        const editable = !selectedRole.is_admin && canUpdateRoles;
+                        const busy = pendingPermission !== null;
+                        const allKeys = permissionCatalog.flatMap((sec) => sec.groups.flatMap((g) => g.permissions.map((p) => p.key)));
+                        // Bulk controls act on what is on screen, so a search narrows "select all".
+                        const shownKeys = visibleSections.flatMap((sec) => sec.groups.flatMap((g) => g.permissions.map((p) => p.key)));
+                        const holdable = (keys: string[]) => keys.filter((k) => can(k));
+                        const stateOf = (keys: string[]) => {
+                          const n = keys.filter(isGranted).length;
+                          return { all: keys.length > 0 && n === keys.length, some: n > 0 && n < keys.length, n };
+                        };
+                        const bulkBox = (keys: string[], label: string, size = 'w-4 h-4') => {
+                          const st = stateOf(keys);
+                          const usable = holdable(keys);
+                          return (
+                            <TriStateCheckbox
+                              checked={st.all}
+                              indeterminate={st.some}
+                              disabled={!editable || busy || usable.length === 0}
+                              onChange={() => handleBulkPermissions(selectedRole, usable, !st.all)}
+                              aria-label={`${st.all ? 'Remove' : 'Grant'} all ${label} permissions`}
+                              title={st.all ? `Remove all in ${label}` : `Grant all in ${label}`}
+                              className={`${size} rounded border-slate-300 accent-[#00B7A7] disabled:cursor-not-allowed cursor-pointer shrink-0`}
+                            />
+                          );
+                        };
+                        const shownState = stateOf(shownKeys);
+                        const allCollapsed = visibleSections.every((sec) => collapsedSections.has(sec.section));
+                        const toggleSection = (name: string) => setCollapsedSections((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(name)) next.delete(name); else next.add(name);
+                          return next;
+                        });
+
                         return (
-                          <section key={section.section} aria-label={section.section} className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-3">
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <h4 className="text-sm font-bold text-slate-900">{section.section}</h4>
-                              <span className="text-[11px] text-slate-500">
-                                {grantedCount} of {keys.length} granted
-                              </span>
+                          <>
+                            {/* Toolbar: find, filter, bulk actions */}
+                            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-3 xl:sticky xl:top-4 z-10">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <div className="relative flex-1 min-w-[14rem]">
+                                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+                                  <input
+                                    type="search"
+                                    value={permissionSearch}
+                                    onChange={(e) => setPermissionSearch(e.target.value)}
+                                    placeholder="Search permissions, e.g. payroll or leads"
+                                    aria-label="Search permissions"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00B7A7]/20 focus:border-[#00B7A7]"
+                                  />
+                                </div>
+                                <div role="group" aria-label="Show" className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs font-semibold">
+                                  {[{ v: false, l: 'All' }, { v: true, l: 'Granted' }].map((opt) => (
+                                    <button
+                                      key={opt.l}
+                                      type="button"
+                                      aria-pressed={showGrantedOnly === opt.v}
+                                      onClick={() => setShowGrantedOnly(opt.v)}
+                                      className={`px-3 py-1.5 rounded-md cursor-pointer ${showGrantedOnly === opt.v ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                    >
+                                      {opt.l}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                                <span className="text-xs text-slate-600" aria-live="polite">
+                                  <span className="font-semibold text-slate-900 tabular-nums">{stateOf(allKeys).n}</span> of {allKeys.length} granted
+                                  {term && <> · showing {shownKeys.length} matching</>}
+                                  {busy && pendingPermission === '__bulk__' && (
+                                    <span className="ml-2 inline-flex items-center gap-1 text-slate-500"><Loader2 className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />Saving…</span>
+                                  )}
+                                </span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {editable && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={busy || shownState.all || holdable(shownKeys).length === 0}
+                                        onClick={() => handleBulkPermissions(selectedRole, holdable(shownKeys), true)}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#00B7A7] hover:bg-[#009E90] text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                      >
+                                        {term || showGrantedOnly ? 'Select shown' : 'Select all'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy || shownState.n === 0}
+                                        onClick={() => (term || showGrantedOnly ? handleBulkPermissions(selectedRole, holdable(shownKeys), false) : setConfirmClearAll(true))}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                      >
+                                        {term || showGrantedOnly ? 'Deselect shown' : 'Deselect all'}
+                                      </button>
+                                    </>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setCollapsedSections(allCollapsed ? new Set() : new Set(visibleSections.map((sec) => sec.section)))}
+                                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                                  >
+                                    {allCollapsed ? 'Expand all' : 'Collapse all'}
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              {section.groups.map((group) => (
-                                <fieldset key={group.group} className="rounded-xl border border-slate-100 p-3 space-y-1.5">
-                                  <legend className="text-[11px] font-bold text-slate-600 uppercase tracking-wider px-1">{group.group}</legend>
-                                  {group.permissions.map((permission) => {
-                                    const granted = selectedRole.permissions.includes(permission.key);
-                                    // The owner role's grants are locked so a workspace keeps its administration.
-                                    const disabled = selectedRole.is_admin || !canUpdateRoles || pendingPermission !== null;
-                                    return (
-                                      <label key={permission.key} className="flex items-start gap-2.5 text-xs text-slate-700 py-1 cursor-pointer">
-                                        <input
-                                          type="checkbox"
-                                          checked={granted}
-                                          disabled={disabled}
-                                          onChange={() => handleTogglePermission(selectedRole, permission.key, !granted)}
-                                          className="mt-0.5 w-4 h-4 rounded border-slate-300 accent-[#00B7A7] disabled:cursor-not-allowed"
-                                        />
-                                        <span>
-                                          <span className="font-semibold block">{permission.name}</span>
-                                          <span className="font-mono text-[10px] text-slate-400">{permission.key}</span>
-                                        </span>
-                                      </label>
-                                    );
-                                  })}
-                                </fieldset>
-                              ))}
-                            </div>
-                          </section>
+
+                            {visibleSections.length === 0 ? (
+                              <div className="bg-white p-6 rounded-2xl border border-slate-200 text-center">
+                                <p className="text-sm font-semibold text-slate-800">No permissions match</p>
+                                <p className="text-xs text-slate-500 mt-1">Try another word, or switch the view back to “All”.</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {visibleSections.map((section) => {
+                                  const full = permissionCatalog.find((sec) => sec.section === section.section);
+                                  const sectionKeys = full ? full.groups.flatMap((g) => g.permissions.map((p) => p.key)) : [];
+                                  const st = stateOf(sectionKeys);
+                                  const pct = sectionKeys.length ? Math.round((st.n / sectionKeys.length) * 100) : 0;
+                                  const open = !collapsedSections.has(section.section);
+                                  const panelId = `perm-section-${section.section.replace(/[^a-z0-9]+/gi, '-')}`;
+                                  return (
+                                    <section key={section.section} aria-label={section.section} className="bg-white rounded-2xl border border-slate-200 shadow-xs">
+                                      <div className="flex items-center gap-3 px-4 py-3">
+                                        {bulkBox(sectionKeys, section.section)}
+                                        <button
+                                          type="button"
+                                          aria-expanded={open}
+                                          aria-controls={panelId}
+                                          onClick={() => toggleSection(section.section)}
+                                          className="flex-1 min-w-0 flex items-center gap-3 text-left cursor-pointer rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B7A7]/40"
+                                        >
+                                          <h3 className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{section.section}</h3>
+                                          <span className={`text-xs tabular-nums whitespace-nowrap ${st.all ? 'text-teal-700 font-semibold' : 'text-slate-500'}`}>
+                                            {st.all ? 'All granted' : st.n === 0 ? 'None granted' : `${st.n} of ${sectionKeys.length}`}
+                                          </span>
+                                          <span className="hidden sm:block w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden" aria-hidden="true">
+                                            <span className="block h-full bg-[#00B7A7] rounded-full" style={{ width: `${pct}%` }} />
+                                          </span>
+                                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform motion-reduce:transition-none ${open ? '' : '-rotate-90'}`} aria-hidden="true" />
+                                        </button>
+                                      </div>
+                                      {open && (
+                                        <div id={panelId} className="grid grid-cols-1 2xl:grid-cols-2 gap-3 px-4 pb-4">
+                                          {section.groups.map((group) => {
+                                            const fullGroup = full?.groups.find((g) => g.group === group.group);
+                                            const groupKeys = (fullGroup ?? group).permissions.map((p) => p.key);
+                                            return (
+                                              <fieldset key={group.group} className="rounded-xl border border-slate-200/70 bg-slate-50/60 p-3">
+                                                <legend className="sr-only">{group.group}</legend>
+                                                <div className="flex items-center gap-2.5 pb-2 mb-1 border-b border-slate-200/70">
+                                                  {bulkBox(groupKeys, group.group, 'w-3.5 h-3.5')}
+                                                  <span className="text-xs font-bold text-slate-700 flex-1">{group.group}</span>
+                                                  <span className="text-[11px] text-slate-500 tabular-nums">{stateOf(groupKeys).n}/{groupKeys.length}</span>
+                                                </div>
+                                                <ul>
+                                                  {group.permissions.map((permission) => {
+                                                    const granted = isGranted(permission.key);
+                                                    const notHeld = editable && !can(permission.key);
+                                                    // The owner role's grants are locked so a workspace keeps its administration.
+                                                    const disabled = !editable || busy || notHeld;
+                                                    const saving = pendingPermission === permission.key;
+                                                    return (
+                                                      <li key={permission.key}>
+                                                        <label
+                                                          className={`flex items-center gap-3 px-1.5 py-2 rounded-lg text-sm ${disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-white'}`}
+                                                          title={notHeld ? 'You can only grant permissions you hold yourself.' : permission.key}
+                                                        >
+                                                          <input
+                                                            type="checkbox"
+                                                            checked={granted}
+                                                            disabled={disabled}
+                                                            onChange={() => handleTogglePermission(selectedRole, permission.key, !granted)}
+                                                            className="w-4 h-4 rounded border-slate-300 accent-[#00B7A7] disabled:cursor-not-allowed shrink-0"
+                                                          />
+                                                          <span className={`flex-1 min-w-0 ${granted ? 'text-slate-900 font-medium' : 'text-slate-600'}`}>{permission.name}</span>
+                                                          {notHeld && <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-label="You don't hold this permission" />}
+                                                          {saving && <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin motion-reduce:animate-none shrink-0" aria-label="Saving" />}
+                                                        </label>
+                                                      </li>
+                                                    );
+                                                  })}
+                                                </ul>
+                                              </fieldset>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </section>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>
                         );
-                      })}
-                    </div>
+                      })()}
+                    </>
                   )}
                 </>
               ) : (
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 text-xs text-slate-500">
-                  {loading ? 'Loading roles…' : 'No roles yet. Create a role to decide what its members can do.'}
+                <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center">
+                  <ShieldCheck className="w-8 h-8 text-slate-300 mx-auto" aria-hidden="true" />
+                  <p className="text-sm font-semibold text-slate-800 mt-2">{loading ? 'Loading roles…' : 'No roles yet'}</p>
+                  {!loading && (
+                    <p className="text-xs text-slate-500 mt-1">Create a role to decide what its members can see and do.</p>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* TAB 3: MODULES & APPS */}
       {currentTab === 'modules' && (
@@ -2098,7 +2523,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
           {errorBanner(loadErrors.modules)}
 
           {modulesData && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
                 <div className="text-xs font-semibold text-slate-400 mb-1">Plan</div>
                 <div className="text-lg font-black text-slate-900">{modulesData.tenant.plan_name ?? 'No plan assigned'}</div>
@@ -2147,7 +2572,7 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {(modulesData?.modules ?? []).map((m) => (
                 <div
                   key={m.id}
@@ -2205,6 +2630,8 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
       {currentTab === 'employment-types' && <EmploymentTypesMaster canEdit={canEditOrg} />}
       {currentTab === 'document-types' && <DocumentTypesMaster />}
       {currentTab === 'onboarding-workflow' && <WorkflowBuilderView />}
+        </div>
+      </div>
 
       {/* DIALOG: ADD TEAM MEMBER */}
       {showAddModal &&
@@ -2227,6 +2654,28 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
             </div>
 
             <form onSubmit={handleCreateUser} className="space-y-3">
+              {employeesWithoutSignIn.length > 0 && (
+                <div>
+                  <label htmlFor="member-employee" className="block text-xs font-bold text-slate-700 mb-1">HRMS employee</label>
+                  <select
+                    id="member-employee"
+                    value={formData.employee_id}
+                    onChange={(e) => {
+                      const emp = employeesWithoutSignIn.find((x) => x.id === e.target.value);
+                      setFormData(emp
+                        ? { ...formData, employee_id: emp.id, first_name: emp.first_name, last_name: emp.last_name, email: emp.email ?? formData.email, phone: emp.phone ?? formData.phone }
+                        : { ...formData, employee_id: '' });
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="">Not an employee</option>
+                    {employeesWithoutSignIn.map((emp) => (
+                      <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name} ({emp.employee_code})</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-500">Links this sign-in to the employee, so attendance and self-service use the same person.</p>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="member-first-name" className="block text-xs font-bold text-slate-700 mb-1">First name <span className="text-red-500" aria-hidden="true">*</span></label>
@@ -2585,6 +3034,35 @@ export const OrganizationSettingsView: React.FC<OrganizationSettingsViewProps> =
         )}
 
       {/* DIALOG: DELETE ROLE */}
+      {confirmClearAll && selectedRole &&
+        renderDialog(
+          'clear-permissions-title',
+          <>
+            <div>
+              <h3 id="clear-permissions-title" className="text-sm font-bold text-slate-900">Remove every permission from “{selectedRole.name}”?</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Its {selectedRole.users_count} {selectedRole.users_count === 1 ? 'member loses' : 'members lose'} access to everything this role allowed on their next request. You can grant permissions again at any time.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" autoFocus onClick={() => setConfirmClearAll(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setConfirmClearAll(false);
+                  await handleBulkPermissions(selectedRole, selectedRole.permissions, false);
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-xs"
+              >
+                Remove all permissions
+              </button>
+            </div>
+          </>,
+          'max-w-sm',
+        )}
+
       {deleteConfirmRole &&
         renderDialog(
           'delete-role-title',

@@ -1,0 +1,22 @@
+info:
+  name: Sync daily attendance
+  type: http
+  seq: 2
+  description: ⚠ WRITES DATA to the workspace. Imports daily attendance and punches.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/sync-daily-attendance?startDate={{startDate}}&endDate={{endDate}}'
+  params:
+  - name: startDate
+    value: '{{startDate}}'
+    type: query
+  - name: endDate
+    value: '{{endDate}}'
+    type: query
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+settings:
+  encodeUrl: true

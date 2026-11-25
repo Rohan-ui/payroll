@@ -1,5 +1,8 @@
 import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEmail,
   IsIn,
@@ -48,6 +51,11 @@ export class CreateTeamMemberDto {
   /** Must be a role of the caller's own workspace; checked by the service. */
   @IsUUID('all', { message: 'Choose a role for the new member.' })
   role_id!: string;
+
+  /** HRMS employee this sign-in belongs to; must be an active employee of the caller's workspace without one. */
+  @IsOptional()
+  @IsUUID('all', { message: 'Choose a valid employee.' })
+  employee_id?: string;
 }
 
 export class UpdateTeamMemberDto {
@@ -118,6 +126,18 @@ export class UpdateRoleDto {
 export class SetRolePermissionDto {
   @IsIn(PERMISSION_KEYS, { message: 'Unknown permission.' })
   permissionKey!: string;
+
+  @IsBoolean()
+  granted!: boolean;
+}
+
+/** Grant or remove several permissions at once, e.g. a whole section. */
+export class SetRolePermissionsBulkDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Choose at least one permission.' })
+  @ArrayMaxSize(PERMISSION_KEYS.length)
+  @IsIn(PERMISSION_KEYS, { each: true, message: 'Unknown permission.' })
+  permissionKeys!: string[];
 
   @IsBoolean()
   granted!: boolean;

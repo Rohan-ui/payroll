@@ -18,13 +18,14 @@ export class UsersController {
   @Get()
   @RequirePermissions('users.view')
   async getUsers(@CurrentTenant() tenantId: string, @CurrentUser() actor: AuthenticatedTenantUser) {
-    const [users, roles] = await Promise.all([
+    const [users, roles, employeesWithoutSignIn] = await Promise.all([
       this.membersService.listMembers(tenantId),
       // Role names for the assignment picker, with the server's answer on who may assign each.
       this.rolesService.listRoleOptions(tenantId, actor),
+      this.membersService.listEmployeesWithoutSignIn(tenantId),
     ]);
 
-    return { success: true, data: { users, roles } };
+    return { success: true, data: { users, roles, employeesWithoutSignIn } };
   }
 
   @Post()

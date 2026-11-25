@@ -84,6 +84,14 @@ export function workedFromPunches(punches: { punch_at: Date; punch_type: 'CHECK_
   }
   return Math.floor(total / 60_000);
 }
+/**
+ * The day's status as COSEC decides it (first/second half), except a day still
+ * open today: COSEC marks it IN/AB until the check-out, so it shows PRESENT meanwhile.
+ */
+export function dayStatus<T extends string>(day: { status: T; isCurrentlyInside: boolean; date: string }, today: string): T | 'PRESENT' {
+  return day.isCurrentlyInside && day.date === today ? 'PRESENT' : day.status;
+}
+
 /** Today in COSEC's time zone, as YYYY-MM-DD. */
 export const cosecToday = (now = new Date()) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -669,6 +677,7 @@ export class ExternalApiService {
     const toTimeOfDay = (hhmm: string | null): Date | null => (hhmm ? new Date(`1970-01-01T${hhmm}:00.000Z`) : null);
     const time = (d: Date | null | undefined) => (d ? d.getTime() : null);
 
+    const today = cosecToday();
     for (const item of items) {
       const employeeId = resolveEmployeeId(item.employeeCode);
       if (!employeeId) continue;
@@ -687,15 +696,16 @@ export class ExternalApiService {
       // check-in and the check-out after it. Nothing is assumed: a day still open
       // (checked in, not yet out) counts only its completed pairs so far.
       const workedMinutes = item.workedMinutes > 0 ? item.workedMinutes : workedFromPunches(punches);
+      const status = dayStatus(item, today);
       const fields = {
         // COSEC calls a weekly off WEEK_OFF; attendance and payroll know it as WEEKEND.
-        attendance_status: item.status === 'WEEK_OFF' ? 'WEEKEND' : item.status,
+        attendance_status: status === 'WEEK_OFF' ? 'WEEKEND' : status,
         first_check_in_at: parseLocalTime(item.punches[0]?.date ?? item.date, item.firstCheckInTime),
         last_check_out_at: item.lastCheckOutTime && !item.isCurrentlyInside
           ? parseLocalTime(item.punches[item.punches.length - 1]?.date ?? item.date, item.lastCheckOutTime)
           : null,
         worked_minutes: workedMinutes,
-        payable_minutes: item.status === 'PRESENT' ? 480 : item.status === 'HALF_DAY' ? 240 : 0,
+        payable_minutes: status === 'PRESENT' ? 480 : status === 'HALF_DAY' ? 240 : 0,
         scheduled_shift_code: item.scheduledShiftCode,
         working_shift_code: item.workingShiftCode,
         scheduled_shift_start_time: toTimeOfDay(item.shiftStart),

@@ -1,0 +1,15 @@
+info:
+  name: Run reconciliation
+  type: http
+  seq: 2
+  description: ⚠ WRITES DATA to the workspace. Auto-matches HRMS employees to COSEC users. Needs attendance.integration.update.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/reconcile'
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+settings:
+  encodeUrl: true

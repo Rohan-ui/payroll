@@ -77,6 +77,16 @@ function clockTime(at: Date): string {
   return at.toLocaleTimeString('en-US', { timeZone: ATTENDANCE_TIME_ZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
 }
 
+/** Today in India time, as YYYY-MM-DD. */
+function attendanceToday(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: ATTENDANCE_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+/** A working day with no record: absent once it has passed, FUTURE while it has not come yet. */
+export function unrecordedDayStatus(date: string, today: string): 'ABSENT' | 'FUTURE' {
+  return date > today ? 'FUTURE' : 'ABSENT';
+}
+
 @Injectable()
 export class AttendanceService {
   constructor(private readonly prisma: PrismaService) {}
@@ -816,57 +826,41 @@ export class AttendanceService {
     const defaultStatus = input.defaultStatus || 'PRESENT';
     const standardWorkMinutes = input.standardWorkMinutes || 480;
 
-    // 2. Upsert records for each day of the month
-    let createdOrUpdatedCount = 0;
-
-    await this.prisma.$transaction(async (tx) => {
-      for (const emp of employees) {
-        for (let day = 1; day <= totalDays; day++) {
-          const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const dateObj = new Date(`${dateStr}T00:00:00.000Z`);
-          const dayOfWeek = dateObj.getUTCDay(); // 0 = Sunday
-
-          // Sundays default to WEEKEND
-          const isSunday = dayOfWeek === 0;
-          const status = isSunday ? 'WEEKEND' : defaultStatus;
-          const payableMinutes = isSunday ? standardWorkMinutes : (status === 'PRESENT' ? standardWorkMinutes : 0);
-          const workedMinutes = status === 'PRESENT' ? standardWorkMinutes : 0;
-
-          await tx.rndtechnosoft_attendance_records.upsert({
-            where: {
-              tenant_id_employee_id_attendance_date: {
-                tenant_id: tenantId,
-                employee_id: emp.id,
-                attendance_date: dateObj,
-              },
-            },
-            create: {
-              id: randomUUID(),
-              tenant_id: tenantId,
-              employee_id: emp.id,
-              attendance_date: dateObj,
-              attendance_status: status,
-              worked_minutes: workedMinutes,
-              payable_minutes: payableMinutes,
-              source: 'MANUAL',
-            },
-            update: {
-              attendance_status: status,
-              worked_minutes: workedMinutes,
-              payable_minutes: payableMinutes,
-            },
-          });
-
-          createdOrUpdatedCount++;
-        }
+    // 2. Fill days with no record yet, up to today. Existing days (manual, device-synced,
+    // corrected or locked by finalized payroll) are never overwritten, and future days
+    // are left for the attendance that actually happens.
+    const today = attendanceToday();
+    const data = employees.flatMap((emp) => {
+      const rows = [];
+      for (let day = 1; day <= totalDays; day++) {
+        const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        if (dateStr > today) break;
+        const dateObj = new Date(`${dateStr}T00:00:00.000Z`);
+        // Sundays default to WEEKEND
+        const isSunday = dateObj.getUTCDay() === 0;
+        const status = isSunday ? 'WEEKEND' : defaultStatus;
+        rows.push({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          employee_id: emp.id,
+          attendance_date: dateObj,
+          attendance_status: status,
+          worked_minutes: status === 'PRESENT' ? standardWorkMinutes : 0,
+          payable_minutes: isSunday || status === 'PRESENT' ? standardWorkMinutes : 0,
+          source: 'MANUAL',
+        });
       }
+      return rows;
     });
+    const { count } = await this.prisma.rndtechnosoft_attendance_records.createMany({ data, skipDuplicates: true });
 
     return {
-      message: `Successfully populated attendance for ${employees.length} employees across ${totalDays} days (${input.month}).`,
+      message: count
+        ? `Marked ${count} day${count === 1 ? '' : 's'} with no attendance across ${employees.length} employees (${input.month}). Existing days were left unchanged.`
+        : `Every day in ${input.month} up to today already has attendance; nothing was changed.`,
       employeesCount: employees.length,
       totalDays,
-      recordsProcessed: createdOrUpdatedCount,
+      recordsProcessed: count,
     };
   }
 
@@ -1703,7 +1697,7 @@ export class AttendanceService {
         if (!isWeekend && !isHoliday) workingDays++;
 
         const r = empRecords.get(dStr);
-        let status = isWeekend ? 'WEEKEND' : 'ABSENT';
+        let status = isWeekend ? 'WEEKEND' : unrecordedDayStatus(dStr, attendanceToday());
         let workedMinutes = 0;
         let isLate = false;
 
@@ -1919,8 +1913,8 @@ export class AttendanceService {
         if (!hdr.isWeekend && !hdr.isHoliday) workingDays++;
         const r = empRecs.get(hdr.date);
 
-        let status = hdr.isHoliday ? 'HOLIDAY' : hdr.isWeekend ? 'WEEKEND' : 'ABSENT';
-        let glyph = hdr.isHoliday ? 'H' : hdr.isWeekend ? 'W' : '×';
+        let status = hdr.isHoliday ? 'HOLIDAY' : hdr.isWeekend ? 'WEEKEND' : unrecordedDayStatus(hdr.date, attendanceToday());
+        let glyph = hdr.isHoliday ? 'H' : hdr.isWeekend ? 'W' : status === 'FUTURE' ? '' : '×';
         let workedHours = 0;
         let isLate = false;
         let inTime: string | null = null;
@@ -2091,6 +2085,7 @@ export class AttendanceService {
     // Compute month aggregates
     let presentDays = 0;
     let absentDays = 0;
+    let futureDays = 0;
     let halfDays = 0;
     let paidLeaveDays = 0;
     let unpaidLeaveDays = 0;
@@ -2116,8 +2111,8 @@ export class AttendanceService {
       if (!isWeeklyOff && !isHoliday) workingDays++;
 
       const r = recordMap.get(dStr);
-      let status = isHoliday ? 'HOLIDAY' : isWeeklyOff ? 'WEEKEND' : 'ABSENT';
-      let glyph = isHoliday ? 'H' : isWeeklyOff ? 'W' : '×';
+      let status = isHoliday ? 'HOLIDAY' : isWeeklyOff ? 'WEEKEND' : unrecordedDayStatus(dStr, attendanceToday());
+      let glyph = isHoliday ? 'H' : isWeeklyOff ? 'W' : status === 'FUTURE' ? '' : '×';
       let workedMinutes = 0;
       let lateMinutes = 0;
       let overtimeMinutes = 0;
@@ -2190,9 +2185,8 @@ export class AttendanceService {
           checkInCount++;
         }
       } else {
-        if (!isWeeklyOff && !isHoliday) {
-          absentDays++;
-        }
+        if (status === 'ABSENT') absentDays++;
+        if (status === 'FUTURE') futureDays++;
         currentStreak = 0;
       }
 
@@ -2237,7 +2231,8 @@ export class AttendanceService {
     }
 
     // Average check-in formatting
-    let avgCheckInTime = '09:30 AM';
+    // No check-ins this month means no average, not a made-up one.
+    let avgCheckInTime: string | null = null;
     if (checkInCount > 0) {
       const avgMins = Math.round(checkInMinutesSum / checkInCount);
       const h = Math.floor(avgMins / 60);
@@ -2247,7 +2242,8 @@ export class AttendanceService {
       avgCheckInTime = `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
     }
 
-    const payableDays = Math.max(0, +(daysInMonth - absentDays - 0.5 * halfDays).toFixed(1));
+    // Days that haven't come yet are neither paid nor lost.
+    const payableDays = Math.max(0, +(daysInMonth - futureDays - absentDays - unpaidLeaveDays - 0.5 * halfDays).toFixed(1));
     const attendancePct = workingDays > 0 ? Math.round(((presentDays + 0.5 * halfDays) / workingDays) * 100) : 0;
 
     return {
@@ -2275,11 +2271,6 @@ export class AttendanceService {
         avgCheckInTime,
         overtimeHours: +(totalOvertimeMinutes / 60).toFixed(1),
         bestStreakDays: bestStreak,
-      },
-      leaveBalances: {
-        casual: { total: 8, used: 2, remaining: 6 },
-        sick: { total: 12, used: 1, remaining: 11 },
-        earned: { total: 18, used: 3, remaining: 15 },
       },
       days,
     };

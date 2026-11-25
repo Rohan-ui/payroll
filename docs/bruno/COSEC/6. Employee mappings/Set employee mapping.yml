@@ -1,0 +1,18 @@
+info:
+  name: Set employee mapping
+  type: http
+  seq: 3
+  description: ⚠ WRITES DATA to the workspace. Links an employee to a COSEC id. Needs people.update.
+http:
+  method: PUT
+  url: '{{baseUrl}}/external-api/cosec/mappings/{{employeeId}}'
+  body:
+    type: json
+    data: |-
+      {
+        "cosecEmployeeId": "{{cosecId}}",
+        "notes": ""
+      }
+  auth: inherit
+settings:
+  encodeUrl: true

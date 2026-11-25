@@ -1,0 +1,11 @@
+info:
+  name: Remove employee mapping
+  type: http
+  seq: 4
+  description: ⚠ WRITES DATA to the workspace. Removes the employee's COSEC link.
+http:
+  method: DELETE
+  url: '{{baseUrl}}/external-api/cosec/mappings/{{employeeId}}'
+  auth: inherit
+settings:
+  encodeUrl: true

@@ -1,0 +1,17 @@
+info:
+  name: Save config
+  type: http
+  seq: 2
+http:
+  method: PUT
+  url: '{{baseUrl}}/external-api/cosec/config'
+  body:
+    type: json
+    data: "{\n  \"baseUrl\": \"{{cosecBaseUrl}}\",\n  \"username\": \"{{cosecUsername}}\",\n  \"password\": \"{{cosecPassword}}\"\n}"
+  auth: inherit
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true

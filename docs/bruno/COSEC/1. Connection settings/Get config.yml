@@ -1,0 +1,20 @@
+info:
+  name: Get config
+  type: http
+  seq: 1
+  description: Saved COSEC settings, password masked. Needs attendance.integration.view.
+http:
+  method: GET
+  url: '{{baseUrl}}/external-api/cosec/config'
+  auth: inherit
+settings:
+  encodeUrl: true
+runtime:
+  scripts:
+  - type: after-response
+    code: |-
+      // Copies the saved COSEC address and username into the collection for Save config / Test connection.
+      if (res.status === 200 && res.body && res.body.baseUrl) {
+        bru.setVar('cosecBaseUrl', res.body.baseUrl);
+        bru.setVar('cosecUsername', res.body.username);
+      }

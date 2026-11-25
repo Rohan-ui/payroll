@@ -1,0 +1,19 @@
+info:
+  name: Sync monthly attendance
+  type: http
+  seq: 3
+  description: ⚠ WRITES DATA to the workspace. Imports the month's attendance summary.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/sync-attendance?month={{month}}'
+  params:
+  - name: month
+    value: '{{month}}'
+    type: query
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+settings:
+  encodeUrl: true

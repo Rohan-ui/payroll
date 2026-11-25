@@ -1,11 +1,11 @@
 import React from 'react';
 import { cn } from '../../../utils/cn';
-import type { AttendanceStatus } from '../../../api/attendance.api';
+import type { MonthDayStatus } from '../../../api/attendance.api';
 
 interface MonthDayItem {
   day: number;
   date: string;
-  status: AttendanceStatus;
+  status: MonthDayStatus;
   workedMinutes: number;
   isLate: boolean;
 }

@@ -125,7 +125,7 @@ export const DepartmentBoardsLayout: React.FC<DepartmentBoardsLayoutProps> = ({
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                   Attendance Calendar ({month})
                 </h3>
-                <span className="text-[11px] text-slate-400">Click date to slide open drawer</span>
+                <span className="text-[11px] text-slate-400">Pick a day to see its details</span>
               </div>
 
               <MonthCalendar
@@ -287,7 +287,7 @@ export const DepartmentBoardsLayout: React.FC<DepartmentBoardsLayoutProps> = ({
           </div>
         ) : employees.length === 0 ? (
           <div className="p-10 rounded-xl bg-white border border-slate-200 text-center text-slate-400">
-            <p className="text-sm font-medium">No employee cards match the active filter criteria.</p>
+            <p className="text-sm font-medium">No employees match this search or department. Clear the search or pick “All departments”.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

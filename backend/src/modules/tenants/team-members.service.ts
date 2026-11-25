@@ -52,7 +52,37 @@ export class TeamMembersService {
     ]);
     const counts = new Map(leadCounts.map((row) => [row.assigned_tenant_member_id, row._count._all]));
 
-    return members.map((member) => ({ ...this.toResponse(member), leads_count: counts.get(member.id) ?? 0 }));
+    const linked = await this.prisma.rndtechnosoft_employees.findMany({
+      where: { tenant_id: tenantId, user_id: { in: members.map((m) => m.user_id) } },
+      select: { id: true, user_id: true, employee_code: true, employee_status: true },
+    });
+    const employeeByUser = new Map(linked.map((e) => [e.user_id, e]));
+
+    return members.map((member) => ({
+      ...this.toResponse(member),
+      leads_count: counts.get(member.id) ?? 0,
+      employee_id: employeeByUser.get(member.user_id)?.id ?? null,
+      employee_code: employeeByUser.get(member.user_id)?.employee_code ?? null,
+      employee_status: employeeByUser.get(member.user_id)?.employee_status ?? null,
+    }));
+  }
+
+  /** Active HRMS employees with no sign-in yet: the people a team member can be created for. */
+  async listEmployeesWithoutSignIn(tenantId: string) {
+    const employees = await this.prisma.rndtechnosoft_employees.findMany({
+      where: { tenant_id: tenantId, employee_status: 'ACTIVE', archived_at: null, user_id: null },
+      select: { id: true, employee_code: true, first_name: true, last_name: true, work_email: true, work_mobile: true },
+      orderBy: { first_name: 'asc' },
+      take: 500,
+    });
+    return employees.map((e) => ({
+      id: e.id,
+      employee_code: e.employee_code,
+      first_name: e.first_name,
+      last_name: e.last_name ?? '',
+      email: e.work_email,
+      phone: e.work_mobile,
+    }));
   }
 
   async createMember(tenantId: string, input: CreateTeamMemberDto, actor: AuthenticatedTenantUser) {
@@ -113,6 +143,24 @@ export class TeamMembersService {
         data: { id: randomUUID(), tenant_id: tenantId, tenant_member_id: member.id, role_id: role.id },
       });
 
+      if (input.employee_id) {
+        const employee = await tx.rndtechnosoft_employees.findFirst({
+          where: { tenant_id: tenantId, id: input.employee_id, employee_status: 'ACTIVE', archived_at: null },
+          select: { id: true, user_id: true },
+        });
+        if (!employee) throw new BadRequestException('Only an active employee of this workspace can be given a sign-in.');
+        if (employee.user_id && employee.user_id !== user.id) throw new ConflictException('That employee already has a sign-in.');
+        const other = await tx.rndtechnosoft_employees.findFirst({
+          where: { tenant_id: tenantId, user_id: user.id, NOT: { id: employee.id } },
+          select: { employee_code: true },
+        });
+        if (other) throw new ConflictException(`${input.email} is already linked to employee ${other.employee_code}.`);
+        await tx.rndtechnosoft_employees.update({
+          where: { tenant_id_id: { tenant_id: tenantId, id: employee.id } },
+          data: { user_id: user.id, updated_at: now },
+        });
+      }
+
       return { user, member, temporaryPassword };
     });
 
@@ -123,7 +171,7 @@ export class TeamMembersService {
       actionCode: 'MEMBER_ADDED',
       entityType: 'TENANT_MEMBER',
       entityId: member.id,
-      metadata: { userId: user.id, role: role.role_code, newAccount: temporaryPassword !== null },
+      metadata: { userId: user.id, role: role.role_code, newAccount: temporaryPassword !== null, employeeId: input.employee_id ?? null },
     });
 
     return {

@@ -1,0 +1,18 @@
+info:
+  name: Refresh one employee's month
+  type: http
+  seq: 2
+  description: ⚠ WRITES DATA to the workspace. employeeId is the employee id or Employee Code.
+http:
+  method: POST
+  url: '{{baseUrl}}/external-api/cosec/refresh-employee'
+  body:
+    type: json
+    data: |-
+      {
+        "employeeId": "{{employeeId}}",
+        "month": "{{month}}"
+      }
+  auth: inherit
+settings:
+  encodeUrl: true

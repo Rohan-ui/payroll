@@ -387,22 +387,12 @@ export function serializeCosecDailyAttendance(
         ? lastPunch.time
         : null;
 
-      let status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'WEEK_OFF' | 'HOLIDAY' = 'ABSENT';
-      if (fHalf === 'WO' || sHalf === 'WO') {
-        status = 'WEEK_OFF';
-      } else if (fHalf === 'PH' || sHalf === 'PH') {
-        status = 'HOLIDAY';
-      } else if (fHalf === 'PR' && sHalf === 'PR') {
-        status = 'PRESENT';
-      } else if (isCurrentlyInside || fHalf === 'PR' || sHalf === 'PR' || hasPunches) {
-        if (fHalf === 'AB' && sHalf === 'PR' && !isCurrentlyInside) {
-          status = 'HALF_DAY';
-        } else if (fHalf === 'PR' && sHalf === 'AB' && !isCurrentlyInside) {
-          status = 'HALF_DAY';
-        } else {
-          status = 'PRESENT';
-        }
-      }
+      // COSEC's own verdict per half: PR counts, anything else (AB, IN = punch missing, blank) does not.
+      const presentHalves = [fHalf, sHalf].filter((h) => h === 'PR').length;
+      let status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'WEEK_OFF' | 'HOLIDAY';
+      if (fHalf === 'WO' || sHalf === 'WO') status = 'WEEK_OFF';
+      else if (fHalf === 'PH' || sHalf === 'PH') status = 'HOLIDAY';
+      else status = presentHalves === 2 ? 'PRESENT' : presentHalves === 1 ? 'HALF_DAY' : 'ABSENT';
 
       let workedMinutes = 0;
       const hhmm = r.worktime_hhmm?.trim() || '00:00';

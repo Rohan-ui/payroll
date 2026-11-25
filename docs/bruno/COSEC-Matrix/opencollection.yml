@@ -1,0 +1,24 @@
+opencollection: 1.0.0
+info:
+  name: COSEC Matrix – direct API
+request:
+  auth:
+    type: basic
+    username: '{{cosecUsername}}'
+    password: '{{cosecPassword}}'
+  variables:
+  - name: cosecBaseUrl
+    value: http://103.83.155.90:83/COSEC/api.svc/v2
+  - name: cosecUsername
+    value: sa
+  - name: cosecPassword
+    value: 123niket
+  - name: monthYear
+    value: '112026'
+    description: MMYYYY
+  - name: dateRange
+    value: 24112026-25112026
+    description: ddmmyyyy-ddmmyyyy
+  - name: cosecId
+    value: '002'
+    description: userid from the Users response
