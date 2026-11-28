@@ -98,10 +98,10 @@ describe('Onboarding', () => {
   it('shows real counts, and each one opens the records it counts', async () => {
     await render();
     expect(calls.some((c) => c.url.startsWith('/api/v1/onboarding/dashboard?timezone='))).toBe(true);
-    expect(container.textContent).toContain('Awaiting feedback or decision');
+    expect(container.textContent).toContain('Awaiting a decision');
     act(() => button('Under review')?.click());
     await settle();
-    expect(calls.find((c) => c.url.startsWith('/api/v1/onboarding/candidates?'))?.url).toContain('status=SCREENING');
+    expect(calls.filter((c) => c.url.startsWith('/api/v1/onboarding/candidates?')).at(-1)?.url).toContain('status=SCREENING');
     expect(container.querySelector('tbody')?.textContent).toContain('Priya Rao');
   });
 
@@ -125,6 +125,21 @@ describe('Onboarding', () => {
     expect(post?.body.status).toBeUndefined();
     // Sent the candidate form by email straight away, the default.
     expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/form/send'))?.body).toEqual({ channels: ['EMAIL'] });
+  });
+
+  it('filters candidates by recruiter on the server, and clears every filter at once', async () => {
+    await render();
+    act(() => button('Candidates')?.click());
+    await settle();
+    setValue(byLabel('Recruiter'), 'm1');
+    await settle();
+    const listCalls = () => calls.filter((c) => c.url.startsWith('/api/v1/onboarding/candidates?'));
+    expect(listCalls().at(-1)?.url).toContain('recruiterMemberId=m1');
+
+    act(() => button('Clear all filters')?.click());
+    await settle();
+    expect(listCalls().at(-1)?.url).not.toContain('recruiterMemberId');
+    expect(button('Clear all filters')).toBeUndefined();
   });
 
   it('opens a candidate with their timeline, and schedules an interview at the exact moment chosen', async () => {

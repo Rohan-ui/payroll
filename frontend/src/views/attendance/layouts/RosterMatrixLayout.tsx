@@ -1,29 +1,17 @@
 import React, { useState } from 'react';
-import {
-  Calendar,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  FileText,
-  List,
-  Layers,
-  ChevronRight,
-  TrendingUp,
-  Award,
-  Users,
-} from 'lucide-react';
+import { Calendar, List, Layers } from 'lucide-react';
 import { cn } from '../../../utils/cn';
 import { LeaveBalances } from '../shared/LeaveBalances';
 import { Avatar } from '../../../components/ui/Avatar';
-import { StatusPill } from '../shared/StatusPill';
+import { STATUS_CONFIG } from '../shared/StatusPill';
 import { MonthCalendar } from '../shared/MonthCalendar';
+import { MonthSummary } from '../shared/MonthSummary';
 import { TimelineRows } from '../shared/TimelineRows';
 import { LogTable } from '../shared/LogTable';
 import { DayDetail } from '../shared/DayDetail';
 import type {
   RosterMatrixResponse,
   EmployeeMonthResponse,
-  MatrixDayCell,
 } from '../../../api/attendance.api';
 
 interface RosterMatrixLayoutProps {
@@ -43,15 +31,13 @@ interface RosterMatrixLayoutProps {
   onEditPunches?: (dateStr: string) => void;
 }
 
-const GLYPH_STYLE_MAP: Record<string, { bg: string; text: string; border: string }> = {
-  '✓': { bg: 'bg-teal-50 hover:bg-teal-100', text: 'text-teal-800 font-bold', border: 'border-teal-200' },
-  '½': { bg: 'bg-amber-50 hover:bg-amber-100', text: 'text-amber-800 font-bold', border: 'border-amber-200' },
-  '×': { bg: 'bg-red-50 hover:bg-red-100', text: 'text-red-700 font-bold', border: 'border-red-200' },
-  L: { bg: 'bg-emerald-50 hover:bg-emerald-100', text: 'text-emerald-800 font-bold', border: 'border-emerald-200' },
-  LOP: { bg: 'bg-orange-50 hover:bg-orange-100', text: 'text-orange-800 font-bold', border: 'border-orange-200' },
-  H: { bg: 'bg-purple-50 hover:bg-purple-100', text: 'text-purple-800 font-bold', border: 'border-purple-200' },
-  W: { bg: 'bg-slate-100 hover:bg-slate-200', text: 'text-slate-500 font-bold', border: 'border-slate-200' },
-};
+const LEGEND = ['PRESENT', 'HALF_DAY', 'ABSENT', 'PAID_LEAVE', 'UNPAID_LEAVE', 'HOLIDAY', 'WEEKEND'] as const;
+const DETAIL_TABS = [
+  { id: 'calendar', label: 'Calendar', icon: Calendar },
+  { id: 'timeline', label: 'Timeline', icon: Layers },
+  { id: 'log', label: 'Daily log', icon: List },
+] as const;
+type DetailTab = (typeof DETAIL_TABS)[number]['id'];
 
 export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
   matrixData,
@@ -71,7 +57,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Tabs state in employee detail view (Calendar | Timeline | Log)
-  const [activeTab, setActiveTab] = useState<'calendar' | 'timeline' | 'log'>('calendar');
+  const [activeTab, setActiveTab] = useState<DetailTab>('calendar');
 
   const handleCellClick = (dateStr: string) => {
     setModalDate(dateStr);
@@ -82,7 +68,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
   // 1. EMPLOYEE DETAIL VIEW (Roster Matrix Style: Left Profile/Stats + Right 3 Tabs)
   // -------------------------------------------------------------
   if (isDetailView && employeeMonthData) {
-    const { employee, month, workingDays, attendancePct, payableDays, totalWorkedHours, stats, days } = employeeMonthData;
+    const { employee, month, days } = employeeMonthData;
     const targetDateForModal = modalDate || selectedDate;
     const selectedDayRecord = days.find((d) => d.date === targetDateForModal) || days[0];
 
@@ -96,107 +82,43 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Column (4 cols on lg screens) */}
           <div className="lg:col-span-4 space-y-4">
-            {/* Profile Card */}
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
-              <div className="flex items-center gap-3">
-                <Avatar name={employee.fullName} size="lg" className="w-14 h-14 ring-2 ring-teal-500/20" />
+            <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 space-y-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <Avatar name={employee.fullName} size="lg" />
                 <div className="min-w-0">
-                  <h2 className="text-lg font-bold text-slate-900 truncate">{employee.fullName}</h2>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-mono font-semibold">
-                      {employee.employeeCode}
-                    </span>
-                    <span className="text-xs text-slate-500 truncate">{employee.departmentName}</span>
-                  </div>
-                  <span className="text-xs text-slate-400 block mt-0.5">{employee.designation}</span>
+                  <h2 className="text-lg font-semibold text-slate-900 truncate">{employee.fullName}</h2>
+                  <p className="text-xs text-slate-500 truncate">{[employee.employeeCode, employee.designation, employee.departmentName].filter(Boolean).join(' · ')}</p>
                 </div>
               </div>
-
-              {/* Vertical Stat List */}
-              <div className="border-t border-slate-100 pt-3 space-y-2.5 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Total Worked Hours</span>
-                  <span className="font-bold text-slate-900 font-mono">{totalWorkedHours} hrs</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Payable Days</span>
-                  <span className="font-bold text-teal-800 font-mono">
-                    {payableDays} / {days.length}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Attendance Rate</span>
-                  <span className="font-bold text-emerald-700 font-mono">{attendancePct}%</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Present / Absent</span>
-                  <span className="font-semibold text-slate-800 font-mono">
-                    {stats.presentDays}P • {stats.absentDays}A
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Late Marks</span>
-                  <span className="font-semibold text-amber-700 font-mono">{stats.lateMarks}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Average Check-in</span>
-                  <span className="font-semibold text-slate-700 font-mono">{stats.avgCheckInTime ?? '—'}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Overtime Logged</span>
-                  <span className="font-semibold text-sky-700 font-mono">+{stats.overtimeHours}h</span>
-                </div>
-              </div>
-
               <LeaveBalances employeeId={employee.id} />
             </div>
+            <MonthSummary data={employeeMonthData} compact />
           </div>
 
           {/* Right Column: 3 Tabs (Calendar | Timeline | Log) */}
           <div className="lg:col-span-8 space-y-4">
-            {/* Tab Buttons */}
-            <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setActiveTab('calendar')}
-                className={cn(
-                  'flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500',
-                  activeTab === 'calendar'
-                    ? 'bg-white text-teal-900 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900',
-                )}
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                Calendar
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('timeline')}
-                className={cn(
-                  'flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500',
-                  activeTab === 'timeline'
-                    ? 'bg-white text-teal-900 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900',
-                )}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                Timeline Bars
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('log')}
-                className={cn(
-                  'flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500',
-                  activeTab === 'log'
-                    ? 'bg-white text-teal-900 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900',
-                )}
-              >
-                <List className="w-3.5 h-3.5" />
-                Daily Log Table
-              </button>
+            <div role="tablist" aria-label="Month views" className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg border border-slate-200">
+              {DETAIL_TABS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  id={`roster-tab-${id}`}
+                  aria-selected={activeTab === id}
+                  aria-controls="roster-tab-panel"
+                  onClick={() => setActiveTab(id)}
+                  className={cn(
+                    'flex-1 h-9 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500',
+                    activeTab === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900',
+                  )}
+                >
+                  <Icon className="w-4 h-4" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
             </div>
 
+            <div id="roster-tab-panel" role="tabpanel" aria-labelledby={`roster-tab-${activeTab}`}>
             {/* Tab 1: Calendar */}
             {activeTab === 'calendar' && (
               <div className="space-y-4">
@@ -228,6 +150,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                 onSelectDay={handleCellClick}
               />
             )}
+            </div>
           </div>
         </div>
 
@@ -263,79 +186,33 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
     <div className="space-y-6">
       {/* Top Area: 4 KPI Tiles + Department Leaderboard Card */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-        {/* 4 KPI Tiles (Left, 7 cols) */}
-        <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* Present */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
-                Present
-              </span>
-              <span className="text-2xl font-bold text-teal-800 font-mono mt-1 block">
-                {kpis.presentCount}
-              </span>
+        <dl className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Present', value: kpis.presentCount, dot: STATUS_CONFIG.PRESENT.dot },
+            { label: 'Absent', value: kpis.absentCount, dot: STATUS_CONFIG.ABSENT.dot },
+            { label: 'On leave', value: kpis.leaveCount, dot: STATUS_CONFIG.PAID_LEAVE.dot },
+            { label: 'Late', value: kpis.lateCount, dot: 'bg-amber-500' },
+          ].map((k) => (
+            <div key={k.label} className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col justify-between">
+              <dt className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <span className={cn('w-2 h-2 rounded-full', k.dot)} aria-hidden="true" />
+                {k.label}
+              </dt>
+              <dd className="text-2xl font-semibold text-slate-900 tabular-nums mt-1">{k.value}</dd>
+              <dd className="text-[11px] text-slate-500">
+                {kpis.headcount > 0 ? `${Math.round((k.value / kpis.headcount) * 100)}% of ${kpis.headcount}` : 'No employees'}
+              </dd>
             </div>
-            <span className="text-[11px] text-slate-400 font-medium mt-2">
-              of {kpis.headcount} staff
-            </span>
-          </div>
-
-          {/* Absent */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
-                Absent
-              </span>
-              <span className="text-2xl font-bold text-red-600 font-mono mt-1 block">
-                {kpis.absentCount}
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-400 font-medium mt-2">
-              of {kpis.headcount} staff
-            </span>
-          </div>
-
-          {/* On Leave */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
-                On Leave
-              </span>
-              <span className="text-2xl font-bold text-emerald-800 font-mono mt-1 block">
-                {kpis.leaveCount}
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-400 font-medium mt-2">
-              of {kpis.headcount} staff
-            </span>
-          </div>
-
-          {/* Late Arrivals */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
-                Late Arrivals
-              </span>
-              <span className="text-2xl font-bold text-amber-600 font-mono mt-1 block">
-                {kpis.lateCount}
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-400 font-medium mt-2">
-              of {kpis.headcount} staff
-            </span>
-          </div>
-        </div>
+          ))}
+        </dl>
 
         {/* Department Leaderboard Card (Right, 5 cols) */}
         <div className="lg:col-span-5">
           {matrixData && (
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3 h-full flex flex-col justify-between">
+            <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 h-full flex flex-col">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  <TrendingUp className="w-4 h-4 text-teal-600" />
-                  Department Leaderboard
-                </div>
-                <span className="text-[11px] text-slate-400">Sorted by rate</span>
+                <h3 className="text-sm font-semibold text-slate-900">Departments</h3>
+                <span className="text-xs text-slate-500">Highest attendance first · pick one to filter</span>
               </div>
 
               <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1 scrollbar-thin">
@@ -346,6 +223,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                       key={dept.departmentId}
                       type="button"
                       onClick={() => onSelectDept(isSelected ? undefined : dept.departmentId)}
+                      aria-pressed={isSelected}
                       className={cn(
                         'w-full p-2 rounded-lg border transition-all flex items-center justify-between gap-3 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-teal-500',
                         isSelected ? 'bg-teal-50 border-teal-400 shadow-2xs' : 'bg-slate-50 border-slate-100 hover:bg-slate-100/60',
@@ -373,23 +251,24 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
 
       {/* The Roster Matrix Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Roster Matrix • {matrixData?.month}
-            </h3>
-            <span className="text-[11px] text-slate-400">
-              Columns = days 1..{matrixData?.daysInMonth || 31} • Click any cell for day details
-            </span>
+        <div className="px-4 py-3 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Month roster{matrixData?.month ? ` · ${matrixData.month}` : ''}</h3>
+            <p className="text-xs text-slate-500">Pick a cell to open that employee's day</p>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-slate-500 font-mono">
-            <span>✓ Present</span>
-            <span>½ Half Day</span>
-            <span>× Absent</span>
-            <span>L Leave</span>
-            <span>H Holiday</span>
-            <span>W Weekend</span>
-          </div>
+          <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600" aria-label="Legend">
+            {LEGEND.map((st) => (
+              <li key={st} className="inline-flex items-center gap-1">
+                <span className={cn(STATUS_CONFIG[st].glyph.length > 1 ? 'text-[7px]' : 'text-[10px]', 'w-5 h-5 rounded font-bold flex items-center justify-center border', STATUS_CONFIG[st].bg, STATUS_CONFIG[st].text, STATUS_CONFIG[st].border)} aria-hidden="true">
+                  {STATUS_CONFIG[st].glyph}
+                </span>
+                {STATUS_CONFIG[st].label}
+              </li>
+            ))}
+            <li className="inline-flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" /> Late
+            </li>
+          </ul>
         </div>
 
         {/* Sticky Container */}
@@ -400,10 +279,10 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
               <tr>
                 {/* Sticky Name column */}
                 <th scope="col" className="py-2.5 px-3 min-w-[200px] sticky left-0 bg-slate-100 z-30 font-bold text-slate-700 border-r border-slate-200">
-                  Staff Member
+                  Employee
                 </th>
                 <th scope="col" className="py-2.5 px-2 text-center min-w-[50px] font-bold text-slate-700 border-r border-slate-200">
-                  Month %
+                  Month
                 </th>
                 {/* Days columns */}
                 {matrixData?.daysHeader.map((hdr) => {
@@ -416,9 +295,11 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                         'py-1 px-1 text-center min-w-[32px] border-r border-slate-200 select-none transition-colors',
                         hdr.isWeekend ? 'bg-slate-200/60' : '',
                         hdr.isHoliday ? 'bg-purple-100/50' : '',
-                        isSelectedCol ? 'bg-teal-200 font-bold ring-2 ring-teal-500 z-10' : '',
+                        isSelectedCol ? 'bg-teal-100 text-teal-900' : '',
                       )}
-                      title={`${hdr.date}: ${hdr.isHoliday ? hdr.holidayName : hdr.isWeekend ? 'Weekend' : 'Workday'}`}
+                      title={`${hdr.date}: ${hdr.isHoliday ? hdr.holidayName : hdr.isWeekend ? 'Week off' : 'Working day'}`}
+                      scope="col"
+                      aria-current={isSelectedCol ? 'date' : undefined}
                     >
                       <span className="text-[9px] text-slate-400 block">{hdr.weekday}</span>
                       <span className="text-xs font-bold text-slate-800">{hdr.day}</span>
@@ -438,7 +319,7 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                       colSpan={(matrixData?.daysInMonth || 31) + 2}
                       className="py-1.5 px-3 uppercase text-[10px] tracking-wider text-teal-900 bg-teal-50/60 border-y border-teal-100 sticky left-0 z-10"
                     >
-                      {grp.departmentName} ({grp.employees.length} staff)
+                      {grp.departmentName} · {grp.employees.length}
                     </td>
                   </tr>
 
@@ -472,11 +353,8 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                       {/* Day Cells with Glyphs */}
                       {emp.days.map((cell) => {
                         const isSelectedCol = selectedDate === cell.date;
-                        const glyphStyle = GLYPH_STYLE_MAP[cell.glyph] || {
-                          bg: 'bg-white',
-                          text: 'text-slate-400',
-                          border: 'border-slate-100',
-                        };
+                        const style = STATUS_CONFIG[cell.status] ?? STATUS_CONFIG.FUTURE;
+                        const isFuture = cell.status === 'FUTURE';
 
                         return (
                           <td
@@ -492,16 +370,20 @@ export const RosterMatrixLayout: React.FC<RosterMatrixLayoutProps> = ({
                                 onSelectDate(cell.date);
                                 onSelectEmployee(emp.employeeId);
                               }}
-                              title={`${emp.fullName} • ${cell.date}: ${cell.status}${cell.inTime ? ` (${cell.inTime})` : ''}`}
-                              aria-label={`${emp.fullName}, ${cell.date}: ${cell.status}`}
+                              disabled={isFuture}
+                              title={`${emp.fullName} · ${cell.date}: ${style.label}${cell.inTime ? ` (in ${cell.inTime})` : ''}${cell.isLate ? ', late' : ''}`}
+                              aria-label={`${emp.fullName}, ${cell.date}: ${style.label}${cell.isLate ? ', late' : ''}`}
                               className={cn(
-                                'w-7 h-7 rounded flex items-center justify-center text-xs transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-teal-500 hover:scale-110 shadow-2xs',
-                                glyphStyle.bg,
-                                glyphStyle.text,
-                                isSelectedCol && 'ring-1 ring-teal-600 font-black',
+                                cell.glyph.length > 1 ? 'text-[8px]' : 'text-[11px]', 'relative w-7 h-7 rounded border flex items-center justify-center font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500',
+                                style.bg,
+                                style.text,
+                                style.border,
+                                isFuture ? 'cursor-default border-dashed' : 'cursor-pointer hover:brightness-95',
+                                isSelectedCol && !isFuture && 'ring-1 ring-teal-600',
                               )}
                             >
                               {cell.glyph}
+                              {cell.isLate && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />}
                             </button>
                           </td>
                         );

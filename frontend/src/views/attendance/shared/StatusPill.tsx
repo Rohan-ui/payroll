@@ -11,7 +11,7 @@ interface StatusPillProps {
 
 export const STATUS_CONFIG: Record<
   string,
-  { label: string; glyph: string; bg: string; text: string; border: string; desc: string }
+  { label: string; glyph: string; bg: string; text: string; border: string; desc: string; /** Solid fill for charts and legends. */ dot: string }
 > = {
   PRESENT: {
     label: 'Present',
@@ -20,14 +20,16 @@ export const STATUS_CONFIG: Record<
     text: 'text-teal-800',
     border: 'border-teal-200',
     desc: 'Full day attended',
+    dot: 'bg-teal-500',
   },
   HALF_DAY: {
-    label: 'Half Day',
+    label: 'Half day',
     glyph: '½',
     bg: 'bg-amber-50',
     text: 'text-amber-800',
     border: 'border-amber-200',
     desc: '0.5 day payable',
+    dot: 'bg-amber-400',
   },
   ABSENT: {
     label: 'Absent',
@@ -36,22 +38,25 @@ export const STATUS_CONFIG: Record<
     text: 'text-red-700',
     border: 'border-red-200',
     desc: 'Unapproved absence',
+    dot: 'bg-red-500',
   },
   PAID_LEAVE: {
-    label: 'Paid Leave',
+    label: 'Paid leave',
     glyph: 'L',
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-800',
-    border: 'border-emerald-200',
+    bg: 'bg-sky-50',
+    text: 'text-sky-800',
+    border: 'border-sky-200',
     desc: 'Authorized paid leave',
+    dot: 'bg-sky-500',
   },
   UNPAID_LEAVE: {
-    label: 'Unpaid (LOP)',
+    label: 'Unpaid leave (LOP)',
     glyph: 'LOP',
     bg: 'bg-orange-50',
     text: 'text-orange-800',
     border: 'border-orange-200',
     desc: 'Loss of pay',
+    dot: 'bg-orange-500',
   },
   HOLIDAY: {
     label: 'Holiday',
@@ -60,14 +65,25 @@ export const STATUS_CONFIG: Record<
     text: 'text-purple-800',
     border: 'border-purple-200',
     desc: 'Public holiday',
+    dot: 'bg-purple-400',
   },
   WEEKEND: {
-    label: 'Weekly Off',
+    label: 'Week off',
     glyph: 'W',
     bg: 'bg-slate-100',
     text: 'text-slate-600',
     border: 'border-slate-200',
     desc: 'Scheduled day off',
+    dot: 'bg-slate-300',
+  },
+  FUTURE: {
+    label: 'Upcoming',
+    glyph: '',
+    bg: 'bg-white',
+    text: 'text-slate-400',
+    border: 'border-slate-200',
+    desc: 'This day has not come yet',
+    dot: 'bg-slate-100',
   },
 };
 
@@ -84,6 +100,7 @@ export const StatusPill: React.FC<StatusPillProps> = ({
     text: 'text-slate-600',
     border: 'border-slate-200',
     desc: 'Unrecorded',
+    dot: 'bg-slate-200',
   };
 
   const sizeStyles = {

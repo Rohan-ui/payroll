@@ -86,7 +86,7 @@ const LEGEND = [
 export const AttendanceModule: React.FC = () => {
   const { setCurrentView, setSelectedEmployeeId, selectedEmployeeId } = usePayroll();
   const { can } = useAuth();
-  const canRecord = can('attendance.create');
+  const canRecord = can('attendance.adjust');
   const canBulkMark = can('attendance.adjust');
   const [bulkError, setBulkError] = useState<string | null>(null);
 

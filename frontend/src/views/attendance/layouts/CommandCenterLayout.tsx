@@ -1,24 +1,17 @@
-import React, { useState } from 'react';
-import {
-  Clock,
-  Calendar,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  ChevronRight,
-  TrendingUp,
-  User,
-  ArrowUpRight,
-} from 'lucide-react';
+import React from 'react';
+import { AlertCircle, ChevronRight } from 'lucide-react';
 import { cn } from '../../../utils/cn';
 import { Avatar } from '../../../components/ui/Avatar';
 import { StatusPill } from '../shared/StatusPill';
 import { MonthStrip } from '../shared/MonthStrip';
+import { MiniBars } from '../shared/MiniBars';
+import { MonthSummary } from '../shared/MonthSummary';
+import { EmployeeHeader } from '../shared/EmployeeHeader';
 import { DepartmentWidget } from '../shared/DepartmentWidget';
 import { MonthCalendar } from '../shared/MonthCalendar';
 import { DayDetail } from '../shared/DayDetail';
 import { LiveTimes, isInsideNow } from '../shared/LiveTimes';
-import { formatMinutes, useNow } from '../shared/duration';
+import { useNow } from '../shared/duration';
 import type {
   DepartmentSummaryResponse,
   EmployeeDayItem,
@@ -43,6 +36,9 @@ interface CommandCenterLayoutProps {
   onEditPunches?: (dateStr: string) => void;
 }
 
+const dayLabel = (iso: string) =>
+  new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
 export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
   summaryData,
   employees = [],
@@ -63,8 +59,9 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
   // 1. EMPLOYEE DETAIL VIEW (Command Center Style)
   // -------------------------------------------------------------
   if (isDetailView && employeeMonthData) {
-    const { employee, month, workingDays, attendancePct, payableDays, totalWorkedHours, stats, days } = employeeMonthData;
+    const { employee, month, days } = employeeMonthData;
     const selectedDayRecord = days.find((d) => d.date === selectedDate) || days[0];
+    const targetMinutes = days.find((d) => d.status !== 'FUTURE')?.shift.standardMinutes || undefined;
 
     // Stepper navigation for day
     const currentIndex = days.findIndex((d) => d.date === selectedDayRecord?.date);
@@ -73,104 +70,8 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
 
     return (
       <div className="space-y-6">
-        {/* Profile Header */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Avatar name={employee.fullName} size="lg" className="w-14 h-14 ring-2 ring-teal-500/20" />
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-xl font-bold text-slate-900">{employee.fullName}</h2>
-                <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-mono font-semibold">
-                  {employee.employeeCode}
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-800 text-xs font-medium border border-teal-200">
-                  {employee.departmentName}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">
-                {employee.designation} • {employee.email || 'Official Tenant Member'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-6">
-            <div>
-              <span className="text-xs text-slate-400 block font-medium">Worked Hours</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{totalWorkedHours} hrs</span>
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 block font-medium">Payable Days</span>
-              <span className="text-xl font-bold font-mono text-teal-700">
-                {payableDays} / {days.length}
-              </span>
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 block font-medium">Attendance</span>
-              <span className="text-xl font-bold font-mono text-emerald-700">{attendancePct}%</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 6 Stat Tiles */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {/* Present */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-400 block">Present Days</span>
-            <span className="text-xl font-bold text-teal-800 font-mono mt-1 block">
-              {stats.presentDays}
-            </span>
-            <span className="text-[10px] text-teal-600">Full shifts logged</span>
-          </div>
-
-          {/* Absent + LOP */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-400 block">Absent Days</span>
-            <span className="text-xl font-bold text-red-600 font-mono mt-1 block">
-              {stats.absentDays}
-            </span>
-            <span className="text-[10px] text-orange-600 font-medium">
-              {stats.lopCount} LOP marked
-            </span>
-          </div>
-
-          {/* Half Days & Leave */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-400 block">Half Day / Leave</span>
-            <span className="text-xl font-bold text-amber-700 font-mono mt-1 block">
-              {stats.halfDays + stats.leaveDays}
-            </span>
-            <span className="text-[10px] text-slate-400">
-              {stats.halfDays} half • {stats.leaveDays} leave
-            </span>
-          </div>
-
-          {/* Late Marks */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-400 block">Late Marks</span>
-            <span className="text-xl font-bold text-amber-600 font-mono mt-1 block">
-              {stats.lateMarks}
-            </span>
-            <span className="text-[10px] text-slate-400">Days checked in after shift start</span>
-          </div>
-
-          {/* Avg Check-In */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-400 block">Avg Check-In</span>
-            <span className="text-base font-bold text-slate-800 font-mono mt-1.5 block">
-              {stats.avgCheckInTime ?? '—'}
-            </span>
-            <span className="text-[10px] text-slate-400">This month</span>
-          </div>
-
-          {/* Overtime */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-            <span className="text-[11px] font-medium text-slate-400 block">Overtime Hours</span>
-            <span className="text-xl font-bold text-sky-700 font-mono mt-1 block">
-              +{stats.overtimeHours}h
-            </span>
-            <span className="text-[10px] text-sky-600">Net extra hours</span>
-          </div>
-        </div>
+        <EmployeeHeader employee={employee} />
+        <MonthSummary data={employeeMonthData} />
 
         {/* Large Month Heatmap + Sticky Day Detail Side Panel */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -184,95 +85,13 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
               onSelectDay={onSelectDate}
             />
 
-            {/* Month Breakdown Stacked Bar */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-800 uppercase tracking-wider">
-                  Month Status Distribution
-                </span>
-                <span className="text-slate-400 font-mono">{days.length} days total</span>
+            <section aria-labelledby="hours-chart-title" className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 id="hours-chart-title" className="text-sm font-semibold text-slate-900">Hours worked each day</h3>
+                <span className="text-xs text-slate-500">Pick a bar to open that day</span>
               </div>
-
-              {/* Stacked bar */}
-              <div className="w-full h-3 rounded-full bg-slate-100 flex overflow-hidden">
-                <div style={{ width: `${(stats.presentDays / days.length) * 100}%` }} className="bg-teal-500" title="Present" />
-                <div style={{ width: `${(stats.halfDays / days.length) * 100}%` }} className="bg-amber-400" title="Half Day" />
-                <div style={{ width: `${(stats.leaveDays / days.length) * 100}%` }} className="bg-emerald-500" title="Paid Leave" />
-                <div style={{ width: `${(stats.lopCount / days.length) * 100}%` }} className="bg-orange-400" title="Unpaid LOP" />
-                <div style={{ width: `${(stats.absentDays / days.length) * 100}%` }} className="bg-red-400" title="Absent" />
-              </div>
-
-              {/* Day Counts */}
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 pt-1">
-                <span className="flex items-center gap-1.5 font-medium text-teal-800">
-                  <span className="w-2 h-2 rounded-full bg-teal-500" /> {stats.presentDays} Present
-                </span>
-                <span className="flex items-center gap-1.5 font-medium text-amber-800">
-                  <span className="w-2 h-2 rounded-full bg-amber-400" /> {stats.halfDays} Half Days
-                </span>
-                <span className="flex items-center gap-1.5 font-medium text-emerald-800">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" /> {stats.leaveDays} Leaves
-                </span>
-                <span className="flex items-center gap-1.5 font-medium text-red-700">
-                  <span className="w-2 h-2 rounded-full bg-red-400" /> {stats.absentDays} Absences
-                </span>
-              </div>
-            </div>
-
-            {/* Clickable Hours-per-day Bar Chart with Target Line */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-800 uppercase tracking-wider">
-                  Daily Worked Hours vs 8h Target
-                </span>
-                <span className="text-[11px] text-teal-700 font-medium">Pick a bar to see that day</span>
-              </div>
-
-              <div className="relative h-24 pt-4 flex items-end gap-1 select-none">
-                {/* 8h Target Line */}
-                <div
-                  className="absolute left-0 right-0 border-b-2 border-dashed border-teal-600/40 pointer-events-none z-0"
-                  style={{ bottom: `${(8 / 10) * 100}%` }}
-                >
-                  <span className="text-[9px] font-bold text-teal-800 bg-teal-50 px-1 py-0.5 rounded absolute -top-4 right-0">
-                    8h Net Target
-                  </span>
-                </div>
-
-                {days.map((d) => {
-                  const barPct = Math.max(5, Math.min(100, (d.workedHours / 10) * 100));
-                  const isSelected = selectedDate === d.date;
-
-                  return (
-                    <button
-                      key={d.date}
-                      type="button"
-                      onClick={() => onSelectDate(d.date)}
-                      title={`Day ${d.day}: ${formatMinutes(d.workedMinutes)} worked (${d.status})`}
-                      className="flex-1 h-full flex flex-col items-center justify-end group focus:outline-none relative z-10"
-                    >
-                      <div
-                        style={{ height: `${barPct}%` }}
-                        className={cn(
-                          'w-full rounded-t-xs transition-all',
-                          d.status === 'PRESENT'
-                            ? 'bg-teal-500 group-hover:bg-teal-600'
-                            : d.status === 'HALF_DAY'
-                            ? 'bg-amber-400 group-hover:bg-amber-500'
-                            : d.status === 'WEEKEND'
-                            ? 'bg-slate-200'
-                            : 'bg-slate-100',
-                          isSelected && 'ring-2 ring-teal-700 brightness-110',
-                        )}
-                      />
-                      <span className="text-[9px] font-mono text-slate-400 mt-1 block">
-                        {d.day}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+              <MiniBars days={days} height={112} targetMinutes={targetMinutes} selectedDate={selectedDate} onSelectDay={onSelectDate} showAxis />
+            </section>
           </div>
 
           {/* Sticky Day Detail Side Panel */}
@@ -310,23 +129,16 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
 
       {/* Employee Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50/50">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-              Staff Daily Log & Month Overview
-            </h3>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 font-mono font-semibold">
-              {employees.length}
-            </span>
-          </div>
-          <span className="text-xs text-slate-400">
-            Target Date: <strong className="text-slate-700">{selectedDate}</strong>
-          </span>
+        <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Employees <span className="ml-1 text-xs font-medium text-slate-500 tabular-nums">{employees.length}</span>
+          </h3>
+          <span className="text-xs text-slate-500">Status for {dayLabel(selectedDate)} · pick a row for the month</span>
         </div>
 
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold text-[11px] uppercase">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium text-[11px]">
               <tr>
                 <th scope="col" className="py-3 px-4">Employee</th>
                 <th scope="col" className="py-3 px-3">Department</th>
@@ -376,7 +188,7 @@ export const CommandCenterLayout: React.FC<CommandCenterLayoutProps> = ({
                             {emp.fullName}
                           </span>
                           <span className="text-[11px] text-slate-400 font-mono">
-                            {emp.employeeCode} • {emp.roleName}
+                            {emp.employeeCode}{emp.roleName ? ` · ${emp.roleName}` : ''}
                           </span>
                         </div>
                       </div>

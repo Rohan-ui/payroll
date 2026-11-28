@@ -128,7 +128,7 @@ describe('documents on the candidate page', () => {
     act(() => button('Documents to verify')?.click());
     await settle();
     expect(calls.some((c) => c.url.startsWith('/api/v1/onboarding/candidates?') && c.url.includes('documents=to_verify'))).toBe(true);
-    expect(container.textContent).toContain('With documents to verify.');
+    expect(document.querySelector('[aria-label="Remove filter: Documents to verify"]')).not.toBeNull();
   });
 
   it('appears only for members who may see documents', async () => {

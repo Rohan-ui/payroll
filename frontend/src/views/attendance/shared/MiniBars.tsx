@@ -1,82 +1,112 @@
 import React from 'react';
 import { cn } from '../../../utils/cn';
-import type { AttendanceStatus } from '../../../api/attendance.api';
+import { STATUS_CONFIG } from './StatusPill';
+import { formatMinutes } from './duration';
 
 interface MiniBarDay {
   date: string;
   day: number;
   workedMinutes: number;
-  status: AttendanceStatus;
+  status: string;
 }
 
 interface MiniBarsProps {
   days: MiniBarDay[];
   height?: number;
-  targetHours?: number;
+  /** The day's expected work, drawn as a dashed line; usually the shift's standard minutes. */
+  targetMinutes?: number;
   selectedDate?: string;
+  /** Omit to draw a picture only (no buttons), e.g. inside a card that is itself a button. */
   onSelectDay?: (date: string) => void;
+  /** Day numbers under the bars and the target value beside its line. */
+  showAxis?: boolean;
   className?: string;
 }
 
-const BAR_COLOR: Record<string, string> = {
-  PRESENT: 'bg-teal-500 hover:bg-teal-600',
-  HALF_DAY: 'bg-amber-400 hover:bg-amber-500',
-  ABSENT: 'bg-red-400 hover:bg-red-500',
-  PAID_LEAVE: 'bg-emerald-500 hover:bg-emerald-600',
-  UNPAID_LEAVE: 'bg-orange-400 hover:bg-orange-500',
-  HOLIDAY: 'bg-purple-400 hover:bg-purple-500',
-  WEEKEND: 'bg-slate-200 hover:bg-slate-300',
+const DEFAULT_TARGET_MINUTES = 480;
+/** Days with no time worked still get a sliver so their status colour shows. */
+const STUB_PCT = 6;
+
+const describeDay = (d: MiniBarDay) => {
+  const label = STATUS_CONFIG[d.status]?.label ?? d.status;
+  const date = new Date(`${d.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  if (d.status === 'FUTURE') return `${date}: upcoming`;
+  return `${date}: ${label}${d.workedMinutes > 0 ? `, ${formatMinutes(d.workedMinutes)} worked` : ''}`;
 };
 
+/** Hours worked per day as bars, coloured by the day's status, against the expected day. */
 export const MiniBars: React.FC<MiniBarsProps> = ({
   days = [],
   height = 40,
-  targetHours = 8,
+  targetMinutes = DEFAULT_TARGET_MINUTES,
   selectedDate,
   onSelectDay,
+  showAxis = false,
   className,
 }) => {
-  const maxHours = 10;
-  const targetPct = (targetHours / maxHours) * 100;
+  // Scale to the longest day, with headroom over the target so the line never sits at the very top.
+  const scaleMinutes = Math.max(targetMinutes * 1.25, ...days.map((d) => d.workedMinutes), 1);
+  const targetPct = (targetMinutes / scaleMinutes) * 100;
 
   return (
-    <div className={cn('relative flex items-end gap-1 select-none', className)} style={{ height }}>
-      {/* Target line (8h) */}
-      <div
-        className="absolute left-0 right-0 border-b border-dashed border-slate-300 pointer-events-none z-0"
-        style={{ bottom: `${targetPct}%` }}
-        title={`Target Shift Hours: ${targetHours}h`}
-      />
+    <div className={cn('select-none', className)}>
+      <div className="relative flex items-end gap-px sm:gap-0.5" style={{ height }}>
+        <div className="absolute inset-x-0 border-t border-dashed border-slate-400/70 pointer-events-none z-20" style={{ bottom: `${targetPct}%` }} aria-hidden="true">
+          {showAxis && (
+            <span className="absolute -top-4 right-0 text-[10px] font-medium text-slate-500 bg-white/90 px-1 rounded">
+              {formatMinutes(targetMinutes)} expected
+            </span>
+          )}
+        </div>
 
-      {days.map((d) => {
-        const workedHours = d.workedMinutes / 60;
-        const barHeightPct = Math.max(8, Math.min(100, (workedHours / maxHours) * 100));
-        const isSelected = selectedDate === d.date;
-        const color = BAR_COLOR[d.status] || 'bg-slate-200';
-
-        return (
-          <button
-            key={d.date}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectDay?.(d.date);
-            }}
-            title={`${d.date}: ${d.status} • ${workedHours.toFixed(1)}h worked`}
-            aria-label={`${d.date}: ${d.status} • ${workedHours.toFixed(1)} hours`}
-            className="flex-1 flex flex-col items-center justify-end h-full group focus:outline-none relative z-10"
-          >
-            <div
+        {days.map((d) => {
+          const isFuture = d.status === 'FUTURE';
+          const barPct = isFuture ? 100 : d.workedMinutes > 0 ? Math.max(STUB_PCT, (d.workedMinutes / scaleMinutes) * 100) : STUB_PCT;
+          const isSelected = selectedDate === d.date;
+          const bar = (
+            <span
               className={cn(
-                'w-full rounded-t-[2px] transition-all',
-                color,
-                isSelected ? 'ring-2 ring-teal-700 brightness-110' : 'opacity-90 group-hover:opacity-100',
+                'block w-full rounded-t-[2px] transition-[height]',
+                isFuture ? 'border border-dashed border-slate-200 bg-transparent rounded-[2px]' : STATUS_CONFIG[d.status]?.dot ?? 'bg-slate-200',
+                isSelected && !isFuture && 'outline outline-2 outline-offset-1 outline-slate-800',
               )}
-              style={{ height: `${barHeightPct}%` }}
+              style={{ height: `${barPct}%` }}
             />
-          </button>
-        );
-      })}
+          );
+          const label = describeDay(d);
+          return onSelectDay ? (
+            <button
+              key={d.date}
+              type="button"
+              disabled={isFuture}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectDay(d.date);
+              }}
+              title={label}
+              aria-label={label}
+              aria-pressed={isSelected}
+              className="relative z-10 flex-1 h-full flex items-end rounded-sm hover:bg-slate-100/70 disabled:cursor-default disabled:hover:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            >
+              {bar}
+            </button>
+          ) : (
+            <span key={d.date} title={label} className="relative z-10 flex-1 h-full flex items-end">
+              {bar}
+            </span>
+          );
+        })}
+      </div>
+      {showAxis && (
+        <div className="flex gap-px sm:gap-0.5 mt-1" aria-hidden="true">
+          {days.map((d) => (
+            <span key={d.date} className={cn('flex-1 text-center text-[9px] tabular-nums', selectedDate === d.date ? 'font-bold text-slate-900' : 'text-slate-400')}>
+              {/* Every day fits on wide screens; on narrow ones only odd days, so labels don't collide. */}
+              <span className={d.day % 2 === 0 ? 'hidden sm:inline' : undefined}>{d.day}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

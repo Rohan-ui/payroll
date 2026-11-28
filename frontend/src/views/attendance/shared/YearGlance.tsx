@@ -14,7 +14,7 @@ const STATUS_COLOR_DOT: Record<string, string> = {
   PRESENT: 'bg-teal-500',
   HALF_DAY: 'bg-amber-400',
   ABSENT: 'bg-red-400',
-  PAID_LEAVE: 'bg-emerald-500',
+  PAID_LEAVE: 'bg-sky-500',
   UNPAID_LEAVE: 'bg-orange-400',
   HOLIDAY: 'bg-purple-400',
   WEEKEND: 'bg-slate-200',

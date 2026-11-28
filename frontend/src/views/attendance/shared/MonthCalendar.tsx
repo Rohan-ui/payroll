@@ -31,10 +31,10 @@ const STATUS_COLOR_STYLES: Record<string, { bg: string; text: string; border: st
     label: 'Absent',
   },
   PAID_LEAVE: {
-    bg: 'bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100/70 dark:hover:bg-emerald-900/60',
-    text: 'text-emerald-900 dark:text-emerald-200',
-    border: 'border-emerald-200 dark:border-emerald-800/60',
-    label: 'Paid Leave',
+    bg: 'bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100/70 dark:hover:bg-sky-900/60',
+    text: 'text-sky-900 dark:text-sky-200',
+    border: 'border-sky-200 dark:border-sky-800/60',
+    label: 'Paid leave',
   },
   UNPAID_LEAVE: {
     bg: 'bg-orange-50 dark:bg-orange-950/50 hover:bg-orange-100/70 dark:hover:bg-orange-900/60',
@@ -214,7 +214,7 @@ export const MonthCalendar: React.FC<MonthCalendarProps> = ({
                 )}
 
                 {rec?.status === 'PAID_LEAVE' && (
-                  <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 block truncate">
+                  <span className="text-[10px] font-semibold text-sky-700 dark:text-sky-300 block truncate">
                     {rec.leaveType || 'Leave'}
                   </span>
                 )}

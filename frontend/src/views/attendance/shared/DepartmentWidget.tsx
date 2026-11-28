@@ -158,7 +158,7 @@ export const DepartmentWidget: React.FC<DepartmentWidgetProps> = ({
               <div className="w-full h-2 rounded-full bg-slate-100 flex overflow-hidden mb-2">
                 {dept.presentPct > 0 && <div style={{ width: `${dept.presentPct}%` }} className="bg-teal-500" title={`Present: ${dept.presentCount}`} />}
                 {dept.halfDayPct > 0 && <div style={{ width: `${dept.halfDayPct}%` }} className="bg-amber-400" title={`Half Day: ${dept.halfDayCount}`} />}
-                {dept.leavePct > 0 && <div style={{ width: `${dept.leavePct}%` }} className="bg-emerald-500" title={`Leave: ${dept.leaveCount}`} />}
+                {dept.leavePct > 0 && <div style={{ width: `${dept.leavePct}%` }} className="bg-sky-500" title={`Leave: ${dept.leaveCount}`} />}
                 {dept.absentPct > 0 && <div style={{ width: `${dept.absentPct}%` }} className="bg-red-400" title={`Absent: ${dept.absentCount}`} />}
               </div>
 
@@ -168,8 +168,8 @@ export const DepartmentWidget: React.FC<DepartmentWidgetProps> = ({
                   <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
                   {dept.presentCount}
                 </span>
-                <span title="Leave" className="flex items-center gap-1 text-emerald-700">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span title="Leave" className="flex items-center gap-1 text-sky-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
                   {dept.leaveCount}
                 </span>
                 <span title="Absent" className="flex items-center gap-1 text-red-600">
@@ -267,8 +267,8 @@ export const DepartmentWidget: React.FC<DepartmentWidgetProps> = ({
                 <span className="w-2 h-2 rounded-full bg-amber-400" />
                 <span>{half} Half</span>
               </div>
-              <div className="flex items-center gap-1.5 text-emerald-800 font-medium">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <div className="flex items-center gap-1.5 text-sky-800 font-medium">
+                <span className="w-2 h-2 rounded-full bg-sky-500" />
                 <span>{leave} Leave</span>
               </div>
               <div className="flex items-center gap-1.5 text-red-700 font-medium">
@@ -394,7 +394,7 @@ export const DepartmentWidget: React.FC<DepartmentWidgetProps> = ({
                   <div className="w-full h-1.5 rounded-full bg-slate-200 flex overflow-hidden mt-1">
                     <div style={{ width: `${dept.presentPct}%` }} className="bg-teal-500" />
                     <div style={{ width: `${dept.halfDayPct}%` }} className="bg-amber-400" />
-                    <div style={{ width: `${dept.leavePct}%` }} className="bg-emerald-500" />
+                    <div style={{ width: `${dept.leavePct}%` }} className="bg-sky-500" />
                     <div style={{ width: `${dept.absentPct}%` }} className="bg-red-400" />
                   </div>
                 </div>

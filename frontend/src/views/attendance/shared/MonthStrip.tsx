@@ -21,7 +21,7 @@ const STATUS_COLOR_MAP: Record<string, string> = {
   PRESENT: 'bg-teal-500 hover:bg-teal-600',
   HALF_DAY: 'bg-amber-400 hover:bg-amber-500',
   ABSENT: 'bg-red-400 hover:bg-red-500',
-  PAID_LEAVE: 'bg-emerald-500 hover:bg-emerald-600',
+  PAID_LEAVE: 'bg-sky-500 hover:bg-sky-600',
   UNPAID_LEAVE: 'bg-orange-400 hover:bg-orange-500',
   HOLIDAY: 'bg-purple-400 hover:bg-purple-500',
   WEEKEND: 'bg-slate-200 hover:bg-slate-300',
